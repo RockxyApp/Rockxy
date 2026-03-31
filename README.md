@@ -53,11 +53,10 @@
 - **Modify Headers** — add, remove, or replace HTTP headers on the fly
 
 ### Debugging & Analysis
-- **Error grouping** — clusters HTTP 4xx/5xx errors and log errors by pattern
-- **Slow request detection** — flags requests exceeding P50/P95/P99 latency thresholds
-- **Payload size analysis** — tracks request/response sizes per endpoint
 - **OSLog integration** — capture macOS system logs and correlate with network requests by timestamp
 - **Side-by-side diff** — compare two captured requests/responses
+- **Request timeline** — visual waterfall of request sequences and timing
+- **Credential redaction** — automatic redaction of Bearer tokens and passwords in captured logs
 
 ### Extensibility
 - **JavaScript plugin system** — extend Rockxy with custom scripts (JavaScriptCore runtime, 5-second timeout sandbox)
@@ -301,7 +300,7 @@ flowchart LR
 | **Rule Engine** | `Core/RuleEngine/` | Ordered rule evaluation for block, map local, map remote, throttle, modify headers, and breakpoint |
 | **Traffic Capture** | `Core/TrafficCapture/` | Session batching, allow-list policy, replay support, proxy state handoff to the UI |
 | **Storage** | `Core/Storage/` | SQLite-backed persistence, in-memory session/log buffers, large-body offloading |
-| **Detection / enrichment** | `Core/Detection/`, `Core/Analytics/` | GraphQL detection, content detection, slow/error grouping, latency metrics |
+| **Detection / enrichment** | `Core/Detection/` | GraphQL detection, content type detection, API endpoint grouping |
 | **Plugins** | `Core/Plugins/` | JavaScriptCore-based request/response hook execution and plugin metadata/config support |
 | **Helper Tool** | `RockxyHelperTool/`, `Shared/` | Privileged XPC service for proxy override, bypass-domain configuration, and certificate install/remove support |
 
@@ -331,10 +330,14 @@ flowchart TB
 |----------|------|-----------------|
 | **App ↔ helper** | Untrusted app attempts to call privileged proxy/cert operations | `NSXPCConnection` with code-signing requirements plus helper-side connection validation and certificate-chain comparison |
 | **TLS interception** | Invalid or stale root CA causes broken trust or confusing MITM state | explicit root CA lifecycle, trust checks, root fingerprint tracking, per-host cert issuance from the active root only |
-| **Rule-driven local file serving** | Path traversal or symlink escape through Map Local directory rules | standardized path resolution, symlink resolution, rooted path containment checks, traversal-focused tests |
-| **Edited requests at breakpoints** | malformed request forwarding after URL/header/body edits | centralized request rebuilding in `BreakpointRequestBuilder`, authority preservation, scheme normalization, content-length reconciliation |
-| **Plugin execution** | scripts mutating traffic in unsafe or non-deterministic ways | JavaScriptCore bridge, bounded hook API, timeout enforcement, no direct filesystem/network access from plugin runtime |
-| **Stored traffic** | sensitive request/response bodies kept too long or loaded eagerly | in-memory buffering plus disk/SQLite persistence boundaries, large-body offload, explicit session-save/export flows |
+| **Request body handling** | Memory exhaustion via oversized request/response bodies | 100 MB request body cap (413 rejection), 8 KB URI length cap (414 rejection), WebSocket frame limits (10 MB/frame, 100 MB/connection) |
+| **Rule-driven local file serving** | Path traversal or symlink escape through Map Local directory rules | fd-based file loading (eliminates TOCTOU), symlink resolution, rooted path containment checks |
+| **Rule regex patterns** | ReDoS from pathological regex freezing the proxy | compile-time regex validation, pre-compiled pattern cache, 500-char pattern length limit, 8 KB input cap |
+| **Edited requests at breakpoints** | Malformed request forwarding after URL/header/body edits | centralized request rebuilding in `BreakpointRequestBuilder`, authority preservation, scheme normalization, content-length reconciliation |
+| **Plugin execution** | Scripts mutating traffic in unsafe or non-deterministic ways | JavaScriptCore bridge, bounded hook API, timeout enforcement, plugin ID/key validation, no direct filesystem/network access |
+| **Stored traffic** | Sensitive request/response bodies kept too long or with weak permissions | in-memory buffering plus disk/SQLite persistence, large-body offload with 0o600 file permissions, path containment on load/delete, log credential redaction |
+| **Header injection** | CRLF injection via MapRemote host header manipulation | header value sanitization stripping control characters before forwarding |
+| **Helper input validation** | Malformed domains or service names passed to networksetup | ASCII-only bypass domain validation, service name sanitization, proxy type whitelisting, domain count limits |
 
 #### Helper-tool trust model
 
@@ -343,10 +346,12 @@ The helper runs as a launchd daemon (`com.amunx.Rockxy.HelperTool`) registered v
 Defense-in-depth currently includes:
 
 - app-side privileged XPC connection setup
-- helper-side caller validation in `ConnectionValidator`
-- code-signing requirement enforcement as a baseline
+- helper-side caller validation in `ConnectionValidator` with hardcoded bundle identifier
+- code-signing requirement enforcement (`anchor apple generic`)
 - certificate-chain comparison so trust is not based only on bundle ID or team ID strings
-- helper-side rate limiting for state-changing operations
+- helper-side rate limiting for state-changing operations (proxy changes, certificate installs)
+- input validation on all helper parameters (bypass domains, service names, proxy types)
+- atomic temp file creation with restricted permissions (0o600)
 - explicit proxy backup / restore paths for crash recovery
 
 #### Certificate trust model
@@ -372,13 +377,12 @@ Rockxy/
 │   ├── Certificate/       # X.509 generation, root CA, Keychain integration
 │   ├── RuleEngine/        # Rule matching and action execution
 │   ├── LogEngine/         # OSLog + process log capture and correlation
-│   ├── Analytics/         # Error analysis, latency metrics, trends
 │   ├── TrafficCapture/    # Session manager, system proxy, request replay
 │   ├── Storage/           # SQLite store, in-memory buffer, settings
 │   ├── Detection/         # Content type, GraphQL, API grouping
 │   ├── Plugins/           # Plugin discovery, JS runtime, manifest parsing
 │   ├── Services/          # Window management, notifications
-│   └── Utilities/         # Body decoder (gzip/deflate/brotli), formatters
+│   └── Utilities/         # Body decoder, input validation, formatters
 ├── Views/
 │   ├── Main/              # Main window, coordinator extensions
 │   ├── RequestList/       # NSTableView-backed request list (100k+ rows)
@@ -386,11 +390,13 @@ Rockxy/
 │   ├── Sidebar/           # Domain tree, app grouping, favorites
 │   ├── Toolbar/           # Status indicators, control buttons
 │   ├── Welcome/           # Setup wizard, certificate checklist
-│   ├── Settings/          # General, Proxy, SSL Proxying tabs
+│   ├── Settings/          # General, Proxy, SSL Proxying, Privacy tabs
 │   ├── Rules/             # Rule list, add/edit dialogs
-│   ├── Analytics/         # Error groups, performance metrics
+│   ├── Compose/           # Edit and Repeat request editor
+│   ├── Diff/              # Side-by-side transaction comparison
 │   ├── Scripting/         # Code editor, plugin console
 │   ├── Timeline/          # Request waterfall visualization
+│   ├── Breakpoint/        # Breakpoint edit window
 │   └── Components/        # Reusable: StatusCodeBadge, FilterPill, etc.
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
@@ -551,11 +557,11 @@ When approaching limits, extract into `TypeName+Category.swift` extension files 
 
 ## CI/CD
 
-GitHub Actions pipeline triggered on version tags (`v*`):
+GitHub Actions workflow (manual dispatch with optional channel parameter):
 
 1. **Lint** — `swiftlint lint --strict` on macOS 14
 2. **Build** — parallel arm64 and x86_64 release builds with Xcode 16
-3. **Release** — creates GitHub Release with both architecture zips and changelog-extracted release notes
+3. **Artifacts** — uploads signed build artifacts for distribution
 
 ## Roadmap
 
@@ -567,16 +573,18 @@ GitHub Actions pipeline triggered on version tags (`v*`):
 - [x] GraphQL-over-HTTP detection and inspection
 - [x] JavaScript scripting (create, edit, test, enable/disable scripts)
 - [x] Side-by-side request diff
+- [x] Security hardening (body size limits, regex validation, path traversal protection, input validation)
+- [x] Credential redaction in captured logs
 
 ### Planned
 
+- [ ] Error grouping and analytics dashboard (HTTP 4xx/5xx clustering, latency metrics)
 - [ ] HTTP/2 and HTTP/3 support
 - [ ] Sequence recording (replay a chain of dependent requests)
 - [ ] Remote device proxy (iOS device debugging over USB/Wi-Fi)
 - [ ] Headless mode for CI/CD pipeline integration
 - [ ] gRPC / Protocol Buffers inspection
 - [ ] Network condition simulation (latency, packet loss, bandwidth limits)
-- [ ] Built-in API documentation generation from captured traffic
 
 ## Contributing
 
@@ -585,7 +593,7 @@ Contributions are welcome. Whether it's a bug fix, a new feature, documentation,
 **Getting started:**
 
 1. Fork the repository and clone your fork
-2. Create a feature branch from `main` (`feat/your-change` or `fix/your-fix`)
+2. Create a feature branch from `develop` (`feat/your-change` or `fix/your-fix`)
 3. Make your changes, ensuring `swiftlint lint --strict` passes
 4. Open a pull request with a clear description of what changed and why
 

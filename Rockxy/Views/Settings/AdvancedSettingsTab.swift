@@ -180,7 +180,7 @@ struct AdvancedSettingsTab: View {
                 HStack {
                     Color.clear.frame(width: 176)
                     Button(String(localized: "Full Changelogs")) {
-                        if let url = URL(string: "https://github.com/nicklama/rockxy/releases") {
+                        if let url = URL(string: "https://github.com/LocNguyenHuu/Rockxy/blob/main/CHANGELOG.md") {
                             NSWorkspace.shared.open(url)
                         }
                     }
