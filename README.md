@@ -86,6 +86,48 @@
 - **Reverse engineering APIs** — understand undocumented API behavior from third-party apps
 - **CI/CD integration** — headless proxy for automated API contract testing (planned)
 
+## Rockxy vs Proxyman vs Charles Proxy
+
+Looking for a Proxyman alternative or Charles Proxy alternative that's open-source? Here's how Rockxy compares:
+
+| Feature | Rockxy | Proxyman | Charles Proxy |
+|---------|--------|----------|---------------|
+| **License** | Open-source (AGPL-3.0) | Proprietary (freemium) | Proprietary (paid) |
+| **Price** | Free | Free tier + $69/year | $50 one-time |
+| **Platform** | macOS | macOS, iOS, Windows | macOS, Windows, Linux |
+| **Source code** | Fully available on GitHub | Closed source | Closed source |
+| **Technology** | Swift + SwiftNIO (native) | Swift + AppKit (native) | Java (cross-platform) |
+| **HTTP/HTTPS intercept** | Yes | Yes | Yes |
+| **WebSocket debugging** | Yes | Yes | Yes |
+| **GraphQL detection** | Yes (auto-detect) | Yes | No |
+| **Map Local** | Yes | Yes | Yes |
+| **Map Remote** | Yes | Yes | Yes |
+| **Breakpoints** | Yes | Yes | Yes |
+| **Block List** | Yes | Yes | Yes |
+| **Modify Headers** | Yes | Yes | Yes (rewrite) |
+| **Throttle / Network Conditions** | Yes | Yes | Yes |
+| **Request diff** | Yes (side-by-side) | Yes | No |
+| **JavaScript plugins** | Yes (JSCore sandbox) | Yes (Scripting) | No |
+| **Request replay** | Yes (Repeat + Edit) | Yes | Yes |
+| **HAR import/export** | Yes | Yes | No (uses own format) |
+| **OSLog integration** | Yes | No | No |
+| **Process identification** | Yes (which app per request) | Yes | No |
+| **JSON tree viewer** | Yes | Yes | Yes |
+| **Hex inspector** | Yes | Yes | Yes |
+| **Timing waterfall** | Yes | Yes | Yes |
+| **Virtual scroll (100k+ rows)** | Yes (NSTableView) | Yes | Slow at high volume |
+| **Privileged helper (no sudo prompts)** | Yes (SMAppService) | Yes | No (repeated prompts) |
+| **Dark mode** | Yes | Yes | Partial |
+| **Self-hostable / auditable** | Yes | No | No |
+| **Community contributions** | Open to PRs | No | No |
+
+**Why choose Rockxy?**
+- You want a **free, open-source** HTTP debugging proxy with no license restrictions
+- You want to **audit the source code** of the tool intercepting your traffic
+- You want to **contribute features** or customize the tool for your workflow
+- You need **OSLog correlation** to debug macOS app logs alongside network traffic
+- You want a **native macOS experience** without Java runtime overhead
+
 ## Requirements
 
 - macOS 14.0+ (Sonoma or later)
