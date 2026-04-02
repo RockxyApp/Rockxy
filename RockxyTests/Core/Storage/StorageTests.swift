@@ -127,5 +127,33 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.onlyListenOnLocalhost == true)
         #expect(defaultSettings.autoStartProxy == false)
         #expect(defaultSettings.listenIPv6 == false)
+        #expect(defaultSettings.autoSelectPort == true)
+    }
+
+    @Test("autoSelectPort false roundtrips correctly")
+    func autoSelectPortFalseRoundtrip() {
+        let original = AppSettingsStorage.load()
+        defer { AppSettingsStorage.save(original) }
+
+        var settings = AppSettings()
+        settings.autoSelectPort = false
+        AppSettingsStorage.save(settings)
+
+        let loaded = AppSettingsStorage.load()
+        #expect(loaded.autoSelectPort == false)
+    }
+
+    @Test("effectiveListenAddress is 127.0.0.1 when onlyListenOnLocalhost is true")
+    func effectiveListenAddressLocalhost() {
+        var settings = AppSettings()
+        settings.onlyListenOnLocalhost = true
+        #expect(settings.effectiveListenAddress == "127.0.0.1")
+    }
+
+    @Test("effectiveListenAddress is 0.0.0.0 when onlyListenOnLocalhost is false")
+    func effectiveListenAddressAllInterfaces() {
+        var settings = AppSettings()
+        settings.onlyListenOnLocalhost = false
+        #expect(settings.effectiveListenAddress == "0.0.0.0")
     }
 }
