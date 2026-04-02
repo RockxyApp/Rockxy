@@ -17,8 +17,8 @@ extension MainContentCoordinator {
         systemProxyWarning = nil
 
         Task {
+            let settings = AppSettingsStorage.load()
             do {
-                let settings = AppSettingsStorage.load()
 
                 try await certificateManager.ensureRootCA()
                 Self.logger.info("Root CA ready")
@@ -44,7 +44,22 @@ extension MainContentCoordinator {
                 }
                 Self.logger.info("Rules loaded")
 
-                await configureProxy()
+                let resolution = try ProxyPortResolver.resolve(
+                    preferred: settings.proxyPort,
+                    address: settings.effectiveListenAddress,
+                    autoSelect: settings.autoSelectPort,
+                    listenIPv6: settings.listenIPv6
+                )
+                let resolvedPort = resolution.port
+                self.activeProxyPort = resolvedPort
+
+                if resolution.isFallback {
+                    Self.logger.info(
+                        "Preferred port \(settings.proxyPort) occupied, using fallback port \(resolvedPort)"
+                    )
+                }
+
+                await configureProxy(port: resolvedPort)
 
                 try await proxyServer.start()
                 isProxyRunning = true
@@ -122,9 +137,9 @@ extension MainContentCoordinator {
                     )
                 }
                 do {
-                    try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+                    try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
                     isSystemProxyConfigured = true
-                    Self.logger.info("System proxy enabled on port \(settings.proxyPort)")
+                    Self.logger.info("System proxy enabled on port \(resolvedPort)")
                 } catch {
                     isSystemProxyConfigured = false
                     systemProxyWarning = .init(
@@ -133,7 +148,7 @@ extension MainContentCoordinator {
                         isDismissible: true
                     )
                     Self.logger.warning(
-                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(settings.proxyPort)"
+                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(resolvedPort)"
                     )
                 }
 
@@ -147,10 +162,11 @@ extension MainContentCoordinator {
                 }
 
                 NotificationCenter.default.post(name: .proxyDidStart, object: nil)
-                Self.logger.info("Proxy started on port \(settings.proxyPort)")
+                Self.logger.info("Proxy started on port \(resolvedPort)")
             } catch {
                 Self.logger.error("Failed to start proxy: \(error.localizedDescription)")
                 proxyError = error.localizedDescription
+                activeProxyPort = settings.proxyPort
             }
         }
     }
@@ -187,6 +203,7 @@ extension MainContentCoordinator {
             stopBandwidthTimer()
             resetInstantaneousSpeeds()
             proxyStartedAt = nil
+            activeProxyPort = AppSettingsStorage.load().proxyPort
             NotificationCenter.default.post(name: .proxyDidStop, object: nil)
             Self.logger.info("Proxy stopped")
         }
@@ -203,9 +220,8 @@ extension MainContentCoordinator {
         systemProxyWarning = nil
 
         Task {
-            let settings = AppSettingsStorage.load()
             do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
                 let helperStatus = await HelperManager.shared.status
                 if !SystemProxyManager.shared.usingHelperProxyOverride {
@@ -240,12 +256,13 @@ extension MainContentCoordinator {
 
     // MARK: - Proxy Configuration
 
-    func configureProxy() async {
+    func configureProxy(port: Int? = nil) async {
         let settings = AppSettingsStorage.load()
+        let resolvedPort = port ?? settings.proxyPort
         let manager = sessionManager
 
         let configuration = ProxyConfiguration(
-            port: settings.proxyPort,
+            port: resolvedPort,
             listenAddress: settings.effectiveListenAddress,
             listenIPv6: settings.listenIPv6
         )
@@ -274,10 +291,10 @@ extension MainContentCoordinator {
             }
         }
         await sessionManager.setMaxBufferSize(settings.maxBufferSize)
-        await sessionManager.setProxyPort(settings.proxyPort)
+        await sessionManager.setProxyPort(resolvedPort)
         await sessionManager.startBatchTimer()
 
-        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(settings.proxyPort)")
+        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
     private func directModeWarning(for helperStatus: HelperManager.HelperStatus) -> SystemProxyWarning {

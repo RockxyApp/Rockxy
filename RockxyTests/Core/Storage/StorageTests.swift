@@ -127,5 +127,6 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.onlyListenOnLocalhost == true)
         #expect(defaultSettings.autoStartProxy == false)
         #expect(defaultSettings.listenIPv6 == false)
+        #expect(defaultSettings.autoSelectPort == true)
     }
 }

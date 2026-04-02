@@ -548,7 +548,7 @@ struct AdvancedProxySettingsView: View {
         settings.proxyPort = 9090
         settings.onlyListenOnLocalhost = true
         settings.listenIPv6 = false
-        settings.autoSelectPort = false
+        settings.autoSelectPort = true
         portText = "9090"
         saveSettings()
     }

@@ -114,8 +114,6 @@ actor ProxyServer {
             return
         }
 
-        try checkPortAvailability(port: configuration.port, address: configuration.listenAddress)
-
         let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
         self.eventLoopGroup = group
 
@@ -151,12 +149,20 @@ actor ProxyServer {
             // Cap messages per read to bound per-channel memory usage under high throughput
             .childChannelOption(.maxMessagesPerRead, value: 16)
 
-        let channel = try await bootstrap.bind(
-            host: configuration.listenAddress,
-            port: configuration.port
-        ).get()
-
-        self.serverChannel = channel
+        do {
+            let channel = try await bootstrap.bind(
+                host: configuration.listenAddress,
+                port: configuration.port
+            ).get()
+            self.serverChannel = channel
+        } catch {
+            try? await group.shutdownGracefully()
+            eventLoopGroup = nil
+            if let ioError = error as? IOError, ioError.errnoCode == EADDRINUSE {
+                throw ProxyServerError.portInUse(configuration.port)
+            }
+            throw error
+        }
 
         Self.logger.info(
             "Proxy server started on \(self.configuration.listenAddress):\(self.configuration.port)"
@@ -204,30 +210,6 @@ actor ProxyServer {
 
     private var eventLoopGroup: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
-
-    private nonisolated func checkPortAvailability(port: Int, address: String) throws {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else {
-            return
-        }
-        defer { close(fd) }
-
-        var addr = sockaddr_in()
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(port).bigEndian
-        addr.sin_addr.s_addr = inet_addr(address == "0.0.0.0" ? "127.0.0.1" : address)
-
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-
-        if result == 0 {
-            Self.logger.error("Port \(port) is already in use by another process")
-            throw ProxyServerError.portInUse(port)
-        }
-    }
 }
 
 // MARK: - ProxyServerError

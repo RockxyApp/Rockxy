@@ -107,7 +107,8 @@ final class WelcomeViewModel {
         defer { isPerformingAction = false }
 
         do {
-            try await SystemProxyManager.shared.enableSystemProxy(port: 9090)
+            let settings = AppSettingsStorage.load()
+            try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
             await refreshStatus()
         } catch {
             Self.logger.error("Failed to enable proxy: \(error.localizedDescription)")

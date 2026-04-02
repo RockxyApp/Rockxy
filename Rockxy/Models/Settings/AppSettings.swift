@@ -11,7 +11,7 @@ struct AppSettings {
     var enableLogCapture: Bool = true
     var onlyListenOnLocalhost: Bool = true
     var listenIPv6: Bool = false
-    var autoSelectPort: Bool = false
+    var autoSelectPort: Bool = true
 
     /// The effective listen address derived from `onlyListenOnLocalhost`.
     var effectiveListenAddress: String {

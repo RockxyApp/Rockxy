@@ -41,6 +41,7 @@ final class MainContentCoordinator {
     var transactions: [HTTPTransaction] = []
     var persistedFavorites: [HTTPTransaction] = []
     var isProxyRunning = false
+    var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
     var isRecording = true
     var proxyError: String?
     var isSystemProxyConfigured = false

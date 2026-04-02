@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Automatic proxy port fallback when the preferred port is occupied
+- `autoSelectPort` setting now fully functional (enabled by default)
+
 ## [0.1.1] - 2026-03-31
 
 ### Fixed

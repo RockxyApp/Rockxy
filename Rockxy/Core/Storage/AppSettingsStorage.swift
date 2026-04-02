@@ -18,7 +18,8 @@ enum AppSettingsStorage {
         settings.onlyListenOnLocalhost = defaults.object(forKey: onlyListenOnLocalhostKey) != nil
             ? defaults.bool(forKey: onlyListenOnLocalhostKey) : true
         settings.listenIPv6 = defaults.bool(forKey: listenIPv6Key)
-        settings.autoSelectPort = defaults.bool(forKey: autoSelectPortKey)
+        settings.autoSelectPort = defaults.object(forKey: autoSelectPortKey) != nil
+            ? defaults.bool(forKey: autoSelectPortKey) : true
         return settings
     }
 
