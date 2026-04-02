@@ -46,12 +46,15 @@ enum ProxyPortResolver {
 
         logger.info("Preferred port \(preferred) is occupied, scanning for available port")
 
-        let nearbyEnd = min(preferred + 100, 65_535)
-        for candidate in (preferred + 1) ... nearbyEnd where isPortAvailable(port: candidate, address: address) {
-            return Resolution(port: candidate, isFallback: true)
+        let nearbyStart = preferred + 1
+        let nearbyEnd = min(preferred + 100, 65535)
+        if nearbyStart <= nearbyEnd {
+            for candidate in nearbyStart ... nearbyEnd where isPortAvailable(port: candidate, address: address) {
+                return Resolution(port: candidate, isFallback: true)
+            }
         }
 
-        for candidate in 49_152 ... 65_535 where isPortAvailable(port: candidate, address: address) {
+        for candidate in 49152 ... 65535 where isPortAvailable(port: candidate, address: address) {
             return Resolution(port: candidate, isFallback: true)
         }
 
@@ -60,8 +63,9 @@ enum ProxyPortResolver {
 
     /// Tests whether a given port is available for binding.
     ///
-    /// Uses a connect-probe: if a TCP connection to `address:port` succeeds, the port
-    /// is already occupied. If it fails, the port is available.
+    /// Uses a bind-probe with `SO_REUSEADDR` to match the proxy server's actual bind
+    /// behavior. This correctly detects conflicts on all interfaces (including `0.0.0.0`)
+    /// rather than only probing localhost.
     static func isPortAvailable(port: Int, address: String) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -69,18 +73,21 @@ enum ProxyPortResolver {
         }
         defer { close(fd) }
 
+        var reuse: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = in_port_t(port).bigEndian
-        addr.sin_addr.s_addr = inet_addr(address == "0.0.0.0" ? "127.0.0.1" : address)
+        addr.sin_addr.s_addr = inet_addr(address)
 
         let result = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                Darwin.connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                Darwin.bind(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
 
-        return result != 0
+        return result == 0
     }
 
     // MARK: Private

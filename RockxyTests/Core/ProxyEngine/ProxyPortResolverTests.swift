@@ -6,12 +6,14 @@ import Testing
 
 // Regression tests for `ProxyPortResolver` in the proxy engine layer.
 
+@Suite(.serialized)
 struct ProxyPortResolverTests {
     // MARK: - Port Availability
 
     @Test("isPortAvailable returns true for unoccupied port")
-    func availablePortReturnsTrue() {
-        let available = ProxyPortResolver.isPortAvailable(port: 59100, address: "127.0.0.1")
+    func availablePortReturnsTrue() throws {
+        let freePort = try findFreePort()
+        let available = ProxyPortResolver.isPortAvailable(port: freePort, address: "127.0.0.1")
         #expect(available == true)
     }
 
@@ -28,13 +30,14 @@ struct ProxyPortResolverTests {
 
     @Test("resolve returns preferred port when available")
     func resolvePreferredWhenAvailable() throws {
+        let freePort = try findFreePort()
         let resolution = try ProxyPortResolver.resolve(
-            preferred: 59200,
+            preferred: freePort,
             address: "127.0.0.1",
             autoSelect: true
         )
 
-        #expect(resolution.port == 59200)
+        #expect(resolution.port == freePort)
         #expect(resolution.isFallback == false)
     }
 
@@ -69,6 +72,24 @@ struct ProxyPortResolverTests {
         }
     }
 
+    // MARK: - Edge Cases
+
+    @Test("resolve does not crash when preferred port is 65535 and occupied")
+    func resolveAtMaxPort() throws {
+        // Verifies no ClosedRange crash for preferred+1 > 65535
+        let listener = try TCPListener(port: 65535, address: "127.0.0.1")
+        defer { listener.close() }
+
+        let resolution = try ProxyPortResolver.resolve(
+            preferred: 65535,
+            address: "127.0.0.1",
+            autoSelect: true
+        )
+
+        #expect(resolution.isFallback == true)
+        #expect(resolution.port != 65535)
+    }
+
     // MARK: - Persistence Model
 
     @Test("preferred port in settings is unchanged after fallback resolution")
@@ -81,15 +102,16 @@ struct ProxyPortResolverTests {
             AppSettingsStorage.save(restore)
         }
 
+        let listener = try TCPListener(port: 0, address: "127.0.0.1")
+        defer { listener.close() }
+        let occupiedPort = listener.boundPort
+
         var settings = AppSettings()
-        settings.proxyPort = 59300
+        settings.proxyPort = occupiedPort
         AppSettingsStorage.save(settings)
 
-        let listener = try TCPListener(port: 59300, address: "127.0.0.1")
-        defer { listener.close() }
-
         let resolution = try ProxyPortResolver.resolve(
-            preferred: 59300,
+            preferred: occupiedPort,
             address: "127.0.0.1",
             autoSelect: true
         )
@@ -97,7 +119,7 @@ struct ProxyPortResolverTests {
         #expect(resolution.isFallback == true)
 
         let reloaded = AppSettingsStorage.load()
-        #expect(reloaded.proxyPort == 59300)
+        #expect(reloaded.proxyPort == occupiedPort)
     }
 }
 
@@ -160,6 +182,17 @@ private final class TCPListener {
     // MARK: Private
 
     private let fd: Int32
+}
+
+// MARK: - Helpers
+
+/// Finds a free port by binding to port 0 (OS assigns an ephemeral port), then closes
+/// the socket immediately. The returned port is very likely still free.
+private func findFreePort() throws -> Int {
+    let listener = try TCPListener(port: 0, address: "127.0.0.1")
+    let port = listener.boundPort
+    listener.close()
+    return port
 }
 
 // MARK: - TCPListenerError
