@@ -98,11 +98,8 @@ struct ProxyPortResolverTests {
     @Test("preferred port in settings is unchanged after fallback resolution")
     func persistenceUnchangedAfterFallback() throws {
         let originalSettings = AppSettingsStorage.load()
-        let originalPort = originalSettings.proxyPort
         defer {
-            var restore = AppSettingsStorage.load()
-            restore.proxyPort = originalPort
-            AppSettingsStorage.save(restore)
+            AppSettingsStorage.save(originalSettings)
         }
 
         let listener = try TCPListener(port: 0, address: "127.0.0.1")
@@ -164,10 +161,14 @@ private final class TCPListener {
 
         var boundAddr = sockaddr_in()
         var boundLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-        withUnsafeMutablePointer(to: &boundAddr) { ptr in
+        let nameResult = withUnsafeMutablePointer(to: &boundAddr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
                 getsockname(socketFd, sockPtr, &boundLen)
             }
+        }
+        guard nameResult == 0 else {
+            Darwin.close(socketFd)
+            throw TCPListenerError.getsocknameFailed
         }
 
         fd = socketFd
@@ -204,4 +205,5 @@ private enum TCPListenerError: Error {
     case socketCreationFailed
     case bindFailed
     case listenFailed
+    case getsocknameFailed
 }
