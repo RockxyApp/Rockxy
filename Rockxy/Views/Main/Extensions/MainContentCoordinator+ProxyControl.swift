@@ -174,6 +174,15 @@ extension MainContentCoordinator {
         activeToast = nil
         clearAllWorkspaces()
         resetTrafficMetrics()
+
+        // Advance nextSequenceNumber past highest assigned to any remaining persisted favorite
+        if persistedFavorites.isEmpty {
+            nextSequenceNumber = 0
+        } else {
+            let maxSeq = persistedFavorites.map(\.sequenceNumber).max() ?? 0
+            nextSequenceNumber = maxSeq + 1
+        }
+
         NotificationCenter.default.post(name: .sessionCleared, object: nil)
     }
 
@@ -211,6 +220,14 @@ extension MainContentCoordinator {
             }
             Task { @MainActor in
                 self.processBatch(batch)
+            }
+        }
+        await sessionManager.setOnClientAppEnriched { [weak self] enrichedIDs in
+            guard let self else {
+                return
+            }
+            Task { @MainActor in
+                self.handleClientAppEnrichment(enrichedIDs)
             }
         }
         await sessionManager.setMaxBufferSize(settings.maxBufferSize)
@@ -252,6 +269,8 @@ extension MainContentCoordinator {
             )
 
         for transaction in filteredBatch {
+            transaction.sequenceNumber = nextSequenceNumber
+            nextSequenceNumber += 1
             transactions.append(transaction)
 
             if let statusCode = transaction.response?.statusCode, statusCode >= 400 {
@@ -261,7 +280,26 @@ extension MainContentCoordinator {
 
         updateAllWorkspaces(with: filteredBatch)
 
-        headerColumnStore.updateDiscoveredHeaders(from: transactions)
+        headerColumnStore.updateDiscoveredHeaders(fromBatch: filteredBatch)
+    }
+
+    func handleClientAppEnrichment(_ enrichedIDs: [UUID]) {
+        guard !enrichedIDs.isEmpty else {
+            return
+        }
+        // clientApp is already mutated on the HTTPTransaction objects.
+        // Rebuild sidebar app indexes for all workspaces (app counts/names may have changed).
+        // If a workspace has an active app filter, recompute its filtered transactions
+        // because membership depends on clientApp.
+        for workspace in workspaceStore.workspaces {
+            rebuildSidebarIndexes(for: workspace)
+            if workspace.filterCriteria.sidebarApp != nil {
+                recomputeFilteredTransactions(for: workspace)
+            } else {
+                workspace.lastDeriveWasAppendOnly = false
+                deriveFilteredRows(for: workspace)
+            }
+        }
     }
 
     func updateDomainTree(for transaction: HTTPTransaction) {

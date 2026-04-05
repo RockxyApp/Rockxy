@@ -36,6 +36,10 @@ final class MainContentCoordinator {
 
     var selectedTransactionIDs: Set<UUID> = []
 
+    // MARK: - Sequence Numbering (request-list ordering metadata)
+
+    var nextSequenceNumber: Int = 0
+
     // MARK: - UI State — Traffic
 
     var transactions: [HTTPTransaction] = []
@@ -182,6 +186,21 @@ final class MainContentCoordinator {
         set { activeWorkspace.appNodeIndexMap = newValue }
     }
 
+    // MARK: - Table-Facing Derived State (read-only forwarding)
+
+    var filteredRows: [RequestListRow] {
+        activeWorkspace.filteredRows
+    }
+
+    var activeSortDescriptors: [NSSortDescriptor] {
+        get { activeWorkspace.activeSortDescriptors }
+        set { activeWorkspace.activeSortDescriptors = newValue }
+    }
+
+    var refreshToken: Int {
+        activeWorkspace.refreshToken
+    }
+
     // MARK: - Sidebar Favorites (live + persisted, deduplicated)
 
     var allPinnedTransactions: [HTTPTransaction] {
@@ -196,6 +215,15 @@ final class MainContentCoordinator {
         let persisted = persistedFavorites.filter(\.isSaved)
         let liveIds = Set(live.map(\.id))
         return live + persisted.filter { !liveIds.contains($0.id) }
+    }
+
+    // MARK: - Transaction Lookup (migration seam — O(n), next issue replaces with indexed/store lookup)
+
+    func transaction(for id: UUID) -> HTTPTransaction? {
+        if let live = transactions.first(where: { $0.id == id }) {
+            return live
+        }
+        return persistedFavorites.first(where: { $0.id == id })
     }
 
     func setupRulesObserver() {
@@ -239,6 +267,13 @@ final class MainContentCoordinator {
                 do {
                     let persisted = try await store.loadPinnedAndSavedTransactions()
                     self.persistedFavorites = persisted
+                    // Assign deterministic sequence numbers starting from current counter
+                    // to avoid collisions with live rows assigned while the load suspended
+                    let base = self.nextSequenceNumber
+                    for (index, transaction) in persisted.enumerated() {
+                        transaction.sequenceNumber = base + index
+                    }
+                    self.nextSequenceNumber = base + persisted.count
                 } catch {
                     Self.logger.error("Failed to load persisted favorites: \(error.localizedDescription)")
                 }

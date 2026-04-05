@@ -204,6 +204,22 @@ actor SessionStore {
         Self.logger.info("Deleted transactions older than \(date)")
     }
 
+    func deleteTransactions(byIDs ids: Set<UUID>) throws {
+        let idStrings = ids.map(\.uuidString)
+        let matching = Self.transactions.filter(idStrings.contains(Self.txId))
+
+        let bodyPaths = try db.prepare(
+            matching.select(Self.txRequestBodyPath, Self.txResponseBodyPath)
+        )
+        for row in bodyPaths {
+            deleteBodyFile(at: row[Self.txRequestBodyPath])
+            deleteBodyFile(at: row[Self.txResponseBodyPath])
+        }
+
+        let deletedCount = try db.run(matching.delete())
+        Self.logger.info("Deleted \(deletedCount) of \(ids.count) requested transactions by ID")
+    }
+
     // MARK: - Transaction Count
 
     func transactionCount() throws -> Int {

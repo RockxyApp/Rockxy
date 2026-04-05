@@ -52,6 +52,11 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var isSaved: Bool = false
     var isTLSFailure: Bool = false
     var webSocketFrameVersion: Int = 0
+
+    /// Request-list ordering metadata. Tracks the order this transaction was received by
+    /// the coordinator, independent of `timestamp`. Used only for the request-list "row #"
+    /// column sort. Must not be used by export, persistence, inspector, or replay.
+    var sequenceNumber: Int = 0
 }
 
 // MARK: - GraphQLInfo

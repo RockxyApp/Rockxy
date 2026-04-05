@@ -132,8 +132,7 @@ final class HeaderColumnStore {
         var requestHeaders: Set<String> = []
         var responseHeaders: Set<String> = []
 
-        let sampleSize = min(transactions.count, 500)
-        for transaction in transactions.prefix(sampleSize) {
+        for transaction in transactions {
             for header in transaction.request.headers {
                 requestHeaders.insert(header.name)
             }
@@ -144,10 +143,39 @@ final class HeaderColumnStore {
             }
         }
 
+        discoveredRequestHeaderSet = requestHeaders
+        discoveredResponseHeaderSet = responseHeaders
         discoveredRequestHeaders = requestHeaders.sorted()
         discoveredResponseHeaders = responseHeaders.sorted()
         UserDefaults.standard.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
         UserDefaults.standard.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+    }
+
+    /// Incremental header discovery from a batch of new transactions. O(batch_size) per call
+    /// with O(1) membership checks via internal sets. Replaces the old full-scan approach that
+    /// was biased toward the oldest 500 transactions.
+    func updateDiscoveredHeaders(fromBatch batch: [HTTPTransaction]) {
+        var changed = false
+        for transaction in batch {
+            for header in transaction.request.headers {
+                if discoveredRequestHeaderSet.insert(header.name).inserted {
+                    changed = true
+                }
+            }
+            if let response = transaction.response {
+                for header in response.headers {
+                    if discoveredResponseHeaderSet.insert(header.name).inserted {
+                        changed = true
+                    }
+                }
+            }
+        }
+        if changed {
+            discoveredRequestHeaders = discoveredRequestHeaderSet.sorted()
+            discoveredResponseHeaders = discoveredResponseHeaderSet.sorted()
+            UserDefaults.standard.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
+            UserDefaults.standard.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+        }
     }
 
     func toggleBuiltInColumn(_ columnID: String) {
@@ -176,6 +204,10 @@ final class HeaderColumnStore {
 
     private static let hiddenColumnsKey = "com.amunx.Rockxy.hiddenBuiltInColumns"
 
+    // Internal dedup sets for O(1) membership checks during incremental discovery
+    private var discoveredRequestHeaderSet: Set<String> = []
+    private var discoveredResponseHeaderSet: Set<String> = []
+
     private func saveHiddenColumns() {
         let array = Array(hiddenBuiltInColumns)
         UserDefaults.standard.set(array, forKey: Self.hiddenColumnsKey)
@@ -198,9 +230,11 @@ final class HeaderColumnStore {
         }
         if let reqHeaders = UserDefaults.standard.stringArray(forKey: Self.discoveredReqKey) {
             discoveredRequestHeaders = reqHeaders
+            discoveredRequestHeaderSet = Set(reqHeaders)
         }
         if let resHeaders = UserDefaults.standard.stringArray(forKey: Self.discoveredResKey) {
             discoveredResponseHeaders = resHeaders
+            discoveredResponseHeaderSet = Set(resHeaders)
         }
         guard let data = UserDefaults.standard.data(forKey: Self.storageKey) else {
             return

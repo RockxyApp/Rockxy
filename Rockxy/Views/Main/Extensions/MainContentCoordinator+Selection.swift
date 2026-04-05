@@ -57,20 +57,20 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .pinned
             selectedTransaction = nil
             recomputeFilteredTransactions()
-        case let .pinnedTransaction(id),
-             let .savedTransaction(id):
+        case let .pinnedTransaction(id):
             filterCriteria.sidebarDomain = nil
             filterCriteria.sidebarApp = nil
-            filterCriteria.sidebarScope = .allTraffic
+            filterCriteria.sidebarScope = .pinned
             recomputeFilteredTransactions()
-            if let transaction = transactions.first(where: { $0.id == id }) {
+            if let transaction = transaction(for: id) {
                 selectedTransaction = transaction
-            } else if let transaction = persistedFavorites.first(where: { $0.id == id }) {
-                if transaction.isPinned {
-                    filteredTransactions = persistedFavorites.filter(\.isPinned)
-                } else {
-                    filteredTransactions = persistedFavorites.filter(\.isSaved)
-                }
+            }
+        case let .savedTransaction(id):
+            filterCriteria.sidebarDomain = nil
+            filterCriteria.sidebarApp = nil
+            filterCriteria.sidebarScope = .saved
+            recomputeFilteredTransactions()
+            if let transaction = transaction(for: id) {
                 selectedTransaction = transaction
             }
         default:
@@ -85,7 +85,6 @@ extension MainContentCoordinator {
         guard let selected = selectedTransaction else {
             return
         }
-        transactions.removeAll { $0.id == selected.id }
-        selectedTransaction = nil
+        deleteTransactions([selected])
     }
 }

@@ -96,6 +96,8 @@ extension MainContentCoordinator {
                 workspace.selectedTransaction = nil
             }
             rebuildSidebarIndexes(for: workspace)
+            workspace.lastDeriveWasAppendOnly = false
+            deriveFilteredRows(for: workspace)
         }
     }
 }

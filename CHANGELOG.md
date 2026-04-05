@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Lightweight `RequestListRow` model decoupling the request list from full `HTTPTransaction` objects
+- Column sorting via native `NSTableView` sort descriptors with per-workspace sort state
+- Column width and order persistence via `NSTableView` autosave
+- Incremental header discovery for custom columns (replaces biased first-500 sampling)
+- `refreshToken`-driven table refresh contract handling sort reorders, filter changes, and async enrichment
+- Sequence numbering for stable request-list row ordering independent of timestamps
+- `clientApp` enrichment callback for table refresh after async process resolution
+- Transaction lookup resolving both live and persisted favorites (live wins on duplicates)
+- Selected-scope export now correctly includes persisted-only rows
 - Automatic proxy port fallback when the preferred port is occupied
 - `autoSelectPort` setting now fully functional (enabled by default)
 - App-wide readiness state propagation for helper and root CA without requiring relaunch

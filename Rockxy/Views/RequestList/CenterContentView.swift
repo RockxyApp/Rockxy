@@ -132,14 +132,14 @@ struct CenterContentView: View {
 
     private var tableContent: some View {
         RequestTableView(
-            transactions: coordinator.filteredTransactions,
+            rows: coordinator.filteredRows,
+            refreshToken: coordinator.refreshToken,
+            isAppendOnly: coordinator.activeWorkspace.lastDeriveWasAppendOnly,
             selectedIDs: $selectedIDs,
             onSelectionChanged: { ids in
                 coordinator.selectedTransactionIDs = ids
                 if let firstID = ids.first,
-                   let transaction = coordinator.filteredTransactions.first(
-                       where: { $0.id == firstID }
-                   )
+                   let transaction = coordinator.transaction(for: firstID)
                 {
                     coordinator.selectTransaction(transaction)
                 } else {

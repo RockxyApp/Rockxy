@@ -105,4 +105,29 @@ struct WorkspaceStateTests {
         let workspace = WorkspaceState(title: "Safari", initialFilter: filter)
         #expect(workspace.filterCriteria.sidebarApp == "Safari")
     }
+
+    @Test("Reset preserves sort descriptors")
+    func resetPreservesSortDescriptors() {
+        let workspace = WorkspaceState()
+        workspace.activeSortDescriptors = [NSSortDescriptor(key: "url", ascending: true)]
+        workspace.filteredRows = [RequestListRow(from: TestFixtures.makeTransaction())]
+
+        workspace.reset()
+
+        #expect(!workspace.activeSortDescriptors.isEmpty)
+        #expect(workspace.activeSortDescriptors.first?.key == "url")
+        #expect(workspace.filteredRows.isEmpty)
+    }
+
+    @Test("Reset clears filteredRows and increments refreshToken")
+    func resetClearsRowsAndToken() {
+        let workspace = WorkspaceState()
+        workspace.filteredRows = [RequestListRow(from: TestFixtures.makeTransaction())]
+        let tokenBefore = workspace.refreshToken
+
+        workspace.reset()
+
+        #expect(workspace.filteredRows.isEmpty)
+        #expect(workspace.refreshToken > tokenBefore)
+    }
 }

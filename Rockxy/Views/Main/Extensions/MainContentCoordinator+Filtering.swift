@@ -6,19 +6,45 @@ import Foundation
 
 /// Coordinator extension for transaction filtering. Provides both a full recompute
 /// and an incremental append path for batch delivery without user filters active.
+/// Every path that changes `filteredTransactions` ends with `deriveFilteredRows()`.
 extension MainContentCoordinator {
+    // MARK: - Row Derivation (single path for table-facing refresh)
+
+    func deriveFilteredRows() {
+        deriveFilteredRows(for: activeWorkspace)
+    }
+
+    func deriveFilteredRows(for workspace: WorkspaceState) {
+        var rows = workspace.filteredTransactions.map { RequestListRow(from: $0) }
+        if !workspace.activeSortDescriptors.isEmpty {
+            rows.sort { lhs, rhs in
+                RequestListRow.compare(lhs, rhs, using: workspace.activeSortDescriptors)
+            }
+        }
+        workspace.filteredRows = rows
+        // lastDeriveWasAppendOnly is NOT reset here — it persists until the table
+        // reads it in updateNSView and the next derive cycle overwrites it.
+        workspace.refreshToken += 1
+    }
+
     // MARK: - Filtered Transactions
 
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {
         let hasActiveRules = isFilterBarVisible && filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
-        if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, !hasActiveRules {
+        if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, !hasActiveRules,
+           activeSortDescriptors.isEmpty
+        {
             filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
+            activeWorkspace.lastDeriveWasAppendOnly = true
         } else {
             recomputeFilteredTransactions()
+            return
         }
+        deriveFilteredRows()
     }
 
     func recomputeFilteredTransactions() {
+        activeWorkspace.lastDeriveWasAppendOnly = false
         let baseList: [HTTPTransaction] = switch filterCriteria.sidebarScope {
         case .saved:
             allSavedTransactions
@@ -31,6 +57,7 @@ extension MainContentCoordinator {
         let hasActiveRules = isFilterBarVisible && filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
         guard !filterCriteria.isEmpty || hasActiveRules else {
             filteredTransactions = baseList.filter { !$0.isTLSFailure }
+            deriveFilteredRows()
             return
         }
         filteredTransactions = baseList.filter { transaction in
@@ -93,6 +120,7 @@ extension MainContentCoordinator {
             }
             return true
         }
+        deriveFilteredRows()
     }
 
     func fieldValue(for field: FilterField, in transaction: HTTPTransaction) -> String {
@@ -117,14 +145,20 @@ extension MainContentCoordinator {
     func appendFilteredTransactions(_ batch: [HTTPTransaction], to workspace: WorkspaceState) {
         let hasActiveRules = workspace.isFilterBarVisible
             && workspace.filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
-        if workspace.filterCriteria.isEmpty, !hasActiveRules {
+        if workspace.filterCriteria.sidebarScope == .allTraffic,
+           workspace.filterCriteria.isEmpty, !hasActiveRules, workspace.activeSortDescriptors.isEmpty
+        {
             workspace.filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
+            workspace.lastDeriveWasAppendOnly = true
         } else {
             recomputeFilteredTransactions(for: workspace)
+            return
         }
+        deriveFilteredRows(for: workspace)
     }
 
     func recomputeFilteredTransactions(for workspace: WorkspaceState) {
+        workspace.lastDeriveWasAppendOnly = false
         let baseList: [HTTPTransaction] = switch workspace.filterCriteria.sidebarScope {
         case .saved:
             allSavedTransactions
@@ -138,6 +172,7 @@ extension MainContentCoordinator {
             && workspace.filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
         guard !workspace.filterCriteria.isEmpty || hasActiveRules else {
             workspace.filteredTransactions = baseList.filter { !$0.isTLSFailure }
+            deriveFilteredRows(for: workspace)
             return
         }
         workspace.filteredTransactions = baseList.filter { transaction in
@@ -200,5 +235,6 @@ extension MainContentCoordinator {
             }
             return true
         }
+        deriveFilteredRows(for: workspace)
     }
 }
