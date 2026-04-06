@@ -1,4 +1,4 @@
-// Base.xcconfig — Shared build defaults, identity, and service names.
+// Base.xcconfig — Shared build defaults and family-scoped identity.
 //
 // Included by all channel-specific xcconfig files and Developer.xcconfig.
 // Contains values that are the same across all release channels.
@@ -11,15 +11,27 @@
 MACOSX_DEPLOYMENT_TARGET = 14.0
 SWIFT_VERSION = 5.0
 
-// App identity
-ROCKXY_APP_BUNDLE_ID = com.amunx.Rockxy
+// Family namespace and shared identity
+ROCKXY_FAMILY_NAMESPACE = com.amunx.rockxy
+ROCKXY_SHARED_SUPPORT_DIRECTORY_NAME = $(ROCKXY_FAMILY_NAMESPACE)
+ROCKXY_SHARED_CERTIFICATE_LABEL_PREFIX = $(ROCKXY_FAMILY_NAMESPACE).rootCA
+ROCKXY_SHARED_UTTYPE_PREFIX = $(ROCKXY_FAMILY_NAMESPACE)
 
-// Helper identity and service names (explicit, not derived from bundle ID)
-ROCKXY_HELPER_BUNDLE_ID = com.amunx.Rockxy.HelperTool
-ROCKXY_HELPER_MACH_SERVICE_NAME = com.amunx.Rockxy.HelperTool
-ROCKXY_HELPER_PLIST_NAME = com.amunx.Rockxy.HelperTool.plist
+// Helper identity and service names (explicit, not derived from app bundle ID)
+ROCKXY_HELPER_BUNDLE_ID = $(ROCKXY_FAMILY_NAMESPACE).helper
+ROCKXY_HELPER_MACH_SERVICE_NAME = $(ROCKXY_HELPER_BUNDLE_ID)
+ROCKXY_HELPER_PLIST_NAME = $(ROCKXY_HELPER_BUNDLE_ID).plist
 
 // Helper trust allowlist — space-separated bundle identifiers of trusted callers.
 // Drives both AssociatedBundleIdentifiers in the generated launchd plist
 // and SecRequirement in ConnectionValidator.swift.
-ROCKXY_ALLOWED_CALLER_IDENTIFIERS = com.amunx.Rockxy
+ROCKXY_ALLOWED_CALLER_IDENTIFIERS = com.amunx.rockxy.community com.amunx.rockxy
+
+// App-local namespace defaults. Channel configs may override these values.
+ROCKXY_APP_BUNDLE_ID = com.amunx.rockxy.community
+ROCKXY_APP_NAMESPACE = $(ROCKXY_APP_BUNDLE_ID)
+ROCKXY_LOG_SUBSYSTEM = $(ROCKXY_APP_NAMESPACE)
+ROCKXY_DEFAULTS_PREFIX = $(ROCKXY_APP_NAMESPACE)
+ROCKXY_NOTIFICATION_PREFIX = $(ROCKXY_APP_NAMESPACE)
+ROCKXY_APP_SUPPORT_DIRECTORY_NAME = $(ROCKXY_APP_NAMESPACE)
+ROCKXY_KEYCHAIN_ACCESS_GROUP = $(ROCKXY_FAMILY_NAMESPACE).shared

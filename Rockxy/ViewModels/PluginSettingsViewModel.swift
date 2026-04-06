@@ -46,7 +46,7 @@ final class PluginSettingsViewModel {
         plugins[index].isEnabled.toggle()
         let enabled = plugins[index].isEnabled
         plugins[index].status = enabled ? .active : .disabled
-        UserDefaults.standard.set(enabled, forKey: "com.amunx.Rockxy.plugin.\(id).enabled")
+        UserDefaults.standard.set(enabled, forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
     }
 
     func reloadPlugin(id: String) async {
@@ -81,11 +81,11 @@ final class PluginSettingsViewModel {
     }
 
     func updateConfig(pluginID: String, key: String, value: Any) {
-        UserDefaults.standard.set(value, forKey: "com.amunx.Rockxy.plugin.\(pluginID).config.\(key)")
+        UserDefaults.standard.set(value, forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
     }
 
     func configValue(pluginID: String, key: String) -> Any? {
-        UserDefaults.standard.object(forKey: "com.amunx.Rockxy.plugin.\(pluginID).config.\(key)")
+        UserDefaults.standard.object(forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
     }
 
     func revealInFinder(plugin: PluginInfo) {
@@ -93,8 +93,7 @@ final class PluginSettingsViewModel {
     }
 
     func openPluginsFolder() {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Rockxy/Plugins")
+        let url = RockxyIdentity.current.appSupportPath("Plugins")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         NSWorkspace.shared.open(url)
     }
@@ -120,7 +119,7 @@ final class PluginSettingsViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "PluginSettingsViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "PluginSettingsViewModel")
 
     private let pluginManager = ScriptPluginManager()
 }

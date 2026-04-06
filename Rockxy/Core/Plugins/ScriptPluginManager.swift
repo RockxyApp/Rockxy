@@ -36,7 +36,7 @@ actor ScriptPluginManager {
         try await runtime.loadPlugin(plugins[index])
         plugins[index].isEnabled = true
         plugins[index].status = .active
-        UserDefaults.standard.set(true, forKey: "com.amunx.Rockxy.plugin.\(id).enabled")
+        UserDefaults.standard.set(true, forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
         Self.logger.info("Enabled plugin: \(id)")
     }
 
@@ -47,7 +47,7 @@ actor ScriptPluginManager {
         await runtime.unloadPlugin(id: id)
         plugins[index].isEnabled = false
         plugins[index].status = .disabled
-        UserDefaults.standard.set(false, forKey: "com.amunx.Rockxy.plugin.\(id).enabled")
+        UserDefaults.standard.set(false, forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
         Self.logger.info("Disabled plugin: \(id)")
     }
 
@@ -67,13 +67,13 @@ actor ScriptPluginManager {
         }
         await runtime.unloadPlugin(id: id)
         try await discovery.uninstallPlugin(bundlePath: plugins[index].bundlePath)
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.plugin.\(id).enabled")
+        UserDefaults.standard.removeObject(forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
         plugins.remove(at: index)
         Self.logger.info("Uninstalled plugin: \(id)")
     }
 
     func updateConfig(pluginID: String, key: String, value: Any) async {
-        let configKey = "com.amunx.Rockxy.plugin.\(pluginID).config.\(key)"
+        let configKey = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key
         UserDefaults.standard.set(value, forKey: configKey)
     }
 
@@ -112,7 +112,7 @@ actor ScriptPluginManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ScriptPluginManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptPluginManager")
 
     private let discovery = PluginDiscovery()
     private let runtime = ScriptRuntime()

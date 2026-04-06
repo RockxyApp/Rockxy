@@ -117,7 +117,7 @@ actor LogCaptureEngine {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "LogCaptureEngine")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "LogCaptureEngine")
 
     private var isCapturing = false
     private var streams: [UUID: LogStream] = [:]

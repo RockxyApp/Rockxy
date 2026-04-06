@@ -131,12 +131,14 @@ enum CrashRecovery {
         do {
             try ensureBackupDirectoryExists()
             let data = try PropertyListEncoder().encode(backup)
-            try data.write(to: backupURL, options: .atomic)
-            try FileManager.default.setAttributes(
-                [.posixPermissions: 0o600],
-                ofItemAtPath: backupURL.path
-            )
-            logger.info("Proxy backup saved to \(backupURL.path) (\(serviceBackups.count) service(s))")
+            for url in backupURLs {
+                try data.write(to: url, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: url.path
+                )
+            }
+            logger.info("Proxy backup saved to \(backupURLs.first?.path ?? "<unknown>") (\(serviceBackups.count) service(s))")
         } catch {
             logger.error("Failed to save proxy backup: \(error.localizedDescription)")
         }
@@ -171,59 +173,70 @@ enum CrashRecovery {
     /// Returns nil if file doesn't exist, is corrupt, or uses an old format.
     /// Invalid backup files are cleared automatically.
     static func loadBackup() -> ProxyBackup? {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: backupURL.path) else {
-            return nil
-        }
+        for url in backupURLs {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                continue
+            }
 
-        do {
-            let data = try Data(contentsOf: backupURL)
-            return try PropertyListDecoder().decode(ProxyBackup.self, from: data)
-        } catch {
-            logger.error("Failed to decode proxy backup (old format or corruption): \(error.localizedDescription)")
-            clearBackup()
-            return nil
+            do {
+                let data = try Data(contentsOf: url)
+                return try PropertyListDecoder().decode(ProxyBackup.self, from: data)
+            } catch {
+                logger.error("Failed to decode proxy backup at \(url.path): \(error.localizedDescription)")
+            }
         }
+        clearBackup()
+        return nil
     }
 
     /// Returns whether a backup file exists on disk.
     static func hasBackup() -> Bool {
-        FileManager.default.fileExists(atPath: backupURL.path)
+        backupURLs.contains { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     /// Remove the backup file after successful restore.
     static func clearBackup() {
-        do {
-            try FileManager.default.removeItem(at: backupURL)
-            logger.info("Proxy backup cleared")
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
-            // Already gone — nothing to do
-        } catch {
-            logger.error("Failed to remove proxy backup: \(error.localizedDescription)")
+        for url in backupURLs {
+            do {
+                try FileManager.default.removeItem(at: url)
+                logger.info("Proxy backup cleared at \(url.path)")
+            } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+                // Already gone — nothing to do
+            } catch {
+                logger.error("Failed to remove proxy backup at \(url.path): \(error.localizedDescription)")
+            }
         }
     }
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy.HelperTool", category: "CrashRecovery")
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "CrashRecovery"
+    )
 
-    private static let backupDirectory = "/Library/Application Support/com.amunx.Rockxy"
+    private static let legacyBackupDirectory = "/Library/Application Support/com.amunx.Rockxy"
     private static let backupFileName = "proxy-backup.plist"
 
-    private static var backupURL: URL {
-        URL(fileURLWithPath: backupDirectory).appendingPathComponent(backupFileName)
+    private static var backupURLs: [URL] {
+        [
+            RockxyIdentity.current.sharedSupportDirectory().appendingPathComponent(backupFileName),
+            URL(fileURLWithPath: legacyBackupDirectory).appendingPathComponent(backupFileName),
+        ]
     }
 
     // MARK: - Private Helpers
 
     private static func ensureBackupDirectoryExists() throws {
-        let dir = backupDirectory
-        if !FileManager.default.fileExists(atPath: dir) {
-            try FileManager.default.createDirectory(
-                atPath: dir,
-                withIntermediateDirectories: true,
-                attributes: [.posixPermissions: 0o700]
-            )
+        for url in backupURLs {
+            let dir = url.deletingLastPathComponent()
+            if !FileManager.default.fileExists(atPath: dir.path) {
+                try FileManager.default.createDirectory(
+                    at: dir,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+            }
         }
     }
 

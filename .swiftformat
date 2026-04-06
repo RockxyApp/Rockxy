@@ -47,7 +47,6 @@
 --importgrouping alpha
 --header strip
 --stripunusedargs closure-only
---modifierorder
 --emptybraces no-space
 
 # Enabled rules (comment out to disable)
@@ -66,5 +65,6 @@
 
 # Disabled rules
 --disable acronyms
+--disable modifierOrder
 --disable redundantSelf
 --disable trailingCommas

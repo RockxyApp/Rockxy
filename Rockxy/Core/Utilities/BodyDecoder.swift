@@ -27,7 +27,7 @@ enum BodyDecoder {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "BodyDecoder")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "BodyDecoder")
 
     private static let maxDecompressedSize = 50 * 1024 * 1024 // 50MB
 

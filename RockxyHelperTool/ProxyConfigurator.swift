@@ -222,7 +222,7 @@ enum ProxyConfigurator {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy.HelperTool", category: "ProxyConfigurator")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyConfigurator")
     private static let networkSetupPath = "/usr/sbin/networksetup"
     private static let routePath = "/sbin/route"
 

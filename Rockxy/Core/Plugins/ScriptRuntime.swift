@@ -42,7 +42,7 @@ actor ScriptRuntime {
             throw ScriptRuntimeError.scriptLoadFailed("Cannot read \(scriptURL.path): \(error.localizedDescription)")
         }
 
-        let queue = DispatchQueue(label: "com.amunx.Rockxy.plugin.\(info.id)", qos: .userInitiated)
+        let queue = DispatchQueue(label: RockxyIdentity.current.pluginRuntimePrefix(pluginID: info.id) + ".queue", qos: .userInitiated)
         guard let context = JSContext() else {
             throw ScriptRuntimeError.scriptLoadFailed("Failed to create JSContext")
         }
@@ -53,7 +53,7 @@ actor ScriptRuntime {
             Self.logger.error("JS exception in plugin \(pluginID): \(message)")
         }
 
-        let pluginLogger = Logger(subsystem: "com.amunx.Rockxy", category: "Plugin.\(info.id)")
+        let pluginLogger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "Plugin.\(info.id)")
         ScriptBridge.install(in: context, pluginID: info.id, logger: pluginLogger)
 
         context.evaluateScript(source)
@@ -199,7 +199,7 @@ actor ScriptRuntime {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ScriptRuntime")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptRuntime")
     private static let timeout: TimeInterval = 5
 
     private var contexts: [String: JSContext] = [:]

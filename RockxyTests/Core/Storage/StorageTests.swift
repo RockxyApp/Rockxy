@@ -94,10 +94,15 @@ struct InMemorySessionBufferTests {
 // MARK: - AppSettingsStorageTests
 
 struct AppSettingsStorageTests {
+    // MARK: Internal
+
     @Test("save and load roundtrip preserves values")
     func saveAndLoadRoundtrip() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
         var settings = AppSettings()
-        settings.proxyPort = 8888
+        settings.proxyPort = Self.testPort
         settings.autoStartProxy = true
         settings.recordOnLaunch = false
         settings.onlyListenOnLocalhost = false
@@ -107,25 +112,29 @@ struct AppSettingsStorageTests {
         AppSettingsStorage.save(settings)
         let loaded = AppSettingsStorage.load()
 
-        #expect(loaded.proxyPort == 8888)
+        #expect(loaded.proxyPort == Self.testPort)
         #expect(loaded.autoStartProxy == true)
         #expect(loaded.recordOnLaunch == false)
         #expect(loaded.onlyListenOnLocalhost == false)
         #expect(loaded.listenIPv6 == true)
         #expect(loaded.autoSelectPort == true)
-
-        // Restore defaults to not affect other tests
-        let restore = AppSettings()
-        AppSettingsStorage.save(restore)
     }
 
     @Test("default values match AppSettings initializer")
     func defaultValues() {
         let defaultSettings = AppSettings()
-        #expect(defaultSettings.proxyPort == 9090)
+        #expect(defaultSettings.proxyPort == Self.defaultPort)
         #expect(defaultSettings.recordOnLaunch == true)
         #expect(defaultSettings.onlyListenOnLocalhost == true)
         #expect(defaultSettings.autoStartProxy == false)
         #expect(defaultSettings.listenIPv6 == false)
+        #expect(defaultSettings.autoSelectPort == true)
     }
+
+    // MARK: Private
+
+    // swiftlint:disable:next number_separator
+    private static let testPort = 8888
+    // swiftlint:disable:next number_separator
+    private static let defaultPort = 9090
 }

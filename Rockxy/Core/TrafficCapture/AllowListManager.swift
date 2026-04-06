@@ -163,12 +163,12 @@ final class AllowListManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "AllowListManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AllowListManager")
 
     private static var defaultStorageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport
-            .appendingPathComponent("com.amunx.Rockxy", isDirectory: true)
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("allow-list.json")
     }
 

@@ -25,7 +25,7 @@ struct ContentView: View {
                             onPrimaryAction: {
                                 handleSystemProxyWarningAction(warning.action)
                             },
-                            onDismiss: warning.isDismissible ? { coordinator.systemProxyWarning = nil } : nil
+                            onDismiss: warning.isDismissible ? { coordinator.readiness.dismissWarning() } : nil
                         )
                     }
                     CenterContentView(coordinator: coordinator)
@@ -51,11 +51,12 @@ struct ContentView: View {
             coordinator.loadPersistedFavorites()
         }
         .task {
+            coordinator.readiness.startObserving()
             coordinator.setupRulesObserver()
             coordinator.loadInitialRules()
         }
         .onReceive(NotificationCenter.default.publisher(
-            for: NSNotification.Name("com.amunx.Rockxy.openCustomColumnsWindow")
+            for: RockxyIdentity.current.notificationName("openCustomColumnsWindow")
         )) { _ in
             openWindow(id: "customColumns")
         }
@@ -75,9 +76,11 @@ struct ContentView: View {
             String(localized: "Proxy Error"),
             isPresented: Binding(
                 get: { coordinator.proxyError != nil && !coordinator.isProxyRunning },
-                set: { if !$0 {
-                    coordinator.proxyError = nil
-                } }
+                set: {
+                    if !$0 {
+                        coordinator.proxyError = nil
+                    }
+                }
             )
         ) {
             Button(String(localized: "OK")) {
@@ -118,6 +121,7 @@ struct ContentView: View {
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @State private var coordinator = MainContentCoordinator()
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -125,6 +129,8 @@ struct ContentView: View {
         switch action {
         case .retry:
             coordinator.retrySystemProxy()
+        case .openGeneralSettings:
+            openSettings()
         case .openAdvancedProxySettings:
             openWindow(id: "advancedProxySettings")
         case nil:

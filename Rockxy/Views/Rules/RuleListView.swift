@@ -40,7 +40,7 @@ struct RuleListView: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RuleListView")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleListView")
 
     @State private var selectedRuleID: UUID?
     @State private var showAddSheet = false

@@ -156,24 +156,24 @@ struct ToolsSettingsTab: View {
 
     // MARK: Private
 
-    @AppStorage("com.amunx.Rockxy.appendHeaders") private var appendHeaders =
+    @AppStorage(RockxyIdentity.current.defaultsKey("appendHeaders")) private var appendHeaders =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.noCaching") private var noCaching = false // WIRED: NoCacheHeaderMutator
-    @AppStorage("com.amunx.Rockxy.requestTimeout") private var requestTimeout =
+    @AppStorage(RockxyIdentity.current.defaultsKey("noCaching")) private var noCaching = false // WIRED: NoCacheHeaderMutator
+    @AppStorage(RockxyIdentity.current.defaultsKey("requestTimeout")) private var requestTimeout =
         30 // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.copyLibrary") private var copyLibrary =
+    @AppStorage(RockxyIdentity.current.defaultsKey("copyLibrary")) private var copyLibrary =
         "curl" // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.addProxyFlag") private var addProxyFlag =
+    @AppStorage(RockxyIdentity.current.defaultsKey("addProxyFlag")) private var addProxyFlag =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.preserveOriginalRequest") private var preserveOriginalRequest =
+    @AppStorage(RockxyIdentity.current.defaultsKey("preserveOriginalRequest")) private var preserveOriginalRequest =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.mapLocalPath") private var mapLocalPath =
+    @AppStorage(RockxyIdentity.current.defaultsKey("mapLocalPath")) private var mapLocalPath =
         "" // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.mapLocalDelay") private var mapLocalDelay =
+    @AppStorage(RockxyIdentity.current.defaultsKey("mapLocalDelay")) private var mapLocalDelay =
         0 // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.allowScripts") private var allowScripts =
+    @AppStorage(RockxyIdentity.current.defaultsKey("allowScripts")) private var allowScripts =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.autoOpenExport") private var autoOpenExport =
+    @AppStorage(RockxyIdentity.current.defaultsKey("autoOpenExport")) private var autoOpenExport =
         true // DEFERRED: No runtime consumer — future feature
 
     private func settingsRow(

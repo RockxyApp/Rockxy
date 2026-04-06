@@ -42,16 +42,19 @@ final class WelcomeViewModel {
         certInstalled && certTrusted && helperStatus == .installedCompatible && systemProxyEnabled
     }
 
-    func refreshStatus() async {
-        let installed = await CertificateManager.shared.isRootCAInstalled()
-        let trusted = await CertificateManager.shared.isRootCATrusted()
-        await HelperManager.shared.checkStatus()
-        let proxyEnabled = SystemProxyManager.shared.isSystemProxyEnabled()
+    func loadInitialStatus() async {
+        let readiness = ReadinessCoordinator.shared
+        await readiness.deepRefresh()
+        apply(readiness: readiness)
+    }
 
-        certInstalled = installed
-        certTrusted = trusted
-        helperStatus = HelperManager.shared.status
-        systemProxyEnabled = proxyEnabled
+    func refreshStatus() async {
+        await ReadinessCoordinator.shared.refresh()
+        apply(readiness: ReadinessCoordinator.shared)
+    }
+
+    func syncFromCoordinator() {
+        apply(readiness: ReadinessCoordinator.shared)
     }
 
     func installCert() async {
@@ -64,8 +67,6 @@ final class WelcomeViewModel {
 
         do {
             try await CertificateManager.shared.installAndTrust()
-            certInstalled = true
-            certTrusted = true
             await refreshStatus()
         } catch {
             Self.logger.error("Failed to install certificate: \(error.localizedDescription)")
@@ -107,7 +108,8 @@ final class WelcomeViewModel {
         defer { isPerformingAction = false }
 
         do {
-            try await SystemProxyManager.shared.enableSystemProxy(port: 9090)
+            let settings = AppSettingsStorage.load()
+            try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
             await refreshStatus()
         } catch {
             Self.logger.error("Failed to enable proxy: \(error.localizedDescription)")
@@ -117,5 +119,12 @@ final class WelcomeViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "WelcomeViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "WelcomeViewModel")
+
+    private func apply(readiness: ReadinessCoordinator) {
+        certInstalled = readiness.certReadiness != .notGenerated
+        certTrusted = readiness.canInterceptHTTPS
+        helperStatus = readiness.helperReadiness
+        systemProxyEnabled = SystemProxyManager.shared.isSystemProxyEnabled()
+    }
 }

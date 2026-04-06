@@ -164,8 +164,9 @@ final class ScriptingViewModel {
         let name = "Untitled Script \(plugins.count + 1)"
         let id = UUID().uuidString.lowercased()
         do {
-            let pluginsDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Rockxy/Plugins/\(id)")
+            let pluginsDir = RockxyIdentity.current
+                .appSupportPath("Plugins")
+                .appendingPathComponent(id, isDirectory: true)
             try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
             let manifest = """
             {"id":"\(id)","name":"\(
@@ -236,7 +237,7 @@ final class ScriptingViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ScriptingViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptingViewModel")
 
     private let pluginManager = ScriptPluginManager()
 

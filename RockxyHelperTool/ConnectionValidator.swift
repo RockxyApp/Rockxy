@@ -10,9 +10,10 @@ import Security
 ///    Immune to Info.plist tampering since certificates are embedded in the code signature.
 ///
 /// 2. **Bundle identity requirement** (Apple SecRequirement pattern): validates the caller
-///    is specifically the Rockxy app (`com.amunx.Rockxy`), not just any app sharing the
-///    same developer certificate. Uses the connection's audit token for PID-race-resistant
-///    caller identification, then checks against a `SecRequirement` string.
+///    matches one of the configured Rockxy app bundle identifiers, not just any app sharing
+///    the same developer certificate. Uses the connection's audit token for
+///    PID-race-resistant caller identification, then checks against a `SecRequirement`
+///    string for each allowed bundle identifier.
 ///
 /// Both checks must pass for a connection to be accepted.
 ///
@@ -58,24 +59,15 @@ enum ConnectionValidator {
     // MARK: Private
 
     private static let logger = Logger(
-        subsystem: "com.amunx.Rockxy.HelperTool",
+        subsystem: RockxyIdentity.current.logSubsystem,
         category: "ConnectionValidator"
     )
 
-    /// Code signing requirement string for the Rockxy app.
-    /// - `identifier`: must match the app's `CFBundleIdentifier`
-    /// - `anchor apple generic`: must be signed with a valid Apple-issued certificate chain
-    ///   (Developer ID, Mac App Distribution, or development cert — not ad-hoc/self-signed)
-    ///
-    /// Hardcoded to prevent Info.plist tampering from widening the allowed caller set.
-    private static let callerRequirement: String = {
-        let identifier = "com.amunx.Rockxy"
-        return "identifier \"\(identifier)\" and anchor apple generic"
-    }()
+    private static let allowedCallerIdentifiers = RockxyIdentity.current.allowedCallerIdentifiers
 
     // MARK: - Bundle Identity Validation
 
-    /// Validates that the caller satisfies the Rockxy bundle identity requirement.
+    /// Validates that the caller satisfies the configured bundle identity requirement.
     ///
     /// Uses the connection's audit token (via PID fallback, since `NSXPCConnection.auditToken`
     /// is not public API) to obtain a `SecCode` reference, then checks it against a
@@ -83,22 +75,9 @@ enum ConnectionValidator {
     ///
     /// This is narrower than certificate-chain comparison: even if another app is signed
     /// with the same developer certificate, it will be rejected unless its bundle identifier
-    /// matches `com.amunx.Rockxy`.
+    /// matches one of the configured allowlist entries.
     private static func validateCallerIdentity(connection: NSXPCConnection) -> Bool {
         let pid = connection.processIdentifier
-
-        // Build the SecRequirement from our pinned requirement string
-        var requirement: SecRequirement?
-        let reqStatus = SecRequirementCreateWithString(
-            callerRequirement as CFString,
-            [],
-            &requirement
-        )
-
-        guard reqStatus == errSecSuccess, let requirement else {
-            logger.error("SECURITY: Failed to create SecRequirement (status: \(reqStatus))")
-            return false
-        }
 
         // Obtain SecCode for the caller process.
         // Prefer audit token (race-resistant) over PID when available.
@@ -107,19 +86,35 @@ enum ConnectionValidator {
             return false
         }
 
-        // Check the caller code against our requirement
-        let validityStatus = SecCodeCheckValidity(callerCode, [], requirement)
-
-        if validityStatus != errSecSuccess {
-            logger
-                .error(
-                    "SECURITY: Caller pid \(pid) does not satisfy bundle identity requirement (status: \(validityStatus))"
-                )
+        guard !allowedCallerIdentifiers.isEmpty else {
+            logger.error("SECURITY: No allowed caller identifiers configured")
             return false
         }
 
-        logger.debug("SECURITY: Bundle identity requirement satisfied for pid \(pid)")
-        return true
+        for identifier in allowedCallerIdentifiers {
+            var requirement: SecRequirement?
+            let reqStatus = SecRequirementCreateWithString(
+                "identifier \"\(identifier)\" and anchor apple generic" as CFString,
+                [],
+                &requirement
+            )
+
+            guard reqStatus == errSecSuccess, let requirement else {
+                logger.error(
+                    "SECURITY: Failed to create SecRequirement for \(identifier) (status: \(reqStatus))"
+                )
+                continue
+            }
+
+            let validityStatus = SecCodeCheckValidity(callerCode, [], requirement)
+            if validityStatus == errSecSuccess {
+                logger.debug("SECURITY: Bundle identity requirement satisfied for pid \(pid)")
+                return true
+            }
+        }
+
+        logger.error("SECURITY: Caller pid \(pid) does not satisfy any allowed bundle identifier")
+        return false
     }
 
     /// Obtains a `SecCode` reference for the XPC connection's caller.

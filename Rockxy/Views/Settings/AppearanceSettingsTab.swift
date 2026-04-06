@@ -48,21 +48,21 @@ struct AppearanceSettingsTab: View {
 
     // MARK: Private
 
-    @AppStorage("com.amunx.Rockxy.fontSize") private var fontSize = 12 // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.tabWidth") private var tabWidth = 2 // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.useMonospacedFont") private var useMonospacedFont =
+    @AppStorage(RockxyIdentity.current.defaultsKey("fontSize")) private var fontSize = 12 // DEFERRED: No runtime consumer — future feature
+    @AppStorage(RockxyIdentity.current.defaultsKey("tabWidth")) private var tabWidth = 2 // DEFERRED: No runtime consumer — future feature
+    @AppStorage(RockxyIdentity.current.defaultsKey("useMonospacedFont")) private var useMonospacedFont =
         true // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.wordWrap") private var wordWrap =
+    @AppStorage(RockxyIdentity.current.defaultsKey("wordWrap")) private var wordWrap =
         true // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showInvisibles") private var showInvisibles =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showInvisibles")) private var showInvisibles =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showMinimap") private var showMinimap =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showMinimap")) private var showMinimap =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.scrollBeyondLastLine") private var scrollBeyondLastLine =
+    @AppStorage(RockxyIdentity.current.defaultsKey("scrollBeyondLastLine")) private var scrollBeyondLastLine =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.alternateRowColors") private var alternateRowColors =
+    @AppStorage(RockxyIdentity.current.defaultsKey("alternateRowColors")) private var alternateRowColors =
         true // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.appTheme") private var appTheme = "system"
+    @AppStorage(RockxyIdentity.current.defaultsKey("appTheme")) private var appTheme = "system"
 
     private var editorSettings: some View {
         Group {

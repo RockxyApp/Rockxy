@@ -158,11 +158,14 @@ extension MainContentCoordinator {
             clearSession()
 
             for transaction in importedTransactions {
+                transaction.sequenceNumber = nextSequenceNumber
+                nextSequenceNumber += 1
                 transactions.append(transaction)
                 updateDomainTree(for: transaction)
                 updateAppNodes(for: transaction)
             }
             recomputeFilteredTransactions()
+            headerColumnStore.updateDiscoveredHeaders(from: transactions)
 
             sessionProvenance = SessionProvenance(
                 fileName: fileName,
@@ -195,6 +198,8 @@ extension MainContentCoordinator {
 
             for codableTransaction in session.transactions {
                 let transaction = codableTransaction.toLiveModel()
+                transaction.sequenceNumber = nextSequenceNumber
+                nextSequenceNumber += 1
                 transactions.append(transaction)
                 updateDomainTree(for: transaction)
                 updateAppNodes(for: transaction)
@@ -205,6 +210,7 @@ extension MainContentCoordinator {
             }
 
             recomputeFilteredTransactions()
+            headerColumnStore.updateDiscoveredHeaders(from: transactions)
 
             sessionProvenance = SessionProvenance(
                 fileName: fileName,

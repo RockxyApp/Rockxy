@@ -95,6 +95,75 @@ struct SystemProxyManagerTests {
         ) == false)
     }
 
+    @Test("direct proxy watchdog exits once backup is gone")
+    func directProxyWatchdogExitsWhenBackupRemoved() {
+        #expect(SystemProxyManager.directProxyWatchdogAction(
+            parentAlive: true,
+            backupExists: false
+        ) == .exit)
+    }
+
+    @Test("direct proxy watchdog keeps waiting while parent is alive")
+    func directProxyWatchdogWaitsForParentExit() {
+        #expect(SystemProxyManager.directProxyWatchdogAction(
+            parentAlive: true,
+            backupExists: true
+        ) == .wait)
+    }
+
+    @Test("direct proxy watchdog restores after parent exits with backup present")
+    func directProxyWatchdogRestoresOnParentExit() {
+        #expect(SystemProxyManager.directProxyWatchdogAction(
+            parentAlive: false,
+            backupExists: true
+        ) == .restore)
+    }
+
+    @Test("direct restore clears backup only after commands succeed and proxy ownership is gone")
+    func directRestoreClearsBackupOnlyWhenOwnershipIsGone() {
+        #expect(SystemProxyManager.shouldClearDirectBackupAfterRestoreAttempt(
+            commandsSucceeded: true,
+            proxyStillPointsAtRockxy: false
+        ))
+    }
+
+    @Test("direct restore keeps backup when proxy still points at Rockxy")
+    func directRestoreKeepsBackupWhileProxyStillOwned() {
+        #expect(SystemProxyManager.shouldClearDirectBackupAfterRestoreAttempt(
+            commandsSucceeded: true,
+            proxyStillPointsAtRockxy: true
+        ) == false)
+    }
+
+    @Test("direct restore keeps backup when restore commands fail")
+    func directRestoreKeepsBackupOnCommandFailure() {
+        #expect(SystemProxyManager.shouldClearDirectBackupAfterRestoreAttempt(
+            commandsSucceeded: false,
+            proxyStillPointsAtRockxy: false
+        ) == false)
+    }
+
+    @Test("direct proxy watchdog launchctl submission uses helper entrypoint and backup path")
+    func directProxyWatchdogSubmitArguments() {
+        let arguments = SystemProxyManager.directWatchdogSubmitArguments(
+            label: "com.amunx.rockxy.community.direct-proxy-watchdog",
+            executablePath: "/tmp/RockxyHelperTool",
+            parentPID: 4_242,
+            backupPath: "/tmp/proxy-backup-direct.plist"
+        )
+
+        #expect(arguments == [
+            "submit",
+            "-l",
+            "com.amunx.rockxy.community.direct-proxy-watchdog",
+            "--",
+            "/tmp/RockxyHelperTool",
+            "--rockxy-direct-proxy-watchdog",
+            "4242",
+            "/tmp/proxy-backup-direct.plist",
+        ])
+    }
+
     // MARK: - Network Service Parsing Logic
 
     @Test("Parse typical networksetup service order output")

@@ -71,7 +71,7 @@ struct CertificateWizardView: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "CertificateWizard")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "CertificateWizard")
 
     @State private var currentStep: WizardStep = .welcome
     @State private var isGenerating = false

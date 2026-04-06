@@ -10,7 +10,7 @@ import Foundation
 /// to force origin servers to return fresh responses.
 enum NoCacheHeaderMutator {
     /// The UserDefaults key matching the `@AppStorage` toggle in ToolsSettingsTab.
-    static let userDefaultsKey = "com.amunx.Rockxy.noCaching"
+    static let userDefaultsKey = RockxyIdentity.current.defaultsKey("noCaching")
 
     /// Returns `true` when the user has enabled the No Caching toggle.
     static var isEnabled: Bool {

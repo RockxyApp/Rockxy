@@ -52,7 +52,7 @@ enum RequestReplay {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RequestReplay")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RequestReplay")
 }
 
 // MARK: - ReplayError

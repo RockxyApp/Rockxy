@@ -19,13 +19,9 @@ Rockxy is a free, open-source, native macOS application. There is no account sig
 
 Download the latest `.dmg` from [GitHub Releases](https://github.com/LocNguyenHuu/Rockxy/releases).
 
-| Architecture | File | Macs |
-|--------------|------|------|
-| Universal | `Rockxy-x.x.x-universal.dmg` | Apple Silicon and Intel |
-| arm64 | `Rockxy-x.x.x-arm64.dmg` | Apple Silicon (M1, M2, M3, M4) |
-| x86_64 | `Rockxy-x.x.x-x86_64.dmg` | Intel |
+Rockxy currently ships a universal macOS release package for both Apple Silicon and Intel Macs.
 
-If you are unsure which Mac you have, choose the Universal build.
+If future releases add architecture-specific downloads, the release notes will call that out explicitly. If you are unsure which Mac you have, choose the standard release listed on GitHub.
 
 ## Install
 
@@ -70,7 +66,7 @@ After trusting the certificate, restart any browsers or applications that pin th
 
 ## Build from Source
 
-Requires Xcode 15+ with Swift 5.9. Dependencies are managed via Swift Package Manager through the Xcode project (no standalone `Package.swift`).
+Requires Xcode 16+ with Swift 5.9. Dependencies are managed via Swift Package Manager through the Xcode project (no standalone `Package.swift`).
 
 ```bash
 git clone https://github.com/LocNguyenHuu/Rockxy.git

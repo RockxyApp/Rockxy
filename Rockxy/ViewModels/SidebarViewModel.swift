@@ -12,5 +12,5 @@ final class SidebarViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "SidebarViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SidebarViewModel")
 }

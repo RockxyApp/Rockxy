@@ -156,11 +156,6 @@ struct AdvancedSettingsTab: View {
                 .task {
                     await helperManager.checkStatus()
                 }
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                    Task {
-                        await helperManager.checkStatus()
-                    }
-                }
                 .alert(
                     String(localized: "Uninstall Helper Tool?"),
                     isPresented: $showUninstallConfirmation
@@ -280,30 +275,30 @@ struct AdvancedSettingsTab: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "AdvancedSettingsTab")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AdvancedSettingsTab")
 
     @State private var helperManager = HelperManager.shared
     @State private var showUninstallConfirmation = false
 
-    @AppStorage("com.amunx.Rockxy.appLanguage") private var appLanguage =
+    @AppStorage(RockxyIdentity.current.defaultsKey("appLanguage")) private var appLanguage =
         "en" // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showUpdateNotification") private var showUpdateNotification =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showUpdateNotification")) private var showUpdateNotification =
         true // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.use24HourTime") private var use24HourTime =
+    @AppStorage(RockxyIdentity.current.defaultsKey("use24HourTime")) private var use24HourTime =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showFullTime") private var showFullTime =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showFullTime")) private var showFullTime =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showAlertOnQuit") private var showAlertOnQuit =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showAlertOnQuit")) private var showAlertOnQuit =
         true // WIRED: AppDelegate.applicationShouldTerminate
-    @AppStorage("com.amunx.Rockxy.showResourceUsage") private var showResourceUsage =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showResourceUsage")) private var showResourceUsage =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.hideAppleRequests") private var hideAppleRequests =
+    @AppStorage(RockxyIdentity.current.defaultsKey("hideAppleRequests")) private var hideAppleRequests =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.stayOnTop") private var stayOnTop =
+    @AppStorage(RockxyIdentity.current.defaultsKey("stayOnTop")) private var stayOnTop =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.showInvisibleChars") private var showInvisibleChars =
+    @AppStorage(RockxyIdentity.current.defaultsKey("showInvisibleChars")) private var showInvisibleChars =
         false // DEFERRED: No runtime consumer — future feature
-    @AppStorage("com.amunx.Rockxy.autoCleanUp") private var autoCleanUp =
+    @AppStorage(RockxyIdentity.current.defaultsKey("autoCleanUp")) private var autoCleanUp =
         true // DEFERRED: No runtime consumer — future feature
 
     // MARK: - Helper Tool Status

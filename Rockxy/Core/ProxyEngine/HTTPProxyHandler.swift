@@ -8,7 +8,7 @@ import os
 /// Logger must be nonisolated(unsafe) because NIO channel handlers are called
 /// from event loop threads outside Swift's structured concurrency.
 private nonisolated(unsafe) let proxyHandlerLogger = Logger(
-    subsystem: "com.amunx.Rockxy",
+    subsystem: RockxyIdentity.current.logSubsystem,
     category: "HTTPProxyHandler"
 )
 

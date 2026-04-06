@@ -31,7 +31,7 @@ enum ScriptBridge {
 
     // MARK: Private
 
-    private static let bridgeLogger = Logger(subsystem: "com.amunx.Rockxy", category: "ScriptBridge")
+    private static let bridgeLogger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptBridge")
 
     private static func installLogging(on rockxy: JSValue?, context: JSContext, logger: Logger) {
         let log = JSValue(newObjectIn: context)
@@ -98,7 +98,7 @@ enum ScriptBridge {
 
     private static func installStorage(on rockxy: JSValue?, context: JSContext, pluginID: String) {
         let storage = JSValue(newObjectIn: context)
-        let prefix = "com.amunx.Rockxy.plugin.\(pluginID).storage."
+        let prefix = RockxyIdentity.current.pluginStoragePrefix(pluginID: pluginID)
 
         let getFn: @convention(block) (String) -> Any? = { key in
             guard PluginValidator.isValidKey(key) else {
@@ -131,7 +131,7 @@ enum ScriptBridge {
 
     private static func installEnv(on rockxy: JSValue?, context: JSContext, pluginID: String) {
         let env = JSValue(newObjectIn: context)
-        let prefix = "com.amunx.Rockxy.plugin.\(pluginID).config."
+        let prefix = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID)
 
         let getFn: @convention(block) (String) -> Any? = { key in
             guard PluginValidator.isValidKey(key) else {

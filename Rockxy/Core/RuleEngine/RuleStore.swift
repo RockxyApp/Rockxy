@@ -13,13 +13,14 @@ struct RuleStore {
             in: .userDomainMask
         ).first else {
             Self.logger.error("Application Support directory not found, using temporary directory")
-            let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("com.amunx.Rockxy")
+            let tempDir = RockxyIdentity.current.temporaryAppSupportDirectory()
             try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             fileURL = tempDir.appendingPathComponent("rules.json")
             return
         }
-        fileURL = appSupport.appendingPathComponent("Rockxy/rules.json")
+        fileURL = appSupport
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("rules.json")
     }
 
     // MARK: Internal
@@ -82,7 +83,7 @@ struct RuleStore {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RuleStore")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleStore")
 
     /// Maximum import file size: 5 MB.
     private static let maxImportSize: UInt64 = 5 * 1024 * 1024

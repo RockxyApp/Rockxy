@@ -39,7 +39,7 @@ enum GraphQLDetector {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "GraphQLDetector")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "GraphQLDetector")
 
     /// GraphQL defaults to `query` when no keyword prefix is present (shorthand syntax).
     private static func parseOperationType(from query: String) -> GraphQLOperationType {

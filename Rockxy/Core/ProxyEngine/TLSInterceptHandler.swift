@@ -12,7 +12,7 @@ import X509
 // Defines `TLSInterceptHandler`, which handles tls intercept flow in the proxy engine.
 
 private nonisolated(unsafe) let tlsLogger = Logger(
-    subsystem: "com.amunx.Rockxy",
+    subsystem: RockxyIdentity.current.logSubsystem,
     category: "TLSInterceptHandler"
 )
 

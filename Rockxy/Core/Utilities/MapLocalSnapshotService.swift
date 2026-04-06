@@ -6,7 +6,7 @@ import os
 // MARK: - MapLocalSnapshotService
 
 /// Saves a captured response body as a local file for use with Map Local rules.
-/// Files are written to ~/Library/Application Support/Rockxy/snapshots/.
+/// Files are written to ~/Library/Application Support/com.amunx.rockxy.community/snapshots/.
 enum MapLocalSnapshotService {
     // MARK: Internal
 
@@ -65,16 +65,18 @@ enum MapLocalSnapshotService {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "MapLocalSnapshotService")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MapLocalSnapshotService")
 
     private static func snapshotsDirectory() -> URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(
-                "Rockxy/snapshots",
+                RockxyIdentity.current.appSupportDirectoryName,
                 isDirectory: true
-            )
+            ).appendingPathComponent("snapshots", isDirectory: true)
         }
-        return appSupport.appendingPathComponent("Rockxy/snapshots", isDirectory: true)
+        return appSupport
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent("snapshots", isDirectory: true)
     }
 
     private static func sanitizeFilename(from url: URL?) -> String {

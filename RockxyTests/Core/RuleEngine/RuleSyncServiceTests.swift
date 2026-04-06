@@ -72,7 +72,9 @@ struct RuleSyncServiceTests {
             for: .applicationSupportDirectory,
             in: .userDomainMask
         )[0]
-        return appSupport.appendingPathComponent("Rockxy/rules.json")
+        return appSupport
+            .appendingPathComponent(TestIdentity.appSupportDirectoryName, isDirectory: true)
+            .appendingPathComponent(TestIdentity.rulesPathComponent)
     }()
 
     private func backupRules() -> Data? {

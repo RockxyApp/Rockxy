@@ -18,7 +18,7 @@
 		DCA9C5BB2F627204005B1552 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6452F624B60005B1552 /* NIOSSL */; };
 		DCA9C5BC2F627204005B1552 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6462F624B60005B1552 /* NIOWebSocket */; };
 		DCA9D00D2F700001005B1552 /* RockxyHelperTool in Embed Helper Tool */ = {isa = PBXBuildFile; fileRef = DCA9D0012F700000005B1552 /* RockxyHelperTool */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
-		DCA9D00F2F700001005B1552 /* com.amunx.Rockxy.HelperTool.plist in Copy LaunchDaemon Plist */ = {isa = PBXBuildFile; fileRef = DCA9D00E2F700001005B1552 /* com.amunx.Rockxy.HelperTool.plist */; };
+		DCA9D00F2F700001005B1552 /* com.amunx.rockxy.helper.plist in Copy LaunchDaemon Plist */ = {isa = PBXBuildFile; fileRef = DCA9D00E2F700001005B1552 /* com.amunx.rockxy.helper.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -63,7 +63,7 @@
 			dstPath = Contents/Library/LaunchDaemons;
 			dstSubfolderSpec = 1;
 			files = (
-				DCA9D00F2F700001005B1552 /* com.amunx.Rockxy.HelperTool.plist in Copy LaunchDaemon Plist */,
+				DCA9D00F2F700001005B1552 /* com.amunx.rockxy.helper.plist in Copy LaunchDaemon Plist */,
 			);
 			name = "Copy LaunchDaemon Plist";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -75,7 +75,7 @@
 		DCA99FCA2F61ADCC005B1552 /* RockxyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA99FD42F61ADCC005B1552 /* RockxyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA9D0012F700000005B1552 /* RockxyHelperTool */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RockxyHelperTool; sourceTree = BUILT_PRODUCTS_DIR; };
-		DCA9D00E2F700001005B1552 /* com.amunx.Rockxy.HelperTool.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = com.amunx.Rockxy.HelperTool.plist; path = RockxyHelperTool/com.amunx.Rockxy.HelperTool.plist; sourceTree = SOURCE_ROOT; };
+		DCA9D00E2F700001005B1552 /* com.amunx.rockxy.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = com.amunx.rockxy.helper.plist; path = RockxyHelperTool/com.amunx.rockxy.helper.plist; sourceTree = SOURCE_ROOT; };
 		DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Developer.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -152,7 +152,7 @@
 		DC10A2572F67871C00006676 /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
-				DCA9D00E2F700001005B1552 /* com.amunx.Rockxy.HelperTool.plist */,
+				DCA9D00E2F700001005B1552 /* com.amunx.rockxy.helper.plist */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -309,7 +309,6 @@
 					};
 					DCA99FD32F61ADCC005B1552 = {
 						CreatedOnToolsVersion = 26.2;
-						TestTargetID = DCA99FBA2F61ADC9005B1552;
 					};
 					DCA9D0052F700000005B1552 = {
 						CreatedOnToolsVersion = 26.2;

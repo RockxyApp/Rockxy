@@ -4,7 +4,7 @@ import SwiftASN1
 import X509
 
 /// Generates a self-signed root Certificate Authority using P-256 ECDSA.
-/// The root CA is valid for 10 years and is used to sign per-host leaf certificates
+/// The root CA is valid for 2 years and is used to sign per-host leaf certificates
 /// for HTTPS interception. Users must trust this CA in their system keychain for
 /// TLS interception to work without browser warnings.
 nonisolated enum RootCAGenerator {
@@ -17,7 +17,7 @@ nonisolated enum RootCAGenerator {
 
         let now = Date()
         guard let twoDaysAgo = Calendar.current.date(byAdding: .day, value: -2, to: now),
-              let tenYearsLater = Calendar.current.date(byAdding: .year, value: 10, to: now) else
+              let twoYearsLater = Calendar.current.date(byAdding: .year, value: 2, to: now) else
         {
             throw CertificateGenerationError.invalidDateComputation
         }
@@ -41,7 +41,7 @@ nonisolated enum RootCAGenerator {
             serialNumber: Certificate.SerialNumber(),
             publicKey: .init(privateKey.publicKey),
             notValidBefore: twoDaysAgo,
-            notValidAfter: tenYearsLater,
+            notValidAfter: twoYearsLater,
             issuer: subjectName,
             subject: subjectName,
             signatureAlgorithm: .ecdsaWithSHA256,

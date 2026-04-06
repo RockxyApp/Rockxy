@@ -111,7 +111,7 @@ enum ProcessLogSource {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ProcessLogSource")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProcessLogSource")
 
     private static let bearerRegex = try? NSRegularExpression(pattern: #"(?i)Bearer\s+\S+"#)
     private static let passwordRegex = try? NSRegularExpression(pattern: #"(?i)password\s*(?:=|:)\s*\S+"#)

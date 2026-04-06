@@ -206,15 +206,90 @@ struct HeaderColumnStoreTests {
         #expect(store2.isBuiltInColumnVisible("url"))
     }
 
+    // MARK: - Incremental Discovery
+
+    @Test("Incremental discovery from batch discovers new headers")
+    func incrementalDiscovery() {
+        let store = makeCleanStore()
+        let batch = [TestFixtures.makeTransaction()]
+        store.updateDiscoveredHeaders(fromBatch: batch)
+        #expect(!store.discoveredRequestHeaders.isEmpty)
+        #expect(!store.discoveredResponseHeaders.isEmpty)
+        #expect(store.discoveredRequestHeaders.contains("Content-Type"))
+    }
+
+    @Test("Late-arriving headers in second batch are discovered")
+    func lateArrivingHeaders() throws {
+        let store = makeCleanStore()
+        let firstBatch = [TestFixtures.makeTransaction()]
+        store.updateDiscoveredHeaders(fromBatch: firstBatch)
+
+        let customTransaction = TestFixtures.makeTransaction()
+        customTransaction.request = try HTTPRequestData(
+            method: "GET",
+            url: #require(URL(string: "https://example.com/test")),
+            httpVersion: "HTTP/1.1",
+            headers: [
+                HTTPHeader(name: "Content-Type", value: "application/json"),
+                HTTPHeader(name: "X-Custom-Late", value: "value"),
+            ],
+            body: nil,
+            contentType: .json
+        )
+        let secondBatch = [customTransaction]
+        store.updateDiscoveredHeaders(fromBatch: secondBatch)
+
+        #expect(store.discoveredRequestHeaders.contains("X-Custom-Late"))
+    }
+
+    @Test("Incremental discovery does not lose previously discovered headers")
+    func incrementalPreserves() {
+        let store = makeCleanStore()
+        let firstBatch = [TestFixtures.makeTransaction()]
+        store.updateDiscoveredHeaders(fromBatch: firstBatch)
+        let firstCount = store.discoveredRequestHeaders.count
+
+        let emptyBatch: [HTTPTransaction] = []
+        store.updateDiscoveredHeaders(fromBatch: emptyBatch)
+
+        #expect(store.discoveredRequestHeaders.count == firstCount)
+    }
+
+    @Test("Full-scan discovery followed by incremental preserves all headers")
+    func fullScanThenIncrementalPreserves() throws {
+        let store = makeCleanStore()
+        let transactions = [TestFixtures.makeTransaction()]
+        store.updateDiscoveredHeaders(from: transactions)
+        let afterFullScan = store.discoveredRequestHeaders
+
+        let customTransaction = TestFixtures.makeTransaction()
+        customTransaction.request = try HTTPRequestData(
+            method: "GET",
+            url: #require(URL(string: "https://example.com/test")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "X-New-Header", value: "value")],
+            body: nil,
+            contentType: nil
+        )
+        store.updateDiscoveredHeaders(fromBatch: [customTransaction])
+
+        // Full-scan headers must still be present after incremental batch
+        for header in afterFullScan {
+            #expect(store.discoveredRequestHeaders.contains(header))
+        }
+        // New header from batch must also be present
+        #expect(store.discoveredRequestHeaders.contains("X-New-Header"))
+    }
+
     // MARK: Private
 
     // MARK: - Helpers
 
     private func makeCleanStore() -> HeaderColumnStore {
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.headerColumns")
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.discoveredReqHeaders")
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.discoveredResHeaders")
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.hiddenBuiltInColumns")
+        UserDefaults.standard.removeObject(forKey: TestIdentity.headerColumnStorageKey)
+        UserDefaults.standard.removeObject(forKey: TestIdentity.discoveredRequestHeadersKey)
+        UserDefaults.standard.removeObject(forKey: TestIdentity.discoveredResponseHeadersKey)
+        UserDefaults.standard.removeObject(forKey: TestIdentity.hiddenBuiltInColumnsKey)
         return HeaderColumnStore()
     }
 }

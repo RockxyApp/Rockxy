@@ -14,7 +14,7 @@ import os
 final class MainContentCoordinator {
     // MARK: Internal
 
-    static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "MainContentCoordinator")
+    static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MainContentCoordinator")
 
     // MARK: - Engine References
 
@@ -36,15 +36,21 @@ final class MainContentCoordinator {
 
     var selectedTransactionIDs: Set<UUID> = []
 
+    // MARK: - Sequence Numbering (request-list ordering metadata)
+
+    var nextSequenceNumber: Int = 0
+
     // MARK: - UI State — Traffic
 
     var transactions: [HTTPTransaction] = []
     var persistedFavorites: [HTTPTransaction] = []
     var isProxyRunning = false
+    var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
     var isRecording = true
     var proxyError: String?
     var isSystemProxyConfigured = false
-    var systemProxyWarning: SystemProxyWarning?
+
+    let readiness = ReadinessCoordinator.shared
 
     // MARK: - UI State — Logs
 
@@ -62,8 +68,6 @@ final class MainContentCoordinator {
     var isProxyOverridden = false
     var isAutoSelectEnabled = true
     var evictionObserver: NSObjectProtocol?
-    var tlsRejectionObserver: NSObjectProtocol?
-    var tlsRejectionHosts: Set<String> = []
 
     // MARK: - UI State — Engine Status
 
@@ -92,6 +96,19 @@ final class MainContentCoordinator {
     var exportScopeContext: ExportScopeContext?
     var sessionProvenance: SessionProvenance?
     var activeToast: ToastMessage?
+
+    var systemProxyWarning: SystemProxyWarning? {
+        guard let warning = readiness.activeWarning else {
+            return nil
+        }
+        let action: SystemProxyWarning.Action? = switch warning.action {
+        case .retry: .retry
+        case .openGeneralSettings: .openGeneralSettings
+        case .openAdvancedProxySettings: .openAdvancedProxySettings
+        case nil: nil
+        }
+        return SystemProxyWarning(message: warning.message, action: action, isDismissible: warning.isDismissible)
+    }
 
     var activeWorkspace: WorkspaceState {
         workspaceStore.activeWorkspace
@@ -169,6 +186,21 @@ final class MainContentCoordinator {
         set { activeWorkspace.appNodeIndexMap = newValue }
     }
 
+    // MARK: - Table-Facing Derived State (read-only forwarding)
+
+    var filteredRows: [RequestListRow] {
+        activeWorkspace.filteredRows
+    }
+
+    var activeSortDescriptors: [NSSortDescriptor] {
+        get { activeWorkspace.activeSortDescriptors }
+        set { activeWorkspace.activeSortDescriptors = newValue }
+    }
+
+    var refreshToken: Int {
+        activeWorkspace.refreshToken
+    }
+
     // MARK: - Sidebar Favorites (live + persisted, deduplicated)
 
     var allPinnedTransactions: [HTTPTransaction] {
@@ -183,6 +215,15 @@ final class MainContentCoordinator {
         let persisted = persistedFavorites.filter(\.isSaved)
         let liveIds = Set(live.map(\.id))
         return live + persisted.filter { !liveIds.contains($0.id) }
+    }
+
+    // MARK: - Transaction Lookup (migration seam — O(n), next issue replaces with indexed/store lookup)
+
+    func transaction(for id: UUID) -> HTTPTransaction? {
+        if let live = transactions.first(where: { $0.id == id }) {
+            return live
+        }
+        return persistedFavorites.first(where: { $0.id == id })
     }
 
     func setupRulesObserver() {
@@ -226,6 +267,13 @@ final class MainContentCoordinator {
                 do {
                     let persisted = try await store.loadPinnedAndSavedTransactions()
                     self.persistedFavorites = persisted
+                    // Assign deterministic sequence numbers starting from current counter
+                    // to avoid collisions with live rows assigned while the load suspended
+                    let base = self.nextSequenceNumber
+                    for (index, transaction) in persisted.enumerated() {
+                        transaction.sequenceNumber = base + index
+                    }
+                    self.nextSequenceNumber = base + persisted.count
                 } catch {
                     Self.logger.error("Failed to load persisted favorites: \(error.localizedDescription)")
                 }
@@ -245,6 +293,7 @@ final class MainContentCoordinator {
 struct SystemProxyWarning {
     enum Action {
         case retry
+        case openGeneralSettings
         case openAdvancedProxySettings
 
         // MARK: Internal
@@ -253,6 +302,8 @@ struct SystemProxyWarning {
             switch self {
             case .retry:
                 String(localized: "Retry")
+            case .openGeneralSettings:
+                String(localized: "Open Certificate Settings")
             case .openAdvancedProxySettings:
                 String(localized: "Open Advanced Proxy Settings")
             }

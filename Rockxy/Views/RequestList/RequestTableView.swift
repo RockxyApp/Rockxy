@@ -13,7 +13,9 @@ import SwiftUI
 struct RequestTableView: NSViewRepresentable {
     // MARK: Internal
 
-    let transactions: [HTTPTransaction]
+    let rows: [RequestListRow]
+    let refreshToken: Int
+    let isAppendOnly: Bool
     @Binding var selectedIDs: Set<UUID>
 
     var onSelectionChanged: ((Set<UUID>) -> Void)?
@@ -30,6 +32,7 @@ struct RequestTableView: NSViewRepresentable {
         tableView.style = .plain
         tableView.usesAlternatingRowBackgroundColors = true
         tableView.allowsMultipleSelection = true
+        tableView.allowsColumnReordering = true
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.intercellSpacing = NSSize(width: 4, height: 0)
         tableView.rowHeight = 28
@@ -73,6 +76,20 @@ struct RequestTableView: NSViewRepresentable {
         headerMenu.delegate = context.coordinator
         tableView.headerView?.menu = headerMenu
 
+        // Column state persistence: AppKit owns width and order, HeaderColumnStore owns visibility
+        tableView.autosaveName = RockxyIdentity.current.defaultsKey("requestTable")
+        tableView.autosaveTableColumns = true
+
+        // Re-apply HeaderColumnStore visibility after AppKit restores autosaved state
+        if let store = mainCoordinator?.headerColumnStore {
+            for column in tableView.tableColumns {
+                let colID = column.identifier.rawValue
+                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                    column.isHidden = !store.isBuiltInColumnVisible(colID)
+                }
+            }
+        }
+
         scrollView.documentView = tableView
         scrollView.autoresizingMask = [.width, .height]
         tableView.sizeLastColumnToFit()
@@ -87,23 +104,30 @@ struct RequestTableView: NSViewRepresentable {
         }
 
         let coordinator = context.coordinator
-        let oldCount = coordinator.transactions.count
-        let newCount = transactions.count
+        let oldToken = coordinator.lastRefreshToken
+        let newToken = refreshToken
 
         coordinator.parent = self
-        coordinator.transactions = transactions
+        coordinator.rows = rows
         coordinator.mainCoordinator = mainCoordinator
+        coordinator.lastRefreshToken = newToken
 
-        if newCount > oldCount, oldCount > 0 {
-            // Transactions are append-only during normal capture — insert new rows only
-            let newIndexes = IndexSet(integersIn: oldCount ..< newCount)
-            tableView.insertRows(at: newIndexes, withAnimation: [])
-        } else if newCount != oldCount {
-            // Session cleared or first load
-            tableView.reloadData()
+        if newToken != oldToken {
+            let newCount = rows.count
+            if isAppendOnly,
+               newCount > coordinator.previousRowCount,
+               coordinator.previousRowCount > 0
+            {
+                // Append-only fast path: coordinator confirmed rows were only appended
+                let newIndexes = IndexSet(integersIn: coordinator.previousRowCount ..< newCount)
+                tableView.insertRows(at: newIndexes, withAnimation: [])
+            } else {
+                tableView.reloadData()
+            }
+            coordinator.previousRowCount = newCount
         }
 
-        if !coordinator.hasAutoSizedColumns, newCount > 10 {
+        if !coordinator.hasAutoSizedColumns, rows.count > 10 {
             coordinator.hasAutoSizedColumns = true
             DispatchQueue.main.async {
                 for (index, column) in tableView.tableColumns.enumerated() {
@@ -118,6 +142,22 @@ struct RequestTableView: NSViewRepresentable {
 
         coordinator.syncHeaderColumns(in: tableView)
         coordinator.syncSelection(to: selectedIDs, in: tableView)
+
+        // Re-apply HeaderColumnStore visibility on every update (single source of truth)
+        if let store = mainCoordinator?.headerColumnStore {
+            for column in tableView.tableColumns {
+                let colID = column.identifier.rawValue
+                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                    column.isHidden = !store.isBuiltInColumnVisible(colID)
+                }
+            }
+        }
+
+        // Sync per-workspace sort state into AppKit (e.g., after workspace switch)
+        coordinator.syncSortDescriptors(
+            from: mainCoordinator?.activeSortDescriptors ?? [],
+            into: tableView
+        )
     }
 
     func makeCoordinator() -> Coordinator {
@@ -189,33 +229,48 @@ extension RequestTableView {
 
         init(parent: RequestTableView) {
             self.parent = parent
-            self.transactions = parent.transactions
+            self.rows = parent.rows
             self.mainCoordinator = parent.mainCoordinator
         }
 
         // MARK: Internal
 
         var parent: RequestTableView
-        var transactions: [HTTPTransaction]
+        var rows: [RequestListRow]
         var mainCoordinator: MainContentCoordinator?
         weak var tableView: NSTableView?
         var hasAutoSizedColumns = false
         var lastClickedColumn: String?
+        var lastRefreshToken: Int = 0
+        var previousRowCount: Int = 0
 
         /// Guard flag to prevent feedback loops: when we programmatically update NSTableView
         /// selection from SwiftUI state, we suppress the delegate callback that would
         /// re-propagate the change back to SwiftUI.
         private(set) var isUpdatingSelection = false
 
+        /// Guard flag to prevent feedback loops when syncing sort descriptors from
+        /// coordinator state back into NSTableView.
+        private(set) var isUpdatingSortDescriptors = false
+
         // MARK: - NSTableViewDataSource
 
         func numberOfRows(in tableView: NSTableView) -> Int {
-            transactions.count
+            rows.count
         }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-            // Sorting is managed externally via the coordinator's filter/sort.
-            // This hook is available for future column-sort integration.
+            guard !isUpdatingSortDescriptors else {
+                return
+            }
+            MainActor.assumeIsolated {
+                guard let coordinator = mainCoordinator else {
+                    return
+                }
+                coordinator.activeSortDescriptors = tableView.sortDescriptors
+                coordinator.activeWorkspace.lastDeriveWasAppendOnly = false
+                coordinator.deriveFilteredRows()
+            }
         }
 
         // MARK: - NSTableViewDelegate
@@ -227,21 +282,21 @@ extension RequestTableView {
         )
             -> NSView?
         {
-            guard row < transactions.count,
+            guard row < rows.count,
                   let columnID = tableColumn?.identifier.rawValue else
             {
                 return nil
             }
 
-            let transaction = transactions[row]
+            let rowData = rows[row]
 
             if columnID == "status" {
-                return makeStatusDotView(transaction: transaction, in: tableView)
+                return makeStatusDotView(row: rowData, in: tableView)
             }
 
             if columnID == "client" {
                 let clientCellID = NSUserInterfaceItemIdentifier("Cell_client")
-                let appName = transaction.clientApp ?? ""
+                let appName = rowData.clientApp ?? ""
                 return makeClientCellView(
                     appName: appName,
                     identifier: clientCellID,
@@ -257,18 +312,18 @@ extension RequestTableView {
             }
 
             if let textField = cell.subviews.first as? NSTextField {
-                configureCellContent(textField, column: columnID, row: row, transaction: transaction)
+                configureCellContent(textField, column: columnID, row: row, rowData: rowData)
             }
 
             return cell
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            guard row < transactions.count else {
+            guard row < rows.count else {
                 return nil
             }
-            let transaction = transactions[row]
-            guard let color = transaction.highlightColor else {
+            let rowData = rows[row]
+            guard let color = rowData.highlightColor else {
                 return nil
             }
             let rowView = NSTableRowView()
@@ -286,8 +341,8 @@ extension RequestTableView {
 
             let selected = tableView.selectedRowIndexes
             var ids = Set<UUID>()
-            for index in selected where index < transactions.count {
-                ids.insert(transactions[index].id)
+            for index in selected where index < rows.count {
+                ids.insert(rows[index].id)
             }
 
             parent.selectedIDs = ids
@@ -307,43 +362,49 @@ extension RequestTableView {
             var maxWidth = tableColumn.headerCell.cellSize.width + 8
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             let start = max(0, visibleRange.location)
-            let end = min(transactions.count, visibleRange.location + visibleRange.length)
+            let end = min(rows.count, visibleRange.location + visibleRange.length)
 
-            for row in start ..< end {
-                let transaction = transactions[row]
+            for rowIdx in start ..< end {
+                let rowData = rows[rowIdx]
                 let text: String
                 let font: NSFont
 
                 switch columnID {
                 case "url":
-                    text = transaction.request.host + transaction.request.path
+                    text = rowData.host + rowData.path
                     font = .monospacedSystemFont(ofSize: 12, weight: .regular)
                 case "client":
-                    text = transaction.clientApp ?? ""
+                    text = rowData.clientApp ?? ""
                     font = .systemFont(ofSize: 12)
                 case "method":
-                    text = transaction.request.method
+                    text = rowData.method
                     font = .systemFont(ofSize: 12, weight: .semibold)
                 case "code":
-                    text = transaction.response.map { "\($0.statusCode)" } ?? ""
+                    text = rowData.statusCode.map { "\($0)" } ?? ""
                     font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
                 case "time":
-                    text = RequestTableView.timeFormatter.string(from: transaction.timestamp)
+                    text = RequestTableView.timeFormatter.string(from: rowData.timestamp)
                     font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 case "duration":
-                    text = transaction.timingInfo.map {
-                        DurationFormatter.format(seconds: $0.totalDuration)
+                    text = rowData.totalDuration.map {
+                        DurationFormatter.format(seconds: $0)
                     } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 case "size":
-                    text = transaction.response?.body.map { SizeFormatter.format(bytes: $0.count) } ?? "—"
+                    text = rowData.responseBodySize.map { SizeFormatter.format(bytes: $0) } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 case "queryName":
-                    text = transaction.graphQLInfo?.operationName ?? ""
+                    // Unified display: WS rows show frame count, others show GraphQL op name
+                    if rowData.isWebSocket {
+                        let count = rowData.webSocketFrameCount
+                        text = "\(count) \(count == 1 ? "frame" : "frames")"
+                    } else {
+                        text = rowData.graphQLOpName ?? ""
+                    }
                     font = .systemFont(ofSize: 12)
                 default:
                     if columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.") {
-                        text = HeaderColumnStore.resolveValue(for: columnID, transaction: transaction)
+                        text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
                         font = .monospacedSystemFont(ofSize: 11, weight: .regular)
                     } else {
                         text = ""
@@ -363,10 +424,15 @@ extension RequestTableView {
         @objc
         func handleDoubleClick(_ sender: NSTableView) {
             let row = sender.clickedRow
-            guard row >= 0, row < transactions.count else {
+            guard row >= 0, row < rows.count else {
                 return
             }
-            parent.onDoubleClick?(transactions[row])
+            MainActor.assumeIsolated {
+                guard let transaction = mainCoordinator?.transaction(for: rows[row].id) else {
+                    return
+                }
+                parent.onDoubleClick?(transaction)
+            }
         }
 
         // MARK: - NSMenuDelegate
@@ -381,12 +447,15 @@ extension RequestTableView {
 
             guard let tableView,
                   tableView.clickedRow >= 0,
-                  tableView.clickedRow < transactions.count else
+                  tableView.clickedRow < rows.count else
             {
                 return
             }
 
-            let transaction = transactions[tableView.clickedRow]
+            let rowData = rows[tableView.clickedRow]
+            guard let transaction = mainCoordinator?.transaction(for: rowData.id) else {
+                return
+            }
             let clickedCol = tableView.clickedColumn >= 0
                 ? tableView.tableColumns[tableView.clickedColumn].identifier.rawValue
                 : "url"
@@ -584,9 +653,15 @@ extension RequestTableView {
                 return
             }
             let sorted = selected.sorted()
-            let a = transactions[sorted[0]]
-            let b = transactions[sorted[1]]
+            guard sorted[0] < rows.count, sorted[1] < rows.count else {
+                return
+            }
             MainActor.assumeIsolated {
+                guard let a = coordinator.transaction(for: rows[sorted[0]].id),
+                      let b = coordinator.transaction(for: rows[sorted[1]].id) else
+                {
+                    return
+                }
                 coordinator.compareTransactions(a, b)
             }
         }
@@ -594,7 +669,7 @@ extension RequestTableView {
         func syncSelection(to ids: Set<UUID>, in tableView: NSTableView) {
             let currentSelected = tableView.selectedRowIndexes
             var desired = IndexSet()
-            for (index, transaction) in transactions.enumerated() where ids.contains(transaction.id) {
+            for (index, rowData) in rows.enumerated() where ids.contains(rowData.id) {
                 desired.insert(index)
             }
 
@@ -644,6 +719,15 @@ extension RequestTableView {
             }
         }
 
+        func syncSortDescriptors(from descriptors: [NSSortDescriptor], into tableView: NSTableView) {
+            guard tableView.sortDescriptors != descriptors else {
+                return
+            }
+            isUpdatingSortDescriptors = true
+            tableView.sortDescriptors = descriptors
+            isUpdatingSortDescriptors = false
+        }
+
         @objc
         func handleToggleHeaderColumn(_ sender: NSMenuItem) {
             guard let id = sender.representedObject as? UUID else {
@@ -671,7 +755,7 @@ extension RequestTableView {
         @objc
         func handleOpenColumnManager(_ sender: NSMenuItem) {
             NotificationCenter.default.post(
-                name: NSNotification.Name("com.amunx.Rockxy.openCustomColumnsWindow"),
+                name: RockxyIdentity.current.notificationName("openCustomColumnsWindow"),
                 object: nil
             )
         }
@@ -696,7 +780,7 @@ extension RequestTableView {
         // MARK: Private
 
         private static let logger = Logger(
-            subsystem: "com.amunx.Rockxy",
+            subsystem: RockxyIdentity.current.logSubsystem,
             category: "RequestTableView"
         )
 
@@ -1204,7 +1288,7 @@ extension RequestTableView {
         // MARK: - Status Dot
 
         private func makeStatusDotView(
-            transaction: HTTPTransaction,
+            row: RequestListRow,
             in tableView: NSTableView
         )
             -> NSView
@@ -1216,7 +1300,7 @@ extension RequestTableView {
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
                let imageView = existing.subviews.first as? NSImageView
             {
-                imageView.contentTintColor = statusDotColor(for: transaction)
+                imageView.contentTintColor = statusDotColor(for: row)
                 return existing
             }
 
@@ -1233,18 +1317,18 @@ extension RequestTableView {
             if let image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
                 imageView.image = image
             }
-            imageView.contentTintColor = statusDotColor(for: transaction)
+            imageView.contentTintColor = statusDotColor(for: row)
             container.addSubview(imageView)
             return container
         }
 
-        private func statusDotColor(for transaction: HTTPTransaction) -> NSColor {
-            switch transaction.state {
+        private func statusDotColor(for row: RequestListRow) -> NSColor {
+            switch row.state {
             case .pending,
                  .active:
                 return .systemYellow
             case .completed:
-                guard let code = transaction.response?.statusCode else {
+                guard let code = row.statusCode else {
                     return .systemGreen
                 }
                 switch code {
@@ -1417,7 +1501,7 @@ extension RequestTableView {
             _ cell: NSTextField,
             column: String,
             row: Int,
-            transaction: HTTPTransaction
+            rowData: RequestListRow
         ) {
             cell.stringValue = ""
             cell.textColor = .labelColor
@@ -1426,21 +1510,19 @@ extension RequestTableView {
 
             switch column {
             case "row":
-                cell.stringValue = "\(row + 1)"
+                cell.stringValue = "\(rowData.sequenceNumber)"
                 cell.alignment = .right
                 cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "url":
-                let host = transaction.request.host
-                let path = transaction.request.path
-                cell.stringValue = host + path
+                cell.stringValue = rowData.host + rowData.path
                 cell.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
                 cell.textColor = .labelColor
 
             case "method":
                 cell.alignment = .center
-                let method = transaction.request.method
+                let method = rowData.method
                 let color = methodColor(for: method)
                 cell.attributedStringValue = NSAttributedString(
                     string: method,
@@ -1452,8 +1534,7 @@ extension RequestTableView {
 
             case "code":
                 cell.alignment = .center
-                if let response = transaction.response {
-                    let code = response.statusCode
+                if let code = rowData.statusCode {
                     let color = statusCodeColor(for: code)
                     cell.attributedStringValue = NSAttributedString(
                         string: "\(code)",
@@ -1463,20 +1544,20 @@ extension RequestTableView {
                         ]
                     )
                 } else {
-                    cell.stringValue = stateLabel(for: transaction.state)
+                    cell.stringValue = stateLabel(for: rowData.state)
                     cell.textColor = .tertiaryLabelColor
                     cell.font = .systemFont(ofSize: 11)
                 }
 
             case "time":
-                cell.stringValue = RequestTableView.timeFormatter.string(from: transaction.timestamp)
+                cell.stringValue = RequestTableView.timeFormatter.string(from: rowData.timestamp)
                 cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "duration":
                 cell.alignment = .right
-                if let timing = transaction.timingInfo {
-                    cell.stringValue = DurationFormatter.format(seconds: timing.totalDuration)
+                if let duration = rowData.totalDuration {
+                    cell.stringValue = DurationFormatter.format(seconds: duration)
                 } else {
                     cell.stringValue = "—"
                 }
@@ -1485,8 +1566,8 @@ extension RequestTableView {
 
             case "size":
                 cell.alignment = .right
-                if let body = transaction.response?.body {
-                    cell.stringValue = SizeFormatter.format(bytes: body.count)
+                if let bodySize = rowData.responseBodySize {
+                    cell.stringValue = SizeFormatter.format(bytes: bodySize)
                 } else {
                     cell.stringValue = "—"
                 }
@@ -1494,18 +1575,18 @@ extension RequestTableView {
                 cell.textColor = .secondaryLabelColor
 
             case "queryName":
-                if let ws = transaction.webSocketConnection {
-                    let count = ws.frameCount
+                if rowData.isWebSocket {
+                    let count = rowData.webSocketFrameCount
                     cell.stringValue = "\(count) \(count == 1 ? "frame" : "frames")"
                     cell.textColor = .tertiaryLabelColor
                 } else {
-                    cell.stringValue = transaction.graphQLInfo?.operationName ?? ""
+                    cell.stringValue = rowData.graphQLOpName ?? ""
                     cell.textColor = .secondaryLabelColor
                 }
 
             default:
                 if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
-                    cell.stringValue = HeaderColumnStore.resolveValue(for: column, transaction: transaction)
+                    cell.stringValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
                     cell.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
                     cell.textColor = .secondaryLabelColor
                 } else {

@@ -20,9 +20,19 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>RockxyHelperProtocolVersion</key>
 	<string>$(ROCKXY_HELPER_PROTOCOL_VERSION)</string>
+	<key>RockxyFamilyNamespace</key>
+	<string>$(ROCKXY_FAMILY_NAMESPACE)</string>
+	<key>RockxyHelperBundleIdentifier</key>
+	<string>$(ROCKXY_HELPER_BUNDLE_ID)</string>
 	<key>RockxyHelperMachServiceName</key>
 	<string>$(ROCKXY_HELPER_MACH_SERVICE_NAME)</string>
 	<key>RockxyAllowedCallerIdentifiers</key>
 	<string>$(ROCKXY_ALLOWED_CALLER_IDENTIFIERS)</string>
+	<key>RockxyLogSubsystem</key>
+	<string>$(ROCKXY_HELPER_BUNDLE_ID)</string>
+	<key>RockxySharedSupportDirectoryName</key>
+	<string>$(ROCKXY_SHARED_SUPPORT_DIRECTORY_NAME)</string>
+	<key>RockxySharedCertificateLabelPrefix</key>
+	<string>$(ROCKXY_SHARED_CERTIFICATE_LABEL_PREFIX)</string>
 </dict>
 </plist>

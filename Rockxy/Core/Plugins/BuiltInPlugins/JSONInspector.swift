@@ -22,7 +22,7 @@ struct JSONInspector: InspectorPlugin {
     // MARK: Private
 
     private static let logger = Logger(
-        subsystem: "com.amunx.Rockxy",
+        subsystem: RockxyIdentity.current.logSubsystem,
         category: "JSONInspector"
     )
 }

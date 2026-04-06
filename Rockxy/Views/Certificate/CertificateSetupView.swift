@@ -61,24 +61,22 @@ struct CertificateSetupView: View {
         .task {
             await checkCAStatus()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-        ) { _ in
+        .onChange(of: ReadinessCoordinator.shared.certReadiness) {
             Task { await checkCAStatus() }
         }
     }
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "CertificateSetupView")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "CertificateSetupView")
 
     @State private var certSnapshot: RootCAStatusSnapshot?
     @State private var certLoading = false
     @State private var statusMessage = ""
     @State private var showResetConfirmation = false
 
-    private func checkCAStatus() async {
-        certSnapshot = await CertificateManager.shared.rootCAStatusSnapshot()
+    private func checkCAStatus(performValidation: Bool = false) async {
+        certSnapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: performValidation)
     }
 
     private func handleCertAction(_ action: CertificateAction) {
@@ -118,7 +116,8 @@ struct CertificateSetupView: View {
                     return
 
                 case .recheck:
-                    break
+                    await checkCAStatus(performValidation: true)
+                    return
                 }
                 await checkCAStatus()
             } catch {

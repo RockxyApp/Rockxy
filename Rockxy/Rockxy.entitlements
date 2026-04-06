@@ -10,7 +10,7 @@
     <true/>
     <key>com.apple.security.keychain-access-groups</key>
     <array>
-        <string>$(AppIdentifierPrefix)com.amunx.Rockxy</string>
+        <string>$(AppIdentifierPrefix)$(ROCKXY_KEYCHAIN_ACCESS_GROUP)</string>
     </array>
 </dict>
 </plist>

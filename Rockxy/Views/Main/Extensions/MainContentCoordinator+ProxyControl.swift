@@ -14,27 +14,28 @@ extension MainContentCoordinator {
 
     func startProxy() {
         proxyError = nil
-        systemProxyWarning = nil
 
         Task {
+            let settings = AppSettingsStorage.load()
             do {
-                let settings = AppSettingsStorage.load()
-
                 try await certificateManager.ensureRootCA()
                 Self.logger.info("Root CA ready")
 
                 await certificateManager.validateCertificateChain()
 
-                let isTrusted = await certificateManager.isRootCATrustValidated()
-                SSLProxyingManager.shared.forceGlobalPassthrough = !isTrusted
-                if !isTrusted {
+                // Evaluate certificate trust via the readiness layer.
+                // Only new HTTPS connections are affected — existing TLS sessions
+                // are not re-intercepted after trust changes.
+                await readiness.refresh()
+                SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS
+                if !readiness.canInterceptHTTPS {
                     Self.logger.warning(
                         "Root CA is not trusted (real SecTrust validation) — all HTTPS passes through"
                     )
-                    NotificationCenter.default.post(name: .rootCANotTrusted, object: nil)
                 } else {
                     if await certificateManager.rootCAFreshlyInstalled {
                         SSLProxyingManager.shared.clearAutoPassthrough()
+                        await certificateManager.clearFreshlyInstalledFlag()
                     }
                 }
 
@@ -44,7 +45,22 @@ extension MainContentCoordinator {
                 }
                 Self.logger.info("Rules loaded")
 
-                await configureProxy()
+                let resolution = try ProxyPortResolver.resolve(
+                    preferred: settings.proxyPort,
+                    address: settings.effectiveListenAddress,
+                    autoSelect: settings.autoSelectPort,
+                    listenIPv6: settings.listenIPv6
+                )
+                let resolvedPort = resolution.port
+                self.activeProxyPort = resolvedPort
+
+                if resolution.isFallback {
+                    Self.logger.info(
+                        "Preferred port \(settings.proxyPort) occupied, using fallback port \(resolvedPort)"
+                    )
+                }
+
+                await configureProxy(port: resolvedPort)
 
                 try await proxyServer.start()
                 isProxyRunning = true
@@ -60,97 +76,32 @@ extension MainContentCoordinator {
                     guard let self else {
                         return
                     }
-                    let count = notification.userInfo?["count"] as? Int ?? 5000
+                    let count = notification.userInfo?["count"] as? Int ?? Int(5e3)
                     self.evictOldestTransactions(count: count)
                 }
 
-                tlsRejectionHosts = []
-                tlsRejectionObserver = NotificationCenter.default.addObserver(
-                    forName: .tlsMitmRejected,
-                    object: nil,
-                    queue: .main
-                ) { [weak self] notification in
-                    guard let self, let host = notification.userInfo?["host"] as? String else {
-                        return
-                    }
-                    self.tlsRejectionHosts.insert(host)
-                    if self.tlsRejectionHosts.count == 3 {
-                        let isFresh = Task { await self.certificateManager.rootCAFreshlyInstalled }
-                        Task { @MainActor in
-                            let fresh = await isFresh.value
-                            if fresh {
-                                self.systemProxyWarning = .init(
-                                    message: String(
-                                        localized: "Multiple HTTPS hosts rejected the proxy certificate. Restart your browser to trust the new Rockxy Root CA."
-                                    ),
-                                    action: nil,
-                                    isDismissible: true
-                                )
-                            } else {
-                                self.systemProxyWarning = .init(
-                                    message: String(
-                                        localized: """
-                                        Multiple HTTPS hosts rejected the proxy certificate. \
-                                        Check that the Rockxy Root CA is trusted in Keychain Access, then restart your browser.
-                                        """
-                                    ),
-                                    action: nil,
-                                    isDismissible: true
-                                )
-                            }
-                        }
-                    }
-                }
-
-                let helperStatus = await HelperManager.shared.status
-                Self.logger.info("Helper status at proxy start: \(String(describing: helperStatus))")
+                readiness.startObserving()
+                readiness.setCaptureActive(true)
 
                 Self.logger.info("Configuring system proxy...")
-                var vpnObserver: NSObjectProtocol?
-                vpnObserver = NotificationCenter.default.addObserver(
-                    forName: .systemProxyVPNWarning,
-                    object: nil,
-                    queue: .main
-                ) { [weak self] notification in
-                    let iface = notification.userInfo?["interface"] as? String ?? "unknown"
-                    self?.systemProxyWarning = .init(
-                        message: String(
-                            localized: "VPN or iCloud Private Relay detected (\(iface)). Traffic may not be captured. Disable VPN/Private Relay to use Rockxy."
-                        ),
-                        action: nil,
-                        isDismissible: true
-                    )
-                }
                 do {
-                    try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+                    try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
                     isSystemProxyConfigured = true
-                    Self.logger.info("System proxy enabled on port \(settings.proxyPort)")
+                    Self.logger.info("System proxy enabled on port \(resolvedPort)")
                 } catch {
                     isSystemProxyConfigured = false
-                    systemProxyWarning = .init(
-                        message: error.localizedDescription,
-                        action: .retry,
-                        isDismissible: true
-                    )
+                    readiness.setProxyEnableFailed(message: error.localizedDescription)
                     Self.logger.warning(
-                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(settings.proxyPort)"
+                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(resolvedPort)"
                     )
-                }
-
-                if let vpnObserver {
-                    NotificationCenter.default.removeObserver(vpnObserver)
-                }
-
-                let postProxyHelperStatus = await HelperManager.shared.status
-                if isSystemProxyConfigured, !SystemProxyManager.shared.usingHelperProxyOverride {
-                    systemProxyWarning = directModeWarning(for: postProxyHelperStatus)
                 }
 
                 NotificationCenter.default.post(name: .proxyDidStart, object: nil)
-                Self.logger.info("Proxy started on port \(settings.proxyPort)")
+                Self.logger.info("Proxy started on port \(resolvedPort)")
             } catch {
                 Self.logger.error("Failed to start proxy: \(error.localizedDescription)")
                 proxyError = error.localizedDescription
+                activeProxyPort = settings.proxyPort
             }
         }
     }
@@ -166,11 +117,6 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(evictionObserver)
                 self.evictionObserver = nil
             }
-            if let tlsRejectionObserver {
-                NotificationCenter.default.removeObserver(tlsRejectionObserver)
-                self.tlsRejectionObserver = nil
-            }
-            tlsRejectionHosts = []
 
             do {
                 try await SystemProxyManager.shared.disableSystemProxy()
@@ -179,7 +125,7 @@ extension MainContentCoordinator {
                 Self.logger.error("Failed to restore proxy: \(error.localizedDescription)")
             }
             isSystemProxyConfigured = false
-            systemProxyWarning = nil
+            readiness.setCaptureActive(false)
             SSLProxyingManager.shared.forceGlobalPassthrough = false
 
             await proxyServer.stop()
@@ -187,6 +133,7 @@ extension MainContentCoordinator {
             stopBandwidthTimer()
             resetInstantaneousSpeeds()
             proxyStartedAt = nil
+            activeProxyPort = AppSettingsStorage.load().proxyPort
             NotificationCenter.default.post(name: .proxyDidStop, object: nil)
             Self.logger.info("Proxy stopped")
         }
@@ -200,25 +147,16 @@ extension MainContentCoordinator {
         guard isProxyRunning else {
             return
         }
-        systemProxyWarning = nil
+        readiness.clearProxyEnableFailure()
 
         Task {
-            let settings = AppSettingsStorage.load()
             do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
-                let helperStatus = await HelperManager.shared.status
-                if !SystemProxyManager.shared.usingHelperProxyOverride {
-                    systemProxyWarning = directModeWarning(for: helperStatus)
-                }
                 Self.logger.info("System proxy enabled on retry")
             } catch {
                 isSystemProxyConfigured = false
-                systemProxyWarning = .init(
-                    message: error.localizedDescription,
-                    action: .retry,
-                    isDismissible: true
-                )
+                readiness.setProxyEnableFailed(message: error.localizedDescription)
                 Self.logger.warning("System proxy retry failed: \(error.localizedDescription)")
             }
         }
@@ -226,6 +164,7 @@ extension MainContentCoordinator {
 
     func clearSession() {
         transactions.removeAll()
+        selectedTransactionIDs.removeAll()
         logEntries.removeAll()
         errorCount = 0
         sessionProvenance = nil
@@ -235,17 +174,27 @@ extension MainContentCoordinator {
         activeToast = nil
         clearAllWorkspaces()
         resetTrafficMetrics()
+
+        // Advance nextSequenceNumber past highest assigned to any remaining persisted favorite
+        if persistedFavorites.isEmpty {
+            nextSequenceNumber = 0
+        } else {
+            let maxSeq = persistedFavorites.map(\.sequenceNumber).max() ?? 0
+            nextSequenceNumber = maxSeq + 1
+        }
+
         NotificationCenter.default.post(name: .sessionCleared, object: nil)
     }
 
     // MARK: - Proxy Configuration
 
-    func configureProxy() async {
+    func configureProxy(port: Int? = nil) async {
         let settings = AppSettingsStorage.load()
+        let resolvedPort = port ?? settings.proxyPort
         let manager = sessionManager
 
         let configuration = ProxyConfiguration(
-            port: settings.proxyPort,
+            port: resolvedPort,
             listenAddress: settings.effectiveListenAddress,
             listenIPv6: settings.listenIPv6
         )
@@ -273,40 +222,19 @@ extension MainContentCoordinator {
                 self.processBatch(batch)
             }
         }
+        await sessionManager.setOnClientAppEnriched { [weak self] enrichedIDs in
+            guard let self else {
+                return
+            }
+            Task { @MainActor in
+                self.handleClientAppEnrichment(enrichedIDs)
+            }
+        }
         await sessionManager.setMaxBufferSize(settings.maxBufferSize)
-        await sessionManager.setProxyPort(settings.proxyPort)
+        await sessionManager.setProxyPort(resolvedPort)
         await sessionManager.startBatchTimer()
 
-        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(settings.proxyPort)")
-    }
-
-    private func directModeWarning(for helperStatus: HelperManager.HelperStatus) -> SystemProxyWarning {
-        let reason = switch helperStatus {
-        case .notInstalled:
-            String(localized: "the helper tool is not installed")
-        case .requiresApproval:
-            String(localized: "the helper tool still needs approval")
-        case .installedOutdated:
-            String(localized: "the helper tool needs to be updated")
-        case .installedIncompatible:
-            String(localized: "the helper tool version is incompatible")
-        case .unreachable:
-            String(localized: "the helper tool is unreachable")
-        case .installedCompatible:
-            String(localized: "the helper tool could not be used")
-        }
-
-        return SystemProxyWarning(
-            message: String(
-                localized: """
-                Rockxy is using direct macOS proxy changes because \(reason). \
-                If Rockxy or Xcode stops unexpectedly, your Mac may stay behind a dead proxy until Rockxy restores it. \
-                Install or repair the helper tool for safer automatic cleanup.
-                """
-            ),
-            action: .openAdvancedProxySettings,
-            isDismissible: false
-        )
+        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
     // MARK: - Transaction Processing
@@ -341,6 +269,8 @@ extension MainContentCoordinator {
             )
 
         for transaction in filteredBatch {
+            transaction.sequenceNumber = nextSequenceNumber
+            nextSequenceNumber += 1
             transactions.append(transaction)
 
             if let statusCode = transaction.response?.statusCode, statusCode >= 400 {
@@ -350,7 +280,26 @@ extension MainContentCoordinator {
 
         updateAllWorkspaces(with: filteredBatch)
 
-        headerColumnStore.updateDiscoveredHeaders(from: transactions)
+        headerColumnStore.updateDiscoveredHeaders(fromBatch: filteredBatch)
+    }
+
+    func handleClientAppEnrichment(_ enrichedIDs: [UUID]) {
+        guard !enrichedIDs.isEmpty else {
+            return
+        }
+        // clientApp is already mutated on the HTTPTransaction objects.
+        // Rebuild sidebar app indexes for all workspaces (app counts/names may have changed).
+        // If a workspace has an active app filter, recompute its filtered transactions
+        // because membership depends on clientApp.
+        for workspace in workspaceStore.workspaces {
+            rebuildSidebarIndexes(for: workspace)
+            if workspace.filterCriteria.sidebarApp != nil {
+                recomputeFilteredTransactions(for: workspace)
+            } else {
+                workspace.lastDeriveWasAppendOnly = false
+                deriveFilteredRows(for: workspace)
+            }
+        }
     }
 
     func updateDomainTree(for transaction: HTTPTransaction) {

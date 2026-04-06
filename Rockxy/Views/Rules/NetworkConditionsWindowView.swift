@@ -154,7 +154,7 @@ final class NetworkConditionsWindowViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "NetworkConditionsWindowViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "NetworkConditionsWindowViewModel")
 }
 
 // MARK: - NetworkConditionsWindowView

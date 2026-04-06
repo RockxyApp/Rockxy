@@ -31,7 +31,7 @@ struct RequestTimelineView: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RequestTimelineView")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RequestTimelineView")
 
     private let phaseColors: [(String, Color)] = [
         ("DNS", .cyan),

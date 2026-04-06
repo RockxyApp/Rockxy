@@ -73,17 +73,23 @@ struct MainContentCommandActions {
     }
 
     func editAndRepeat() {
-        guard let transaction = coordinator.selectedTransaction else { return }
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
         coordinator.editAndReplayTransaction(transaction)
     }
 
     func addComment() {
-        guard let transaction = coordinator.selectedTransaction else { return }
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
         coordinator.promptComment(for: transaction)
     }
 
     func setHighlight(_ color: HighlightColor?) {
-        guard let transaction = coordinator.selectedTransaction else { return }
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
         coordinator.setHighlight(color, for: transaction)
     }
 

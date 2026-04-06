@@ -184,9 +184,7 @@ struct GeneralSettingsTab: View {
         .task {
             await checkCAStatus()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
-        ) { _ in
+        .onChange(of: ReadinessCoordinator.shared.certReadiness) {
             Task { await checkCAStatus() }
         }
     }
@@ -199,16 +197,16 @@ struct GeneralSettingsTab: View {
         case error(String)
     }
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "GeneralSettingsTab")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "GeneralSettingsTab")
 
     @Environment(\.openWindow) private var openWindow
 
-    @AppStorage("com.amunx.Rockxy.contentLayout") private var contentLayout = "vertical"
-    @AppStorage("com.amunx.Rockxy.showMenuBarIcon") private var showMenuBarIcon = true
-    @AppStorage("com.amunx.Rockxy.truncationStyle") private var truncationStyle = "tail"
-    @AppStorage("com.amunx.Rockxy.proxyPort") private var proxyPort = 9090
-    @AppStorage("com.amunx.Rockxy.autoOverrideProxy") private var autoOverrideProxy = true
-    @AppStorage("com.amunx.Rockxy.recordOnLaunch") private var recordOnLaunch = true
+    @AppStorage(RockxyIdentity.current.defaultsKey("contentLayout")) private var contentLayout = "vertical"
+    @AppStorage(RockxyIdentity.current.defaultsKey("showMenuBarIcon")) private var showMenuBarIcon = true
+    @AppStorage(RockxyIdentity.current.defaultsKey("truncationStyle")) private var truncationStyle = "tail"
+    @AppStorage(RockxyIdentity.current.defaultsKey("proxyPort")) private var proxyPort = 9090 // swiftlint:disable:this number_separator
+    @AppStorage(RockxyIdentity.current.defaultsKey("autoOverrideProxy")) private var autoOverrideProxy = true
+    @AppStorage(RockxyIdentity.current.defaultsKey("recordOnLaunch")) private var recordOnLaunch = true
     @State private var certSnapshot: RootCAStatusSnapshot?
     @State private var certLoading = false
     @State private var showResetConfirmation = false
@@ -288,8 +286,8 @@ struct GeneralSettingsTab: View {
 
     // MARK: - Certificate Actions
 
-    private func checkCAStatus() async {
-        certSnapshot = await CertificateManager.shared.rootCAStatusSnapshot()
+    private func checkCAStatus(performValidation: Bool = false) async {
+        certSnapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: performValidation)
     }
 
     private func handleCertAction(_ action: CertificateAction) {
@@ -331,7 +329,8 @@ struct GeneralSettingsTab: View {
                     return
 
                 case .recheck:
-                    break
+                    await checkCAStatus(performValidation: true)
+                    return
                 }
                 await checkCAStatus()
             } catch {

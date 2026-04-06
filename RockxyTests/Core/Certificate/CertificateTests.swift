@@ -116,37 +116,10 @@ struct HostCertGeneratorTests {
 
 // MARK: - Test Isolation Helpers
 
-/// Sets CertificateStore overrides for test isolation: test-specific Keychain label
-/// and a unique temp directory for filesystem operations. Returns a cleanup closure
-/// that MUST be called (typically via `defer`) to restore production state.
-/// Global lock ensuring CertificateStore override-based tests do not race.
-private let certificateTestLock = NSLock()
-
+/// Uses installSharedTestOverrides() from CertificateTestHelpers.swift
+/// for cross-suite lock coordination of CertificateStore overrides.
 private func installTestOverrides() -> (label: String, storageDir: URL, cleanup: () -> Void) {
-    certificateTestLock.lock()
-
-    let testLabel = "com.amunx.Rockxy.test.rootCA.key.\(UUID().uuidString)"
-    let testDir = FileManager.default.temporaryDirectory
-        .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
-
-    CertificateStore.keychainKeyLabelOverride = testLabel
-    CertificateStore.storageDirectoryOverride = testDir
-
-    let cleanup = {
-        // Restore production defaults
-        CertificateStore.keychainKeyLabelOverride = nil
-        CertificateStore.storageDirectoryOverride = nil
-
-        // Clean up test Keychain entry (best-effort)
-        try? KeychainHelper.deletePrivateKey(label: testLabel)
-
-        // Clean up temp directory (best-effort)
-        try? FileManager.default.removeItem(at: testDir)
-
-        certificateTestLock.unlock()
-    }
-
-    return (testLabel, testDir, cleanup)
+    installSharedTestOverrides()
 }
 
 // MARK: - CertificateStoreTests
@@ -220,8 +193,8 @@ struct KeychainPrimaryStorageTests {
 
         // Probe keychain availability — skip in sandbox/CI where keychain is inaccessible
         do {
-            try KeychainHelper.savePrivateKey(Data([0x01]), label: "com.amunx.Rockxy.test.probe")
-            try KeychainHelper.deletePrivateKey(label: "com.amunx.Rockxy.test.probe")
+            try KeychainHelper.savePrivateKey(Data([0x01]), label: TestIdentity.keychainProbeLabel)
+            try KeychainHelper.deletePrivateKey(label: TestIdentity.keychainProbeLabel)
         } catch {
             return
         }
@@ -244,8 +217,8 @@ struct KeychainPrimaryStorageTests {
 
         // Probe keychain availability — skip in sandbox/CI where keychain is inaccessible
         do {
-            try KeychainHelper.savePrivateKey(Data([0x01]), label: "com.amunx.Rockxy.test.probe")
-            try KeychainHelper.deletePrivateKey(label: "com.amunx.Rockxy.test.probe")
+            try KeychainHelper.savePrivateKey(Data([0x01]), label: TestIdentity.keychainProbeLabel)
+            try KeychainHelper.deletePrivateKey(label: TestIdentity.keychainProbeLabel)
         } catch {
             return
         }
@@ -260,7 +233,7 @@ struct KeychainPrimaryStorageTests {
         let derBytes = Array(ca.privateKey.x963Representation)
         let pemDocument = PEMDocument(type: "EC PRIVATE KEY", derBytes: derBytes)
         let pemString = pemDocument.pemString
-        let filePath = overrides.storageDir.appendingPathComponent("rootCA-key.pem")
+        let filePath = overrides.storageDir.appendingPathComponent(TestIdentity.rootCAKeyFilename)
         try Data(pemString.utf8).write(to: filePath)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
 
@@ -274,7 +247,7 @@ struct KeychainPrimaryStorageTests {
         #expect(keychainData != nil)
 
         // Verify disk file was renamed to .bak
-        let backupPath = overrides.storageDir.appendingPathComponent("rootCA-key.pem.bak")
+        let backupPath = overrides.storageDir.appendingPathComponent(TestIdentity.rootCABackupFilename)
         #expect(FileManager.default.fileExists(atPath: backupPath.path))
         #expect(!FileManager.default.fileExists(atPath: filePath.path))
     }
@@ -286,8 +259,8 @@ struct KeychainPrimaryStorageTests {
 
         // Probe keychain availability — skip in sandbox/CI where keychain is inaccessible
         do {
-            try KeychainHelper.savePrivateKey(Data([0x01]), label: "com.amunx.Rockxy.test.probe")
-            try KeychainHelper.deletePrivateKey(label: "com.amunx.Rockxy.test.probe")
+            try KeychainHelper.savePrivateKey(Data([0x01]), label: TestIdentity.keychainProbeLabel)
+            try KeychainHelper.deletePrivateKey(label: TestIdentity.keychainProbeLabel)
         } catch {
             return
         }
@@ -300,7 +273,7 @@ struct KeychainPrimaryStorageTests {
 
         // Ensure no disk PEM exists
         try CertificateStore.ensureDirectoryExists()
-        let filePath = overrides.storageDir.appendingPathComponent("rootCA-key.pem")
+        let filePath = overrides.storageDir.appendingPathComponent(TestIdentity.rootCAKeyFilename)
         if FileManager.default.fileExists(atPath: filePath.path) {
             try FileManager.default.removeItem(at: filePath)
         }
@@ -318,8 +291,8 @@ struct KeychainPrimaryStorageTests {
 
         // Probe keychain availability — skip in sandbox/CI where keychain is inaccessible
         do {
-            try KeychainHelper.savePrivateKey(Data([0x01]), label: "com.amunx.Rockxy.test.probe")
-            try KeychainHelper.deletePrivateKey(label: "com.amunx.Rockxy.test.probe")
+            try KeychainHelper.savePrivateKey(Data([0x01]), label: TestIdentity.keychainProbeLabel)
+            try KeychainHelper.deletePrivateKey(label: TestIdentity.keychainProbeLabel)
         } catch {
             return
         }
@@ -334,12 +307,12 @@ struct KeychainPrimaryStorageTests {
         let derBytes = Array(ca.privateKey.x963Representation)
         let pemDocument = PEMDocument(type: "EC PRIVATE KEY", derBytes: derBytes)
         let pemString = pemDocument.pemString
-        let backupPath = overrides.storageDir.appendingPathComponent("rootCA-key.pem.bak")
+        let backupPath = overrides.storageDir.appendingPathComponent(TestIdentity.rootCABackupFilename)
         try Data(pemString.utf8).write(to: backupPath)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupPath.path)
 
         // Ensure no active disk PEM exists
-        let filePath = overrides.storageDir.appendingPathComponent("rootCA-key.pem")
+        let filePath = overrides.storageDir.appendingPathComponent(TestIdentity.rootCAKeyFilename)
         if FileManager.default.fileExists(atPath: filePath.path) {
             try FileManager.default.removeItem(at: filePath)
         }

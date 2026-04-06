@@ -13,7 +13,7 @@ import X509
 //          Plaintext PEM on disk (even with 0o600) is vulnerable to disk imaging and swap dumps.
 
 /// Handles persistence of the root CA certificate (disk PEM) and private key (Keychain-primary,
-/// disk as recovery fallback). Files are stored under `~/Library/Application Support/Rockxy/Certificates/`.
+/// disk as recovery fallback). Files are stored under the shared Rockxy support directory.
 nonisolated enum CertificateStore {
     // MARK: Internal
 
@@ -71,6 +71,7 @@ nonisolated enum CertificateStore {
             logger.warning("Keychain save failed: \(error.localizedDescription). Falling back to disk PEM")
         }
 
+        #if DEBUG
         // Fallback: write disk PEM only if Keychain fails
         try ensureDirectoryExists()
         let derBytes = Array(key.x963Representation)
@@ -81,6 +82,7 @@ nonisolated enum CertificateStore {
         try Data(pemString.utf8).write(to: filePath)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: filePath.path)
         logger.warning("Saved root CA private key to disk (fallback — Keychain unavailable)")
+        #endif
     }
 
     static func loadRootCACertificate() throws -> Certificate? {
@@ -105,6 +107,7 @@ nonisolated enum CertificateStore {
         if let keyData = try KeychainHelper.loadPrivateKey(label: keychainKeyLabel) {
             let key = try P256.Signing.PrivateKey(x963Representation: keyData)
             logger.info("Loaded root CA private key from Keychain (primary)")
+            cleanupLegacyDiskKeys()
             return key
         }
 
@@ -128,7 +131,9 @@ nonisolated enum CertificateStore {
         let backupPath = storageDirectory.appendingPathComponent(rootCAKeyFilename + ".bak")
         if FileManager.default.fileExists(atPath: backupPath.path) {
             let pemData = try Data(contentsOf: backupPath)
-            let pemString = String(decoding: pemData, as: UTF8.self)
+            guard let pemString = String(data: pemData, encoding: .utf8) else {
+                return nil
+            }
             let pemDocument = try PEMDocument(pemString: pemString)
             let key = try P256.Signing.PrivateKey(x963Representation: pemDocument.derBytes)
             logger.warning("Loaded root CA private key from .bak recovery file — re-migrating to Keychain")
@@ -178,27 +183,40 @@ nonisolated enum CertificateStore {
         }
     }
 
+    static func cleanupLegacyDiskKeys() {
+        let backupPath = storageDirectory.appendingPathComponent(rootCAKeyFilename + ".bak")
+        guard FileManager.default.fileExists(atPath: backupPath.path) else {
+            return
+        }
+        guard (try? KeychainHelper.loadPrivateKey(label: keychainKeyLabel)) != nil else {
+            logger.debug("Skipping .bak cleanup — Keychain has no matching key")
+            return
+        }
+        try? FileManager.default.removeItem(at: backupPath)
+        logger.info("Cleaned up legacy .bak private key file — Keychain is primary")
+    }
+
     // MARK: Private
 
     private static let overrideLock = NSLock()
-    private nonisolated(unsafe) static var _keychainKeyLabelOverride: String?
-    private nonisolated(unsafe) static var _storageDirectoryOverride: URL?
+    nonisolated(unsafe) private static var _keychainKeyLabelOverride: String?
+    nonisolated(unsafe) private static var _storageDirectoryOverride: URL?
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "CertificateStore")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "CertificateStore")
 
     private static let rootCACertFilename = "rootCA.pem"
     private static let rootCAKeyFilename = "rootCA-key.pem"
 
     private static var keychainKeyLabel: String {
-        keychainKeyLabelOverride ?? "com.amunx.Rockxy.rootCA.key"
+        keychainKeyLabelOverride ?? RockxyIdentity.current.rootCAKeyLabel
     }
 
     private static var storageDirectory: URL {
         if let override = storageDirectoryOverride {
             return override
         }
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return appSupport.appendingPathComponent("Rockxy/Certificates", isDirectory: true)
+        return RockxyIdentity.current.sharedSupportDirectory()
+            .appendingPathComponent("Certificates", isDirectory: true)
     }
 
     /// Migrates a private key from disk PEM to Keychain. On success, renames the disk
@@ -213,12 +231,18 @@ nonisolated enum CertificateStore {
             let filePath = storageDirectory.appendingPathComponent(rootCAKeyFilename)
             let backupPath = storageDirectory.appendingPathComponent(rootCAKeyFilename + ".bak")
 
-            // Remove any existing backup before renaming
-            if FileManager.default.fileExists(atPath: backupPath.path) {
-                try FileManager.default.removeItem(at: backupPath)
+            // Only rename primary PEM → .bak when the primary PEM actually exists.
+            // When migrating from .bak recovery, the primary PEM is absent — do not
+            // delete the .bak that we just loaded from.
+            if FileManager.default.fileExists(atPath: filePath.path) {
+                if FileManager.default.fileExists(atPath: backupPath.path) {
+                    try FileManager.default.removeItem(at: backupPath)
+                }
+                try FileManager.default.moveItem(at: filePath, to: backupPath)
+                logger.info("Migration: renamed disk PEM to .bak (recovery-only)")
+            } else {
+                logger.info("Migration: primary PEM not present, keeping .bak as recovery")
             }
-            try FileManager.default.moveItem(at: filePath, to: backupPath)
-            logger.info("Migration: renamed disk PEM to .bak (recovery-only)")
         } catch {
             logger
                 .warning(

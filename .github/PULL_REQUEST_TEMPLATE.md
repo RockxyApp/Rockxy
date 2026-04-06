@@ -16,6 +16,7 @@
 - [ ] Docs updated in `docs/` if the change affects user-facing behavior
 - [ ] User-facing strings localized with `String(localized:)`
 - [ ] No SwiftLint / SwiftFormat violations (`swiftlint lint --strict && swiftformat .`)
+- [ ] If this PR touches helper packaging, release scripts, or platform compatibility claims, Intel + Apple Silicon validation was updated or re-run
 
 ## CLA
 

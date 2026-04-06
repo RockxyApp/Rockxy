@@ -34,7 +34,7 @@ extension MainContentCoordinator {
             if selectedTransactionIDs.isEmpty {
                 transactions
             } else {
-                transactions.filter { selectedTransactionIDs.contains($0.id) }
+                resolveSelectedTransactions()
             }
         }
 
@@ -139,6 +139,35 @@ extension MainContentCoordinator {
             return
         }
         copyURL(for: transaction)
+    }
+
+    // MARK: - Selected Transaction Resolution
+
+    /// Resolves selected transaction IDs against both live and persisted collections.
+    /// Live transactions take precedence. Preserves live capture order for live rows
+    /// and persisted collection order for persisted-only rows.
+    func resolveSelectedTransactions() -> [HTTPTransaction] {
+        guard !selectedTransactionIDs.isEmpty else {
+            return []
+        }
+        var result: [HTTPTransaction] = []
+        var resolved: Set<UUID> = []
+
+        // Live transactions first (capture order)
+        for transaction in transactions where selectedTransactionIDs.contains(transaction.id) {
+            result.append(transaction)
+            resolved.insert(transaction.id)
+        }
+
+        // Persisted-only rows (persisted collection order)
+        let remaining = selectedTransactionIDs.subtracting(resolved)
+        if !remaining.isEmpty {
+            for transaction in persistedFavorites where remaining.contains(transaction.id) {
+                result.append(transaction)
+            }
+        }
+
+        return result
     }
 
     // MARK: - Private

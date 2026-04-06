@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 // Renders the welcome interface for first-run onboarding.
@@ -31,19 +32,16 @@ struct WelcomeView: View {
         }
         .frame(width: 520, height: 480)
         .task {
-            _ = CertificateManager.shared.isRootCATrustValidated()
-            await viewModel.refreshStatus()
+            await viewModel.loadInitialStatus()
         }
-        .task(id: "polling") {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                await viewModel.refreshStatus()
-            }
+        .onChange(of: ReadinessCoordinator.shared.certReadiness) {
+            viewModel.syncFromCoordinator()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            Task {
-                await viewModel.refreshStatus()
-            }
+        .onChange(of: ReadinessCoordinator.shared.helperReadiness) {
+            viewModel.syncFromCoordinator()
+        }
+        .onChange(of: ReadinessCoordinator.shared.proxyMode) {
+            viewModel.syncFromCoordinator()
         }
     }
 
@@ -51,7 +49,7 @@ struct WelcomeView: View {
 
     @State private var viewModel = WelcomeViewModel()
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
-    @AppStorage("com.amunx.Rockxy.onboardingCompletedOnce") private var onboardingCompletedOnce = false
+    @AppStorage(RockxyIdentity.current.defaultsKey("onboardingCompletedOnce")) private var onboardingCompletedOnce = false
     @Environment(\.dismiss) private var dismiss
 
     private var steps: [WelcomeStepItem] {
@@ -79,7 +77,9 @@ struct WelcomeView: View {
                 isCompleted: viewModel.helperStatus == .installedCompatible,
                 isDisabled: false,
                 action: {
-                    if viewModel.helperStatus == .installedOutdated || viewModel
+                    if viewModel.helperStatus == .requiresApproval {
+                        SMAppService.openSystemSettingsLoginItems()
+                    } else if viewModel.helperStatus == .installedOutdated || viewModel
                         .helperStatus == .installedIncompatible
                     {
                         await viewModel.updateHelper()
@@ -106,9 +106,10 @@ struct WelcomeView: View {
         case .installedOutdated,
              .installedIncompatible:
             String(localized: "Update")
-        case .notInstalled,
-             .requiresApproval:
+        case .notInstalled:
             String(localized: "Install")
+        case .requiresApproval:
+            String(localized: "Open Settings")
         case .unreachable:
             String(localized: "Retry")
         }

@@ -324,7 +324,10 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         case watchdog(ownerPID: Int32)
     }
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy.HelperTool", category: "HelperService")
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "HelperService"
+    )
     private static let version: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     private static let validPortRange = 1024 ... 65535
     private static let rateLimitInterval: TimeInterval = 2.0
@@ -333,7 +336,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
     // MARK: - Private Certificate Helpers
 
-    private static let certLabel = "com.amunx.Rockxy.rootCA"
+    private static let certLabel = RockxyIdentity.current.rootCACertificateLabel
 
     private static let securityToolPath = "/usr/bin/security"
 

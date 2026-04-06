@@ -76,7 +76,7 @@ final class ProcessResolver: @unchecked Sendable {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ProcessResolver")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProcessResolver")
 
     private let lock = NSLock()
     private var cachedResult: [UInt16: String]?

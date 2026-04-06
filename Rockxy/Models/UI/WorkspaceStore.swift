@@ -151,5 +151,5 @@ final class WorkspaceStore {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "WorkspaceStore")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "WorkspaceStore")
 }

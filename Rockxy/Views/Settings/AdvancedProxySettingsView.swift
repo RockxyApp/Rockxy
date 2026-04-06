@@ -61,7 +61,7 @@ struct AdvancedProxySettingsView: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "AdvancedProxySettings")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AdvancedProxySettings")
 
     @State private var settings = AppSettingsManager.shared.settings
     @State private var portText: String = ""
@@ -548,7 +548,7 @@ struct AdvancedProxySettingsView: View {
         settings.proxyPort = 9090
         settings.onlyListenOnLocalhost = true
         settings.listenIPv6 = false
-        settings.autoSelectPort = false
+        settings.autoSelectPort = true
         portText = "9090"
         saveSettings()
     }

@@ -9,7 +9,7 @@ import os
 // engine.
 
 private nonisolated(unsafe) let httpsRelayLogger = Logger(
-    subsystem: "com.amunx.Rockxy",
+    subsystem: RockxyIdentity.current.logSubsystem,
     category: "HTTPSProxyRelayHandler"
 )
 

@@ -10,7 +10,7 @@ import os
 extension MainContentCoordinator {
     // MARK: - Constants
 
-    private static let favoritesKey = "com.amunx.Rockxy.favorites"
+    private static let favoritesKey = RockxyIdentity.current.defaultsKey("favorites")
 
     // MARK: - Favorite Management
 

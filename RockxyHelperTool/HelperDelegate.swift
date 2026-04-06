@@ -37,5 +37,5 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy.HelperTool", category: "HelperDelegate")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "HelperDelegate")
 }

@@ -92,7 +92,7 @@ final class ModifyHeaderWindowViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ModifyHeaderWindowViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ModifyHeaderWindowViewModel")
 }
 
 // MARK: - ModifyHeaderWindowView

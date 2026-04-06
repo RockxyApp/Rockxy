@@ -14,7 +14,7 @@ struct PreviewTabStoreTests {
     func defaultInit() {
         let store = PreviewTabStore()
         // Clear any persisted state first
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.previewTabs")
+        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabStorageKey)
         let freshStore = PreviewTabStore()
         #expect(freshStore.requestTabs.isEmpty)
         #expect(freshStore.responseTabs.isEmpty)
@@ -124,8 +124,8 @@ struct PreviewTabStoreTests {
     // MARK: - Helpers
 
     private func makeCleanStore() -> PreviewTabStore {
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.previewTabs")
-        UserDefaults.standard.removeObject(forKey: "com.amunx.Rockxy.previewAutoBeautify")
+        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabStorageKey)
+        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabBeautifyKey)
         return PreviewTabStore()
     }
 }

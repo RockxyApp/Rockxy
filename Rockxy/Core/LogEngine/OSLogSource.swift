@@ -19,7 +19,7 @@ enum OSLogSource {
         let subsystemFilter = subsystem
 
         return Task.detached {
-            let logger = Logger(subsystem: "com.amunx.Rockxy", category: "OSLogSource")
+            let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "OSLogSource")
 
             do {
                 let store = try OSLogStore(scope: .currentProcessIdentifier)

@@ -84,7 +84,7 @@ final class DiffViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "DiffViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "DiffViewModel")
 
     private func appendCandidate(_ transaction: HTTPTransaction) {
         if !candidates.contains(where: { $0.id == transaction.id }) {

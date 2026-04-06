@@ -40,7 +40,7 @@ actor InMemorySessionBuffer {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "InMemorySessionBuffer")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "InMemorySessionBuffer")
 
     private var transactions: [UUID: HTTPTransaction] = [:]
     private var orderedIds: [UUID] = []

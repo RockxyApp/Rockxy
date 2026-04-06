@@ -3,17 +3,18 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.amunx.Rockxy.HelperTool</string>
+    <string>com.amunx.rockxy.helper</string>
     <key>BundleProgram</key>
     <string>Contents/MacOS/RockxyHelperTool</string>
     <key>MachServices</key>
     <dict>
-        <key>com.amunx.Rockxy.HelperTool</key>
+        <key>com.amunx.rockxy.helper</key>
         <true/>
     </dict>
     <key>AssociatedBundleIdentifiers</key>
     <array>
-        <string>com.amunx.Rockxy</string>
+        <string>com.amunx.rockxy.community</string>
+        <string>com.amunx.rockxy</string>
     </array>
 </dict>
 </plist>

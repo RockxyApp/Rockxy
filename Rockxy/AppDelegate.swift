@@ -8,12 +8,15 @@ import os
 final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: Internal
 
+    private static let identity = RockxyIdentity.current
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let theme = UserDefaults.standard.string(forKey: "com.amunx.Rockxy.appTheme") ?? "system"
+        let defaults = UserDefaults.standard
+        let theme = defaults.string(forKey: Self.identity.defaultsKey("appTheme")) ?? "system"
         AppThemeApplier.apply(theme)
 
-        UserDefaults.standard.register(defaults: [
-            "com.amunx.Rockxy.showAlertOnQuit": true
+        defaults.register(defaults: [
+            Self.identity.defaultsKey("showAlertOnQuit"): true
         ])
         terminationSignalMonitor = TerminationSignalMonitor { signum in
             SystemProxyManager.shared.performEmergencyTerminationCleanup(
@@ -37,7 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let showAlert = UserDefaults.standard.bool(forKey: "com.amunx.Rockxy.showAlertOnQuit")
+        let showAlert = UserDefaults.standard.bool(forKey: Self.identity.defaultsKey("showAlertOnQuit"))
         if showAlert {
             let alert = NSAlert()
             alert.messageText = String(localized: "Quit Rockxy?")
@@ -62,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if alert.suppressionButton?.state == .on {
-                UserDefaults.standard.set(false, forKey: "com.amunx.Rockxy.showAlertOnQuit")
+                UserDefaults.standard.set(false, forKey: Self.identity.defaultsKey("showAlertOnQuit"))
             }
         }
 
@@ -93,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "AppDelegate")
+    private static let logger = Logger(subsystem: identity.logSubsystem, category: "AppDelegate")
 
     private var terminationSignalMonitor: TerminationSignalMonitor?
 }

@@ -276,7 +276,7 @@ final class ComposeViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ComposeViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ComposeViewModel")
 
     private let executor: ComposeRequestExecutor
     private var currentRunID: UInt64 = 0

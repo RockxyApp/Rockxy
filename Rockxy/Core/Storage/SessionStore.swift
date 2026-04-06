@@ -16,9 +16,9 @@ enum SessionStoreError: Error {
 
 /// SQLite-backed persistence layer for HTTP transactions, log entries, and WebSocket frames.
 ///
-/// Data lives at `~/Library/Application Support/Rockxy/rockxy.sqlite3`.
+/// Data lives at `~/Library/Application Support/com.amunx.rockxy.community/rockxy.sqlite3`.
 /// Request/response bodies exceeding 1 MB are stored as separate files under
-/// `~/Library/Application Support/Rockxy/bodies/` and referenced by path in the DB.
+/// `~/Library/Application Support/com.amunx.rockxy.community/bodies/` and referenced by path in the DB.
 /// Log entries are foreign-keyed to transactions (SET NULL on delete) for correlation.
 /// WebSocket frames cascade-delete with their parent transaction.
 actor SessionStore {
@@ -32,7 +32,7 @@ actor SessionStore {
         ).first else {
             throw SessionStoreError.directoryNotFound
         }
-        let rockxyDir = appSupport.appendingPathComponent("Rockxy", isDirectory: true)
+        let rockxyDir = appSupport.appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
         try self.init(directory: rockxyDir)
     }
 
@@ -204,6 +204,22 @@ actor SessionStore {
         Self.logger.info("Deleted transactions older than \(date)")
     }
 
+    func deleteTransactions(byIDs ids: Set<UUID>) throws {
+        let idStrings = ids.map(\.uuidString)
+        let matching = Self.transactions.filter(idStrings.contains(Self.txId))
+
+        let bodyPaths = try db.prepare(
+            matching.select(Self.txRequestBodyPath, Self.txResponseBodyPath)
+        )
+        for row in bodyPaths {
+            deleteBodyFile(at: row[Self.txRequestBodyPath])
+            deleteBodyFile(at: row[Self.txResponseBodyPath])
+        }
+
+        let deletedCount = try db.run(matching.delete())
+        Self.logger.info("Deleted \(deletedCount) of \(ids.count) requested transactions by ID")
+    }
+
     // MARK: - Transaction Count
 
     func transactionCount() throws -> Int {
@@ -221,7 +237,7 @@ actor SessionStore {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "SessionStore")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SessionStore")
 
     // MARK: - Transaction Table
 

@@ -28,7 +28,7 @@ struct HARExporter: ExporterPlugin {
     // MARK: Private
 
     private static let logger = Logger(
-        subsystem: "com.amunx.Rockxy",
+        subsystem: RockxyIdentity.current.logSubsystem,
         category: "HARExporter"
     )
 }

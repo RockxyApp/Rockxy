@@ -145,7 +145,7 @@ final class MapLocalViewModel {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "MapLocalViewModel")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MapLocalViewModel")
 }
 
 // MARK: - MapLocalWindowView

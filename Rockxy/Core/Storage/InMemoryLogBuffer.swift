@@ -34,7 +34,7 @@ actor InMemoryLogBuffer {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "InMemoryLogBuffer")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "InMemoryLogBuffer")
 
     private var entries: [LogEntry] = []
     private let maxCapacity: Int

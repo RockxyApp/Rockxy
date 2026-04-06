@@ -439,7 +439,7 @@ nonisolated enum KeychainHelper {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "KeychainHelper")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "KeychainHelper")
 
     /// Checks whether a SecCertificate has trustRoot settings in the specified domain.
     private static func hasTrustRootInDomain(

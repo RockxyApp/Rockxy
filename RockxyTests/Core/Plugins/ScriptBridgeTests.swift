@@ -61,7 +61,7 @@ struct ScriptBridgeTests {
     func storageSetGetDelete() {
         let context = makeContext()
         let testKey = "unit_test_\(UUID().uuidString)"
-        let storagePrefix = "com.amunx.Rockxy.plugin.\(testPluginID).storage."
+        let storagePrefix = "\(TestIdentity.defaultsPrefix).plugin.\(testPluginID).storage."
 
         context.evaluateScript("$rockxy.storage.set('\(testKey)', 'testValue')")
 
@@ -88,7 +88,7 @@ struct ScriptBridgeTests {
     // MARK: Private
 
     private let testPluginID = "com.test.bridge-test"
-    private let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ScriptBridgeTests")
+    private let logger = Logger(subsystem: TestIdentity.logSubsystem, category: "ScriptBridgeTests")
 
     private func makeContext() -> JSContext {
         let context = JSContext()!

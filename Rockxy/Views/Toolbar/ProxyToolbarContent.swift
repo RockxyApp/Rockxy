@@ -75,7 +75,9 @@ struct ProxyToolbarContent: ToolbarContent {
             ProxyStatusIndicator(
                 isRunning: coordinator.isProxyRunning,
                 listenAddress: AppSettingsManager.shared.settings.effectiveListenAddress,
-                port: AppSettingsManager.shared.settings.proxyPort,
+                port: coordinator.isProxyRunning
+                    ? coordinator.activeProxyPort
+                    : AppSettingsManager.shared.settings.proxyPort,
                 showPopover: $coordinator.showProxyStatusPopover
             )
         }

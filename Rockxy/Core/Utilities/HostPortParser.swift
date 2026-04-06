@@ -91,5 +91,5 @@ enum HostPortParser {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "HostPortParser")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "HostPortParser")
 }

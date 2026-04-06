@@ -39,7 +39,7 @@ enum ImportSizePolicy {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "ImportSizePolicy")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ImportSizePolicy")
 }
 
 // MARK: - ImportSizeError

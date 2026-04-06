@@ -114,7 +114,7 @@ final class BreakpointManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "BreakpointManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "BreakpointManager")
 
     private var continuations: [UUID: CheckedContinuation<(BreakpointDecision, BreakpointRequestData), Never>] = [:]
 }

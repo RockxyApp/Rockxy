@@ -192,20 +192,20 @@ final class SSLProxyingManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "SSLProxyingManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SSLProxyingManager")
     private static let passthroughTTLSeconds: TimeInterval = 86400 // 24 hours
 
     private static var storageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport
-            .appendingPathComponent("com.amunx.Rockxy", isDirectory: true)
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("ssl-proxying-rules.json")
     }
 
     private nonisolated static var passthroughStorageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport
-            .appendingPathComponent("com.amunx.Rockxy", isDirectory: true)
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("auto-passthrough-hosts.json")
     }
 

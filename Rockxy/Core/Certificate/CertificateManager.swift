@@ -56,6 +56,7 @@ actor CertificateManager {
         activeRootFingerprint = computeFingerprint(result.certificate)
         rootCAFreshlyInstalled = true
         Self.logger.info("Generated new root CA certificate")
+        postCertificateStatusChanged()
     }
 
     /// Attempts to restore root CA certificate from disk and private key from Keychain
@@ -203,25 +204,37 @@ actor CertificateManager {
         let derData = try certToDER(certificate)
         let fingerprint = computeFingerprint(certificate) ?? KeychainHelper.computeFingerprintSHA256(derData)
 
-        // Step 1: Use helper to install cert + set trust in System.keychain.
-        // The helper runs as root and uses `security add-trusted-cert` CLI to set trust
-        // directly on the system keychain copy. This is the primary trust path.
         var helperHandledTrust = false
-        do {
-            let helperConnection = await MainActor.run { HelperConnection.shared }
-            let staleCount = try await helperConnection.cleanupStaleCertificates(activeFingerprint: fingerprint)
-            if staleCount > 0 {
-                Self.logger.info("Cleaned up \(staleCount) stale root CA certificate(s)")
-            }
-            try await helperConnection.installRootCertificate(derData: derData)
-            Self.logger.info("Root CA installed and trusted in system keychain via helper")
-            helperHandledTrust = true
+        let helperTrustAvailable = await MainActor.run {
+            Self.shouldUseHelperForTrustInstall(
+                status: HelperManager.shared.status,
+                isReachable: HelperManager.shared.isReachable
+            )
+        }
 
-            // Clean up any stale login-keychain copies from previous installs.
-            // Duplicate copies in login keychain can confuse SecTrust evaluation.
-            KeychainHelper.removeAllRockxyCertsFromLoginKeychain(label: Self.keychainCertLabel)
-        } catch {
-            Self.logger.info("Helper unavailable, falling back to app-side trust: \(error.localizedDescription)")
+        // Step 1: Use helper to install cert + set trust in System.keychain only when the
+        // cached helper state already says the daemon is usable. Otherwise skip straight to
+        // app-side trust so the macOS security prompt appears immediately.
+        if helperTrustAvailable {
+            do {
+                let helperConnection = await MainActor.run { HelperConnection.shared }
+                let staleCount = try await helperConnection.cleanupStaleCertificates(activeFingerprint: fingerprint)
+                if staleCount > 0 {
+                    Self.logger.info("Cleaned up \(staleCount) stale root CA certificate(s)")
+                }
+                try await helperConnection.installRootCertificate(derData: derData)
+                Self.logger.info("Root CA installed and trusted in system keychain via helper")
+                helperHandledTrust = true
+
+                // Clean up any stale login-keychain copies from previous installs.
+                // Duplicate copies in login keychain can confuse SecTrust evaluation.
+                KeychainHelper.removeAllRockxyCertsFromLoginKeychain(label: Self.keychainCertLabel)
+            } catch {
+                Self.logger.info("Helper unavailable, falling back to app-side trust: \(error.localizedDescription)")
+                KeychainHelper.cleanupStaleRockxyCerts(activeFingerprint: fingerprint, label: Self.keychainCertLabel)
+            }
+        } else {
+            Self.logger.info("Skipping helper trust path and using app-side trust immediately")
             KeychainHelper.cleanupStaleRockxyCerts(activeFingerprint: fingerprint, label: Self.keychainCertLabel)
         }
 
@@ -247,6 +260,27 @@ actor CertificateManager {
                     "Root CA installed but system trust validation not yet passing — trust may need manual verification"
                 )
         }
+        postCertificateStatusChanged()
+    }
+
+    nonisolated static func shouldUseHelperForTrustInstall(
+        status: HelperManager.HelperStatus,
+        isReachable: Bool
+    ) -> Bool {
+        guard isReachable else {
+            return false
+        }
+
+        switch status {
+        case .installedCompatible,
+             .installedOutdated:
+            return true
+        case .notInstalled,
+             .requiresApproval,
+             .installedIncompatible,
+             .unreachable:
+            return false
+        }
     }
 
     /// Removes trust settings and certificate from keychain.
@@ -255,6 +289,7 @@ actor CertificateManager {
         lastValidationErrorMessage = nil
         try KeychainHelper.removeRootCATrust(label: Self.keychainCertLabel)
         Self.logger.info("Root CA trust removed")
+        postCertificateStatusChanged()
     }
 
     func getRootCACertificate() -> Certificate? {
@@ -466,15 +501,24 @@ actor CertificateManager {
 
     // MARK: - Status Snapshot
 
-    /// Performs one real validation pass and returns a full diagnostic snapshot of the
-    /// root CA state. Useful for settings UI and troubleshooting displays.
-    func rootCAStatusSnapshot() async -> RootCAStatusSnapshot {
+    /// Returns a diagnostic snapshot of the root CA state.
+    /// When `performValidation` is false, reuse cached validation and cheap keychain
+    /// trust metadata so routine UI refreshes do not re-run full SecTrust work.
+    func rootCAStatusSnapshot(performValidation: Bool = false) async -> RootCAStatusSnapshot {
         let hasGenerated = rootCACertificate != nil
         let installed = isRootCAInstalled()
         let trustPresent = hasTrustSettingsPresent()
-        // Run real validation only when trust settings are present — Strategy A
-        // (system trust) is what real TLS clients actually check.
-        let systemTrusted = trustPresent ? validateSystemTrust() : false
+        let systemTrusted: Bool
+
+        if performValidation, trustPresent {
+            systemTrusted = validateSystemTrust()
+        } else if let cachedValidation = lastTrustValidationResult {
+            systemTrusted = cachedValidation
+        } else if trustPresent {
+            systemTrusted = isRootCATrusted()
+        } else {
+            systemTrusted = false
+        }
 
         let validityBefore = rootCACertificate?.notValidBefore
         let validityAfter = rootCACertificate?.notValidAfter
@@ -494,6 +538,10 @@ actor CertificateManager {
         )
     }
 
+    func clearFreshlyInstalledFlag() {
+        rootCAFreshlyInstalled = false
+    }
+
     // MARK: - Cleanup
 
     func reset() throws {
@@ -508,15 +556,16 @@ actor CertificateManager {
         try CertificateStore.deleteAll()
 
         Self.logger.info("Reset certificate manager — all certificates removed")
+        postCertificateStatusChanged()
     }
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "CertificateManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "CertificateManager")
 
-    private static let keychainKeyLabel = "com.amunx.Rockxy.rootCA.key"
-    private static let keychainCertLabel = "com.amunx.Rockxy.rootCA"
-    private static let maxCacheSize = 1000
+    private static let keychainKeyLabel = RockxyIdentity.current.rootCAKeyLabel
+    private static let keychainCertLabel = RockxyIdentity.current.rootCACertificateLabel
+    private static let maxCacheSize = Int(1e3)
 
     private var rootCACertificate: Certificate?
     private var rootCAPrivateKey: P256.Signing.PrivateKey?
@@ -570,6 +619,12 @@ actor CertificateManager {
         cacheAccessOrder.append(host)
     }
 
+    private func postCertificateStatusChanged() {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .certificateStatusChanged, object: nil)
+        }
+    }
+
     /// Evicts the least-recently-used host cert to keep memory bounded.
     private func evictOldestCacheEntry() {
         guard let oldest = cacheAccessOrder.first else {
@@ -582,7 +637,7 @@ actor CertificateManager {
 
 // MARK: - HostCertEntry
 
-private nonisolated struct HostCertEntry {
+nonisolated private struct HostCertEntry {
     let certificate: Certificate
     let privateKey: P256.Signing.PrivateKey
 }

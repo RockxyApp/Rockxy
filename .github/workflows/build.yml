@@ -48,6 +48,10 @@ jobs:
         run: |
           ARM_APP="build/arm64/Build/Products/Release/Rockxy.app"
           X86_APP="build/x86_64/Build/Products/Release/Rockxy.app"
+          HELPER_SUBPATH="Contents/Library/HelperTools/RockxyHelperTool"
+          ARM_HELPER="$ARM_APP/$HELPER_SUBPATH"
+          X86_HELPER="$X86_APP/$HELPER_SUBPATH"
+          UNIVERSAL_HELPER="artifacts/Rockxy.app/$HELPER_SUBPATH"
 
           mkdir -p artifacts
           cp -R "$ARM_APP" artifacts/Rockxy.app
@@ -58,20 +62,16 @@ jobs:
             "$X86_APP/Contents/MacOS/Rockxy" \
             -output artifacts/Rockxy.app/Contents/MacOS/Rockxy
 
-          # Combine any helper executables
-          if [ -d "$ARM_APP/Contents/Library/LaunchServices" ]; then
-            for helper in "$ARM_APP/Contents/Library/LaunchServices/"*; do
-              name=$(basename "$helper")
-              x86_helper="$X86_APP/Contents/Library/LaunchServices/$name"
-              if [ -f "$x86_helper" ]; then
-                lipo -create "$helper" "$x86_helper" \
-                  -output "artifacts/Rockxy.app/Contents/Library/LaunchServices/$name"
-              fi
-            done
+          # Combine the embedded privileged helper.
+          if [ ! -f "$ARM_HELPER" ] || [ ! -f "$X86_HELPER" ]; then
+            echo "Expected helper binary at $HELPER_SUBPATH in both build outputs."
+            exit 1
           fi
+          lipo -create "$ARM_HELPER" "$X86_HELPER" -output "$UNIVERSAL_HELPER"
 
-          # Verify universal binary
+          # Verify universal binaries
           lipo -info artifacts/Rockxy.app/Contents/MacOS/Rockxy
+          lipo -info "$UNIVERSAL_HELPER"
 
           cd artifacts && zip -r Rockxy-universal.zip Rockxy.app
       - uses: actions/upload-artifact@v4

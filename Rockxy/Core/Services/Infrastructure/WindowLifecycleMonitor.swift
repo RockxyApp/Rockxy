@@ -31,7 +31,7 @@ final class WindowLifecycleMonitor {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "WindowLifecycleMonitor")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "WindowLifecycleMonitor")
 
     private var observations: [NSObjectProtocol] = []
 }

@@ -121,7 +121,7 @@ struct BlockListWindowView: View {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "BlockListWindowView")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "BlockListWindowView")
 
     @State private var viewModel = BlockListViewModel()
 

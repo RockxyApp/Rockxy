@@ -34,5 +34,5 @@ final class AppSettingsManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "AppSettingsManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AppSettingsManager")
 }

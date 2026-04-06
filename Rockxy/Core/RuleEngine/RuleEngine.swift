@@ -121,7 +121,7 @@ actor RuleEngine {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RuleEngine")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
 
     private var rules: [ProxyRule] = []
     private var compiledPatterns: [UUID: NSRegularExpression] = [:]

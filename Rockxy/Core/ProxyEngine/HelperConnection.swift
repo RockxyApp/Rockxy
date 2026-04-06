@@ -554,10 +554,12 @@ final class HelperConnection {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "HelperConnection")
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "HelperConnection"
+    )
 
-    private static let machServiceName: String = Bundle.main
-        .infoDictionary?["RockxyHelperMachServiceName"] as? String ?? "com.amunx.Rockxy.HelperTool"
+    private static let machServiceName = RockxyIdentity.current.helperMachServiceName
 
     private var connection: NSXPCConnection?
 

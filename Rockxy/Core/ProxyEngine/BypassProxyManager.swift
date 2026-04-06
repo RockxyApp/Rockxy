@@ -156,12 +156,12 @@ final class BypassProxyManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "BypassProxyManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "BypassProxyManager")
 
     private static var defaultStorageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport
-            .appendingPathComponent("com.amunx.Rockxy", isDirectory: true)
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("bypass-proxy-domains.json")
     }
 

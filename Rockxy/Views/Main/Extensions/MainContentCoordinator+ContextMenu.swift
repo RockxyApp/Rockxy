@@ -136,10 +136,12 @@ extension MainContentCoordinator {
     func togglePin(for transaction: HTTPTransaction) {
         transaction.isPinned.toggle()
         persistTransaction(transaction)
+        refreshRowsAfterMutation()
     }
 
     func setHighlight(_ color: HighlightColor?, for transaction: HTTPTransaction) {
         transaction.highlightColor = color
+        refreshRowsAfterMutation()
     }
 
     func promptComment(for transaction: HTTPTransaction) {
@@ -157,6 +159,7 @@ extension MainContentCoordinator {
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
             transaction.comment = input.stringValue.isEmpty ? nil : input.stringValue
+            refreshRowsAfterMutation()
         }
     }
 
@@ -241,6 +244,7 @@ extension MainContentCoordinator {
     func saveRequest(_ transaction: HTTPTransaction) {
         transaction.isSaved.toggle()
         persistTransaction(transaction)
+        refreshRowsAfterMutation()
     }
 
     func exportTransactionAsHAR(_ transaction: HTTPTransaction) {
@@ -276,6 +280,24 @@ extension MainContentCoordinator {
         }
     }
 
+    // MARK: - Row Refresh After Mutation
+
+    /// Refreshes all workspaces after a row-visible property mutation (pin, save, comment,
+    /// highlight). Workspaces in saved/pinned scopes get a full recompute because membership
+    /// may have changed. Other workspaces just re-derive rows.
+    func refreshRowsAfterMutation() {
+        for workspace in workspaceStore.workspaces {
+            if workspace.filterCriteria.sidebarScope == .saved
+                || workspace.filterCriteria.sidebarScope == .pinned
+            {
+                recomputeFilteredTransactions(for: workspace)
+            } else {
+                workspace.lastDeriveWasAppendOnly = false
+                deriveFilteredRows(for: workspace)
+            }
+        }
+    }
+
     // MARK: - Persistence
 
     private func persistTransaction(_ transaction: HTTPTransaction) {
@@ -305,9 +327,43 @@ extension MainContentCoordinator {
     func deleteTransactions(_ transactionsToDelete: [HTTPTransaction]) {
         let ids = Set(transactionsToDelete.map(\.id))
         transactions.removeAll { ids.contains($0.id) }
+        persistedFavorites.removeAll { ids.contains($0.id) }
+
+        // Prune selection state
+        selectedTransactionIDs.subtract(ids)
         if let selected = selectedTransaction, ids.contains(selected.id) {
             selectedTransaction = nil
         }
-        recomputeFilteredTransactions()
+
+        // Update all workspaces (same consistency as eviction)
+        for workspace in workspaceStore.workspaces {
+            workspace.filteredTransactions.removeAll { ids.contains($0.id) }
+            if workspace.selectedTransaction.map({ ids.contains($0.id) }) == true {
+                workspace.selectedTransaction = nil
+            }
+            rebuildSidebarIndexes(for: workspace)
+            workspace.lastDeriveWasAppendOnly = false
+            deriveFilteredRows(for: workspace)
+        }
+
+        // Always remove from SessionStore — a deleted row may have been persisted
+        // via togglePin/saveRequest even if it was never loaded into persistedFavorites.
+        // The store delete is a no-op when the IDs do not exist in SQLite.
+        deleteFromSessionStore(ids: ids)
+    }
+
+    private func deleteFromSessionStore(ids: Set<UUID>) {
+        do {
+            let store = try resolveSessionStore()
+            Task {
+                do {
+                    try await store.deleteTransactions(byIDs: ids)
+                } catch {
+                    Self.logger.error("Failed to delete persisted transactions: \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            Self.logger.error("Failed to create SessionStore for delete: \(error.localizedDescription)")
+        }
     }
 }

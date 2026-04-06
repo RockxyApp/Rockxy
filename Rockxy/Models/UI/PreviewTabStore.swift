@@ -98,9 +98,9 @@ final class PreviewTabStore {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "PreviewTabStore")
-    private static let storageKey = "com.amunx.Rockxy.previewTabs"
-    private static let beautifyKey = "com.amunx.Rockxy.previewAutoBeautify"
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "PreviewTabStore")
+    private static let storageKey = RockxyIdentity.current.defaultsKey("previewTabs")
+    private static let beautifyKey = RockxyIdentity.current.defaultsKey("previewAutoBeautify")
 
     // MARK: - Persistence
 

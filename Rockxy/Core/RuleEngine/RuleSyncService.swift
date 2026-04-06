@@ -59,7 +59,7 @@ enum RuleSyncService {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "RuleSyncService")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleSyncService")
 
     private static func syncAll() async {
         let allRules = await RuleEngine.shared.allRules

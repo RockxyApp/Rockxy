@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -123,6 +124,14 @@ enum ProxyOverrideOwner {
     case helper(port: Int)
 }
 
+// MARK: - DirectProxyWatchdogAction
+
+enum DirectProxyWatchdogAction {
+    case wait
+    case restore
+    case exit
+}
+
 // MARK: - ServiceProxySnapshot
 
 /// Snapshot of a network service's proxy configuration before Rockxy modifies it.
@@ -176,6 +185,58 @@ final class SystemProxyManager: @unchecked Sendable {
         }
 
         return helperBackupExists && loopbackProxyDetected
+    }
+
+    nonisolated static func directProxyWatchdogAction(
+        parentAlive: Bool,
+        backupExists: Bool
+    ) -> DirectProxyWatchdogAction {
+        if !backupExists {
+            return .exit
+        }
+
+        if parentAlive {
+            return .wait
+        }
+
+        return .restore
+    }
+
+    nonisolated static func shouldClearDirectBackupAfterRestoreAttempt(
+        commandsSucceeded: Bool,
+        proxyStillPointsAtRockxy: Bool
+    ) -> Bool {
+        commandsSucceeded && !proxyStillPointsAtRockxy
+    }
+
+    @discardableResult
+    nonisolated static func runDirectProxyWatchdogIfRequested(
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        guard arguments.count >= 3,
+              arguments[1] == "--rockxy-direct-proxy-watchdog",
+              let parentPID = Int32(arguments[2])
+        else {
+            return false
+        }
+
+        let pollInterval: TimeInterval = 0.5
+        while true {
+            let parentAlive = kill(parentPID, 0) == 0 || errno == EPERM
+            let backupExists = FileManager.default.fileExists(atPath: directBackupURL.path)
+
+            switch directProxyWatchdogAction(parentAlive: parentAlive, backupExists: backupExists) {
+            case .wait:
+                Thread.sleep(forTimeInterval: pollInterval)
+            case .restore:
+                shared.performEmergencyTerminationCleanup(
+                    reason: "direct proxy watchdog observed parent exit"
+                )
+                return true
+            case .exit:
+                return true
+            }
+        }
     }
 
     // MARK: - Public API
@@ -432,7 +493,7 @@ final class SystemProxyManager: @unchecked Sendable {
     /// left behind by a crash or force-quit.
     func recoverStaleProxyIfNeeded() async {
         if let backup = loadDirectBackup() {
-            if Date().timeIntervalSince(backup.timestamp) > 86400 {
+            if Date().timeIntervalSince(backup.timestamp) > 86_400 {
                 Self.logger.info("Stale direct backup >24h old, clearing without restore")
                 clearDirectBackup()
             } else {
@@ -501,10 +562,10 @@ final class SystemProxyManager: @unchecked Sendable {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "SystemProxyManager")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SystemProxyManager")
     private static let networkSetupPath = "/usr/sbin/networksetup"
     private static let routePath = "/sbin/route"
-    private static let helperBackupPath = "/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist"
+    private static let helperBackupPath = "/Library/Application Support/\(RockxyIdentity.current.sharedSupportDirectoryName)/proxy-backup.plist"
 
     // MARK: - Direct Backup Persistence
 
@@ -515,7 +576,7 @@ final class SystemProxyManager: @unchecked Sendable {
         ).first ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
         return appSupport
-            .appendingPathComponent("com.amunx.Rockxy", isDirectory: true)
+            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("proxy-backup-direct.plist")
     }
 
@@ -530,11 +591,11 @@ final class SystemProxyManager: @unchecked Sendable {
 
     /// Shared direct-mode restore routine used by both same-session cleanup and ownership-based cleanup.
     private func restoreDirectMode(using backup: DirectProxyBackup) {
+        let backedUpServices = backup.services.map(\.service)
         lock.lock()
         let hasInMemoryState = !originalProxyState.isEmpty
         let inMemoryProxy = originalProxyState
         let inMemoryBypass = originalBypassDomains
-        let services = activeServices
         lock.unlock()
 
         var allSucceeded = true
@@ -585,12 +646,31 @@ final class SystemProxyManager: @unchecked Sendable {
             }
         }
 
-        lock.lock()
+        let proxyStillPointsAtRockxy: Bool
         if allSucceeded {
+            proxyStillPointsAtRockxy = directProxyStillOwnedAfterRestoreVerification(
+                port: backup.rockxyPort,
+                backedUpServices: backedUpServices
+            )
+        } else {
+            proxyStillPointsAtRockxy = true
+        }
+
+        lock.lock()
+        if Self.shouldClearDirectBackupAfterRestoreAttempt(
+            commandsSucceeded: allSucceeded,
+            proxyStillPointsAtRockxy: proxyStillPointsAtRockxy
+        ) {
             clearDirectBackup()
             directRestorePending = false
         } else {
-            Self.logger.warning("Partial restore failure — keeping backup on disk for retry")
+            if allSucceeded {
+                Self.logger.warning(
+                    "Direct restore commands completed but proxy still points at Rockxy — keeping backup on disk for watchdog retry"
+                )
+            } else {
+                Self.logger.warning("Partial restore failure — keeping backup on disk for retry")
+            }
             // directRestorePending stays true for same-session retry
         }
         lock.unlock()
@@ -651,6 +731,8 @@ final class SystemProxyManager: @unchecked Sendable {
         activeServices = mutatedServices
         directRestorePending = true
         lock.unlock()
+
+        startDirectProxyWatchdog()
     }
 
     // MARK: - NetworkSetup — Disable on ALL Configured Services
@@ -678,6 +760,8 @@ final class SystemProxyManager: @unchecked Sendable {
         usingHelper = false
         activeServices = []
         lock.unlock()
+
+        try? Self.removeDirectProxyWatchdog(tolerateMissing: true)
     }
 
     /// Snapshots bypass domains and proxy state for all detected target services
@@ -968,6 +1052,145 @@ final class SystemProxyManager: @unchecked Sendable {
             ofItemAtPath: url.path
         )
         Self.logger.info("Persisted direct backup for \(serviceBackups.count) service(s) at port \(port)")
+    }
+
+    private func startDirectProxyWatchdog() {
+        let executableURL = Self.directWatchdogExecutableURL
+        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+            Self.logger.warning("Could not resolve helper executable for direct proxy watchdog")
+            return
+        }
+
+        do {
+            try Self.submitDirectProxyWatchdog(
+                label: Self.directWatchdogLabel,
+                executableURL: executableURL,
+                parentPID: ProcessInfo.processInfo.processIdentifier,
+                backupPath: Self.directBackupURL.path
+            )
+            Self.logger
+                .info(
+                    "Registered direct proxy watchdog '\(Self.directWatchdogLabel)' for pid \(ProcessInfo.processInfo.processIdentifier)"
+                )
+        } catch {
+            Self.logger.warning("Failed to start direct proxy watchdog: \(error.localizedDescription)")
+        }
+    }
+
+    private static var directWatchdogExecutableURL: URL {
+        Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/HelperTools", isDirectory: true)
+            .appendingPathComponent("RockxyHelperTool", isDirectory: false)
+    }
+
+    private func directProxyStillOwnedAfterRestoreVerification(
+        port: Int,
+        backedUpServices: [String],
+        maxAttempts: Int = 5,
+        pollInterval: TimeInterval = 0.2
+    ) -> Bool {
+        guard !backedUpServices.isEmpty else {
+            return anyLoopbackProxyEnabled(on: nil)
+        }
+
+        for attempt in 0..<maxAttempts {
+            if !currentProxyMatchesRockxy(port: port, backedUpServices: backedUpServices) {
+                return false
+            }
+
+            if attempt < maxAttempts - 1 {
+                Thread.sleep(forTimeInterval: pollInterval)
+            }
+        }
+
+        return true
+    }
+
+    nonisolated static var directWatchdogLabel: String {
+        "\(RockxyIdentity.current.appBundleIdentifier).direct-proxy-watchdog"
+    }
+
+    nonisolated static func directWatchdogSubmitArguments(
+        label: String,
+        executablePath: String,
+        parentPID: pid_t,
+        backupPath: String
+    ) -> [String] {
+        [
+            "submit",
+            "-l",
+            label,
+            "--",
+            executablePath,
+            "--rockxy-direct-proxy-watchdog",
+            String(parentPID),
+            backupPath,
+        ]
+    }
+
+    private static func submitDirectProxyWatchdog(
+        label: String,
+        executableURL: URL,
+        parentPID: pid_t,
+        backupPath: String
+    ) throws {
+        try removeDirectProxyWatchdog(label: label, tolerateMissing: true)
+        _ = try runLaunchctl(directWatchdogSubmitArguments(
+            label: label,
+            executablePath: executableURL.path,
+            parentPID: parentPID,
+            backupPath: backupPath
+        ))
+    }
+
+    private static func removeDirectProxyWatchdog(
+        label: String = directWatchdogLabel,
+        tolerateMissing: Bool
+    ) throws {
+        do {
+            _ = try runLaunchctl(["remove", label], toleratedExitCodes: tolerateMissing ? [3] : [])
+        } catch {
+            if tolerateMissing {
+                return
+            }
+            throw error
+        }
+    }
+
+    @discardableResult
+    private static func runLaunchctl(
+        _ arguments: [String],
+        toleratedExitCodes: Set<Int32> = []
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            throw SystemProxyError.unexpectedOutput("Failed to launch launchctl: \(error.localizedDescription)")
+        }
+
+        process.waitUntilExit()
+
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+
+        let terminationStatus = process.terminationStatus
+        if terminationStatus == 0 || toleratedExitCodes.contains(terminationStatus) {
+            return stdout
+        }
+
+        let combined = stderr.isEmpty ? stdout : stderr
+        throw SystemProxyError.unexpectedOutput(
+            "launchctl \(arguments.joined(separator: " ")) failed (exit \(terminationStatus)): \(combined)"
+        )
     }
 
     // MARK: - Process Execution

@@ -19,6 +19,8 @@ final class AppLifecycleState {
 struct RockxyApp: App {
     // MARK: Internal
 
+    private static let identity = RockxyIdentity.current
+
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
@@ -98,7 +100,7 @@ struct RockxyApp: App {
             DiffWindowView()
         }
         .commandsRemoved()
-        .defaultSize(width: 1240, height: 820)
+        .defaultSize(width: 1_240, height: 820)
         .defaultPosition(.center)
 
         Window(String(localized: "Scripting"), id: "scripting") {
@@ -179,6 +181,8 @@ private struct ComposeWindowScene: Scene {
 private struct MainWindowContent: View {
     // MARK: Internal
 
+    private static let identity = RockxyIdentity.current
+
     let lifecycleState: AppLifecycleState
 
     var body: some View {
@@ -196,12 +200,6 @@ private struct MainWindowContent: View {
                     return
                 }
                 setupChecked = true
-                do {
-                    try await CertificateManager.shared.ensureRootCA()
-                } catch {
-                    Logger(subsystem: "com.amunx.Rockxy", category: "RockxyApp")
-                        .error("Failed to initialize root CA: \(error.localizedDescription)")
-                }
 
                 // Migration backfill: if all setup steps are already satisfied, mark onboarding complete
                 if !onboardingCompletedOnce {
@@ -225,7 +223,7 @@ private struct MainWindowContent: View {
     // MARK: Private
 
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
-    @AppStorage("com.amunx.Rockxy.onboardingCompletedOnce") private var onboardingCompletedOnce = false
+    @AppStorage(RockxyIdentity.current.defaultsKey("onboardingCompletedOnce")) private var onboardingCompletedOnce = false
     @State private var setupChecked = false
 }
 

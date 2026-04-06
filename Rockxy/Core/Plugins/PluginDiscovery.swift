@@ -28,8 +28,7 @@ actor PluginDiscovery {
     }
 
     var pluginsDirectoryURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let pluginsDir = appSupport.appendingPathComponent("Rockxy/Plugins", isDirectory: true)
+        let pluginsDir = RockxyIdentity.current.appSupportPath("Plugins", fileManager: .default)
 
         if !FileManager.default.fileExists(atPath: pluginsDir.path) {
             do {
@@ -75,8 +74,7 @@ actor PluginDiscovery {
                     continue
                 }
 
-                let enabledKey = "com.amunx.Rockxy.plugin.\(manifest.id).enabled"
-                let isEnabled = UserDefaults.standard.bool(forKey: enabledKey)
+                let isEnabled = UserDefaults.standard.bool(forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: manifest.id))
 
                 let info = PluginInfo(
                     id: manifest.id,
@@ -129,7 +127,7 @@ actor PluginDiscovery {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: "com.amunx.Rockxy", category: "PluginDiscovery")
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "PluginDiscovery")
 
     private func validateManifest(_ manifest: PluginManifest, bundlePath: URL) -> Bool {
         guard !manifest.id.isEmpty, !manifest.name.isEmpty, !manifest.version.isEmpty else {

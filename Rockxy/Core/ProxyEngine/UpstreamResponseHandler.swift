@@ -9,7 +9,7 @@ import os
 // engine.
 
 private nonisolated(unsafe) let upstreamLogger = Logger(
-    subsystem: "com.amunx.Rockxy",
+    subsystem: RockxyIdentity.current.logSubsystem,
     category: "UpstreamResponseHandler"
 )
 
