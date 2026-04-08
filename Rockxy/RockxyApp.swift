@@ -98,7 +98,7 @@ struct RockxyApp: App {
             DiffWindowView()
         }
         .commandsRemoved()
-        .defaultSize(width: 1240, height: 820)
+        .defaultSize(width: 1_240, height: 820)
         .defaultPosition(.center)
 
         Window(String(localized: "Scripting"), id: "scripting") {
