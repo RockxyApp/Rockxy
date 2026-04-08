@@ -46,21 +46,25 @@ jobs:
             build
       - name: Create universal binary
         run: |
-          ARM_APP="build/arm64/Build/Products/Release/Rockxy.app"
-          X86_APP="build/x86_64/Build/Products/Release/Rockxy.app"
+          APP_NAME="Rockxy Community"
+          EXECUTABLE_NAME="Rockxy"
+          ARTIFACT_BASENAME="Rockxy-Community"
+          ARM_APP="build/arm64/Build/Products/Release/$APP_NAME.app"
+          X86_APP="build/x86_64/Build/Products/Release/$APP_NAME.app"
           HELPER_SUBPATH="Contents/Library/HelperTools/RockxyHelperTool"
           ARM_HELPER="$ARM_APP/$HELPER_SUBPATH"
           X86_HELPER="$X86_APP/$HELPER_SUBPATH"
-          UNIVERSAL_HELPER="artifacts/Rockxy.app/$HELPER_SUBPATH"
+          UNIVERSAL_APP="artifacts/$APP_NAME.app"
+          UNIVERSAL_HELPER="$UNIVERSAL_APP/$HELPER_SUBPATH"
 
           mkdir -p artifacts
-          cp -R "$ARM_APP" artifacts/Rockxy.app
+          cp -R "$ARM_APP" "$UNIVERSAL_APP"
 
           # Combine main executable into universal binary
           lipo -create \
-            "$ARM_APP/Contents/MacOS/Rockxy" \
-            "$X86_APP/Contents/MacOS/Rockxy" \
-            -output artifacts/Rockxy.app/Contents/MacOS/Rockxy
+            "$ARM_APP/Contents/MacOS/$EXECUTABLE_NAME" \
+            "$X86_APP/Contents/MacOS/$EXECUTABLE_NAME" \
+            -output "$UNIVERSAL_APP/Contents/MacOS/$EXECUTABLE_NAME"
 
           # Combine the embedded privileged helper.
           if [ ! -f "$ARM_HELPER" ] || [ ! -f "$X86_HELPER" ]; then
@@ -70,11 +74,11 @@ jobs:
           lipo -create "$ARM_HELPER" "$X86_HELPER" -output "$UNIVERSAL_HELPER"
 
           # Verify universal binaries
-          lipo -info artifacts/Rockxy.app/Contents/MacOS/Rockxy
+          lipo -info "$UNIVERSAL_APP/Contents/MacOS/$EXECUTABLE_NAME"
           lipo -info "$UNIVERSAL_HELPER"
 
-          cd artifacts && zip -r Rockxy-universal.zip Rockxy.app
+          cd artifacts && zip -r "$ARTIFACT_BASENAME-universal.zip" "$APP_NAME.app"
       - uses: actions/upload-artifact@v4
         with:
           name: rockxy-universal
-          path: artifacts/Rockxy-universal.zip
+          path: artifacts/Rockxy-Community-universal.zip

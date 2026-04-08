@@ -287,4 +287,11 @@ struct WorkspaceStoreTests {
         store.selectWorkspace(at: 0)
         #expect(store.activeWorkspaceIndex == 0)
     }
+
+    // MARK: - Edition Capability
+
+    @Test("maxWorkspaces matches edition capabilities")
+    func maxWorkspacesMatchesEdition() {
+        #expect(WorkspaceStore.maxWorkspaces == EditionCapabilities.current.maxWorkspaceTabs)
+    }
 }

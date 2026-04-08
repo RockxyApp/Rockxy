@@ -115,14 +115,7 @@ extension MainContentCoordinator {
     // MARK: - Replay
 
     func replayTransaction(_ transaction: HTTPTransaction) {
-        Task {
-            do {
-                let response = try await RequestReplay.replay(transaction.request)
-                Self.logger.info("Replay completed: \(response.statusCode)")
-            } catch {
-                Self.logger.error("Replay failed: \(error.localizedDescription)")
-            }
-        }
+        performReplay(for: transaction)
     }
 
     func editAndReplayTransaction(_ transaction: HTTPTransaction) {

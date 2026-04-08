@@ -71,7 +71,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		DCA99FBB2F61ADC9005B1552 /* Rockxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rockxy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCA99FBB2F61ADC9005B1552 /* Rockxy Community.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Rockxy Community.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA99FCA2F61ADCC005B1552 /* RockxyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA99FD42F61ADCC005B1552 /* RockxyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA9D0012F700000005B1552 /* RockxyHelperTool */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RockxyHelperTool; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -174,7 +174,7 @@
 		DCA99FBC2F61ADC9005B1552 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				DCA99FBB2F61ADC9005B1552 /* Rockxy.app */,
+				DCA99FBB2F61ADC9005B1552 /* Rockxy Community.app */,
 				DCA9D0012F700000005B1552 /* RockxyHelperTool */,
 				DCA99FCA2F61ADCC005B1552 /* RockxyTests.xctest */,
 				DCA99FD42F61ADCC005B1552 /* RockxyUITests.xctest */,
@@ -219,7 +219,7 @@
 				DCA9A6462F624B60005B1552 /* NIOWebSocket */,
 			);
 			productName = Rockxy;
-			productReference = DCA99FBB2F61ADC9005B1552 /* Rockxy.app */;
+			productReference = DCA99FBB2F61ADC9005B1552 /* Rockxy Community.app */;
 			productType = "com.apple.product-type.application";
 		};
 		DCA99FC92F61ADCC005B1552 /* RockxyTests */ = {
@@ -575,8 +575,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = "$(ROCKXY_APP_VERSION)";
+				EXECUTABLE_NAME = "$(ROCKXY_EXECUTABLE_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(ROCKXY_APP_BUNDLE_ID)";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = Rockxy;
+				PRODUCT_NAME = "$(ROCKXY_PRODUCT_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -606,8 +608,10 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = "$(ROCKXY_APP_VERSION)";
+				EXECUTABLE_NAME = "$(ROCKXY_EXECUTABLE_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = "$(ROCKXY_APP_BUNDLE_ID)";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_MODULE_NAME = Rockxy;
+				PRODUCT_NAME = "$(ROCKXY_PRODUCT_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -632,7 +636,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rockxy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rockxy";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rockxy Community.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rockxy";
 			};
 			name = Debug;
 		};
@@ -652,7 +656,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rockxy.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rockxy";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Rockxy Community.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Rockxy";
 			};
 			name = Release;
 		};
