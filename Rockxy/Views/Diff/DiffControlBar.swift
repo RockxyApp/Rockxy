@@ -7,7 +7,7 @@ struct DiffControlBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text(String(localized: "Diff on:"))
+            Text(String(localized: "Compare"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -21,6 +21,10 @@ struct DiffControlBar: View {
             .controlSize(.small)
 
             Spacer()
+
+            Text(String(localized: "View"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Picker("", selection: $viewModel.presentationMode) {
                 ForEach(PresentationMode.allCases, id: \.self) { mode in

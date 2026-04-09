@@ -9,6 +9,7 @@ import SwiftUI
 final class BlockListViewModel {
     var selectedRuleID: UUID?
     var showAddSheet = false
+    var pendingContext: BlockRuleEditorContext?
     private(set) var allRules: [ProxyRule] = []
 
     var blockRules: [ProxyRule] {
@@ -34,26 +35,41 @@ final class BlockListViewModel {
         }
     }
 
-    func addBlockRule(urlPattern: String, matchType: BlockMatchType, blockAction: BlockActionType) {
-        let escapedPattern: String = switch matchType {
+    func addBlockRule(
+        ruleName: String,
+        urlPattern: String,
+        httpMethod: HTTPMethodFilter,
+        matchType: BlockMatchType,
+        blockAction: BlockActionType,
+        includeSubpaths: Bool
+    ) {
+        let escapedPattern: String
+        switch matchType {
         case .wildcard:
-            NSRegularExpression.escapedPattern(for: urlPattern)
+            var pattern = NSRegularExpression.escapedPattern(for: urlPattern)
                 .replacingOccurrences(of: "\\*", with: ".*")
+                .replacingOccurrences(of: "\\?", with: ".")
+            if includeSubpaths {
+                if !pattern.hasSuffix(".*") {
+                    pattern += ".*"
+                }
+            } else {
+                pattern += "($|[?#])"
+            }
+            escapedPattern = pattern
         case .regex:
-            urlPattern
-        case .exact:
-            "^" + NSRegularExpression.escapedPattern(for: urlPattern) + "$"
+            escapedPattern = urlPattern
         }
 
-        let statusCode = switch blockAction {
-        case .forbidden: 403
-        case .dropConnection: 0
-        }
+        let displayName = ruleName.isEmpty ? urlPattern : ruleName
 
         let rule = ProxyRule(
-            name: urlPattern,
-            matchCondition: RuleMatchCondition(urlPattern: escapedPattern),
-            action: .block(statusCode: statusCode)
+            name: displayName,
+            matchCondition: RuleMatchCondition(
+                urlPattern: escapedPattern,
+                method: httpMethod.methodValue
+            ),
+            action: .block(statusCode: blockAction.statusCode)
         )
         allRules.append(rule)
         Task { await RuleSyncService.addRule(rule) }
@@ -77,21 +93,6 @@ final class BlockListViewModel {
     }
 }
 
-// MARK: - BlockMatchType
-
-enum BlockMatchType: String, CaseIterable {
-    case wildcard = "Wildcard"
-    case regex = "Regex"
-    case exact = "Exact"
-}
-
-// MARK: - BlockActionType
-
-enum BlockActionType: String, CaseIterable {
-    case forbidden = "403 Forbidden"
-    case dropConnection = "Drop Connection"
-}
-
 // MARK: - BlockListWindowView
 
 struct BlockListWindowView: View {
@@ -107,14 +108,30 @@ struct BlockListWindowView: View {
             Divider()
             bottomBar
         }
-        .frame(width: 600, height: 480)
+        .frame(width: 860, height: 620)
         .task { await viewModel.refreshFromEngine() }
+        .onAppear { consumePendingContext() }
+        .onReceive(NotificationCenter.default.publisher(for: .openBlockListWindow)) { _ in
+            consumePendingContext()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .rulesDidChange)) { notification in
             viewModel.handleRulesDidChange(notification)
         }
         .sheet(isPresented: $viewModel.showAddSheet) {
-            AddBlockRuleSheet { pattern, matchType, action in
-                viewModel.addBlockRule(urlPattern: pattern, matchType: matchType, blockAction: action)
+            viewModel.pendingContext = nil
+        } content: {
+            AddBlockRuleSheet(editorContext: viewModel
+                .pendingContext)
+            { ruleName, pattern, method, matchType, action, includeSubpaths in
+                viewModel.addBlockRule(
+                    ruleName: ruleName,
+                    urlPattern: pattern,
+                    httpMethod: method,
+                    matchType: matchType,
+                    blockAction: action,
+                    includeSubpaths: includeSubpaths
+                )
+                viewModel.pendingContext = nil
             }
         }
     }
@@ -239,6 +256,14 @@ struct BlockListWindowView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
+
+    private func consumePendingContext() {
+        guard let context = BlockRuleEditorContextStore.shared.consumePending() else {
+            return
+        }
+        viewModel.pendingContext = context
+        viewModel.showAddSheet = true
+    }
 }
 
 // MARK: - BlockRuleRow
@@ -300,7 +325,9 @@ private struct BlockRuleRow: View {
 
     @ViewBuilder private var actionLabel: some View {
         if case let .block(statusCode) = rule.action {
-            let text = statusCode == 0 ? String(localized: "Drop Connection") : String(localized: "403 Forbidden")
+            let text = statusCode == 0
+                ? String(localized: "Drop Connection")
+                : String(localized: "403 Forbidden")
             Text(text)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -332,37 +359,64 @@ private struct BlockRuleRow: View {
 // MARK: - AddBlockRuleSheet
 
 private struct AddBlockRuleSheet: View {
+    // MARK: Lifecycle
+
+    init(
+        editorContext: BlockRuleEditorContext? = nil,
+        onSave: @escaping (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool) -> Void
+    ) {
+        self.editorContext = editorContext
+        self.onSave = onSave
+        _ruleName = State(initialValue: editorContext?.suggestedName ?? "")
+        _urlPattern = State(initialValue: editorContext?.defaultPattern ?? "")
+        _httpMethod = State(initialValue: editorContext?.httpMethod ?? .any)
+        _matchType = State(initialValue: editorContext?.defaultMatchType ?? .wildcard)
+        _blockAction = State(initialValue: editorContext?.defaultAction ?? .returnForbidden)
+        _includeSubpaths = State(initialValue: editorContext?.includeSubpaths ?? true)
+    }
+
     // MARK: Internal
 
-    let onSave: (String, BlockMatchType, BlockActionType) -> Void
+    let editorContext: BlockRuleEditorContext?
+    let onSave: (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            Form {
-                Section(String(localized: "URL Pattern")) {
-                    TextField(String(localized: "e.g. *.example.com/ads/*"), text: $urlPattern)
+            VStack(alignment: .leading, spacing: Theme.Layout.sectionSpacing) {
+                provenanceBanner
+
+                formRow(String(localized: "Name:")) {
+                    TextField("", text: $ruleName, prompt: Text(String(localized: "Untitled")))
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                formRow(String(localized: "Matching Rule:")) {
+                    TextField("", text: $urlPattern, prompt: Text("https://example.com"))
+                        .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
                 }
 
-                Section(String(localized: "Match Type")) {
-                    Picker(String(localized: "Match Type"), selection: $matchType) {
-                        ForEach(BlockMatchType.allCases, id: \.self) { type in
-                            Text(type.rawValue).tag(type)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
+                methodAndMatchRow
 
-                Section(String(localized: "Block Action")) {
-                    Picker(String(localized: "Action"), selection: $blockAction) {
+                conditionalFields
+
+                formRow(String(localized: "Action:")) {
+                    Picker("", selection: $blockAction) {
                         ForEach(BlockActionType.allCases, id: \.self) { action in
                             Text(action.rawValue).tag(action)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .accessibilityLabel(String(localized: "Action"))
+                    .frame(width: 220)
                 }
             }
-            .formStyle(.grouped)
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+
+            Divider()
 
             HStack {
                 Spacer()
@@ -371,22 +425,134 @@ private struct AddBlockRuleSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
-                Button(String(localized: "Add")) {
-                    onSave(urlPattern, matchType, blockAction)
+                Button(String(localized: "Done")) {
+                    onSave(
+                        ruleName,
+                        urlPattern,
+                        httpMethod,
+                        matchType,
+                        blockAction,
+                        includeSubpaths
+                    )
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(urlPattern.isEmpty)
             }
-            .padding()
+            .padding(.horizontal, 24)
+            .padding(.vertical, 8)
         }
-        .frame(width: 420, height: 300)
+        .frame(width: 600)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
+    private static let labelWidth: CGFloat = 110
+
     @Environment(\.dismiss) private var dismiss
-    @State private var urlPattern = ""
-    @State private var matchType: BlockMatchType = .wildcard
-    @State private var blockAction: BlockActionType = .forbidden
+    @State private var ruleName: String
+    @State private var urlPattern: String
+    @State private var httpMethod: HTTPMethodFilter
+    @State private var matchType: BlockMatchType
+    @State private var blockAction: BlockActionType
+    @State private var includeSubpaths: Bool
+
+    @ViewBuilder private var provenanceBanner: some View {
+        if let context = editorContext {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Group {
+                    switch context.origin {
+                    case .selectedTransaction:
+                        if let method = context.sourceMethod {
+                            Text(
+                                String(
+                                    localized: "Created from: \(method) \(context.sourceHost)\(context.sourcePath ?? "")"
+                                )
+                            )
+                        } else {
+                            Text(
+                                String(
+                                    localized: "Created from: \(context.sourceHost)\(context.sourcePath ?? "")"
+                                )
+                            )
+                        }
+                    case .domainQuickCreate:
+                        Text(String(localized: "Created from domain: \(context.sourceHost)"))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+    }
+
+    private var methodAndMatchRow: some View {
+        HStack(spacing: 8) {
+            Spacer()
+                .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+            Picker("", selection: $httpMethod) {
+                ForEach(HTTPMethodFilter.allCases, id: \.self) { method in
+                    Text(method.rawValue).tag(method)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .accessibilityLabel(String(localized: "HTTP Method"))
+            .frame(width: 90)
+
+            Picker("", selection: $matchType) {
+                ForEach(BlockMatchType.allCases, id: \.self) { type in
+                    Text(type.rawValue).tag(type)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .accessibilityLabel(String(localized: "Match Type"))
+            .frame(width: 175)
+
+            if matchType == .wildcard {
+                Text(String(localized: "Support wildcard * and ?."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var conditionalFields: some View {
+        if matchType == .wildcard {
+            HStack(spacing: 8) {
+                Spacer()
+                    .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
+                    .toggleStyle(.checkbox)
+                    .font(.system(size: 13))
+            }
+        }
+    }
+
+    private func formRow(
+        _ label: String,
+        @ViewBuilder content: () -> some View
+    )
+        -> some View
+    {
+        HStack(alignment: .top, spacing: Theme.Layout.sectionSpacing) {
+            Text(label)
+                .font(.system(size: 13))
+                .frame(width: Self.labelWidth, alignment: .trailing)
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 4) {
+                content()
+            }
+        }
+    }
 }

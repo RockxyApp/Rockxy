@@ -32,6 +32,27 @@ enum RuleAction {
     case networkCondition(preset: NetworkConditionPreset, delayMs: Int)
 }
 
+extension RuleAction {
+    var matchedRuleActionSummary: String {
+        switch self {
+        case let .breakpoint(phase):
+            "Breakpoint (\(phase.rawValue.capitalized))"
+        case let .mapLocal(filePath, _, isDirectory):
+            isDirectory ? "Map Local Directory" : "Map Local (\((filePath as NSString).lastPathComponent))"
+        case .mapRemote:
+            "Map Remote"
+        case let .block(statusCode):
+            statusCode == 0 ? "Drop Connection" : "Block (\(statusCode))"
+        case let .throttle(delayMs):
+            "Throttle (\(delayMs) ms)"
+        case let .modifyHeader(operations):
+            "Modify Headers (\(operations.count))"
+        case let .networkCondition(preset, delayMs):
+            "Network Condition (\(preset.displayName), \(delayMs) ms)"
+        }
+    }
+}
+
 // MARK: Codable
 
 extension RuleAction: Codable {

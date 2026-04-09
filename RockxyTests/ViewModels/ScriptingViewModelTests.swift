@@ -6,9 +6,9 @@ import Testing
 
 @MainActor
 struct ScriptingViewModelTests {
-    @Test("Script templates dictionary has exactly four entries")
-    func scriptTemplatesHasFourEntries() {
-        #expect(ScriptingViewModel.scriptTemplates.count == 4)
+    @Test("Script templates dictionary has exactly six entries")
+    func scriptTemplatesHasSixEntries() {
+        #expect(ScriptingViewModel.scriptTemplates.count == 6)
     }
 
     @Test("Script templates contains Modify Headers with onRequest")
@@ -35,6 +35,18 @@ struct ScriptingViewModelTests {
         let template = ScriptingViewModel.scriptTemplates["Custom Response"]
         #expect(template != nil)
         #expect(try #require(template?.contains("statusCode")))
+    }
+
+    @Test("Script templates contains Rewrite URL")
+    func scriptTemplatesContainsRewriteURL() {
+        #expect(ScriptingViewModel.scriptTemplates["Rewrite URL"] != nil)
+    }
+
+    @Test("Script templates contains Conditional Mock JSON")
+    func scriptTemplatesContainsConditionalMockJSON() throws {
+        let template = ScriptingViewModel.scriptTemplates["Conditional Mock JSON"]
+        #expect(template != nil)
+        #expect(try #require(template?.contains("featureA")))
     }
 
     @Test("applyTemplate sets scriptContent to matching template source")
@@ -72,6 +84,13 @@ struct ScriptingViewModelTests {
         #expect(vm.selectedPluginID == nil)
     }
 
+    @Test("Default runStatus is idle")
+    func defaultRunStatusIsIdle() {
+        let vm = ScriptingViewModel()
+        #expect(vm.runStatus == .idle)
+        #expect(vm.runStatusMessage == nil)
+    }
+
     @Test("selectedPlugin returns nil when plugins list is empty")
     func selectedPluginReturnsNilWhenNoPlugins() {
         let vm = ScriptingViewModel()
@@ -83,6 +102,14 @@ struct ScriptingViewModelTests {
     func defaultConsoleOutputIsEmpty() {
         let vm = ScriptingViewModel()
         #expect(vm.consoleOutput.isEmpty)
+    }
+
+    @Test("runTest without selected plugin updates failure status")
+    func runTestWithoutSelectionFails() async {
+        let vm = ScriptingViewModel()
+        await vm.runTest()
+        #expect(vm.runStatus == .failure)
+        #expect(vm.runStatusMessage == "No script selected")
     }
 
     @Test("All templates contain module.exports")

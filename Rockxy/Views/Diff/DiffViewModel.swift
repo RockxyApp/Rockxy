@@ -12,6 +12,13 @@ import os
 final class DiffViewModel {
     // MARK: Internal
 
+    enum WorkspaceState: Equatable {
+        case textPaste
+        case missingLeft
+        case missingRight
+        case ready
+    }
+
     var candidates: [HTTPTransaction] = []
     var leftTransaction: HTTPTransaction?
     var rightTransaction: HTTPTransaction?
@@ -43,6 +50,19 @@ final class DiffViewModel {
 
     var activeDiffResult: DiffResult {
         isTextMode ? textDiffResult : diffResult
+    }
+
+    var workspaceState: WorkspaceState {
+        if isTextMode {
+            return .textPaste
+        }
+        if leftTransaction == nil {
+            return .missingLeft
+        }
+        if rightTransaction == nil {
+            return .missingRight
+        }
+        return .ready
     }
 
     /// Consumes pending transactions from DiffTransactionStore and merges into the pool.

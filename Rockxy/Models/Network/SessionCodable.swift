@@ -5,7 +5,7 @@ import Foundation
 // MARK: - BodyEncoding
 
 private enum BodyEncoding {
-    static let maxInlineSize = 10 * 1_024 * 1_024 // 10 MB
+    static let maxInlineSize = 10 * 1024 * 1024 // 10 MB
 
     static func encode(_ data: Data?) -> (base64: String?, truncated: Bool, originalSize: Int?) {
         guard let data else {
@@ -67,6 +67,10 @@ struct CodableTransaction: Codable {
         self.isPinned = transaction.isPinned
         self.isSaved = transaction.isSaved
         self.isTLSFailure = transaction.isTLSFailure
+        self.matchedRuleID = transaction.matchedRuleID
+        self.matchedRuleName = transaction.matchedRuleName
+        self.matchedRuleActionSummary = transaction.matchedRuleActionSummary
+        self.matchedRulePattern = transaction.matchedRulePattern
     }
 
     init(from decoder: Decoder) throws {
@@ -88,6 +92,10 @@ struct CodableTransaction: Codable {
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
         isTLSFailure = try container.decodeIfPresent(Bool.self, forKey: .isTLSFailure) ?? false
+        matchedRuleID = try container.decodeIfPresent(UUID.self, forKey: .matchedRuleID)
+        matchedRuleName = try container.decodeIfPresent(String.self, forKey: .matchedRuleName)
+        matchedRuleActionSummary = try container.decodeIfPresent(String.self, forKey: .matchedRuleActionSummary)
+        matchedRulePattern = try container.decodeIfPresent(String.self, forKey: .matchedRulePattern)
     }
 
     // MARK: Internal
@@ -108,6 +116,10 @@ struct CodableTransaction: Codable {
         case isPinned
         case isSaved
         case isTLSFailure
+        case matchedRuleID
+        case matchedRuleName
+        case matchedRuleActionSummary
+        case matchedRulePattern
     }
 
     let id: UUID
@@ -125,6 +137,10 @@ struct CodableTransaction: Codable {
     let isPinned: Bool
     let isSaved: Bool
     let isTLSFailure: Bool
+    let matchedRuleID: UUID?
+    let matchedRuleName: String?
+    let matchedRuleActionSummary: String?
+    let matchedRulePattern: String?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -144,6 +160,10 @@ struct CodableTransaction: Codable {
         transaction.isPinned = isPinned
         transaction.isSaved = isSaved
         transaction.isTLSFailure = isTLSFailure
+        transaction.matchedRuleID = matchedRuleID
+        transaction.matchedRuleName = matchedRuleName
+        transaction.matchedRuleActionSummary = matchedRuleActionSummary
+        transaction.matchedRulePattern = matchedRulePattern
         return transaction
     }
 }

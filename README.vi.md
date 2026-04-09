@@ -5,142 +5,152 @@
 <h1 align="center">Rockxy</h1>
 
 <p align="center">
-  <strong>Proxy gỡ lỗi HTTP mã nguồn mở cho macOS.</strong>
+  <a href="README.md">English</a> |
+  <a href="README.vi.md">Tiếng Việt</a> |
+  <a href="README.zh.md">中文</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.fr.md">Français</a> |
+  <a href="README.de.md">Deutsch</a>
 </p>
 
 <p align="center">
-  Chặn bắt lưu lượng HTTP/HTTPS, kiểm tra request API, gỡ lỗi WebSocket và phân tích truy vấn GraphQL.<br>
-  Xây dựng bằng Swift với SwiftNIO, SwiftUI và AppKit.
+  <strong>HTTP debugging proxy mã nguồn mở cho macOS.</strong>
+</p>
+
+<p align="center">
+  Chặn bắt lưu lượng HTTP/HTTPS, kiểm tra các request API, gỡ lỗi kết nối WebSocket, và phân tích truy vấn GraphQL.<br>
+  Xây dựng bằng Swift với SwiftNIO, SwiftUI, và AppKit.
 </p>
 
 <p align="center">
   <a href="#"><img src="https://img.shields.io/badge/platform-macOS%2014%2B-blue" alt="Nền tảng" /></a>
   <a href="#"><img src="https://img.shields.io/badge/Swift-5.9-orange" alt="Swift" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="Giấy phép" /></a>
-  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="Chào mừng PR" /></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="Chào đón PR" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Tài trợ" /></a>
 </p>
 
 <p align="center">
-  <img src="docs/images/Rockxy-Dark.png" alt="Rockxy đang chạy trên macOS" width="800" />
+  <img src="docs/images/Rockxy-Dark.png" alt="Rockxy chạy trên macOS" width="800" />
 </p>
 
 ---
 
-> **Trạng thái**: Đang phát triển tích cực. Engine proxy, chặn bắt HTTPS, hệ thống rules, hệ sinh thái plugin và UI inspector đã hoạt động. Xem [CHANGELOG.md](CHANGELOG.md) để theo dõi tiến độ.
+> **Trạng thái**: Đang phát triển tích cực. Proxy engine lõi, chặn bắt HTTPS, hệ thống rule, hệ sinh thái plugin, và giao diện inspector đã hoạt động. Xem [CHANGELOG.md](CHANGELOG.md) để theo dõi tiến độ.
 
 ## Tính năng
 
 ### Bắt lưu lượng mạng
-- **Proxy HTTP/HTTPS** — proxy can thiệp dựa trên SwiftNIO với hỗ trợ CONNECT tunnel
-- **Chặn bắt SSL/TLS** — giải mã MITM với chứng chỉ per-host được tạo tự động (LRU cache ~1000)
+- **Máy chủ proxy HTTP/HTTPS** — proxy chặn bắt dựa trên SwiftNIO với hỗ trợ đường hầm CONNECT
+- **Chặn bắt SSL/TLS** — giải mã man-in-the-middle với chứng chỉ tự động sinh cho từng host (LRU cache ~1000)
 - **Gỡ lỗi WebSocket** — bắt và kiểm tra frame hai chiều
-- **Nhận diện GraphQL** — tự động trích xuất tên operation và kiểm tra query
-- **Nhận diện tiến trình** — xem ứng dụng nào (Safari, Chrome, curl, Slack, Postman, v.v.) tạo request qua `lsof` + phân tích User-Agent
+- **Phát hiện GraphQL** — tự động trích xuất tên operation và kiểm tra truy vấn
+- **Nhận dạng tiến trình** — xem ứng dụng nào (Safari, Chrome, curl, Slack, Postman, v.v.) tạo mỗi request thông qua ánh xạ port `lsof` + phân tích User-Agent
 
-### Trình inspector request/response
-- **JSON viewer** — cây gập/mở với tô màu cú pháp
-- **Hex inspector** — hiển thị body nhị phân cho dữ liệu không phải text
-- **Timing waterfall** — trực quan hóa DNS, TCP connect, TLS handshake, TTFB và transfer cho từng request
-- **Headers, cookies, query params, auth** — inspector theo tab kèm chế độ raw
-- **Cột header tùy chỉnh** — chọn thêm header request/response để hiển thị theo cột
+### Trình kiểm tra Request & Response
+- **Trình xem JSON** — dạng cây có thể thu gọn với tô sáng cú pháp
+- **Trình kiểm tra Hex** — hiển thị body dạng nhị phân cho nội dung không phải văn bản
+- **Biểu đồ thời gian** — DNS, kết nối TCP, bắt tay TLS, TTFB, và giai đoạn truyền tải được trực quan hóa cho mỗi request
+- **Header, cookie, query param, auth** — inspector dạng tab với tùy chọn xem raw
+- **Cột header tùy chỉnh** — chọn thêm header request/response để hiển thị dưới dạng cột
 
-### Workspace & năng suất
-- **Tab workspace** — tách không gian làm việc với bộ lọc và trạng thái riêng
-- **Favorites** — ghim host hoặc request hay dùng để truy xuất nhanh
-- **Timeline view** — dòng thời gian trực quan cho chuỗi request đã chọn
+### Workspace & Năng suất
+- **Tab workspace** — các workspace bắt lưu lượng riêng biệt với bộ lọc và tiêu điểm độc lập
+- **Mục yêu thích** — ghim các host hoặc request thường dùng để truy cập nhanh
+- **Chế độ xem timeline** — trình tự request trực quan theo thời gian cho một tập con tập trung
 
 ### Thao tác lưu lượng & Mock API
-- **Map Local** — trả response từ file cục bộ (mock API không cần sửa server)
-- **Map Remote** — chuyển hướng sang host/port/path khác (test gateway, switch staging ↔ production)
-- **Breakpoints** — tạm dừng request/response, sửa URL/header/body/status rồi tiếp tục hoặc hủy
-- **Block List** — chặn request theo pattern URL (wildcard hoặc regex)
-- **Throttle** — mô phỏng mạng chậm bằng cách trì hoãn forwarding
-- **Modify Headers** — thêm, xóa hoặc thay thế header động
-- **Allow List** — chỉ bắt lưu lượng từ domain/app được chọn để giảm nhiễu
-- **Bypass Proxy** — bỏ qua proxy cho host nhất định khi bật system proxy
-- **Rules SSL Proxying** — kiểm soát MITM TLS theo từng domain
+- **Map Local** — phục vụ response từ file cục bộ (mock API response mà không cần sửa mã máy chủ)
+- **Map Remote** — chuyển hướng request đến host/port/path khác (kiểm thử API gateway, chuyển đổi staging ↔ production)
+- **Breakpoint** — tạm dừng request hoặc response giữa chừng, chỉnh sửa URL/header/body/status, rồi chuyển tiếp hoặc hủy
+- **Danh sách chặn** — chặn request theo mẫu URL (wildcard hoặc regex)
+- **Throttle** — mô phỏng mạng chậm bằng cách trì hoãn việc chuyển tiếp request
+- **Sửa Header** — thêm, xóa, hoặc thay thế header HTTP ngay lập tức
+- **Danh sách cho phép** — chỉ bắt lưu lượng từ các domain hoặc ứng dụng được chọn để giảm nhiễu
+- **Bỏ qua Proxy** — loại trừ các host cụ thể khỏi proxy trong khi system proxy đang bật
+- **Quy tắc SSL Proxying** — kiểm soát chặn bắt TLS theo từng domain
 
-### Gỡ lỗi & phân tích
-- **Tích hợp OSLog** — bắt log hệ thống macOS và đối chiếu theo timestamp
-- **So sánh side-by-side** — so sánh hai request/response đã bắt
-- **Request timeline** — waterfall theo chuỗi request và thời gian
-- **Tự động ẩn thông tin nhạy cảm** — redaction Bearer token và mật khẩu
+### Gỡ lỗi & Phân tích
+- **Tích hợp OSLog** — bắt log hệ thống macOS và liên kết với request mạng theo thời gian
+- **So sánh song song** — so sánh hai request/response đã bắt được
+- **Timeline request** — biểu đồ thác nước trực quan về trình tự và thời gian request
+- **Ẩn thông tin xác thực** — tự động ẩn Bearer token và mật khẩu trong log đã bắt
 
-### Mở rộng
-- **Hệ thống plugin JavaScript** — mở rộng bằng script (JavaScriptCore, sandbox timeout 5s)
-- **Hook request/response** — plugin có thể kiểm tra và chỉnh sửa lưu lượng trong pipeline
-- **UI cấu hình plugin** — form cấu hình tự sinh từ manifest
-- **Định dạng export** — copy dưới dạng cURL, HAR, raw HTTP hoặc JSON
-- **Compose + replay** — chỉnh sửa và gửi lại request, hoặc replay lưu lượng đã bắt
-- **Import review** — xem trước HAR/session trước khi lưu vào storage
+### Khả năng mở rộng
+- **Hệ thống plugin JavaScript** — mở rộng Rockxy bằng script tùy chỉnh (JavaScriptCore runtime, sandbox timeout 5 giây)
+- **Hook request/response** — plugin có thể kiểm tra và sửa đổi lưu lượng trong pipeline proxy
+- **Giao diện cài đặt plugin** — form cấu hình tự động sinh từ manifest plugin
+- **Định dạng xuất** — sao chép dưới dạng cURL, HAR, raw HTTP, hoặc JSON
+- **Soạn + phát lại** — chỉnh sửa và gửi lại request, hoặc phát lại lưu lượng đã bắt
+- **Xem trước khi import** — xác minh import HAR/session trước khi đưa vào storage
 
-### Trải nghiệm macOS thuần
-- **SwiftUI + AppKit thuần** — không Electron, không web view, không thỏa hiệp đa nền tảng
-- **Danh sách request bằng NSTableView** — cuộn ảo cho 100k+ request không lag
-- **Icon ứng dụng thật** — tra theo bundle ID bằng `NSWorkspace`
-- **Tích hợp system proxy** — helper đặc quyền để không phải nhập mật khẩu nhiều lần (SMAppService)
-- **Dark mode** — hỗ trợ đầy đủ theo hệ thống
-- **Phím tắt** — Cmd+Shift+R (start), Cmd+. (stop), Cmd+K (clear), v.v.
+### Trải nghiệm macOS gốc
+- **SwiftUI + AppKit gốc** — không Electron, không web view, không thỏa hiệp đa nền tảng
+- **Danh sách request NSTableView** — cuộn ảo xử lý 100k+ request đã bắt mà không giật
+- **Icon ứng dụng thật** — phân giải qua tra cứu bundle ID của `NSWorkspace`
+- **Tích hợp system proxy** — helper daemon đặc quyền để cài đặt proxy không cần mật khẩu (SMAppService)
+- **Dark mode** — hỗ trợ đầy đủ với màu ngữ nghĩa hệ thống
+- **Phím tắt** — Cmd+Shift+R (bắt đầu), Cmd+. (dừng), Cmd+K (xóa), và nhiều hơn nữa
 
 ## Trường hợp sử dụng
 
-- **Gỡ lỗi app iOS / macOS** — xem API call từ Simulator hoặc thiết bị thật
-- **Test REST API** — xem cặp request/response chính xác mà không cần mở công cụ khác
-- **Gỡ lỗi GraphQL** — xem operation, biến và response nhanh chóng
-- **Mock API response** — map file cục bộ cho endpoint để dev offline hoặc test edge case
-- **Kiểm tra WebSocket** — debug kết nối realtime (chat, live feed, game)
-- **Phân tích hiệu năng** — xác định endpoint chậm, payload lớn, request dư thừa
-- **Gỡ lỗi SSL/TLS** — kiểm tra HTTPS với kiểm soát MITM theo domain
-- **Ghi lại lưu lượng mạng** — bắt và replay phiên HTTP để regression test
-- **Reverse engineering API** — hiểu hành vi API không tài liệu hóa từ app bên thứ ba
-- **Tích hợp CI/CD** — proxy headless cho kiểm thử hợp đồng API (dự kiến)
+- **Gỡ lỗi ứng dụng iOS / macOS** — kiểm tra các lệnh gọi API từ ứng dụng chạy trong Simulator hoặc trên thiết bị
+- **Kiểm thử REST API** — xem chính xác các cặp request/response mà không cần chuyển sang công cụ khác
+- **Gỡ lỗi GraphQL** — xem tên operation, biến, và response trong nháy mắt
+- **Mock API response** — ánh xạ file cục bộ đến endpoint để phát triển offline hoặc kiểm thử trường hợp biên
+- **Kiểm tra WebSocket** — gỡ lỗi kết nối thời gian thực (ứng dụng chat, live feed, game protocol)
+- **Phân tích hiệu năng** — xác định endpoint chậm, payload lớn, và lệnh gọi API trùng lặp
+- **Gỡ lỗi SSL/TLS** — kiểm tra lưu lượng HTTPS đã mã hóa với kiểm soát chặn bắt theo domain
+- **Ghi lưu lượng mạng** — bắt và phát lại phiên HTTP để kiểm thử hồi quy
+- **Phân tích ngược API** — hiểu hành vi API chưa có tài liệu từ ứng dụng bên thứ ba
+- **Tích hợp CI/CD** — proxy headless cho kiểm thử hợp đồng API tự động (đang lên kế hoạch)
 
 ## Rockxy vs Proxyman vs Charles Proxy
 
-Đang tìm một lựa chọn thay thế Proxyman hoặc Charles Proxy mã nguồn mở? Bảng dưới đây so sánh Rockxy:
+Bạn đang tìm một giải pháp thay thế Proxyman hoặc Charles Proxy mã nguồn mở? Đây là cách Rockxy so sánh:
 
 | Tính năng | Rockxy | Proxyman | Charles Proxy |
-|---------|--------|----------|---------------|
+|-----------|--------|----------|---------------|
 | **Giấy phép** | Mã nguồn mở (AGPL-3.0) | Độc quyền (freemium) | Độc quyền (trả phí) |
-| **Giá** | Miễn phí | Miễn phí giới hạn + $69/năm | $50 trả một lần |
+| **Giá** | Miễn phí | Gói miễn phí + $69/năm | $50 mua một lần |
 | **Nền tảng** | macOS | macOS, iOS, Windows | macOS, Windows, Linux |
-| **Mã nguồn** | Công khai trên GitHub | Đóng | Đóng |
+| **Mã nguồn** | Công khai hoàn toàn trên GitHub | Mã nguồn đóng | Mã nguồn đóng |
 | **Công nghệ** | Swift + SwiftNIO (native) | Swift + AppKit (native) | Java (đa nền tảng) |
 | **Chặn bắt HTTP/HTTPS** | Có | Có | Có |
 | **Gỡ lỗi WebSocket** | Có | Có | Có |
-| **Nhận diện GraphQL** | Có (tự động) | Có | Không |
+| **Phát hiện GraphQL** | Có (tự động) | Có | Không |
 | **Map Local** | Có | Có | Có |
 | **Map Remote** | Có | Có | Có |
-| **Breakpoints** | Có | Có | Có |
-| **Block List** | Có | Có | Có |
-| **Modify Headers** | Có | Có | Có (rewrite) |
-| **Throttle / Network Conditions** | Có | Có | Có |
-| **So sánh request** | Có (side-by-side) | Có | Không |
+| **Breakpoint** | Có | Có | Có |
+| **Danh sách chặn** | Có | Có | Có |
+| **Sửa Header** | Có | Có | Có (rewrite) |
+| **Throttle / Điều kiện mạng** | Có | Có | Có |
+| **So sánh request** | Có (song song) | Có | Không |
 | **Plugin JavaScript** | Có (JSCore sandbox) | Có (Scripting) | Không |
-| **Replay request** | Có (Repeat + Edit) | Có | Có |
-| **Import/Export HAR** | Có | Có | Không (định dạng riêng) |
+| **Phát lại request** | Có (Repeat + Edit) | Có | Có |
+| **Import/export HAR** | Có | Có | Không (dùng định dạng riêng) |
 | **Tích hợp OSLog** | Có | Không | Không |
-| **Nhận diện tiến trình** | Có (app nào gửi) | Có | Không |
-| **JSON tree viewer** | Có | Có | Có |
-| **Hex inspector** | Có | Có | Có |
-| **Timing waterfall** | Có | Có | Có |
-| **Cuộn ảo (100k+ rows)** | Có (NSTableView) | Có | Chậm khi dữ liệu lớn |
-| **Helper đặc quyền (không cần sudo)** | Có (SMAppService) | Có | Không (hỏi mật khẩu nhiều lần) |
+| **Nhận dạng tiến trình** | Có (ứng dụng nào cho mỗi request) | Có | Không |
+| **Trình xem cây JSON** | Có | Có | Có |
+| **Trình kiểm tra Hex** | Có | Có | Có |
+| **Biểu đồ thời gian** | Có | Có | Có |
+| **Cuộn ảo (100k+ dòng)** | Có (NSTableView) | Có | Chậm ở khối lượng lớn |
+| **Helper đặc quyền (không hỏi sudo)** | Có (SMAppService) | Có | Không (hỏi mật khẩu liên tục) |
 | **Dark mode** | Có | Có | Một phần |
-| **Tự host / kiểm toán** | Có | Không | Không |
-| **Cộng đồng đóng góp** | Mở PR | Không | Không |
+| **Tự host / kiểm tra được** | Có | Không | Không |
+| **Đóng góp cộng đồng** | Mở nhận PR | Không | Không |
 
-**Vì sao chọn Rockxy?**
-- Bạn muốn một proxy gỡ lỗi HTTP **miễn phí, mã nguồn mở** không bị ràng buộc giấy phép
-- Bạn muốn **kiểm toán mã nguồn** của công cụ đang can thiệp vào traffic
-- Bạn muốn **đóng góp tính năng** hoặc tùy biến theo workflow của mình
-- Bạn cần **OSLog correlation** để debug log macOS cùng traffic
-- Bạn muốn **trải nghiệm macOS thuần** không chịu overhead của Java runtime
+**Tại sao chọn Rockxy?**
+- Bạn muốn một HTTP debugging proxy **miễn phí, mã nguồn mở** không có hạn chế giấy phép
+- Bạn muốn **kiểm tra mã nguồn** của công cụ đang chặn bắt lưu lượng của bạn
+- Bạn muốn **đóng góp tính năng** hoặc tùy chỉnh công cụ theo quy trình làm việc của bạn
+- Bạn cần **liên kết OSLog** để gỡ lỗi log ứng dụng macOS cùng lưu lượng mạng
+- Bạn muốn một **trải nghiệm macOS gốc** mà không có overhead Java runtime
 
-## Yêu cầu hệ thống
+## Yêu cầu
 
-- macOS 14.0+ (Sonoma hoặc mới hơn)
+- macOS 14.0+ (Sonoma trở lên)
 - Xcode 16+
 - Swift 5.9
 
@@ -152,13 +162,13 @@ cd Rockxy
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
 
-Hoặc mở `Rockxy.xcodeproj` trong Xcode và bấm Run.
+Hoặc mở `Rockxy.xcodeproj` trong Xcode và nhấn Run.
 
-Lần chạy đầu tiên, cửa sổ Welcome sẽ hướng dẫn:
-1. Tạo và tin cậy (trust) root CA
-2. Cài helper đặc quyền để điều khiển system proxy
+Khi khởi chạy lần đầu, cửa sổ Welcome hướng dẫn bạn:
+1. Tạo và tin cậy chứng chỉ root CA
+2. Cài đặt helper tool đặc quyền để kiểm soát system proxy
 3. Bật system proxy
-4. Khởi động proxy server
+4. Khởi động máy chủ proxy
 
 ## Kiến trúc
 
@@ -166,35 +176,35 @@ Lần chạy đầu tiên, cửa sổ Welcome sẽ hướng dẫn:
 
 Rockxy được chia thành ba miền tin cậy và thực thi:
 
-1. **Lớp UI + điều phối** — cửa sổ SwiftUI/AppKit, inspector, menu và `MainContentCoordinator`
-2. **Lớp proxy/runtime** — SwiftNIO handler, cấp phát chứng chỉ, sửa request, lưu trữ, analytics và plugin
-3. **Lớp helper đặc quyền** — daemon riêng chạy bằng launchd cho các thao tác hệ thống cần quyền cao
+1. **Lớp UI + điều phối** — cửa sổ SwiftUI/AppKit, inspector, menu, và `MainContentCoordinator`
+2. **Lớp proxy/runtime** — NIO channel handler, phát hành chứng chỉ, biến đổi request, storage, analytics, và plugin
+3. **Lớp helper đặc quyền** — một launchd daemon riêng biệt chỉ dùng cho các thao tác proxy và chứng chỉ cấp hệ thống cần quyền nâng cao
 
-Mục tiêu thiết kế là tách xử lý packet khỏi main thread, đưa thao tác đặc quyền ra khỏi tiến trình app, và đồng bộ trạng thái UI qua actor hoặc `@MainActor`.
+Mục tiêu thiết kế là giữ xử lý packet ngoài main thread, giữ các thao tác đặc quyền ngoài tiến trình ứng dụng, và giữ trạng thái hiển thị cho người dùng đồng bộ thông qua ranh giới actor hoặc `@MainActor` rõ ràng.
 
-### Bản đồ thành phần
+### Sơ đồ thành phần
 
 ```mermaid
 flowchart TB
-    subgraph UI["Tiến trình UI: Rockxy Community.app"]
-        Menus["Menu / Lệnh"]
-        Windows["Cửa sổ SwiftUI + AppKit"]
+    subgraph UI["UI Process: Rockxy Community.app"]
+        Menus["Menus / Commands"]
+        Windows["SwiftUI + AppKit Windows"]
         Coordinator["MainContentCoordinator (@MainActor)"]
-        Workspace["Workspace / Danh sách request / Inspector"]
+        Workspace["Workspace / Request List / Inspector"]
     end
 
-    subgraph Runtime["Dịch vụ Runtime"]
+    subgraph Runtime["Runtime Services"]
         Proxy["ProxyServer (actor)"]
         Traffic["TrafficSessionManager (actor)"]
         LogMgr["LogCaptureEngine (actor)"]
         Cert["CertificateManager (actor)"]
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
-        Storage["SessionStore + bộ đệm bộ nhớ"]
+        Storage["SessionStore + InMemory Buffers"]
         Analytics["Analytics Engine"]
     end
 
-    subgraph Privileged["Miền đặc quyền"]
+    subgraph Privileged["Privileged Domain"]
         HelperClient["HelperConnection (@MainActor)"]
         Helper["RockxyHelperTool (launchd daemon)"]
         System["macOS Network / Keychain / Trust Settings"]
@@ -221,15 +231,15 @@ flowchart TB
 
 ### Các lớp runtime
 
-| Lớp | Thành phần chính | Trách nhiệm |
-|-------|------------|----------------|
-| **Presentation** | `MainContentCoordinator`, `ContentView`, các view inspector/request-list/sidebar | Giữ trạng thái UI, route command, bind dữ liệu proxy/log vào SwiftUI/AppKit |
-| **Capture / transport** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Nhận traffic, xử lý CONNECT, MITM TLS, forward HTTP/HTTPS |
-| **Mutation / policy** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Áp dụng rule trước khi forward hoặc lưu |
-| **Certificate / trust** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Sinh và quản lý root CA, cache chứng chỉ, kiểm tra trust, lưu Keychain |
-| **Storage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, bộ đệm trong RAM | Đệm dữ liệu, lưu một phần vào SQLite và batch cập nhật UI |
-| **Observability / analysis** | analytics, nhận diện GraphQL, nhận diện content-type, log correlation | Bổ sung metadata cho traffic |
-| **Tích hợp hệ thống đặc quyền** | `HelperConnection`, `RockxyHelperTool`, XPC protocol dùng chung | Áp dụng system proxy và thao tác chứng chỉ cần quyền cao |
+| Lớp | Các kiểu chính | Trách nhiệm |
+|-----|----------------|-------------|
+| **Trình bày** | `MainContentCoordinator`, `ContentView`, các view inspector/request-list/sidebar | Giữ trạng thái hiển thị cho người dùng, định tuyến lệnh, liên kết dữ liệu proxy/log vào SwiftUI/AppKit |
+| **Bắt / vận chuyển** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Nhận lưu lượng proxy, xử lý CONNECT, chặn bắt MITM TLS, và chuyển tiếp upstream |
+| **Biến đổi / chính sách** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Áp dụng rule request/response và chính sách gỡ lỗi hiện tại trước khi chuyển tiếp hoặc lưu trữ |
+| **Chứng chỉ / tin cậy** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Tạo và lưu trữ root CA, cache chứng chỉ host, xác thực trạng thái tin cậy, cài đặt tin cậy qua luồng helper/app |
+| **Storage / phiên** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, in-memory buffer | Buffer dữ liệu trực tiếp, lưu trạng thái đã chọn vào SQLite, và gộp cập nhật gửi đến UI |
+| **Quan sát / phân tích** | analytics, phát hiện GraphQL, phát hiện content-type, liên kết log | Làm giàu lưu lượng đã bắt sau hoặc song song với xử lý vận chuyển |
+| **Tích hợp hệ thống đặc quyền** | `HelperConnection`, `RockxyHelperTool`, XPC protocol dùng chung | Áp dụng cài đặt system proxy và các thao tác chứng chỉ đặc quyền với kiểm tra tin cậy rõ ràng |
 
 ### Vòng đời request proxy
 
@@ -246,81 +256,81 @@ sequenceDiagram
     participant UI as MainContentCoordinator
     participant Upstream
 
-    Client->>NIO: Kết nối TCP tới proxy cục bộ
-    NIO->>HTTP: HTTP request hoặc CONNECT tunnel
+    Client->>NIO: TCP connection to local proxy
+    NIO->>HTTP: HTTP request or CONNECT tunnel
 
-    alt HTTP thường
-        HTTP->>Rules: đánh giá rules
-        Rules-->>HTTP: hành động / không hành động
-        HTTP->>Plugins: hook request (tuỳ chọn)
-        Plugins-->>HTTP: request đã sửa
-        HTTP->>Upstream: forward HTTP rõ
+    alt Plain HTTP
+        HTTP->>Rules: evaluate rules
+        Rules-->>HTTP: action / no action
+        HTTP->>Plugins: optional request hooks
+        Plugins-->>HTTP: modified request
+        HTTP->>Upstream: forward cleartext HTTP
         Upstream-->>HTTP: response
-    else HTTPS qua CONNECT
+    else HTTPS via CONNECT
         HTTP->>Client: 200 Connection Established
-        HTTP->>TLS: chuyển giao channel
-        TLS->>TLS: tạo cert host từ root CA
-        TLS->>Client: terminate TLS client
-        TLS->>HTTPS: pipeline HTTP đã giải mã
-        HTTPS->>Rules: đánh giá rules
-        Rules-->>HTTPS: hành động / không hành động
-        HTTPS->>Plugins: hook request (tuỳ chọn)
-        Plugins-->>HTTPS: request đã sửa
-        HTTPS->>Upstream: kết nối TLS tới host thật
-        Upstream-->>HTTPS: response đã giải mã
+        HTTP->>TLS: hand off channel
+        TLS->>TLS: generate host cert from root CA
+        TLS->>Client: terminate client TLS
+        TLS->>HTTPS: decrypted HTTP pipeline
+        HTTPS->>Rules: evaluate rules
+        Rules-->>HTTPS: action / no action
+        HTTPS->>Plugins: optional request hooks
+        Plugins-->>HTTPS: modified request
+        HTTPS->>Upstream: TLS client connection to real host
+        Upstream-->>HTTPS: decrypted response
     end
 
-    HTTP-->>Traffic: giao dịch hoàn tất
-    HTTPS-->>Traffic: giao dịch hoàn tất
-    Traffic-->>UI: batch cập nhật
+    HTTP-->>Traffic: completed transaction
+    HTTPS-->>Traffic: completed transaction
+    Traffic-->>UI: batched updates
 ```
 
 ### Luồng HTTP vs HTTPS
 
 ```mermaid
 flowchart LR
-    A["Request vào"] --> B{"CONNECT tunnel?"}
-    B -- Không --> C["HTTPProxyHandler"]
+    A["Inbound client request"] --> B{"CONNECT tunnel?"}
+    B -- No --> C["HTTPProxyHandler"]
     C --> D["RuleEngine + plugins"]
-    D --> E["Forward tới upstream qua HTTP"]
-    E --> F["Bắt response + timing"]
+    D --> E["Forward to upstream over HTTP"]
+    E --> F["Capture response + timings"]
 
-    B -- Có --> G["Trả 200 Connection Established"]
+    B -- Yes --> G["Reply 200 Connection Established"]
     G --> H["TLSInterceptHandler"]
-    H --> I["Tạo / dùng lại cert per-host"]
-    I --> J["Terminate TLS client"]
+    H --> I["Generate / reuse per-host leaf cert"]
+    I --> J["Terminate client TLS"]
     J --> K["HTTPSProxyRelayHandler"]
     K --> L["RuleEngine + plugins"]
-    L --> M["Forward tới upstream qua TLS"]
-    M --> N["Bắt response + timing"]
+    L --> M["Forward to upstream over TLS"]
+    M --> N["Capture response + timings"]
 ```
 
-### Mô hình concurrency
+### Mô hình đồng thời
 
-- `ProxyServer` là actor sở hữu vòng đời bind/shutdown.
-- NIO handlers chạy trên event-loop và chỉ bridge vào actor khi cần.
-- `CertificateManager`, `TrafficSessionManager` và các service liên quan dùng actor thay vì lock tay.
-- `MainContentCoordinator` là `@MainActor` để đồng bộ SwiftUI/AppKit.
-- Cập nhật UI được batch thay vì per-transaction để tránh nghẽn main thread dưới tải lớn.
+- `ProxyServer` là một actor quản lý các chuyển đổi vòng đời như bind và shutdown.
+- NIO channel handler chạy trên event-loop thread và chỉ kết nối vào các service actor-isolated khi cần thiết.
+- `CertificateManager`, `TrafficSessionManager`, và các service liên quan sử dụng actor isolation thay vì khóa thủ công cho trạng thái chia sẻ lâu dài.
+- `MainContentCoordinator` là `@MainActor` vì đây là ranh giới đồng bộ hóa cho SwiftUI/AppKit.
+- Việc cập nhật UI được gộp thành batch thay vì từng transaction để tránh tải main thread khi lưu lượng lớn.
 
-### Các subsystem chính
+### Các hệ thống con lõi
 
-| Subsystem | Vị trí | Vai trò |
-|-----------|----------|--------------|
-| **Proxy Engine** | `Core/ProxyEngine/` | `ServerBootstrap` của SwiftNIO, pipeline per-connection, CONNECT, TLS handoff, forward HTTP/HTTPS |
-| **Certificate** | `Core/Certificate/` | Root CA, cấp chứng chỉ host, kiểm tra trust, lưu disk + Keychain, cache cert |
-| **Rule Engine** | `Core/RuleEngine/` | Đánh giá rule theo thứ tự: block, map local, map remote, throttle, modify headers, breakpoint |
-| **Traffic Capture** | `Core/TrafficCapture/` | Batch session, allow-list policy, replay, handoff trạng thái proxy cho UI |
-| **Storage** | `Core/Storage/` | SQLite, buffer trong RAM, offload body lớn |
-| **Detection / enrichment** | `Core/Detection/` | Nhận diện GraphQL, content type, nhóm endpoint |
-| **Plugins** | `Core/Plugins/` | JSCore runtime cho hook request/response và config plugin |
-| **Helper Tool** | `RockxyHelperTool/`, `Shared/` | XPC đặc quyền cho proxy override, bypass domain, cài/gỡ chứng chỉ |
+| Hệ thống con | Vị trí | Chức năng |
+|---------------|--------|-----------|
+| **Proxy Engine** | `Core/ProxyEngine/` | SwiftNIO `ServerBootstrap`, pipeline channel cho mỗi kết nối, xử lý CONNECT, chuyển giao TLS, chuyển tiếp HTTP/HTTPS |
+| **Certificate** | `Core/Certificate/` | Vòng đời root CA, phát hành chứng chỉ host, kiểm tra tin cậy, lưu trữ disk + keychain, cache chứng chỉ host |
+| **Rule Engine** | `Core/RuleEngine/` | Đánh giá rule theo thứ tự cho block, map local, map remote, throttle, sửa header, và breakpoint |
+| **Traffic Capture** | `Core/TrafficCapture/` | Gộp session, chính sách allow-list, hỗ trợ phát lại, chuyển giao trạng thái proxy cho UI |
+| **Storage** | `Core/Storage/` | Lưu trữ SQLite, buffer session/log trong bộ nhớ, giảm tải body lớn |
+| **Detection / làm giàu** | `Core/Detection/` | Phát hiện GraphQL, phát hiện content type, nhóm API endpoint |
+| **Plugin** | `Core/Plugins/` | Thực thi hook request/response dựa trên JavaScriptCore và hỗ trợ metadata/cấu hình plugin |
+| **Helper Tool** | `RockxyHelperTool/`, `Shared/` | Dịch vụ XPC đặc quyền cho ghi đè proxy, cấu hình bypass-domain, và hỗ trợ cài đặt/gỡ chứng chỉ |
 
 ### Kiến trúc bảo mật
 
-> **Báo cáo lỗ hổng:** Nếu phát hiện vấn đề bảo mật, vui lòng báo riêng tư. Xem [SECURITY.md](SECURITY.md) để biết quy trình disclosure.
+> **Báo cáo lỗ hổng:** Nếu bạn phát hiện vấn đề bảo mật, vui lòng báo cáo riêng tư. Xem [SECURITY.md](SECURITY.md) để biết hướng dẫn tiết lộ.
 
-Rockxy dùng mô hình bảo mật nhiều lớp vì có MITM TLS, lưu traffic nhạy cảm và giao tiếp với helper chạy quyền root.
+Rockxy sử dụng mô hình bảo mật nhiều lớp vì nó kết thúc TLS, lưu trữ lưu lượng nhạy cảm, và giao tiếp với một helper chạy quyền root.
 
 ```mermaid
 flowchart TB
@@ -336,80 +346,80 @@ flowchart TB
     Helper --> Trust
 ```
 
-#### Biên giới bảo mật
+#### Ranh giới bảo mật
 
-| Biên giới | Rủi ro | Cơ chế hiện tại |
-|----------|------|-----------------|
-| **App ↔ helper** | Ứng dụng không tin cậy gọi thao tác proxy/cert đặc quyền | `NSXPCConnection` với yêu cầu code-signing và helper-side validation kèm so sánh chuỗi chứng chỉ |
-| **TLS interception** | Root CA lỗi hoặc cũ gây hỏng trust hoặc MITM khó hiểu | Vòng đời root CA rõ ràng, kiểm tra trust, theo dõi fingerprint, cert per-host từ root hiện tại |
-| **Xử lý body** | Cạn bộ nhớ do body quá lớn | Giới hạn body 100 MB (413), giới hạn URI 8 KB (414), giới hạn frame WebSocket (10 MB/frame, 100 MB/connection) |
-| **Map Local** | Path traversal hoặc symlink escape | Đọc file theo fd, resolve symlink, kiểm tra containment |
-| **Rule regex** | ReDoS do regex xấu | Validate khi compile, cache pattern, giới hạn 500 ký tự và input 8 KB |
-| **Breakpoint edits** | Forward request sai định dạng sau chỉnh sửa | Rebuild tập trung trong `BreakpointRequestBuilder`, giữ authority, chuẩn hóa scheme, cập nhật content-length |
-| **Plugin execution** | Script sửa traffic theo cách không an toàn | JSCore bridge, API giới hạn, timeout, validate ID/keys, không truy cập filesystem/network |
-| **Stored traffic** | Lưu body nhạy cảm quá lâu hoặc quyền yếu | Buffer trong RAM + SQLite, offload body lớn với quyền 0o600, kiểm tra path, redaction credential |
-| **Header injection** | CRLF injection qua MapRemote | Sanitization header, loại bỏ ký tự control |
-| **Helper input validation** | Domain/service name sai cho networksetup | Validate ASCII-only, sanitize service name, whitelist loại proxy, giới hạn số domain |
+| Ranh giới | Rủi ro | Biện pháp kiểm soát hiện tại |
+|-----------|--------|------------------------------|
+| **App ↔ helper** | Ứng dụng không tin cậy cố gọi các thao tác proxy/chứng chỉ đặc quyền | `NSXPCConnection` với yêu cầu code-signing kèm xác thực kết nối phía helper và so sánh chuỗi chứng chỉ |
+| **Chặn bắt TLS** | Root CA không hợp lệ hoặc hết hạn gây lỗi tin cậy hoặc trạng thái MITM khó hiểu | Vòng đời root CA rõ ràng, kiểm tra tin cậy, theo dõi fingerprint root, phát hành chứng chỉ host chỉ từ root đang hoạt động |
+| **Xử lý body request** | Cạn kiệt bộ nhớ do body request/response quá lớn | Giới hạn body request 100 MB (từ chối 413), giới hạn URI 8 KB (từ chối 414), giới hạn frame WebSocket (10 MB/frame, 100 MB/kết nối) |
+| **Phục vụ file cục bộ từ rule** | Path traversal hoặc thoát symlink qua rule Map Local directory | Tải file dựa trên fd (loại bỏ TOCTOU), phân giải symlink, kiểm tra chứa đường dẫn gốc |
+| **Mẫu regex trong rule** | ReDoS từ regex bệnh lý làm đóng băng proxy | Xác thực regex lúc biên dịch, cache mẫu đã biên dịch, giới hạn độ dài mẫu 500 ký tự, giới hạn đầu vào 8 KB |
+| **Request đã sửa tại breakpoint** | Chuyển tiếp request sai định dạng sau khi sửa URL/header/body | Xây dựng lại request tập trung trong `BreakpointRequestBuilder`, bảo toàn authority, chuẩn hóa scheme, đối chiếu content-length |
+| **Thực thi plugin** | Script biến đổi lưu lượng theo cách không an toàn hoặc không xác định | JavaScriptCore bridge, API hook giới hạn, bắt buộc timeout, xác thực ID/key plugin, không truy cập trực tiếp filesystem/mạng |
+| **Lưu lượng đã lưu** | Body request/response nhạy cảm được giữ quá lâu hoặc với quyền yếu | Buffer trong bộ nhớ kèm lưu trữ disk/SQLite, giảm tải body lớn với quyền file 0o600, kiểm tra chứa đường dẫn khi tải/xóa, ẩn thông tin xác thực trong log |
+| **Chèn header** | Chèn CRLF qua thao tác host header MapRemote | Sanitize giá trị header loại bỏ ký tự điều khiển trước khi chuyển tiếp |
+| **Xác thực đầu vào helper** | Domain hoặc tên service sai định dạng truyền cho networksetup | Xác thực bypass domain chỉ ASCII, sanitize tên service, whitelist loại proxy, giới hạn số lượng domain |
 
-#### Mô hình tin cậy helper
+#### Mô hình tin cậy helper tool
 
-Helper chạy dưới dạng launchd daemon (`com.amunx.Rockxy.HelperTool`) đăng ký qua `SMAppService.daemon()`. Nó giúp thao tác proxy/cert mà không phải nhập mật khẩu `networksetup` liên tục.
+Helper chạy dưới dạng launchd daemon (`com.amunx.Rockxy.HelperTool`) đăng ký qua `SMAppService.daemon()`. Nó tồn tại để các thao tác ghi đè proxy và một số thao tác chứng chỉ có thể thực hiện mà không cần hỏi mật khẩu `networksetup` liên tục từ tiến trình ứng dụng.
 
-Defense-in-depth hiện bao gồm:
+Phòng thủ theo chiều sâu hiện bao gồm:
 
-- Thiết lập kết nối XPC đặc quyền từ app
-- Helper-side validation trong `ConnectionValidator` với bundle ID hardcode
-- Yêu cầu code-signing (`anchor apple generic`)
-- So sánh chuỗi chứng chỉ để không chỉ dựa vào bundle/team ID
-- Rate limiting cho thao tác thay đổi trạng thái (proxy, cài cert)
-- Validate input cho mọi tham số helper (bypass domains, service names, proxy types)
-- Tạo file tạm atomically với quyền 0o600
-- Cơ chế backup/restore proxy khi crash
+- Thiết lập kết nối XPC đặc quyền phía app
+- Xác thực caller phía helper trong `ConnectionValidator` với bundle identifier được mã cứng
+- Bắt buộc yêu cầu code-signing (`anchor apple generic`)
+- So sánh chuỗi chứng chỉ để tin cậy không chỉ dựa trên chuỗi bundle ID hoặc team ID
+- Giới hạn tốc độ phía helper cho các thao tác thay đổi trạng thái (thay đổi proxy, cài đặt chứng chỉ)
+- Xác thực đầu vào trên tất cả tham số helper (bypass domain, tên service, loại proxy)
+- Tạo file tạm atomic với quyền hạn chế (0o600)
+- Đường dẫn backup/restore proxy rõ ràng cho khôi phục sự cố
 
-#### Mô hình trust cho chứng chỉ
+#### Mô hình tin cậy chứng chỉ
 
-- Root CA được tạo và lưu bởi `CertificateManager`.
-- App quản lý tạo root CA, tải và kiểm tra trust.
-- Helper có thể hỗ trợ cài đặt keychain hệ thống, nhưng vẫn có bước kiểm chứng từ app.
-- Host cert được tạo theo yêu cầu và cache để tránh cấp phát lặp.
-- Theo dõi fingerprint root để dọn chứng chỉ cũ.
+- Việc tạo và lưu trữ root CA nằm trong `CertificateManager`.
+- Ứng dụng sở hữu việc tạo, tải, và xác minh trạng thái tin cậy root CA.
+- Helper có thể hỗ trợ các thao tác cài đặt keychain/hệ thống đặc quyền, nhưng tin cậy vẫn có đường xác minh hiển thị phía app.
+- Chứng chỉ host được tạo theo yêu cầu từ root hiện tại và được cache để tránh phát hành tốn kém lặp lại.
+- Theo dõi fingerprint root được sử dụng để dọn dẹp chứng chỉ cũ và giảm tình trạng "nhiều root Rockxy cũ đã cài đặt".
 
-#### Ghi chú bảo mật thực tế
+#### Lưu ý bảo mật thực tế
 
-- Rockxy là công cụ dev, có quyền truy cập traffic nhạy cảm. Không nên để system proxy bật lâu hơn cần thiết.
-- Cài root CA chỉ bật MITM HTTPS cho client tin cậy root đó.
-- Session đã lưu, export và plugin nên được xem là artefact nhạy cảm.
+- Rockxy nên được coi là công cụ dành cho nhà phát triển có quyền truy cập lưu lượng nhạy cảm. Không nên để bật ghi đè system proxy lâu hơn mức cần thiết.
+- Cài đặt root CA cho phép chặn bắt HTTPS chỉ với các client tin cậy root đó.
+- Session đã lưu, bản xuất, và mã plugin nên được coi là artifact dự án có thể nhạy cảm.
 
 ## Cấu trúc dự án
 
 ```
 Rockxy/
 ├── Core/
-│   ├── ProxyEngine/       # SwiftNIO server, HTTP/TLS/WS handlers, helper client
-│   ├── Certificate/       # X.509 generation, root CA, Keychain integration
-│   ├── RuleEngine/        # Rule matching and action execution
-│   ├── LogEngine/         # OSLog + process log capture and correlation
-│   ├── TrafficCapture/    # Session manager, system proxy, request replay
-│   ├── Storage/           # SQLite store, in-memory buffer, settings
-│   ├── Detection/         # Content type, GraphQL, API grouping
-│   ├── Plugins/           # Plugin discovery, JS runtime, manifest parsing
-│   ├── Services/          # Window management, notifications
-│   └── Utilities/         # Body decoder, input validation, formatters
+│   ├── ProxyEngine/       # Máy chủ SwiftNIO, HTTP/TLS/WS handler, helper client
+│   ├── Certificate/       # Tạo X.509, root CA, tích hợp Keychain
+│   ├── RuleEngine/        # Khớp rule và thực thi hành động
+│   ├── LogEngine/         # Bắt log OSLog + process và liên kết
+│   ├── TrafficCapture/    # Quản lý session, system proxy, phát lại request
+│   ├── Storage/           # SQLite store, buffer trong bộ nhớ, cài đặt
+│   ├── Detection/         # Content type, GraphQL, nhóm API
+│   ├── Plugins/           # Phát hiện plugin, JS runtime, phân tích manifest
+│   ├── Services/          # Quản lý cửa sổ, thông báo
+│   └── Utilities/         # Giải mã body, xác thực đầu vào, formatter
 ├── Views/
-│   ├── Main/              # Main window, coordinator extensions
-│   ├── RequestList/       # NSTableView-backed request list (100k+ rows)
-│   ├── Inspector/         # Request/response tabs, JSON tree, hex display
-│   ├── Sidebar/           # Domain tree, app grouping, favorites
-│   ├── Toolbar/           # Status indicators, control buttons
-│   ├── Welcome/           # Setup wizard, certificate checklist
-│   ├── Settings/          # General, Proxy, SSL Proxying, Privacy tabs
-│   ├── Rules/             # Rule list, add/edit dialogs
-│   ├── Compose/           # Edit and Repeat request editor
-│   ├── Diff/              # Side-by-side transaction comparison
-│   ├── Scripting/         # Code editor, plugin console
-│   ├── Timeline/          # Request waterfall visualization
-│   ├── Breakpoint/        # Breakpoint edit window
-│   └── Components/        # Reusable: StatusCodeBadge, FilterPill, etc.
+│   ├── Main/              # Cửa sổ chính, extension coordinator
+│   ├── RequestList/       # Danh sách request dựa trên NSTableView (100k+ dòng)
+│   ├── Inspector/         # Tab request/response, cây JSON, hiển thị hex
+│   ├── Sidebar/           # Cây domain, nhóm app, mục yêu thích
+│   ├── Toolbar/           # Chỉ báo trạng thái, nút điều khiển
+│   ├── Welcome/           # Trình hướng dẫn cài đặt, checklist chứng chỉ
+│   ├── Settings/          # Tab Chung, Proxy, SSL Proxying, Quyền riêng tư
+│   ├── Rules/             # Danh sách rule, hộp thoại thêm/sửa
+│   ├── Compose/           # Trình soạn thảo Edit and Repeat request
+│   ├── Diff/              # So sánh transaction song song
+│   ├── Scripting/         # Trình soạn mã, console plugin
+│   ├── Timeline/          # Trực quan hóa waterfall request
+│   ├── Breakpoint/        # Cửa sổ chỉnh sửa breakpoint
+│   └── Components/        # Tái sử dụng: StatusCodeBadge, FilterPill, v.v.
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
@@ -423,52 +433,52 @@ Rockxy/
 ├── Extensions/
 └── Theme/
 
-RockxyHelperTool/              # Privileged launchd daemon (runs as root)
-├── main.swift                 # Entry point, XPC listener
-├── HelperDelegate.swift       # Connection validation, disconnect handling
-├── HelperService.swift        # Protocol impl, rate limiting, port validation
-├── ConnectionValidator.swift  # Certificate chain extraction & comparison
-├── CrashRecovery.swift        # Backup/restore proxy settings
-└── ProxyConfigurator.swift    # networksetup wrapper
+RockxyHelperTool/              # Launchd daemon đặc quyền (chạy quyền root)
+├── main.swift                 # Điểm vào, XPC listener
+├── HelperDelegate.swift       # Xác thực kết nối, xử lý ngắt kết nối
+├── HelperService.swift        # Triển khai protocol, giới hạn tốc độ, xác thực port
+├── ConnectionValidator.swift  # Trích xuất & so sánh chuỗi chứng chỉ
+├── CrashRecovery.swift        # Backup/restore cài đặt proxy
+└── ProxyConfigurator.swift    # Wrapper networksetup
 
 Shared/
 └── RockxyHelperProtocol.swift # @objc XPC protocol (app ↔ helper)
 
 RockxyTests/                   # Swift Testing framework (@Suite, @Test, #expect)
-├── Core/                      # Rule engine, certificate, plugin, storage, proxy tests
-├── ViewModels/                # WelcomeViewModel tests
-└── Helpers/                   # TestFixtures factory methods
+├── Core/                      # Test rule engine, certificate, plugin, storage, proxy
+├── ViewModels/                # Test WelcomeViewModel
+└── Helpers/                   # Phương thức factory TestFixtures
 
-docs/                          # Documentation (Mintlify format)
+docs/                          # Tài liệu (định dạng Mintlify)
 .github/workflows/             # CI: lint → build (arm64 + x86_64) → release
 ```
 
-## Tech Stack
+## Ngăn xếp công nghệ
 
 | Lớp | Công nghệ |
-|-------|-----------|
+|-----|-----------|
 | UI Framework | SwiftUI + AppKit (NSTableView, NSViewRepresentable) |
-| Networking | [SwiftNIO](https://github.com/apple/swift-nio) 2.95 + [SwiftNIO SSL](https://github.com/apple/swift-nio-ssl) 2.36 |
-| Certificates | [swift-certificates](https://github.com/apple/swift-certificates) 1.18 + [swift-crypto](https://github.com/apple/swift-crypto) 4.2 |
-| Database | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) 0.16 |
-| Concurrency | Swift Actors, structured concurrency, @MainActor |
-| Plugins | JavaScriptCore (framework tích hợp sẵn trên macOS) |
+| Mạng | [SwiftNIO](https://github.com/apple/swift-nio) 2.95 + [SwiftNIO SSL](https://github.com/apple/swift-nio-ssl) 2.36 |
+| Chứng chỉ | [swift-certificates](https://github.com/apple/swift-certificates) 1.18 + [swift-crypto](https://github.com/apple/swift-crypto) 4.2 |
+| Cơ sở dữ liệu | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) 0.16 |
+| Đồng thời | Swift Actors, structured concurrency, @MainActor |
+| Plugin | JavaScriptCore (framework macOS tích hợp) |
 | Helper IPC | XPC Services + SMAppService (macOS 13+) |
-| Testing | Swift Testing framework (@Suite, @Test, #expect) |
+| Kiểm thử | Swift Testing framework (@Suite, @Test, #expect) |
 | CI/CD | GitHub Actions (SwiftLint → build arm64/x86_64 song song → release) |
 
-## Build từ source
+## Xây dựng từ mã nguồn
 
-### Development Build
+### Build phát triển
 
 ```bash
 git clone https://github.com/LocNguyenHuu/Rockxy.git
 cd Rockxy
-./scripts/setup-developer.sh   # Tạo Configuration/Developer.xcconfig cho local signing
+./scripts/setup-developer.sh   # Tạo Configuration/Developer.xcconfig cho signing cục bộ
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
 
-### Release Build
+### Build phát hành
 
 ```bash
 # Apple Silicon (M1/M2/M3/M4)
@@ -484,157 +494,157 @@ xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Release -arch
 # Tất cả test
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test
 
-# Một lớp test cụ thể
+# Test class cụ thể
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test -only-testing:RockxyTests/CertificateTests
 
-# Một method test cụ thể
+# Test method cụ thể
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test -only-testing:RockxyTests/RuleEngineTests/testWildcardMatching
 ```
 
-### Linting và format
+### Lint và format
 
 ```bash
 brew install swiftlint swiftformat
 
-swiftlint lint --strict    # Bắt buộc pass 0 violation
-swiftformat .              # Auto-format
+swiftlint lint --strict    # Phải pass với zero violation
+swiftformat .              # Tự động format
 ```
 
 ### Lưu ý về Helper Tool
 
-Nếu bạn thay đổi code trong `RockxyHelperTool/` hoặc `Shared/RockxyHelperProtocol.swift`, chỉ build app là chưa đủ. Bạn cần gỡ helper cũ và cài lại helper mới qua Helper Manager trong app.
+Nếu bạn thay đổi mã trong `RockxyHelperTool/` hoặc `Shared/RockxyHelperProtocol.swift`, rebuild ứng dụng là chưa đủ. Bạn phải gỡ helper cũ và cài lại helper mới qua helper manager của ứng dụng để áp dụng thay đổi.
 
-## Các quyết định thiết kế
+## Quyết định thiết kế
 
-### Vì sao dùng SwiftNIO thay vì URLSession
+### Tại sao SwiftNIO thay vì URLSession
 
-URLSession là HTTP client ở mức cao. Rockxy cần TCP server mức thấp để nhận kết nối, parse HTTP, MITM TLS qua CONNECT và forward traffic — những thứ cần kiểm soát socket trực tiếp. SwiftNIO cung cấp nền tảng I/O bất đồng bộ, event-driven cho proxy thuần Swift.
+URLSession là HTTP client cấp cao. Rockxy cần một TCP server cấp thấp có thể nhận kết nối, phân tích HTTP, thực hiện chặn bắt MITM TLS qua đường hầm CONNECT, và chuyển tiếp lưu lượng — tất cả đều cần kiểm soát socket trực tiếp. SwiftNIO cung cấp nền tảng I/O non-blocking, hướng sự kiện giúp điều này khả thi trong Swift thuần.
 
-### Vì sao dùng NSTableView cho danh sách request
+### Tại sao NSTableView cho danh sách request
 
-SwiftUI `List` không xử lý tốt 100k+ hàng với virtual scrolling. Danh sách request dùng `NSTableView` bọc trong `NSViewRepresentable` để cuộn O(1) dù dữ liệu lớn.
+SwiftUI `List` không thể xử lý 100k+ dòng với cuộn ảo. Danh sách request sử dụng `NSTableView` được bọc trong `NSViewRepresentable` để đạt hiệu năng cuộn O(1) bất kể khối lượng lưu lượng.
 
-### Vì sao cần helper daemon đặc quyền
+### Tại sao dùng Helper Daemon đặc quyền
 
-macOS yêu cầu xác thực admin cho mỗi lần gọi `networksetup`. Helper (`SMAppService.daemon()`) chạy quyền root, xác thực caller bằng chuỗi chứng chỉ, tránh phải nhập mật khẩu liên tục mà vẫn an toàn.
+macOS yêu cầu xác thực admin cho mỗi lệnh gọi `networksetup`. Helper tool (`SMAppService.daemon()`) chạy quyền root và xác thực caller qua so sánh chuỗi chứng chỉ, loại bỏ việc hỏi mật khẩu liên tục trong khi vẫn duy trì bảo mật.
 
-### Mô hình concurrency dựa trên actor
+### Mô hình đồng thời dựa trên Actor
 
-Proxy server, session managers và certificate manager là Swift actor. Điều này loại bỏ data race mà không cần lock thủ công. `MainContentCoordinator` bridge dữ liệu sang `@MainActor` qua batch update (mỗi 250ms).
+Proxy server, session manager, và certificate manager đều là Swift actor. Điều này loại bỏ data race mà không cần khóa thủ công. Coordinator kết nối trạng thái actor-isolated sang `@MainActor` cho SwiftUI sử dụng thông qua cập nhật theo batch (mỗi 250ms).
 
 ### Sandbox plugin
 
-Plugin JavaScript chạy trong JavaScriptCore với API bridge hạn chế (`$rockxy`). Mỗi lần chạy có timeout 5 giây. Plugin có thể đọc/sửa request nhưng không truy cập filesystem hay network trực tiếp.
+Plugin JavaScript chạy trong JavaScriptCore với bridge API được kiểm soát (`$rockxy`). Mỗi lần thực thi script có timeout 5 giây. Plugin có thể kiểm tra và sửa đổi request nhưng không thể truy cập filesystem hoặc mạng trực tiếp.
 
 ## Hiệu năng
 
-- **100k+ request** — NSTableView cuộn ảo với tái sử dụng cell, không lag UI
-- **Ring buffer eviction** — tới 50k giao dịch, 10% cũ nhất chuyển sang SQLite hoặc bị loại
-- **Body offloading** — body >1MB lưu ra disk, tải theo nhu cầu
-- **Batch UI updates** — batch mỗi 250ms hoặc 50 mục trước khi đẩy lên UI
-- **Hiệu năng chuỗi** — dùng `NSString.length` (O(1)) thay `String.count` (O(n)) cho body lớn
-- **Log buffer** — 100k entries trong RAM, tràn sẽ chuyển SQLite
-- **Concurrent builds** — NIO event loop threads theo `System.coreCount`
+- **100k+ request** — cuộn ảo NSTableView với tái sử dụng cell, không giật UI
+- **Loại bỏ ring buffer** — tại 50k transaction, 10% cũ nhất chuyển sang SQLite hoặc bị loại bỏ
+- **Giảm tải body** — body response/request >1MB lưu trên disk, tải theo yêu cầu
+- **Cập nhật UI theo batch** — transaction proxy được gộp mỗi 250ms hoặc 50 item trước khi gửi đến UI
+- **Hiệu năng chuỗi** — `NSString.length` (O(1)) thay vì `String.count` (O(n)) cho body lớn
+- **Buffer log** — 100k entry trong bộ nhớ, tràn sang SQLite
+- **Build đồng thời** — `System.coreCount` NIO event loop thread
 
 ## Lưu trữ
 
 | Dữ liệu | Cơ chế | Vị trí |
-|------|-----------|----------|
-| Cài đặt người dùng | UserDefaults | `AppSettingsStorage` |
-| Session đang hoạt động | Ring buffer trong RAM | `InMemorySessionBuffer` |
+|----------|--------|--------|
+| Tùy chọn người dùng | UserDefaults | `AppSettingsStorage` |
+| Session đang hoạt động | Ring buffer trong bộ nhớ | `InMemorySessionBuffer` |
 | Session đã lưu | SQLite | `SessionStore` |
-| Khóa private root CA | macOS Keychain | `KeychainHelper` |
-| Rules | File JSON | `RuleStore` |
-| Body lớn | File disk | `~/Library/Application Support/Rockxy/bodies/` |
-| Log entries | SQLite | `SessionStore` (log_entries table) |
-| Proxy backup | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
-| Plugins | File JS + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
+| Khóa riêng root CA | macOS Keychain | `KeychainHelper` |
+| Rule | File JSON | `RuleStore` |
+| Body lớn | File trên disk | `~/Library/Application Support/Rockxy/bodies/` |
+| Log entry | SQLite | `SessionStore` (bảng log_entries) |
+| Backup proxy | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
+| Plugin | File JS + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
 
-## Quy tắc code
+## Phong cách mã nguồn
 
-Quy tắc đầy đủ ở `.swiftlint.yml` và `.swiftformat`. Các điểm chính:
+Toàn bộ quy tắc nằm trong `.swiftlint.yml` và `.swiftformat`. Các điểm chính:
 
-- Thụt 4 khoảng, giới hạn 120 ký tự mỗi dòng
-- Khai báo access control rõ ràng cho mọi declaration
-- Không force unwrap (`!`) hoặc force cast (`as!`) — dùng `guard let`, `if let`, `as?`
-- Ghi log bằng OSLog, không dùng `print()`
-- `String(localized:)` cho chuỗi UI
+- Thụt lề 4 dấu cách, độ rộng dòng mục tiêu 120 ký tự
+- Kiểm soát truy cập rõ ràng trên mọi khai báo
+- Không force unwrap (`!`) hoặc force cast (`as!`) — sử dụng `guard let`, `if let`, `as?`
+- OSLog cho mọi log, không bao giờ dùng `print()`
+- `String(localized:)` cho chuỗi hiển thị người dùng
 - [Conventional Commits](https://www.conventionalcommits.org/) cho commit message
 
 ### Giới hạn kích thước file
 
 | Chỉ số | Cảnh báo | Lỗi |
-|--------|---------|-------|
+|--------|----------|-----|
 | Độ dài file | 1200 dòng | 1800 dòng |
-| Độ dài thân type | 1100 dòng | 1500 dòng |
-| Độ dài function | 160 dòng | 250 dòng |
-| Cyclomatic complexity | 40 | 60 |
+| Body kiểu | 1100 dòng | 1500 dòng |
+| Body hàm | 160 dòng | 250 dòng |
+| Độ phức tạp vòng | 40 | 60 |
 
-Gần chạm giới hạn thì tách sang `TypeName+Category.swift` theo nhóm logic.
+Khi tiến gần giới hạn, tách thành file extension `TypeName+Category.swift` nhóm theo logic domain.
 
 ## CI/CD
 
-Workflow GitHub Actions (kích hoạt thủ công với tham số channel):
+Workflow GitHub Actions (dispatch thủ công với tham số channel tùy chọn):
 
 1. **Lint** — `swiftlint lint --strict` trên macOS 14
 2. **Build** — build release arm64 và x86_64 song song với Xcode 16
-3. **Artifacts** — upload build artifacts đã ký để phân phối
+3. **Artifact** — tải lên artifact build đã ký để phân phối
 
 ## Lộ trình
 
 ### Đã phát hành
 
-- [x] Import/export HAR
-- [x] Request replay (Repeat và Edit and Repeat)
-- [x] File session `.rockxysession` (save, open, metadata)
-- [x] Nhận diện GraphQL-over-HTTP và inspector
-- [x] JavaScript scripting (create, edit, test, enable/disable)
-- [x] So sánh request side-by-side
-- [x] Gia cố bảo mật (giới hạn body, validate regex, chống traversal, validate input)
-- [x] Ẩn credential trong log đã bắt
+- [x] Import và export file HAR
+- [x] Phát lại request (Repeat và Edit and Repeat)
+- [x] File session `.rockxysession` gốc (lưu, mở, metadata)
+- [x] Phát hiện và kiểm tra GraphQL-over-HTTP
+- [x] Scripting JavaScript (tạo, sửa, test, bật/tắt script)
+- [x] So sánh request song song
+- [x] Tăng cường bảo mật (giới hạn kích thước body, xác thực regex, bảo vệ path traversal, xác thực đầu vào)
+- [x] Ẩn thông tin xác thực trong log đã bắt
 
-### Dự kiến
+### Đang lên kế hoạch
 
-- [ ] Gom nhóm lỗi và dashboard analytics (HTTP 4xx/5xx, latency)
+- [ ] Nhóm lỗi và bảng phân tích (phân cụm HTTP 4xx/5xx, chỉ số độ trễ)
 - [ ] Hỗ trợ HTTP/2 và HTTP/3
-- [ ] Ghi chuỗi request (replay các request phụ thuộc)
-- [ ] Proxy cho thiết bị từ xa (debug iOS qua USB/Wi-Fi)
-- [ ] Headless mode cho CI/CD
-- [ ] Gỡ lỗi gRPC / Protocol Buffers
-- [ ] Mô phỏng điều kiện mạng (latency, packet loss, bandwidth)
+- [ ] Ghi chuỗi (phát lại chuỗi request phụ thuộc nhau)
+- [ ] Proxy thiết bị từ xa (gỡ lỗi thiết bị iOS qua USB/Wi-Fi)
+- [ ] Chế độ headless cho tích hợp pipeline CI/CD
+- [ ] Kiểm tra gRPC / Protocol Buffers
+- [ ] Mô phỏng điều kiện mạng (độ trễ, mất gói, giới hạn băng thông)
 
 ## Đóng góp
 
-Chúng tôi hoan nghênh đóng góp. Dù là sửa bug, thêm tính năng, tài liệu hay feedback UX — mọi đóng góp đều giúp Rockxy tốt hơn. Vui lòng đọc [Code of Conduct](CODE_OF_CONDUCT.md) trước khi tham gia.
+Chào đón mọi đóng góp. Dù là sửa lỗi, tính năng mới, tài liệu, hay phản hồi UX — tất cả đóng góp đều giúp Rockxy tốt hơn. Vui lòng đọc [Quy tắc ứng xử](CODE_OF_CONDUCT.md) trước khi tham gia.
 
 **Bắt đầu:**
 
-1. Fork repository và clone bản fork
-2. Tạo branch tính năng từ `develop` (`feat/your-change` hoặc `fix/your-fix`)
+1. Fork repository và clone fork của bạn
+2. Tạo nhánh tính năng từ `develop` (`feat/your-change` hoặc `fix/your-fix`)
 3. Thực hiện thay đổi, đảm bảo `swiftlint lint --strict` pass
-4. Mở pull request với mô tả rõ ràng
+4. Mở pull request với mô tả rõ ràng về những gì đã thay đổi và tại sao
 
-Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết chi tiết về setup, code style, commit và PR checklist.
+Xem [CONTRIBUTING.md](CONTRIBUTING.md) để biết hướng dẫn cài đặt chi tiết, phong cách mã, quy ước commit, và checklist PR đầy đủ.
 
-**Cách đóng góp:**
+**Các cách đóng góp:**
 
-- **Code** — sửa bug, thêm tính năng, tối ưu hiệu năng
-- **Tests** — mở rộng coverage, thêm edge cases, cải thiện fixtures
-- **Documentation** — cải thiện docs ở `docs/`, sửa typo, thêm ví dụ
-- **Bug reports** — gửi issue rõ ràng, có bước tái hiện và phiên bản macOS
-- **UX feedback** — đề xuất cải tiến inspector, sidebar hoặc toolbar
+- **Mã nguồn** — sửa lỗi, tính năng mới, cải thiện hiệu năng
+- **Test** — mở rộng phạm vi test, thêm trường hợp biên, cải thiện fixture
+- **Tài liệu** — cải thiện tài liệu trong `docs/`, sửa lỗi chính tả, thêm ví dụ
+- **Báo cáo lỗi** — tạo issue rõ ràng, có thể tái tạo, kèm phiên bản macOS và các bước thực hiện
+- **Phản hồi UX** — đề xuất cải thiện quy trình làm việc inspector, sidebar, hoặc toolbar
 
 Các issue phù hợp cho người mới được gắn nhãn [`good first issue`](https://github.com/LocNguyenHuu/Rockxy/labels/good%20first%20issue) trên GitHub.
 
-Khi mở pull request, bạn đồng ý với [Contributor License Agreement](CLA.md).
+Bằng việc mở pull request, bạn đồng ý với [Thỏa thuận giấy phép đóng góp](CLA.md).
 
 ## Hỗ trợ
 
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — hỗ trợ phát triển Rockxy
-- [GitHub Issues](https://github.com/LocNguyenHuu/Rockxy/issues) — báo bug và đề xuất tính năng
-- [GitHub Discussions](https://github.com/LocNguyenHuu/Rockxy/discussions) — hỏi đáp và trao đổi cộng đồng
+- [GitHub Issues](https://github.com/LocNguyenHuu/Rockxy/issues) — báo cáo lỗi và yêu cầu tính năng
+- [GitHub Discussions](https://github.com/LocNguyenHuu/Rockxy/discussions) — câu hỏi và thảo luận cộng đồng
 - **Email** — [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
-- **Vấn đề bảo mật** — xem [SECURITY.md](SECURITY.md) để disclosure có trách nhiệm
+- **Vấn đề bảo mật** — xem [SECURITY.md](SECURITY.md) để biết cách tiết lộ có trách nhiệm
 
 ## Giấy phép
 
@@ -642,4 +652,4 @@ Khi mở pull request, bạn đồng ý với [Contributor License Agreement](CL
 
 ---
 
-**Xây dựng với Swift, SwiftNIO, SwiftUI và AppKit.**
+**Xây dựng bằng Swift, SwiftNIO, SwiftUI, và AppKit.**

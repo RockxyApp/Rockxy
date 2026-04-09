@@ -107,6 +107,26 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     private var requestStartTime: DispatchTime?
     private var accumulatedBodySize: Int = 0
 
+    nonisolated private func makeTransactionCallback(
+        for matchedRule: ProxyRule?
+    )
+        -> @Sendable (HTTPTransaction) -> Void
+    {
+        let downstream = onTransactionComplete
+        let matchedRuleID = matchedRule?.id
+        let matchedRuleName = matchedRule?.name
+        let matchedRuleActionSummary = matchedRule?.action.matchedRuleActionSummary
+        let matchedRulePattern = matchedRule?.matchCondition.urlPattern
+
+        return { transaction in
+            transaction.matchedRuleID = matchedRuleID
+            transaction.matchedRuleName = matchedRuleName
+            transaction.matchedRuleActionSummary = matchedRuleActionSummary
+            transaction.matchedRulePattern = matchedRulePattern
+            downstream(transaction)
+        }
+    }
+
     nonisolated private func forwardHTTPSRequest(
         context: ChannelHandlerContext,
         head: HTTPRequestHead
@@ -159,6 +179,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
                 return
             }
             let matchedRule: ProxyRule? = (try? result.get()) ?? nil
+            let matchedRuleCallback = self.makeTransactionCallback(for: matchedRule)
 
             if let matchedRule {
                 self.handleRuleAction(
@@ -168,7 +189,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
                     requestData: requestData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
-                    callback: callback,
+                    callback: matchedRuleCallback,
                     urlPattern: matchedRule.matchCondition.urlPattern
                 )
                 return
@@ -463,6 +484,19 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
         guard context.channel.isActive else {
             return
         }
+
+        if status == 0 {
+            context.close(promise: nil)
+            let transaction = HTTPTransaction(
+                request: requestData,
+                response: nil,
+                state: .blocked
+            )
+            transaction.sourcePort = clientSourcePort
+            callback(transaction)
+            return
+        }
+
         let httpStatus = HTTPResponseStatus(statusCode: status)
         var responseHead = HTTPResponseHead(version: .http1_1, status: httpStatus)
         responseHead.headers.add(name: "Connection", value: "close")

@@ -12,6 +12,8 @@ struct DiffWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            infoBar
+            Divider()
             DiffCandidateTableView(viewModel: viewModel)
                 .frame(minHeight: 60, idealHeight: 120, maxHeight: 200)
             Divider()
@@ -19,7 +21,7 @@ struct DiffWindowView: View {
             Divider()
             DiffControlBar(viewModel: viewModel)
         }
-        .frame(minWidth: 900, idealWidth: 1_240, minHeight: 600, idealHeight: 820)
+        .frame(minWidth: 900, idealWidth: 1240, minHeight: 600, idealHeight: 820)
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -46,6 +48,25 @@ struct DiffWindowView: View {
     }
 
     // MARK: Private
+
+    private var infoBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "rectangle.split.2x1")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(
+                String(
+                    localized: "Basic Compare helps you quickly inspect Request, Response, or Timing differences between two local transactions."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.45))
+    }
 
     private func exportDiff() {
         let result = viewModel.activeDiffResult

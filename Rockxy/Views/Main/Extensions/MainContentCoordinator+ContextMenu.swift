@@ -173,13 +173,10 @@ extension MainContentCoordinator {
     }
 
     func createBlockRule(for transaction: HTTPTransaction) {
-        let rule = ProxyRule(
-            name: "Block — \(transaction.request.host)",
-            matchCondition: RuleMatchCondition(urlPattern: transaction.request.host),
-            action: .block(statusCode: 403)
-        )
-        addRule(rule)
-        Self.logger.info("Created Block rule for \(transaction.request.host)")
+        let context = BlockRuleEditorContextBuilder.fromTransaction(transaction)
+        BlockRuleEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openBlockListWindow, object: nil)
+        Self.logger.info("Created Block rule context for \(transaction.request.url.absoluteString)")
     }
 
     func createNetworkConditionsRule(for transaction: HTTPTransaction) {

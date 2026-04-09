@@ -23,17 +23,11 @@ extension MainContentCoordinator {
     }
 
     func createBreakpointRule(for transaction: HTTPTransaction) {
-        let host = transaction.request.host
-        let path = transaction.request.path.isEmpty ? "/" : transaction.request.path
-        let escapedHost = NSRegularExpression.escapedPattern(for: host)
-        let escapedPath = NSRegularExpression.escapedPattern(for: path)
-        let pattern = ".*\(escapedHost)\(escapedPath).*"
+        let rule = BreakpointRuleBuilder.fromTransaction(transaction)
+        registerCreatedBreakpointRule(rule)
+    }
 
-        let rule = ProxyRule(
-            name: "Breakpoint: \(host)\(path)",
-            matchCondition: RuleMatchCondition(urlPattern: pattern),
-            action: .breakpoint(phase: .both)
-        )
+    func registerCreatedBreakpointRule(_ rule: ProxyRule) {
         Task {
             await RuleSyncService.addRule(rule)
             BreakpointWindowModel.shared.selectRule(rule.id)

@@ -376,4 +376,40 @@ struct SessionSerializerTests {
         let session = try SessionSerializer.deserialize(from: data)
         #expect(session.metadata.formatVersion == SessionSerializer.currentFormatVersion)
     }
+
+    // MARK: - Matched Rule Metadata
+
+    @Test("Round-trip preserves matched rule metadata")
+    func roundTripPreservesMatchedRuleMetadata() throws {
+        let transaction = TestFixtures.makeTransaction()
+        let ruleID = UUID()
+        transaction.matchedRuleID = ruleID
+        transaction.matchedRuleName = "Block Ads"
+        transaction.matchedRuleActionSummary = "block(403)"
+        transaction.matchedRulePattern = ".*ads\\.example\\.com.*"
+
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+
+        let restored = session.transactions[0].toLiveModel()
+        #expect(restored.matchedRuleID == ruleID)
+        #expect(restored.matchedRuleName == "Block Ads")
+        #expect(restored.matchedRuleActionSummary == "block(403)")
+        #expect(restored.matchedRulePattern == ".*ads\\.example\\.com.*")
+    }
+
+    @Test("Round-trip preserves nil matched rule metadata")
+    func roundTripPreservesNilMatchedRuleMetadata() throws {
+        let transaction = TestFixtures.makeTransaction()
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+
+        let restored = session.transactions[0].toLiveModel()
+        #expect(restored.matchedRuleID == nil)
+        #expect(restored.matchedRuleName == nil)
+        #expect(restored.matchedRuleActionSummary == nil)
+        #expect(restored.matchedRulePattern == nil)
+    }
 }

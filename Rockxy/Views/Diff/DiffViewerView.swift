@@ -8,9 +8,9 @@ struct DiffViewerView: View {
     @Bindable var viewModel: DiffViewModel
 
     var body: some View {
-        if viewModel.isTextMode {
+        if viewModel.workspaceState == .textPaste {
             textPasteMode
-        } else if viewModel.leftTransaction != nil, viewModel.rightTransaction != nil {
+        } else if viewModel.workspaceState == .ready {
             diffContent
         } else {
             partialState
@@ -65,35 +65,26 @@ struct DiffViewerView: View {
 
     private var partialState: some View {
         VStack(spacing: 6) {
-            Image(systemName: viewModel.leftTransaction != nil ? "arrow.right" : "arrow.left.arrow.right")
+            Image(systemName: viewModel.workspaceState == .missingLeft ? "arrow.left" : viewModel
+                .workspaceState == .missingRight ? "arrow.right" : "arrow.left.arrow.right")
                 .font(.system(size: 24))
                 .foregroundStyle(.tertiary)
-            if viewModel.leftTransaction != nil {
+            if viewModel.workspaceState == .missingRight {
                 Text(String(localized: "Assign a Right Transaction"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "Click the R column on a row to assign it as the right side."))
+                Text(String(localized: "Click the R column on a candidate to finish this basic compare."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-            } else if viewModel.rightTransaction != nil {
+            } else if viewModel.workspaceState == .missingLeft {
                 Text(String(localized: "Assign a Left Transaction"))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-                Text(String(localized: "Click the L column on a row to assign it as the left side."))
+                Text(String(localized: "Click the L column on a candidate to finish this basic compare."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             } else {
-                Text(String(localized: "No Transactions to Compare"))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Text(
-                    String(
-                        localized: "Select two requests in the traffic list and choose \"Compare Selected\",\nor paste text below to compare manually."
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

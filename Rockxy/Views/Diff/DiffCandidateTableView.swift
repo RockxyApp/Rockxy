@@ -88,12 +88,14 @@ struct DiffCandidateTableView: View {
 
     private var emptyState: some View {
         VStack(spacing: 4) {
-            Text(String(localized: "No candidates"))
+            Text(String(localized: "No compare candidates yet"))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-            Text(String(localized: "Select two requests and choose \"Compare Selected\""))
-                .font(.caption2)
-                .foregroundStyle(.quaternary)
+            Text(
+                String(localized: "Select two requests and choose \"Compare Selected\" to start a basic local compare.")
+            )
+            .font(.caption2)
+            .foregroundStyle(.quaternary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)

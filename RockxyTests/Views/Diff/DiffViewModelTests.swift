@@ -14,6 +14,7 @@ struct DiffViewModelTests {
         #expect(vm.rightTransaction == nil)
         #expect(vm.compareTarget == .request)
         #expect(vm.presentationMode == .sideBySide)
+        #expect(vm.workspaceState == .textPaste)
     }
 
     @Test("Assign left sets left transaction")
@@ -130,6 +131,7 @@ struct DiffViewModelTests {
         let vm = DiffViewModel()
         vm.assignLeft(TestFixtures.makeTransaction())
         #expect(vm.diffResult.differenceCount == 0)
+        #expect(vm.workspaceState == .missingRight)
     }
 
     @Test("textDiffResult compares freeform text")
@@ -140,5 +142,19 @@ struct DiffViewModelTests {
         vm.textB = "line 1\nline 3"
         let result = vm.textDiffResult
         #expect(result.differenceCount > 0)
+    }
+
+    @Test("workspaceState becomes ready when both sides are assigned")
+    @MainActor
+    func workspaceReady() {
+        let vm = DiffViewModel()
+        vm.candidates = [
+            TestFixtures.makeTransaction(url: "https://a.com/test"),
+            TestFixtures.makeTransaction(url: "https://b.com/test"),
+        ]
+        vm.assignLeft(vm.candidates[0])
+        vm.assignRight(vm.candidates[1])
+
+        #expect(vm.workspaceState == .ready)
     }
 }

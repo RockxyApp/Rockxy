@@ -113,6 +113,26 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     private var clientSourcePort: UInt16?
     private var accumulatedBodySize: Int = 0
 
+    nonisolated private func makeTransactionCallback(
+        for matchedRule: ProxyRule?
+    )
+        -> @Sendable (HTTPTransaction) -> Void
+    {
+        let downstream = onTransactionComplete
+        let matchedRuleID = matchedRule?.id
+        let matchedRuleName = matchedRule?.name
+        let matchedRuleActionSummary = matchedRule?.action.matchedRuleActionSummary
+        let matchedRulePattern = matchedRule?.matchCondition.urlPattern
+
+        return { transaction in
+            transaction.matchedRuleID = matchedRuleID
+            transaction.matchedRuleName = matchedRuleName
+            transaction.matchedRuleActionSummary = matchedRuleActionSummary
+            transaction.matchedRulePattern = matchedRulePattern
+            downstream(transaction)
+        }
+    }
+
     nonisolated private func processRequest(
         context: ChannelHandlerContext,
         head: HTTPRequestHead
@@ -143,6 +163,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 return
             }
             let matchedRule: ProxyRule? = (try? result.get()) ?? nil
+            let callback = self.makeTransactionCallback(for: matchedRule)
 
             // CONNECT policy: only .block is meaningful on tunnel establishment (sends
             // rejection). All other actions either break the TLS handshake or produce
@@ -157,6 +178,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             context: context,
                             head: head,
                             requestData: requestData,
+                            callback: callback,
                             urlPattern: matchedRule.matchCondition.urlPattern
                         )
                         return
@@ -179,6 +201,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: head,
                     requestData: requestData,
+                    callback: callback,
                     urlPattern: matchedRule.matchCondition.urlPattern
                 )
                 return
@@ -192,10 +215,20 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     guard let self else {
                         return
                     }
-                    self.forwardRequest(context: context, head: head, requestData: modifiedRequest)
+                    self.forwardRequest(
+                        context: context,
+                        head: head,
+                        requestData: modifiedRequest,
+                        callback: self.onTransactionComplete
+                    )
                 }
             } else {
-                self.forwardRequest(context: context, head: head, requestData: requestData)
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    callback: self.onTransactionComplete
+                )
             }
         }
     }
@@ -245,11 +278,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void,
         urlPattern: String? = nil
     ) {
         switch action {
         case let .block(statusCode):
-            sendErrorResponse(context: context, status: statusCode, requestData: requestData)
+            sendErrorResponse(context: context, status: statusCode, requestData: requestData, callback: callback)
 
         case let .mapLocal(filePath, statusCode, isDirectory) where isDirectory:
             handleMapLocalDirectory(
@@ -257,11 +291,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 directoryPath: filePath,
                 statusCode: statusCode,
                 requestData: requestData,
+                callback: callback,
                 urlPattern: urlPattern ?? ""
             )
 
         case let .mapLocal(filePath, statusCode, _):
-            handleMapLocal(context: context, filePath: filePath, statusCode: statusCode, requestData: requestData)
+            handleMapLocal(
+                context: context,
+                filePath: filePath,
+                statusCode: statusCode,
+                requestData: requestData,
+                callback: callback
+            )
 
         case let .modifyHeader(operations):
             let requestOps = HeaderOperation.requestPhase(from: operations)
@@ -274,7 +315,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: modifiedHead,
                 requestData: modifiedData,
-                responseHeaderOperations: responseOps.isEmpty ? nil : responseOps
+                responseHeaderOperations: responseOps.isEmpty ? nil : responseOps,
+                callback: callback
             )
 
         case let .mapRemote(configuration):
@@ -282,7 +324,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: head,
                 requestData: requestData,
-                configuration: configuration
+                configuration: configuration,
+                callback: callback
             )
 
         case let .throttle(delayMs):
@@ -291,7 +334,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 guard let self else {
                     return
                 }
-                self.forwardRequest(context: context, head: head, requestData: requestData)
+                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
 
         case let .networkCondition(_, delayMs):
@@ -300,15 +343,15 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 guard let self else {
                     return
                 }
-                self.forwardRequest(context: context, head: head, requestData: requestData)
+                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
 
         case let .breakpoint(phase):
             pendingBreakpointPhase = phase
             if phase == .request || phase == .both {
-                handleBreakpoint(context: context, head: head, requestData: requestData)
+                handleBreakpoint(context: context, head: head, requestData: requestData, callback: callback)
             } else {
-                forwardRequest(context: context, head: head, requestData: requestData)
+                forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
         }
     }
@@ -317,10 +360,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
-        configuration: MapRemoteConfiguration
+        configuration: MapRemoteConfiguration,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard configuration.hasOverride else {
-            forwardRequest(context: context, head: head, requestData: requestData)
+            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             return
         }
 
@@ -361,17 +405,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             contentType: requestData.contentType
         )
 
-        forwardRequest(context: context, head: modifiedHead, requestData: modifiedData)
+        forwardRequest(context: context, head: modifiedHead, requestData: modifiedData, callback: callback)
     }
 
     nonisolated private func handleMapLocal(
         context: ChannelHandlerContext,
         filePath: String,
         statusCode: Int,
-        requestData: HTTPRequestData
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let data = MapLocalFileValidator.loadFileData(at: filePath) else {
-            sendErrorResponse(context: context, status: 404, requestData: requestData)
+            sendErrorResponse(context: context, status: 404, requestData: requestData, callback: callback)
             return
         }
 
@@ -386,7 +431,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             ],
             body: data
         )
-        sendResponse(context: context, responseData: responseData, requestData: requestData)
+        sendResponse(context: context, responseData: responseData, requestData: requestData, callback: callback)
     }
 
     nonisolated private func handleMapLocalDirectory(
@@ -394,6 +439,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         directoryPath: String,
         statusCode: Int,
         requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void,
         urlPattern: String
     ) {
         let requestPath = extractPath(from: requestData.url.absoluteString)
@@ -414,9 +460,9 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 ],
                 body: file.data
             )
-            sendResponse(context: context, responseData: responseData, requestData: requestData)
+            sendResponse(context: context, responseData: responseData, requestData: requestData, callback: callback)
         case .failure:
-            sendErrorResponse(context: context, status: 404, requestData: requestData)
+            sendErrorResponse(context: context, status: 404, requestData: requestData, callback: callback)
         }
     }
 
@@ -426,11 +472,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     nonisolated private func handleBreakpoint(
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
-        requestData: HTTPRequestData
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let onBreakpointHit else {
             proxyHandlerLogger.warning("Breakpoint rule matched but no handler configured, forwarding")
-            forwardRequest(context: context, head: head, requestData: requestData)
+            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             return
         }
 
@@ -461,11 +508,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     modifiedData: modifiedData,
                     context: context,
                     head: head,
-                    requestData: requestData
+                    requestData: requestData,
+                    callback: callback
                 )
             case let .failure(error):
                 proxyHandlerLogger.error("Breakpoint handler failed: \(error.localizedDescription), forwarding")
-                self.forwardRequest(context: context, head: head, requestData: requestData)
+                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
         }
     }
@@ -475,7 +523,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         modifiedData: BreakpointRequestData,
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
-        requestData: HTTPRequestData
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         switch decision {
         case .execute:
@@ -484,11 +533,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 originalHead: head,
                 originalRequestData: requestData
             )
-            self.forwardRequest(context: context, head: built.head, requestData: built.requestData)
+            self.forwardRequest(context: context, head: built.head, requestData: built.requestData, callback: callback)
         case .abort:
-            self.sendErrorResponse(context: context, status: 503, requestData: requestData)
+            self.sendErrorResponse(context: context, status: 503, requestData: requestData, callback: callback)
         case .cancel:
-            self.forwardRequest(context: context, head: head, requestData: requestData)
+            self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
         }
     }
 }
@@ -548,6 +597,22 @@ extension HTTPProxyHandler {
         requestData: HTTPRequestData,
         responseHeaderOperations: [HeaderOperation]? = nil
     ) {
+        forwardRequest(
+            context: context,
+            head: head,
+            requestData: requestData,
+            responseHeaderOperations: responseHeaderOperations,
+            callback: onTransactionComplete
+        )
+    }
+
+    nonisolated func forwardRequest(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData,
+        responseHeaderOperations: [HeaderOperation]? = nil,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
         var head = head
         var requestData = requestData
 
@@ -559,10 +624,8 @@ extension HTTPProxyHandler {
         let host = requestData.host
         let startTime = requestStartTime ?? .now()
         let graphQLInfo = GraphQLDetector.detect(request: requestData)
-        let callback = onTransactionComplete
-
         guard !host.isEmpty else {
-            sendErrorResponse(context: context, status: 400, requestData: requestData)
+            sendErrorResponse(context: context, status: 400, requestData: requestData, callback: callback)
             return
         }
 
@@ -572,7 +635,7 @@ extension HTTPProxyHandler {
 
         guard connectionLimiter.acquire(host: host, port: port) else {
             proxyHandlerLogger.warning("Connection limit reached for \(host):\(port)")
-            sendErrorResponse(context: context, status: 503, requestData: requestData)
+            sendErrorResponse(context: context, status: 503, requestData: requestData, callback: callback)
             return
         }
 
@@ -627,7 +690,7 @@ extension HTTPProxyHandler {
                 case let .failure(error):
                     proxyHandlerLogger.error("Connection failed: \(error.localizedDescription)")
                     limiter.release(host: host, port: port)
-                    self.sendErrorResponse(context: context, status: 502, requestData: requestData)
+                    self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
                 }
             }
     }
@@ -695,7 +758,7 @@ extension HTTPProxyHandler {
                 )
                 clientChannel.close(promise: nil)
                 onUpstreamClosed()
-                self.sendErrorResponse(context: context, status: 502, requestData: requestData)
+                self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
             }
         }
     }
@@ -705,9 +768,31 @@ extension HTTPProxyHandler {
         status: Int,
         requestData: HTTPRequestData
     ) {
+        sendErrorResponse(context: context, status: status, requestData: requestData, callback: onTransactionComplete)
+    }
+
+    nonisolated func sendErrorResponse(
+        context: ChannelHandlerContext,
+        status: Int,
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
         guard context.channel.isActive else {
             return
         }
+
+        if status == 0 {
+            context.close(promise: nil)
+            let transaction = HTTPTransaction(
+                request: requestData,
+                response: nil,
+                state: .blocked
+            )
+            transaction.sourcePort = clientSourcePort
+            callback(transaction)
+            return
+        }
+
         let httpStatus = HTTPResponseStatus(statusCode: status)
         var responseHead = HTTPResponseHead(
             version: .http1_1,
@@ -729,13 +814,14 @@ extension HTTPProxyHandler {
             state: status == 403 ? .blocked : .failed
         )
         transaction.sourcePort = clientSourcePort
-        onTransactionComplete(transaction)
+        callback(transaction)
     }
 
     nonisolated private func sendResponse(
         context: ChannelHandlerContext,
         responseData: HTTPResponseData,
-        requestData: HTTPRequestData
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         let status = HTTPResponseStatus(statusCode: responseData.statusCode)
         var responseHead = HTTPResponseHead(version: .http1_1, status: status)
@@ -756,16 +842,17 @@ extension HTTPProxyHandler {
             state: .completed
         )
         transaction.sourcePort = clientSourcePort
-        onTransactionComplete(transaction)
+        callback(transaction)
     }
 
     nonisolated private func completeTransaction(
         context: ChannelHandlerContext,
         requestData: HTTPRequestData,
-        state: TransactionState
+        state: TransactionState,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         let transaction = HTTPTransaction(request: requestData, state: state)
         transaction.sourcePort = clientSourcePort
-        onTransactionComplete(transaction)
+        callback(transaction)
     }
 }

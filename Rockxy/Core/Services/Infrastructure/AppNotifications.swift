@@ -26,6 +26,7 @@ extension Notification.Name {
     static let rulesDidChange = identity.notificationName("rulesDidChange")
     static let openDiffWindow = identity.notificationName("openDiffWindow")
     static let openComposeWindow = identity.notificationName("openComposeWindow")
+    static let openBlockListWindow = identity.notificationName("openBlockListWindow")
     static let openMapLocalWindow = identity.notificationName("openMapLocalWindow")
     static let openMapRemoteWindow = identity.notificationName("openMapRemoteWindow")
     static let openNetworkConditionsWindow = identity.notificationName("openNetworkConditionsWindow")

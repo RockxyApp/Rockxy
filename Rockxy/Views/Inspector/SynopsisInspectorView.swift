@@ -16,6 +16,17 @@ struct SynopsisInspectorView: View {
                 synopsisRow(String(localized: "Path"), transaction.request.path)
                 synopsisRow("HTTP Version", transaction.request.httpVersion)
 
+                if let matchedRuleName = transaction.matchedRuleName {
+                    Divider()
+                    synopsisRow(String(localized: "Matched Rule"), matchedRuleName)
+                    if let actionSummary = transaction.matchedRuleActionSummary {
+                        synopsisRow(String(localized: "Rule Action"), actionSummary)
+                    }
+                    if let pattern = transaction.matchedRulePattern {
+                        synopsisRow(String(localized: "Rule Pattern"), pattern)
+                    }
+                }
+
                 if let response = transaction.response {
                     Divider()
                     synopsisRow(String(localized: "Status"), "\(response.statusCode) \(response.statusMessage)")

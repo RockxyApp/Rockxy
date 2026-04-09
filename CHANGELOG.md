@@ -6,11 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [0.3.1] - 2026-04-09
-
 ### Changed
 
-- Add localized readmes
+- Redesign Block List rule editor with Proxyman-style dropdown menus for HTTP method, match type (Wildcard/Regex), and block action (Return 403 Forbidden/Drop Connection)
+- Add editable rule name field and conditional "Include all subpaths" checkbox
+- Add quick-create prefill from request context menu and sidebar domain menu with provenance banner
+- Enlarge Block List window (860×620) and editor sheet (600×auto-height)
+
 ## [0.3.0] - 2026-04-08
 
 ### Added

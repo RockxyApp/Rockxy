@@ -5,6 +5,16 @@
 <h1 align="center">Rockxy</h1>
 
 <p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.vi.md">Tiếng Việt</a> |
+  <a href="README.zh.md">中文</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.fr.md">Français</a> |
+  <a href="README.de.md">Deutsch</a>
+</p>
+
+<p align="center">
   <strong>Open-source HTTP debugging proxy for macOS.</strong>
 </p>
 

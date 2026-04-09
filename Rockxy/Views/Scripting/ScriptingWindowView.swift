@@ -29,6 +29,10 @@ struct ScriptingWindowView: View {
                     .foregroundStyle(Color.yellow)
                     .clipShape(Capsule())
 
+                if viewModel.runStatus != .idle || viewModel.runStatusMessage != nil {
+                    runStatusBadge
+                }
+
                 Button {
                     Task { await viewModel.createNewScript() }
                 } label: {
@@ -59,13 +63,16 @@ struct ScriptingWindowView: View {
                 Menu {
                     ForEach(Array(ScriptingViewModel.scriptTemplates.keys.sorted()), id: \.self) { name in
                         Button(name) {
-                            viewModel.applyTemplate(name)
+                            if viewModel.selectedPluginID == nil {
+                                Task { await viewModel.createNewScript(templateName: name) }
+                            } else {
+                                viewModel.applyTemplate(name)
+                            }
                         }
                     }
                 } label: {
                     Label(String(localized: "Templates"), systemImage: "doc.on.doc")
                 }
-                .disabled(viewModel.selectedPluginID == nil)
             }
         }
         .task {
@@ -76,6 +83,32 @@ struct ScriptingWindowView: View {
     // MARK: Private
 
     @State private var viewModel = ScriptingViewModel()
+
+    private var runStatusLabel: String {
+        switch viewModel.runStatus {
+        case .idle:
+            String(localized: "Idle")
+        case .running:
+            String(localized: "Running")
+        case .success:
+            String(localized: "Ready")
+        case .failure:
+            String(localized: "Attention Needed")
+        }
+    }
+
+    private var runStatusColor: Color {
+        switch viewModel.runStatus {
+        case .idle:
+            .secondary
+        case .running:
+            .orange
+        case .success:
+            .green
+        case .failure:
+            .red
+        }
+    }
 
     // MARK: - Sidebar
 
@@ -180,7 +213,17 @@ struct ScriptingWindowView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
 
-            Text("Or use **Templates** in the toolbar to start from an example.")
+            Menu {
+                ForEach(Array(ScriptingViewModel.scriptTemplates.keys.sorted()), id: \.self) { name in
+                    Button(name) {
+                        Task { await viewModel.createNewScript(templateName: name) }
+                    }
+                }
+            } label: {
+                Label(String(localized: "Start from Template"), systemImage: "doc.on.doc")
+            }
+
+            Text("Templates are the fastest way to start a local request modifier, blocker, or mock response.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -225,6 +268,21 @@ struct ScriptingWindowView: View {
         }
         .frame(height: 140)
         .background(.background.opacity(0.5))
+    }
+
+    private var runStatusBadge: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(runStatusColor)
+                .frame(width: 8, height: 8)
+            Text(viewModel.runStatusMessage ?? runStatusLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(.quaternary.opacity(0.5))
+        .clipShape(Capsule())
     }
 }
 

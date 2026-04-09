@@ -262,13 +262,10 @@ extension MainContentCoordinator {
     // MARK: - Tools (Rule Creation from Domain)
 
     func createBlockRuleForDomain(_ domain: String) {
-        let rule = ProxyRule(
-            name: String(localized: "Block — \(domain)"),
-            matchCondition: RuleMatchCondition(urlPattern: domain),
-            action: .block(statusCode: 403)
-        )
-        addRule(rule)
-        Self.logger.info("Created Block rule for domain: \(domain)")
+        let context = BlockRuleEditorContextBuilder.fromDomain(domain)
+        BlockRuleEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openBlockListWindow, object: nil)
+        Self.logger.info("Created Block rule context for domain: \(domain)")
     }
 
     func createMapLocalRuleForDomain(_ domain: String) {
@@ -286,17 +283,8 @@ extension MainContentCoordinator {
     }
 
     func createBreakpointRuleForDomain(_ domain: String) {
-        let escapedDomain = NSRegularExpression.escapedPattern(for: domain)
-        let rule = ProxyRule(
-            name: String(localized: "Breakpoint — \(domain)"),
-            matchCondition: RuleMatchCondition(urlPattern: ".*\(escapedDomain).*"),
-            action: .breakpoint(phase: .both)
-        )
-        Task {
-            await RuleSyncService.addRule(rule)
-            BreakpointWindowModel.shared.selectRule(rule.id)
-            NotificationCenter.default.post(name: .breakpointRuleCreated, object: nil)
-        }
+        let rule = BreakpointRuleBuilder.fromDomain(domain)
+        registerCreatedBreakpointRule(rule)
     }
 
     func createNetworkConditionsRuleForDomain(_ domain: String) {

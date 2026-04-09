@@ -5,12 +5,22 @@
 <h1 align="center">Rockxy</h1>
 
 <p align="center">
-  <strong>Proxy de débogage HTTP open source pour macOS.</strong>
+  <a href="README.md">English</a> |
+  <a href="README.vi.md">Tiếng Việt</a> |
+  <a href="README.zh.md">中文</a> |
+  <a href="README.ja.md">日本語</a> |
+  <a href="README.ko.md">한국어</a> |
+  <a href="README.fr.md">Français</a> |
+  <a href="README.de.md">Deutsch</a>
+</p>
+
+<p align="center">
+  <strong>Proxy de débogage HTTP open-source pour macOS.</strong>
 </p>
 
 <p align="center">
   Interceptez le trafic HTTP/HTTPS, inspectez les requêtes API, déboguez les connexions WebSocket et analysez les requêtes GraphQL.<br>
-  Construit en Swift avec SwiftNIO, SwiftUI et AppKit.
+  Développé en Swift avec SwiftNIO, SwiftUI et AppKit.
 </p>
 
 <p align="center">
@@ -27,120 +37,120 @@
 
 ---
 
-> **Statut** : Développement actif. Le moteur proxy, l’interception HTTPS, le système de règles, l’écosystème de plugins et l’UI d’inspection sont fonctionnels. Voir [CHANGELOG.md](CHANGELOG.md).
+> **Statut** : Développement actif. Le moteur proxy principal, l'interception HTTPS, le système de règles, l'écosystème de plugins et l'interface d'inspection sont fonctionnels. Consultez le [CHANGELOG.md](CHANGELOG.md) pour suivre les avancées.
 
 ## Fonctionnalités
 
 ### Capture du trafic réseau
-- **Proxy HTTP/HTTPS** — proxy d’interception basé sur SwiftNIO avec prise en charge de CONNECT
-- **Interception SSL/TLS** — déchiffrement MITM avec certificats par hôte auto‑générés (cache LRU ~1000)
-- **Débogage WebSocket** — capture et inspection des frames bidirectionnelles
-- **Détection GraphQL** — extraction automatique du nom d’opération et inspection des requêtes
-- **Identification du processus** — détermine l’app d’origine (Safari, Chrome, curl, Slack, Postman, etc.) via `lsof` + User‑Agent
+- **Serveur proxy HTTP/HTTPS** — proxy d'interception basé sur SwiftNIO avec prise en charge des tunnels CONNECT
+- **Interception SSL/TLS** — déchiffrement MITM avec génération automatique de certificats par hôte (cache LRU ~1000)
+- **Débogage WebSocket** — capture et inspection bidirectionnelle des trames
+- **Détection GraphQL** — extraction automatique du nom des opérations et inspection des requêtes
+- **Identification des processus** — identifiez quelle application (Safari, Chrome, curl, Slack, Postman, etc.) a émis chaque requête via le mapping de ports `lsof` et l'analyse du User-Agent
 
-### Inspecteur requête/réponse
+### Inspecteur de requêtes et réponses
 - **Visualiseur JSON** — arborescence repliable avec coloration syntaxique
-- **Inspecteur hexadécimal** — affichage binaire pour les contenus non textuels
-- **Timing waterfall** — DNS, TCP, TLS, TTFB et transfert visualisés par requête
-- **Headers, cookies, query params, auth** — inspecteur en onglets avec vue brute
-- **Colonnes d’en‑têtes personnalisées** — afficher des en‑têtes supplémentaires en colonnes
+- **Inspecteur hexadécimal** — affichage du corps en binaire pour le contenu non textuel
+- **Cascade temporelle** — phases DNS, connexion TCP, handshake TLS, TTFB et transfert visualisées pour chaque requête
+- **En-têtes, cookies, paramètres de requête, authentification** — inspecteur à onglets avec option d'affichage brut
+- **Colonnes d'en-têtes personnalisées** — sélectionnez des en-têtes de requête/réponse supplémentaires à afficher en colonnes
 
-### Espace de travail & productivité
-- **Onglets d’espace de travail** — espaces de capture séparés avec filtres indépendants
-- **Favoris** — épingler des hôtes ou requêtes fréquents
-- **Vue chronologique** — timeline visuelle d’un sous‑ensemble de requêtes
+### Espaces de travail et productivité
+- **Onglets d'espace de travail** — espaces de capture séparés avec filtres et focus indépendants
+- **Favoris** — épinglez les hôtes ou requêtes fréquents pour un accès rapide
+- **Vue chronologique** — frise visuelle de la séquence des requêtes pour un sous-ensemble ciblé
 
-### Manipulation du trafic & Mock API
-- **Map Local** — servir des réponses depuis des fichiers locaux
-- **Map Remote** — rediriger vers un autre host/port/path
-- **Breakpoints** — mettre en pause, modifier URL/headers/body/status, puis relayer ou annuler
-- **Block List** — bloquer par motif d’URL (wildcard ou regex)
-- **Throttle** — simuler un réseau lent via délai de transfert
-- **Modify Headers** — ajouter, supprimer ou remplacer des en‑têtes
-- **Allow List** — ne capturer que des domaines/apps ciblés
-- **Bypass Proxy** — exclure certains hôtes lorsque le proxy système est actif
-- **Règles SSL Proxying** — contrôle de l’interception TLS par domaine
+### Manipulation du trafic et simulation d'API
+- **Map Local** — servez des réponses depuis des fichiers locaux (simulez des réponses API sans modifier le code serveur)
+- **Map Remote** — redirigez les requêtes vers un autre hôte/port/chemin (test de passerelle API, basculement staging ↔ production)
+- **Breakpoints** — mettez en pause les requêtes ou réponses en cours de transit, modifiez l'URL/les en-têtes/le corps/le statut, puis transmettez ou abandonnez
+- **Liste de blocage** — bloquez les requêtes par motif d'URL (joker ou regex)
+- **Throttle** — simulez un réseau lent en retardant la transmission des requêtes
+- **Modification d'en-têtes** — ajoutez, supprimez ou remplacez des en-têtes HTTP à la volée
+- **Liste d'autorisation** — ne capturez que les domaines ou applications sélectionnés pour réduire le bruit
+- **Contournement du proxy** — excluez certains hôtes du proxy tandis que le proxy système est activé
+- **Règles de SSL Proxying** — contrôle de l'interception TLS par domaine
 
-### Débogage & analyse
-- **Intégration OSLog** — capture des logs macOS corrélés aux requêtes
-- **Diff côte à côte** — comparer deux requêtes/réponses capturées
-- **Timeline des requêtes** — waterfall des séquences et timings
-- **Masquage des secrets** — redaction automatique des tokens Bearer et mots de passe
+### Débogage et analyse
+- **Intégration OSLog** — capturez les journaux système macOS et corrélez-les avec les requêtes réseau par horodatage
+- **Comparaison côte à côte** — comparez deux requêtes/réponses capturées
+- **Chronologie des requêtes** — cascade visuelle des séquences de requêtes et de leur temporisation
+- **Masquage des identifiants** — masquage automatique des tokens Bearer et des mots de passe dans les journaux capturés
 
 ### Extensibilité
-- **Plugins JavaScript** — scripts via JavaScriptCore (sandbox 5 s)
-- **Hooks requête/réponse** — inspection et modification dans le pipeline proxy
-- **UI de configuration des plugins** — formulaires auto‑générés depuis le manifest
-- **Formats d’export** — cURL, HAR, HTTP brut ou JSON
-- **Compose + replay** — éditer et renvoyer des requêtes, ou rejouer une capture
-- **Revue d’import** — valider les imports HAR/session avant stockage
+- **Système de plugins JavaScript** — étendez Rockxy avec des scripts personnalisés (runtime JavaScriptCore, sandbox avec délai d'expiration de 5 secondes)
+- **Hooks requête/réponse** — les plugins peuvent inspecter et modifier le trafic dans le pipeline du proxy
+- **Interface de configuration des plugins** — formulaires de configuration auto-générés à partir du manifeste du plugin
+- **Formats d'export** — copie en cURL, HAR, HTTP brut ou JSON
+- **Composition et rejeu** — modifiez et renvoyez des requêtes, ou rejouez du trafic capturé
+- **Vérification à l'import** — vérifiez les imports HAR/session avant leur insertion en base
 
-### Expérience macOS native
-- **SwiftUI + AppKit natif** — pas d’Electron, pas de web views
-- **Liste NSTableView** — défilement virtuel fluide pour 100k+ requêtes
-- **Icônes d’app réelles** — résolution via `NSWorkspace`
-- **Intégration proxy système** — helper privilégié sans mots de passe répétés
-- **Mode sombre** — support complet
-- **Raccourcis clavier** — Cmd+Shift+R (start), Cmd+. (stop), Cmd+K (clear), etc.
+### Expérience native macOS
+- **SwiftUI + AppKit natifs** — pas d'Electron, pas de vues web, pas de compromis multi-plateforme
+- **Liste de requêtes NSTableView** — défilement virtuel capable de gérer plus de 100 000 requêtes capturées sans ralentissement
+- **Icônes d'applications réelles** — résolues via la recherche de bundle ID par `NSWorkspace`
+- **Intégration du proxy système** — démon assistant privilégié pour une configuration du proxy sans mot de passe (SMAppService)
+- **Mode sombre** — prise en charge complète avec les couleurs sémantiques du système
+- **Raccourcis clavier** — Cmd+Shift+R (démarrer), Cmd+. (arrêter), Cmd+K (effacer), et plus encore
 
-## Cas d’usage
+## Cas d'utilisation
 
-- **Débogage d’app iOS/macOS** — inspecter les appels API depuis le simulateur ou l’appareil
-- **Test d’API REST** — visualiser les paires requête/réponse exactes
-- **Débogage GraphQL** — voir opérations, variables et réponses d’un coup d’œil
-- **Mock d’API** — mapper des fichiers locaux à des endpoints
-- **Inspection WebSocket** — déboguer les connexions temps réel
-- **Profilage de performance** — identifier endpoints lents, gros payloads, requêtes redondantes
-- **Débogage SSL/TLS** — analyser HTTPS avec contrôle par domaine
-- **Enregistrement réseau** — capturer et rejouer des sessions HTTP
-- **Reverse engineering d’API** — comprendre des API non documentées
-- **Intégration CI/CD** — proxy headless pour tests automatisés (prévu)
+- **Débogage d'applications iOS / macOS** — inspectez les appels API de votre application dans le Simulateur ou sur un appareil
+- **Test d'API REST** — visualisez les paires requête/réponse exactes sans changer d'outil
+- **Débogage GraphQL** — consultez d'un coup d'œil les noms d'opération, les variables et les réponses
+- **Simulation de réponses API** — mappez des fichiers locaux sur des endpoints pour le développement hors ligne ou les tests de cas limites
+- **Inspection WebSocket** — déboguez les connexions temps réel (applications de chat, flux en direct, protocoles de jeu)
+- **Profilage de performance** — identifiez les endpoints lents, les charges utiles volumineuses et les appels API redondants
+- **Débogage SSL/TLS** — inspectez le trafic HTTPS chiffré avec un contrôle d'interception par domaine
+- **Enregistrement du trafic réseau** — capturez et rejouez des sessions HTTP pour les tests de régression
+- **Rétro-ingénierie d'API** — comprenez le comportement d'API non documentées d'applications tierces
+- **Intégration CI/CD** — proxy headless pour les tests automatisés de contrats API (prévu)
 
 ## Rockxy vs Proxyman vs Charles Proxy
 
-Vous cherchez une alternative open‑source à Proxyman ou Charles Proxy ? Voici une comparaison :
+Vous cherchez une alternative open-source à Proxyman ou à Charles Proxy ? Voici comment Rockxy se positionne :
 
-| Fonction | Rockxy | Proxyman | Charles Proxy |
-|---------|--------|----------|---------------|
-| **Licence** | Open source (AGPL-3.0) | Propriétaire (freemium) | Propriétaire (payant) |
-| **Prix** | Gratuit | Gratuit + $69/an | $50 une fois |
+| Fonctionnalité | Rockxy | Proxyman | Charles Proxy |
+|----------------|--------|----------|---------------|
+| **Licence** | Open-source (AGPL-3.0) | Propriétaire (freemium) | Propriétaire (payant) |
+| **Prix** | Gratuit | Offre gratuite + 69 $/an | 50 $ (achat unique) |
 | **Plateforme** | macOS | macOS, iOS, Windows | macOS, Windows, Linux |
-| **Code source** | Disponible sur GitHub | Fermé | Fermé |
-| **Technologie** | Swift + SwiftNIO (natif) | Swift + AppKit (natif) | Java (multiplateforme) |
+| **Code source** | Entièrement disponible sur GitHub | Code fermé | Code fermé |
+| **Technologie** | Swift + SwiftNIO (natif) | Swift + AppKit (natif) | Java (multi-plateforme) |
 | **Interception HTTP/HTTPS** | Oui | Oui | Oui |
 | **Débogage WebSocket** | Oui | Oui | Oui |
-| **Détection GraphQL** | Oui (auto) | Oui | Non |
+| **Détection GraphQL** | Oui (auto-détection) | Oui | Non |
 | **Map Local** | Oui | Oui | Oui |
 | **Map Remote** | Oui | Oui | Oui |
 | **Breakpoints** | Oui | Oui | Oui |
-| **Block List** | Oui | Oui | Oui |
-| **Modify Headers** | Oui | Oui | Oui (rewrite) |
-| **Throttle / Network Conditions** | Oui | Oui | Oui |
-| **Diff de requêtes** | Oui (côte à côte) | Oui | Non |
-| **Plugins JavaScript** | Oui (sandbox JSCore) | Oui (scripting) | Non |
+| **Liste de blocage** | Oui | Oui | Oui |
+| **Modification d'en-têtes** | Oui | Oui | Oui (réécriture) |
+| **Throttle / Conditions réseau** | Oui | Oui | Oui |
+| **Comparaison de requêtes** | Oui (côte à côte) | Oui | Non |
+| **Plugins JavaScript** | Oui (sandbox JSCore) | Oui (Scripting) | Non |
 | **Rejeu de requêtes** | Oui (Repeat + Edit) | Oui | Oui |
-| **Import/Export HAR** | Oui | Oui | Non (format propriétaire) |
+| **Import/export HAR** | Oui | Oui | Non (format propriétaire) |
 | **Intégration OSLog** | Oui | Non | Non |
-| **Identification du processus** | Oui (app d’origine) | Oui | Non |
-| **Vue JSON arborescente** | Oui | Oui | Oui |
-| **Inspecteur hex** | Oui | Oui | Oui |
-| **Timing waterfall** | Oui | Oui | Oui |
-| **Virtual scroll (100k+ lignes)** | Oui (NSTableView) | Oui | Lent à fort volume |
-| **Helper privilégié (sans sudo)** | Oui (SMAppService) | Oui | Non (prompts répétés) |
+| **Identification des processus** | Oui (quelle app par requête) | Oui | Non |
+| **Visualiseur JSON arborescent** | Oui | Oui | Oui |
+| **Inspecteur hexadécimal** | Oui | Oui | Oui |
+| **Cascade temporelle** | Oui | Oui | Oui |
+| **Défilement virtuel (100k+ lignes)** | Oui (NSTableView) | Oui | Lent en volume élevé |
+| **Assistant privilégié (sans invite sudo)** | Oui (SMAppService) | Oui | Non (invites répétées) |
 | **Mode sombre** | Oui | Oui | Partiel |
-| **Auto‑hébergeable / auditable** | Oui | Non | Non |
-| **Contributions communautaires** | PR ouvertes | Non | Non |
+| **Auto-hébergeable / auditable** | Oui | Non | Non |
+| **Contributions communautaires** | Ouvert aux PR | Non | Non |
 
 **Pourquoi choisir Rockxy ?**
-- Vous voulez un proxy HTTP **gratuit et open source** sans restrictions de licence
-- Vous voulez **auditer le code source** de l’outil qui intercepte votre trafic
-- Vous souhaitez **contribuer** ou **personnaliser** l’outil
-- Vous avez besoin de **corréler les logs OSLog** avec le trafic réseau
-- Vous voulez une **expérience macOS native** sans dépendance Java
+- Vous souhaitez un proxy de débogage HTTP **gratuit et open-source** sans restrictions de licence
+- Vous voulez pouvoir **auditer le code source** de l'outil qui intercepte votre trafic
+- Vous voulez **contribuer des fonctionnalités** ou personnaliser l'outil selon vos besoins
+- Vous avez besoin de la **corrélation OSLog** pour déboguer les journaux d'applications macOS en parallèle du trafic réseau
+- Vous voulez une **expérience native macOS** sans la surcharge d'un runtime Java
 
 ## Prérequis
 
-- macOS 14.0+ (Sonoma ou plus récent)
+- macOS 14.0+ (Sonoma ou ultérieur)
 - Xcode 16+
 - Swift 5.9
 
@@ -152,49 +162,49 @@ cd Rockxy
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
 
-Ou ouvrez `Rockxy.xcodeproj` dans Xcode et lancez l’app.
+Ou ouvrez `Rockxy.xcodeproj` dans Xcode et cliquez sur Run.
 
-Au premier lancement, la fenêtre Welcome guide :
-1. Génération et confiance du root CA
-2. Installation du helper privilégié pour le proxy système
-3. Activation du proxy système
-4. Démarrage du serveur proxy
+Au premier lancement, la fenêtre d'accueil vous guide à travers :
+1. La génération et l'approbation du certificat racine CA
+2. L'installation de l'outil assistant privilégié pour le contrôle du proxy système
+3. L'activation du proxy système
+4. Le démarrage du serveur proxy
 
 ## Architecture
 
-### Vue d’ensemble
+### Vue d'ensemble
 
-Rockxy est divisé en trois domaines de confiance et d’exécution :
+Rockxy est divisé en trois domaines de confiance et d'exécution :
 
-1. **UI + orchestration** — fenêtres SwiftUI/AppKit, inspecteurs, menus, `MainContentCoordinator`
-2. **Proxy/runtime** — handlers SwiftNIO, génération de certificats, mutation des requêtes, stockage, analytics, plugins
-3. **Helper privilégié** — daemon launchd séparé pour les opérations système à privilèges élevés
+1. **Couche UI + orchestration** — fenêtres SwiftUI/AppKit, inspecteurs, menus et le `MainContentCoordinator`
+2. **Couche proxy/runtime** — gestionnaires de canaux SwiftNIO, émission de certificats, mutation de requêtes, stockage, analytique et plugins
+3. **Couche assistant privilégié** — un démon launchd séparé utilisé uniquement pour les opérations de proxy et de certificats au niveau système nécessitant des privilèges élevés
 
-L’objectif est de sortir le traitement des paquets du main thread, d’isoler les opérations privilégiées, et de synchroniser l’état UI via actor ou `@MainActor`.
+L'objectif de conception est de maintenir le traitement des paquets hors du thread principal, de confiner les opérations privilégiées en dehors du processus de l'application, et de synchroniser l'état visible par l'utilisateur via des frontières explicites actor ou `@MainActor`.
 
 ### Carte des composants
 
 ```mermaid
 flowchart TB
-    subgraph UI["Processus UI : Rockxy Community.app"]
-        Menus["Menus / Commandes"]
-        Windows["Fenêtres SwiftUI + AppKit"]
+    subgraph UI["UI Process: Rockxy Community.app"]
+        Menus["Menus / Commands"]
+        Windows["SwiftUI + AppKit Windows"]
         Coordinator["MainContentCoordinator (@MainActor)"]
-        Workspace["Workspace / Liste des requêtes / Inspector"]
+        Workspace["Workspace / Request List / Inspector"]
     end
 
-    subgraph Runtime["Services Runtime"]
+    subgraph Runtime["Runtime Services"]
         Proxy["ProxyServer (actor)"]
         Traffic["TrafficSessionManager (actor)"]
         LogMgr["LogCaptureEngine (actor)"]
         Cert["CertificateManager (actor)"]
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
-        Storage["SessionStore + buffers mémoire"]
+        Storage["SessionStore + InMemory Buffers"]
         Analytics["Analytics Engine"]
     end
 
-    subgraph Privileged["Domaine privilégié"]
+    subgraph Privileged["Privileged Domain"]
         HelperClient["HelperConnection (@MainActor)"]
         Helper["RockxyHelperTool (launchd daemon)"]
         System["macOS Network / Keychain / Trust Settings"]
@@ -219,19 +229,19 @@ flowchart TB
     Helper --> System
 ```
 
-### Couches runtime
+### Couches du runtime
 
-| Couche | Types principaux | Rôle |
-|-------|------------|----------------|
-| **Presentation** | `MainContentCoordinator`, `ContentView`, vues inspector/request‑list/sidebar | État UI, routage des commandes, liaison des données proxy/logs |
-| **Capture / transport** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Réception du trafic, CONNECT, MITM TLS, forward |
-| **Mutation / policy** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Application des règles avant forwarding/stockage |
-| **Certificate / trust** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Cycle de vie root CA, cache certs, vérification de confiance |
-| **Storage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, buffers mémoire | Buffering, persistance SQLite, mises à jour UI en batch |
-| **Observability / analysis** | analytics, détection GraphQL, détection content‑type, corrélation logs | Enrichissement du trafic capturé |
-| **Intégration système privilégiée** | `HelperConnection`, `RockxyHelperTool`, protocole XPC partagé | Proxy système et opérations cert privilégiées |
+| Couche | Types principaux | Responsabilité |
+|--------|-----------------|----------------|
+| **Présentation** | `MainContentCoordinator`, `ContentView`, vues inspecteur/liste de requêtes/barre latérale | Détient l'état visible par l'utilisateur, route les commandes, lie les données proxy/journal dans SwiftUI/AppKit |
+| **Capture / transport** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Accepte le trafic proxy, gère le CONNECT, l'interception TLS MITM et la transmission en amont |
+| **Mutation / politique** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Applique les règles de requête/réponse et la politique de débogage en cours avant la transmission ou le stockage |
+| **Certificat / confiance** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Génère et persiste le CA racine, met en cache les certificats par hôte, valide l'état de confiance, installe la confiance via les flux assistant/application |
+| **Stockage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, tampons en mémoire | Met en tampon les données en direct, persiste l'état sélectionné dans SQLite et regroupe les mises à jour pour l'UI |
+| **Observabilité / analyse** | analytique, détection GraphQL, détection de type de contenu, corrélation des journaux | Enrichit le trafic capturé après ou parallèlement au traitement du transport |
+| **Intégration système privilégiée** | `HelperConnection`, `RockxyHelperTool`, protocole XPC partagé | Applique les paramètres du proxy système et les opérations de certificats privilégiées avec des vérifications de confiance explicites |
 
-### Cycle de vie d’une requête
+### Cycle de vie d'une requête proxy
 
 ```mermaid
 sequenceDiagram
@@ -246,81 +256,81 @@ sequenceDiagram
     participant UI as MainContentCoordinator
     participant Upstream
 
-    Client->>NIO: Connexion TCP au proxy local
-    NIO->>HTTP: Requête HTTP ou tunnel CONNECT
+    Client->>NIO: TCP connection to local proxy
+    NIO->>HTTP: HTTP request or CONNECT tunnel
 
-    alt HTTP en clair
-        HTTP->>Rules: évaluation des règles
-        Rules-->>HTTP: action / aucune
-        HTTP->>Plugins: hooks request optionnels
-        Plugins-->>HTTP: requête modifiée
-        HTTP->>Upstream: forward HTTP
-        Upstream-->>HTTP: réponse
+    alt Plain HTTP
+        HTTP->>Rules: evaluate rules
+        Rules-->>HTTP: action / no action
+        HTTP->>Plugins: optional request hooks
+        Plugins-->>HTTP: modified request
+        HTTP->>Upstream: forward cleartext HTTP
+        Upstream-->>HTTP: response
     else HTTPS via CONNECT
         HTTP->>Client: 200 Connection Established
-        HTTP->>TLS: transfert vers TLS
-        TLS->>TLS: génération d’un cert hôte
-        TLS->>Client: terminaison TLS côté client
-        TLS->>HTTPS: pipeline HTTP déchiffré
-        HTTPS->>Rules: évaluation des règles
-        Rules-->>HTTPS: action / aucune
-        HTTPS->>Plugins: hooks request optionnels
-        Plugins-->>HTTPS: requête modifiée
-        HTTPS->>Upstream: connexion TLS vers l’hôte réel
-        Upstream-->>HTTPS: réponse déchiffrée
+        HTTP->>TLS: hand off channel
+        TLS->>TLS: generate host cert from root CA
+        TLS->>Client: terminate client TLS
+        TLS->>HTTPS: decrypted HTTP pipeline
+        HTTPS->>Rules: evaluate rules
+        Rules-->>HTTPS: action / no action
+        HTTPS->>Plugins: optional request hooks
+        Plugins-->>HTTPS: modified request
+        HTTPS->>Upstream: TLS client connection to real host
+        Upstream-->>HTTPS: decrypted response
     end
 
-    HTTP-->>Traffic: transaction terminée
-    HTTPS-->>Traffic: transaction terminée
-    Traffic-->>UI: mises à jour en batch
+    HTTP-->>Traffic: completed transaction
+    HTTPS-->>Traffic: completed transaction
+    Traffic-->>UI: batched updates
 ```
 
 ### Flux HTTP vs HTTPS
 
 ```mermaid
 flowchart LR
-    A["Requête entrante"] --> B{"Tunnel CONNECT ?"}
-    B -- Non --> C["HTTPProxyHandler"]
+    A["Inbound client request"] --> B{"CONNECT tunnel?"}
+    B -- No --> C["HTTPProxyHandler"]
     C --> D["RuleEngine + plugins"]
-    D --> E["Forward HTTP vers l’upstream"]
-    E --> F["Capture réponse + timings"]
+    D --> E["Forward to upstream over HTTP"]
+    E --> F["Capture response + timings"]
 
-    B -- Oui --> G["Répondre 200 Connection Established"]
+    B -- Yes --> G["Reply 200 Connection Established"]
     G --> H["TLSInterceptHandler"]
-    H --> I["Générer / réutiliser un cert hôte"]
-    I --> J["Terminer TLS côté client"]
+    H --> I["Generate / reuse per-host leaf cert"]
+    I --> J["Terminate client TLS"]
     J --> K["HTTPSProxyRelayHandler"]
     K --> L["RuleEngine + plugins"]
-    L --> M["Forward TLS vers l’upstream"]
-    M --> N["Capture réponse + timings"]
+    L --> M["Forward to upstream over TLS"]
+    M --> N["Capture response + timings"]
 ```
 
 ### Modèle de concurrence
 
-- `ProxyServer` est un actor qui gère bind et shutdown.
-- Les handlers NIO tournent sur l’event‑loop et ne bridgent vers les actors que si nécessaire.
-- `CertificateManager` et `TrafficSessionManager` utilisent l’isolation actor.
-- `MainContentCoordinator` est `@MainActor` pour la synchronisation SwiftUI/AppKit.
-- Les mises à jour UI sont batchées pour éviter la surcharge du main thread.
+- `ProxyServer` est un actor qui gère les transitions de cycle de vie telles que le bind et le shutdown.
+- Les gestionnaires de canaux NIO s'exécutent sur des threads d'event-loop et ne communiquent avec les services isolés par actor que lorsque c'est nécessaire.
+- `CertificateManager`, `TrafficSessionManager` et les services associés utilisent l'isolation par actor au lieu de verrous manuels pour l'état partagé à longue durée de vie.
+- `MainContentCoordinator` est `@MainActor` car il constitue la frontière de synchronisation pour SwiftUI/AppKit.
+- La livraison vers l'UI est groupée par lots plutôt que par transaction pour éviter la saturation du thread principal sous fort trafic.
 
-### Sous‑systèmes principaux
+### Sous-systèmes principaux
 
-| Sous‑système | Emplacement | Rôle |
-|-----------|----------|--------------|
-| **Proxy Engine** | `Core/ProxyEngine/` | `ServerBootstrap` SwiftNIO, pipeline, CONNECT, TLS, forward HTTP/HTTPS |
-| **Certificate** | `Core/Certificate/` | Root CA, certificats hôte, vérifications, persistance Keychain, cache |
-| **Rule Engine** | `Core/RuleEngine/` | Évaluation des règles (block, map local, map remote, throttle, modify headers, breakpoint) |
-| **Traffic Capture** | `Core/TrafficCapture/` | Batch sessions, allow‑list, replay, synchronisation UI |
-| **Storage** | `Core/Storage/` | SQLite, buffers mémoire, offload des bodies |
-| **Detection / enrichment** | `Core/Detection/` | Détection GraphQL, content‑type, regroupement d’API |
-| **Plugins** | `Core/Plugins/` | Exécution JSCore et configuration des plugins |
-| **Helper Tool** | `RockxyHelperTool/`, `Shared/` | Service XPC privilégié pour proxy/certificats |
+| Sous-système | Emplacement | Description |
+|--------------|-------------|-------------|
+| **Moteur proxy** | `Core/ProxyEngine/` | `ServerBootstrap` SwiftNIO, pipeline de canaux par connexion, gestion du CONNECT, handoff TLS, transmission HTTP/HTTPS |
+| **Certificat** | `Core/Certificate/` | Cycle de vie du CA racine, émission de certificats par hôte, vérifications de confiance, persistance disque + Keychain, cache de certificats par hôte |
+| **Moteur de règles** | `Core/RuleEngine/` | Évaluation ordonnée des règles pour le blocage, Map Local, Map Remote, throttle, modification d'en-têtes et breakpoints |
+| **Capture du trafic** | `Core/TrafficCapture/` | Regroupement des sessions, politique de liste d'autorisation, prise en charge du rejeu, transmission de l'état du proxy vers l'UI |
+| **Stockage** | `Core/Storage/` | Persistance SQLite, tampons en mémoire pour sessions/journaux, déchargement des corps volumineux |
+| **Détection / enrichissement** | `Core/Detection/` | Détection GraphQL, détection du type de contenu, regroupement des endpoints API |
+| **Plugins** | `Core/Plugins/` | Exécution de hooks requête/réponse basée sur JavaScriptCore, support des métadonnées et de la configuration des plugins |
+| **Outil assistant** | `RockxyHelperTool/`, `Shared/` | Service XPC privilégié pour la configuration du proxy, la gestion des domaines de contournement et l'installation/suppression de certificats |
 
 ### Architecture de sécurité
 
-> **Signalement de vulnérabilité :** merci de signaler en privé. Voir [SECURITY.md](SECURITY.md).
+> **Signalement de vulnérabilités :** si vous découvrez un problème de sécurité, veuillez le signaler de manière privée. Consultez [SECURITY.md](SECURITY.md) pour les instructions de divulgation.
 
-Rockxy adopte un modèle de sécurité en couches car il termine TLS, stocke du trafic sensible et dialogue avec un helper root.
+Rockxy utilise un modèle de sécurité en couches car il termine les connexions TLS, stocke du trafic sensible et communique avec un assistant doté de privilèges root.
 
 ```mermaid
 flowchart TB
@@ -339,46 +349,46 @@ flowchart TB
 #### Frontières de sécurité
 
 | Frontière | Risque | Contrôle actuel |
-|----------|------|-----------------|
-| **App ↔ helper** | App non fiable appelle des opérations privilégiées | `NSXPCConnection` + exigences de signature, validation côté helper |
-| **Interception TLS** | Root CA obsolète entraînant un état MITM confus | cycle de vie explicite, vérification de confiance, suivi d’empreinte |
-| **Body des requêtes** | épuisement mémoire via bodies trop grands | limite 100 MB (413), URI 8 KB (414), WebSocket 10 MB/frame, 100 MB/connexion |
-| **Map Local** | traversal ou échappement par symlink | chargement via fd, résolution symlink, vérif de confinement |
-| **Regex de règles** | ReDoS par regex pathologique | validation à la compilation, cache, limite 500 caractères, input 8 KB |
-| **Éditions en breakpoint** | requêtes malformées après édition | reconstruction via `BreakpointRequestBuilder`, normalisation scheme, recalcul content‑length |
-| **Exécution plugin** | scripts non sûrs | bridge JSCore, API bornée, timeout, validation ID, pas d’accès FS/réseau |
-| **Trafic stocké** | données sensibles conservées trop longtemps | mémoire + SQLite, permissions 0o600, validation de chemin, redaction |
-| **Injection d’en‑têtes** | CRLF via MapRemote | nettoyage des caractères de contrôle |
-| **Validation helper** | domaines/servicenames invalides | validation ASCII, sanitization, whitelisting |
+|-----------|--------|-----------------|
+| **Application ↔ assistant** | Une application non fiable tente d'appeler des opérations privilégiées de proxy/certificat | `NSXPCConnection` avec exigences de signature de code plus validation côté assistant de la connexion et comparaison de la chaîne de certificats |
+| **Interception TLS** | Un CA racine invalide ou périmé provoque un état de confiance cassé ou un MITM incohérent | Cycle de vie explicite du CA racine, vérifications de confiance, suivi de l'empreinte du CA racine, émission de certificats par hôte uniquement depuis le CA racine actif |
+| **Traitement du corps des requêtes** | Épuisement mémoire via des corps de requête/réponse surdimensionnés | Limite de 100 Mo sur le corps des requêtes (rejet 413), limite de 8 Ko sur la longueur d'URI (rejet 414), limites sur les trames WebSocket (10 Mo/trame, 100 Mo/connexion) |
+| **Service de fichiers locaux par règle** | Traversée de chemin ou échappement par lien symbolique via les règles de répertoire Map Local | Chargement de fichier basé sur fd (élimine le TOCTOU), résolution des liens symboliques, vérifications de confinement du chemin à la racine |
+| **Patterns regex des règles** | ReDoS par des expressions régulières pathologiques bloquant le proxy | Validation des regex à la compilation, cache de patterns pré-compilés, limite de 500 caractères par pattern, limite de 8 Ko sur l'entrée |
+| **Requêtes éditées aux breakpoints** | Transmission de requêtes malformées après modification de l'URL/des en-têtes/du corps | Reconstruction centralisée des requêtes dans `BreakpointRequestBuilder`, préservation de l'autorité, normalisation du schéma, réconciliation du content-length |
+| **Exécution des plugins** | Scripts modifiant le trafic de manière non sûre ou non déterministe | Bridge JavaScriptCore, API de hook bornée, application des délais d'expiration, validation de l'ID/clé du plugin, aucun accès direct au système de fichiers ou au réseau |
+| **Trafic stocké** | Corps de requête/réponse sensibles conservés trop longtemps ou avec des permissions faibles | Mise en tampon en mémoire plus persistance disque/SQLite, déchargement des corps volumineux avec permissions de fichier 0o600, confinement du chemin au chargement/suppression, masquage des identifiants dans les journaux |
+| **Injection d'en-têtes** | Injection CRLF via la manipulation de l'en-tête host de MapRemote | Assainissement des valeurs d'en-tête par suppression des caractères de contrôle avant la transmission |
+| **Validation des entrées de l'assistant** | Domaines ou noms de service malformés passés à networksetup | Validation des domaines de contournement en ASCII uniquement, assainissement des noms de service, liste blanche des types de proxy, limites sur le nombre de domaines |
 
-#### Modèle de confiance du helper
+#### Modèle de confiance de l'outil assistant
 
-Le helper tourne en daemon launchd (`com.amunx.Rockxy.HelperTool`) via `SMAppService.daemon()` pour éviter les prompts répétés de `networksetup`.
+L'assistant s'exécute en tant que démon launchd (`com.amunx.Rockxy.HelperTool`) enregistré via `SMAppService.daemon()`. Il existe pour que la configuration du proxy et certaines opérations de certificats puissent être effectuées sans les invites de mot de passe `networksetup` répétées du processus de l'application.
 
-Défense en profondeur :
+La défense en profondeur inclut actuellement :
 
-- connexion XPC privilégiée côté app
-- validation du caller dans `ConnectionValidator`
-- exigences de signature (`anchor apple generic`)
-- comparaison de chaînes de certificats
-- rate limiting des opérations sensibles
-- validation des paramètres
-- fichiers temporaires atomiques avec permissions 0o600
-- backup/restore du proxy
+- Configuration de la connexion XPC privilégiée côté application
+- Validation de l'appelant côté assistant dans `ConnectionValidator` avec identifiant de bundle codé en dur
+- Application de l'exigence de signature de code (`anchor apple generic`)
+- Comparaison de la chaîne de certificats pour que la confiance ne repose pas uniquement sur les chaînes de bundle ID ou de team ID
+- Limitation de débit côté assistant pour les opérations modifiant l'état (changements de proxy, installations de certificats)
+- Validation des entrées sur tous les paramètres de l'assistant (domaines de contournement, noms de service, types de proxy)
+- Création de fichiers temporaires atomiques avec permissions restreintes (0o600)
+- Chemins explicites de sauvegarde / restauration du proxy pour la récupération après crash
 
 #### Modèle de confiance des certificats
 
-- `CertificateManager` gère la création et la persistance du root CA.
-- l’app contrôle création, chargement et vérification de confiance.
-- le helper assiste pour l’installation système uniquement.
-- les certs hôtes sont générés à la demande et mis en cache.
-- suivi d’empreinte root pour nettoyage des certificats obsolètes.
+- La génération et la persistance du CA racine résident dans `CertificateManager`.
+- L'application gère la création, le chargement et la vérification de l'état de confiance du CA racine.
+- L'assistant peut aider aux opérations privilégiées d'installation dans le Keychain/système, mais la confiance conserve un chemin de vérification visible par l'application.
+- Les certificats par hôte sont générés à la demande à partir du CA racine actuel et mis en cache pour éviter les émissions coûteuses répétées.
+- Le suivi de l'empreinte du CA racine est utilisé pour nettoyer les certificats périmés et réduire la dérive liée aux « multiples anciens CA racine Rockxy installés ».
 
-#### Notes de sécurité pratiques
+#### Notes pratiques de sécurité
 
-- Rockxy est un outil développeur avec accès à du trafic sensible. N’activez pas le proxy système plus longtemps que nécessaire.
-- Installer le root CA active l’interception HTTPS pour les clients qui lui font confiance.
-- Sessions sauvegardées, exports et plugins doivent être traités comme sensibles.
+- Rockxy doit être considéré comme un outil de développement ayant accès à du trafic sensible. Ne laissez pas la configuration du proxy système activée plus longtemps que nécessaire.
+- L'installation du CA racine active l'interception HTTPS uniquement pour les clients qui font confiance à ce CA racine.
+- Les sessions sauvegardées, les exports et le code des plugins doivent être traités comme des artefacts de projet potentiellement sensibles.
 
 ## Structure du projet
 
@@ -446,29 +456,29 @@ docs/                          # Documentation (Mintlify format)
 ## Stack technique
 
 | Couche | Technologie |
-|-------|-----------|
-| UI Framework | SwiftUI + AppKit (NSTableView, NSViewRepresentable) |
-| Networking | [SwiftNIO](https://github.com/apple/swift-nio) 2.95 + [SwiftNIO SSL](https://github.com/apple/swift-nio-ssl) 2.36 |
-| Certificates | [swift-certificates](https://github.com/apple/swift-certificates) 1.18 + [swift-crypto](https://github.com/apple/swift-crypto) 4.2 |
-| Database | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) 0.16 |
-| Concurrency | Swift Actors, structured concurrency, @MainActor |
+|--------|-------------|
+| Framework UI | SwiftUI + AppKit (NSTableView, NSViewRepresentable) |
+| Réseau | [SwiftNIO](https://github.com/apple/swift-nio) 2.95 + [SwiftNIO SSL](https://github.com/apple/swift-nio-ssl) 2.36 |
+| Certificats | [swift-certificates](https://github.com/apple/swift-certificates) 1.18 + [swift-crypto](https://github.com/apple/swift-crypto) 4.2 |
+| Base de données | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) 0.16 |
+| Concurrence | Swift Actors, concurrence structurée, @MainActor |
 | Plugins | JavaScriptCore (framework macOS intégré) |
-| Helper IPC | XPC Services + SMAppService (macOS 13+) |
-| Testing | Swift Testing framework (@Suite, @Test, #expect) |
-| CI/CD | GitHub Actions (SwiftLint → build arm64/x86_64 en parallèle → release) |
+| IPC de l'assistant | XPC Services + SMAppService (macOS 13+) |
+| Tests | Framework Swift Testing (@Suite, @Test, #expect) |
+| CI/CD | GitHub Actions (SwiftLint → build parallèle arm64/x86_64 → release) |
 
 ## Compilation depuis les sources
 
-### Development Build
+### Build de développement
 
 ```bash
 git clone https://github.com/LocNguyenHuu/Rockxy.git
 cd Rockxy
-./scripts/setup-developer.sh   # Génère Configuration/Developer.xcconfig pour la signature locale
+./scripts/setup-developer.sh   # Generates Configuration/Developer.xcconfig for local signing
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
 
-### Release Build
+### Build de production
 
 ```bash
 # Apple Silicon (M1/M2/M3/M4)
@@ -478,163 +488,163 @@ xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Release -arch
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Release -arch x86_64 build
 ```
 
-### Exécuter les tests
+### Exécution des tests
 
 ```bash
 # Tous les tests
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test
 
-# Un test class spécifique
+# Classe de test spécifique
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test -only-testing:RockxyTests/CertificateTests
 
-# Une méthode de test spécifique
+# Méthode de test spécifique
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy test -only-testing:RockxyTests/RuleEngineTests/testWildcardMatching
 ```
 
-### Linting & formatage
+### Linting et formatage
 
 ```bash
 brew install swiftlint swiftformat
 
-swiftlint lint --strict    # 0 violation exigée
-swiftformat .              # Auto‑format
+swiftlint lint --strict    # Must pass with zero violations
+swiftformat .              # Auto-format
 ```
 
-### Notes sur l’outil helper
+### Notes sur l'outil assistant
 
-Si vous modifiez `RockxyHelperTool/` ou `Shared/RockxyHelperProtocol.swift`, reconstruire l’app ne suffit pas. Désinstallez l’ancien helper et réinstallez‑le via le gestionnaire helper de l’app.
+Si vous modifiez du code dans `RockxyHelperTool/` ou `Shared/RockxyHelperProtocol.swift`, recompiler l'application ne suffit pas. Vous devez désinstaller l'ancien assistant et réinstaller le nouveau via le gestionnaire d'assistant de l'application pour que les changements soient pris en compte.
 
-## Décisions de conception
+## Choix de conception
 
 ### Pourquoi SwiftNIO plutôt que URLSession
 
-URLSession est un client HTTP de haut niveau. Rockxy a besoin d’un serveur TCP bas niveau pour accepter des connexions, parser HTTP, faire du MITM TLS via CONNECT et forwarder le trafic. SwiftNIO fournit les fondations I/O non bloquantes nécessaires.
+URLSession est un client HTTP de haut niveau. Rockxy a besoin d'un serveur TCP de bas niveau capable d'accepter des connexions, d'analyser le HTTP, d'effectuer une interception TLS MITM via des tunnels CONNECT et de transmettre le trafic — autant d'opérations qui nécessitent un contrôle direct des sockets. SwiftNIO fournit la fondation d'E/S non bloquante et événementielle qui rend cela possible en pur Swift.
 
-### Pourquoi NSTableView pour la liste des requêtes
+### Pourquoi NSTableView pour la liste de requêtes
 
-SwiftUI `List` ne gère pas 100k+ lignes avec un scrolling fluide. La liste utilise `NSTableView` via `NSViewRepresentable` pour un défilement O(1).
+SwiftUI `List` ne peut pas gérer plus de 100 000 lignes avec un défilement virtuel. La liste de requêtes utilise `NSTableView` encapsulé dans `NSViewRepresentable` pour des performances de défilement en O(1) quel que soit le volume de trafic.
 
-### Pourquoi un daemon helper privilégié
+### Pourquoi un démon assistant privilégié
 
-macOS exige une authentification admin pour chaque `networksetup`. Le helper (`SMAppService.daemon()`) tourne en root et valide les appels via la chaîne de certificats, évitant les prompts répétés.
+macOS exige une authentification administrateur pour chaque appel à `networksetup`. L'outil assistant (`SMAppService.daemon()`) s'exécute en tant que root et valide les appelants via la comparaison de chaînes de certificats, éliminant les invites de mot de passe répétées tout en maintenant la sécurité.
 
-### Concurrence basée sur les actors
+### Modèle de concurrence basé sur les actors
 
-Le serveur proxy, les session managers et le certificate manager sont des actors Swift. Cela évite les data races. `MainContentCoordinator` relaie les données vers `@MainActor` par batch (toutes les 250 ms).
+Le serveur proxy, les gestionnaires de sessions et le gestionnaire de certificats sont tous des Swift actors. Cela élimine les data races sans verrouillage manuel. Le coordinateur fait le pont entre l'état isolé par actor et `@MainActor` pour la consommation SwiftUI via des mises à jour groupées (toutes les 250 ms).
 
 ### Sandbox des plugins
 
-Les plugins JavaScript s’exécutent dans JavaScriptCore avec une API contrôlée (`$rockxy`). Chaque exécution est limitée à 5 s. Les plugins ne peuvent pas accéder directement au fichier système ni au réseau.
+Les plugins JavaScript s'exécutent dans JavaScriptCore avec une API bridge contrôlée (`$rockxy`). Chaque exécution de script a un délai d'expiration de 5 secondes. Les plugins peuvent inspecter et modifier les requêtes mais ne peuvent pas accéder directement au système de fichiers ou au réseau.
 
 ## Performance
 
-- **100k+ requêtes** — scrolling virtuel NSTableView sans lag
-- **Éviction du ring buffer** — au‑delà de 50k, 10% des plus anciennes sont déplacées vers SQLite ou supprimées
-- **Offloading des bodies** — body >1MB stocké sur disque, chargement à la demande
-- **Mises à jour UI batchées** — toutes les 250 ms ou 50 éléments
-- **Performance des chaînes** — `NSString.length` (O(1)) pour les gros bodies
-- **Log buffer** — 100k entrées en mémoire, overflow vers SQLite
-- **Build concurrent** — threads NIO selon `System.coreCount`
+- **100k+ requêtes** — défilement virtuel NSTableView avec réutilisation de cellules, sans latence d'interface
+- **Éviction du tampon circulaire** — à 50 000 transactions, les 10 % les plus anciens sont déplacés vers SQLite ou supprimés
+- **Déchargement des corps** — les corps de requête/réponse >1 Mo sont stockés sur disque et chargés à la demande
+- **Mises à jour UI groupées** — les transactions proxy sont regroupées toutes les 250 ms ou par lots de 50 avant la livraison à l'UI
+- **Performance des chaînes** — `NSString.length` (O(1)) au lieu de `String.count` (O(n)) pour les corps volumineux
+- **Tampon de journaux** — 100 000 entrées en mémoire, débordement vers SQLite
+- **Builds concurrents** — `System.coreCount` threads d'event-loop NIO
 
 ## Stockage
 
-| Donnée | Mécanisme | Emplacement |
-|------|-----------|----------|
+| Données | Mécanisme | Emplacement |
+|---------|-----------|-------------|
 | Préférences utilisateur | UserDefaults | `AppSettingsStorage` |
-| Sessions actives | Ring buffer en mémoire | `InMemorySessionBuffer` |
+| Sessions actives | Tampon circulaire en mémoire | `InMemorySessionBuffer` |
 | Sessions sauvegardées | SQLite | `SessionStore` |
-| Clé privée root CA | Trousseau macOS | `KeychainHelper` |
+| Clé privée du CA racine | Trousseau macOS | `KeychainHelper` |
 | Règles | Fichier JSON | `RuleStore` |
-| Gros bodies | Fichiers sur disque | `~/Library/Application Support/Rockxy/bodies/` |
-| Logs | SQLite | `SessionStore` (table log_entries) |
-| Backup proxy | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
-| Plugins | Fichiers JS + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
+| Corps volumineux | Fichiers sur disque | `~/Library/Application Support/Rockxy/bodies/` |
+| Entrées de journal | SQLite | `SessionStore` (table log_entries) |
+| Sauvegarde proxy | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
+| Plugins | Fichiers JS + manifeste | `~/Library/Application Support/Rockxy/Plugins/` |
 
 ## Style de code
 
-Les règles complètes sont dans `.swiftlint.yml` et `.swiftformat`. Points clés :
+Les règles complètes se trouvent dans `.swiftlint.yml` et `.swiftformat`. Points essentiels :
 
-- Indentation 4 espaces, largeur cible 120 caractères
-- Contrôle d’accès explicite partout
-- Pas de force unwrap (`!`) ni force cast (`as!`) — utiliser `guard let`, `if let`, `as?`
-- OSLog pour les logs, pas de `print()`
-- `String(localized:)` pour les chaînes UI
-- Messages de commit [Conventional Commits](https://www.conventionalcommits.org/)
+- Indentation de 4 espaces, largeur de ligne cible de 120 caractères
+- Contrôle d'accès explicite sur chaque déclaration
+- Pas de déballage forcé (`!`) ni de cast forcé (`as!`) — utilisez `guard let`, `if let`, `as?`
+- OSLog pour toute journalisation, jamais `print()`
+- `String(localized:)` pour les chaînes visibles par l'utilisateur
+- [Conventional Commits](https://www.conventionalcommits.org/) pour les messages de commit
 
 ### Limites de taille des fichiers
 
-| Métrique | Warning | Error |
-|--------|---------|-------|
-| Longueur du fichier | 1200 lignes | 1800 lignes |
+| Métrique | Avertissement | Erreur |
+|----------|---------------|--------|
+| Longueur de fichier | 1200 lignes | 1800 lignes |
 | Corps de type | 1100 lignes | 1500 lignes |
 | Corps de fonction | 160 lignes | 250 lignes |
 | Complexité cyclomatique | 40 | 60 |
 
-Si vous approchez les limites, extrayez en `TypeName+Category.swift`.
+Lorsque vous approchez des limites, extrayez le code dans des fichiers d'extension `TypeName+Category.swift` regroupés par logique métier.
 
 ## CI/CD
 
-Workflow GitHub Actions (exécution manuelle avec paramètre channel) :
+Workflow GitHub Actions (déclenchement manuel avec paramètre de canal optionnel) :
 
 1. **Lint** — `swiftlint lint --strict` sur macOS 14
-2. **Build** — builds release arm64 et x86_64 en parallèle avec Xcode 16
-3. **Artifacts** — upload des builds signés
+2. **Build** — builds release parallèles arm64 et x86_64 avec Xcode 16
+3. **Artefacts** — téléversement des artefacts de build signés pour la distribution
 
 ## Feuille de route
 
 ### Livré
 
-- [x] Import/export HAR
+- [x] Import et export de fichiers HAR
 - [x] Rejeu de requêtes (Repeat et Edit and Repeat)
-- [x] Sessions `.rockxysession` (save, open, metadata)
-- [x] Détection et inspection GraphQL‑over‑HTTP
-- [x] Scripting JavaScript (création, édition, test, activation/désactivation)
-- [x] Diff côte à côte
-- [x] Renforcement sécurité (limites body, validation regex, protection traversal, validation input)
-- [x] Masquage des secrets dans les logs capturés
+- [x] Fichiers de session `.rockxysession` natifs (sauvegarde, ouverture, métadonnées)
+- [x] Détection et inspection GraphQL-over-HTTP
+- [x] Scripting JavaScript (créer, éditer, tester, activer/désactiver des scripts)
+- [x] Comparaison côte à côte de requêtes
+- [x] Durcissement de la sécurité (limites de taille des corps, validation des regex, protection contre la traversée de chemin, validation des entrées)
+- [x] Masquage des identifiants dans les journaux capturés
 
 ### Prévu
 
-- [ ] Regroupement d’erreurs et tableau de bord analytics (HTTP 4xx/5xx, latence)
+- [ ] Regroupement des erreurs et tableau de bord analytique (clustering HTTP 4xx/5xx, métriques de latence)
 - [ ] Support HTTP/2 et HTTP/3
-- [ ] Enregistrement de séquences (rejeu de chaînes dépendantes)
-- [ ] Proxy pour appareils distants (debug iOS USB/Wi‑Fi)
-- [ ] Mode headless pour CI/CD
+- [ ] Enregistrement de séquences (rejeu d'une chaîne de requêtes dépendantes)
+- [ ] Proxy pour appareils distants (débogage d'appareils iOS via USB/Wi-Fi)
+- [ ] Mode headless pour l'intégration dans les pipelines CI/CD
 - [ ] Inspection gRPC / Protocol Buffers
-- [ ] Simulation des conditions réseau (latence, perte de paquets, bande passante)
+- [ ] Simulation de conditions réseau (latence, perte de paquets, limites de bande passante)
 
 ## Contribuer
 
-Les contributions sont bienvenues : corrections de bugs, nouvelles fonctionnalités, documentation ou UX. Merci de lire [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) avant de participer.
+Les contributions sont les bienvenues. Qu'il s'agisse d'une correction de bug, d'une nouvelle fonctionnalité, de documentation ou de retours sur l'expérience utilisateur — toute contribution aide à améliorer Rockxy. Veuillez lire notre [Code de conduite](CODE_OF_CONDUCT.md) avant de participer.
 
-**Bien démarrer :**
+**Pour commencer :**
 
 1. Forkez le dépôt et clonez votre fork
-2. Créez une branche depuis `develop` (`feat/your-change` ou `fix/your-fix`)
-3. Faites vos changements et assurez‑vous que `swiftlint lint --strict` passe
-4. Ouvrez une PR claire et concise
+2. Créez une branche de fonctionnalité depuis `develop` (`feat/votre-changement` ou `fix/votre-correctif`)
+3. Effectuez vos modifications en vous assurant que `swiftlint lint --strict` passe sans erreur
+4. Ouvrez une pull request avec une description claire de ce qui a changé et pourquoi
 
-Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour les détails.
+Consultez [CONTRIBUTING.md](CONTRIBUTING.md) pour les instructions détaillées de configuration, le style de code, les conventions de commit et la checklist complète des PR.
 
-**Façons de contribuer :**
+**Manières de contribuer :**
 
-- **Code** — corrections, nouvelles fonctionnalités, optimisations
-- **Tests** — amélioration de la couverture, cas limites, fixtures
-- **Documentation** — amélioration de `docs/`, corrections, exemples
-- **Bug reports** — issues reproductibles avec version macOS
-- **UX feedback** — propositions sur l’inspector, la sidebar ou la toolbar
+- **Code** — corrections de bugs, nouvelles fonctionnalités, améliorations de performance
+- **Tests** — étendre la couverture des tests, ajouter des cas limites, améliorer les fixtures
+- **Documentation** — améliorer les docs dans `docs/`, corriger les coquilles, ajouter des exemples
+- **Signalements de bugs** — signaler des problèmes clairs et reproductibles avec la version de macOS et les étapes
+- **Retours UX** — suggérer des améliorations pour l'inspecteur, la barre latérale ou les workflows de la barre d'outils
 
-Les issues pour débuter sont marquées [`good first issue`](https://github.com/LocNguyenHuu/Rockxy/labels/good%20first%20issue).
+Les premiers problèmes accessibles sont étiquetés [`good first issue`](https://github.com/LocNguyenHuu/Rockxy/labels/good%20first%20issue) sur GitHub.
 
-En ouvrant une PR, vous acceptez le [CLA](CLA.md).
+En ouvrant une pull request, vous acceptez le [Contributor License Agreement](CLA.md).
 
 ## Support
 
-- [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — soutenir le développement
-- [GitHub Issues](https://github.com/LocNguyenHuu/Rockxy/issues) — bugs et demandes de features
-- [GitHub Discussions](https://github.com/LocNguyenHuu/Rockxy/discussions) — questions et échanges
+- [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — soutenez le développement de Rockxy
+- [GitHub Issues](https://github.com/LocNguyenHuu/Rockxy/issues) — signalements de bugs et demandes de fonctionnalités
+- [GitHub Discussions](https://github.com/LocNguyenHuu/Rockxy/discussions) — questions et échanges communautaires
 - **Email** — [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
-- **Sécurité** — voir [SECURITY.md](SECURITY.md)
+- **Problèmes de sécurité** — consultez [SECURITY.md](SECURITY.md) pour la divulgation responsable
 
 ## Licence
 
@@ -642,4 +652,4 @@ En ouvrant une PR, vous acceptez le [CLA](CLA.md).
 
 ---
 
-**Construit avec Swift, SwiftNIO, SwiftUI et AppKit.**
+**Développé avec Swift, SwiftNIO, SwiftUI et AppKit.**
