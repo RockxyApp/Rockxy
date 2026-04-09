@@ -6,13 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-09
+
+### Added
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### Fixed
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
 ### Changed
 
-- Redesign Block List rule editor with Proxyman-style dropdown menus for HTTP method, match type (Wildcard/Regex), and block action (Return 403 Forbidden/Drop Connection)
-- Add editable rule name field and conditional "Include all subpaths" checkbox
-- Add quick-create prefill from request context menu and sidebar domain menu with provenance banner
-- Enlarge Block List window (860×620) and editor sheet (600×auto-height)
-
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
 ## [0.3.0] - 2026-04-08
 
 ### Added
