@@ -43,6 +43,12 @@
 - **Hex inspector** — binary body display for non-text content
 - **Timing waterfall** — DNS, TCP connect, TLS handshake, TTFB, and transfer phases visualized per request
 - **Headers, cookies, query params, auth** — tabbed inspector with raw view option
+- **Custom header columns** — pick extra request/response headers to display as columns
+
+### Workspace & Productivity
+- **Workspace tabs** — separate capture workspaces with independent filters and focus
+- **Favorites** — pin frequently used hosts or requests for quick recall
+- **Timeline view** — visual request sequence timeline for a focused subset
 
 ### Traffic Manipulation & Mock API
 - **Map Local** — serve responses from local files (mock API responses without modifying server code)
@@ -51,6 +57,9 @@
 - **Block List** — block requests by URL pattern (wildcard or regex)
 - **Throttle** — simulate slow network by delaying request forwarding
 - **Modify Headers** — add, remove, or replace HTTP headers on the fly
+- **Allow List** — capture only selected domains or apps to reduce noise
+- **Bypass Proxy** — exclude specific hosts from proxying while the system proxy is enabled
+- **SSL Proxying rules** — per-domain TLS interception control
 
 ### Debugging & Analysis
 - **OSLog integration** — capture macOS system logs and correlate with network requests by timestamp
@@ -63,6 +72,8 @@
 - **Request/response hooks** — plugins can inspect and modify traffic in the proxy pipeline
 - **Plugin settings UI** — auto-generated config forms from plugin manifest
 - **Export formats** — copy as cURL, HAR, raw HTTP, or JSON
+- **Compose + replay** — edit and resend requests, or replay captured traffic
+- **Import review** — verify HAR/session imports before they hit storage
 
 ### macOS-Native Experience
 - **Native SwiftUI + AppKit** — no Electron, no web views, no cross-platform compromises
@@ -146,7 +157,8 @@ Or open `Rockxy.xcodeproj` in Xcode and hit Run.
 On first launch, the Welcome window guides you through:
 1. Generating and trusting the root CA certificate
 2. Installing the privileged helper tool for system proxy control
-3. Starting the proxy server
+3. Enabling the system proxy
+4. Starting the proxy server
 
 ## Architecture
 
@@ -174,7 +186,7 @@ flowchart TB
     subgraph Runtime["Runtime Services"]
         Proxy["ProxyServer (actor)"]
         Traffic["TrafficSessionManager (actor)"]
-        LogMgr["LogSessionManager (actor)"]
+        LogMgr["LogCaptureEngine (actor)"]
         Cert["CertificateManager (actor)"]
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
@@ -215,7 +227,7 @@ flowchart TB
 | **Capture / transport** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Accepts proxy traffic, performs CONNECT handling, MITM TLS interception, and upstream forwarding |
 | **Mutation / policy** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Applies request/response rules and current debugging policy before forwarding or storing |
 | **Certificate / trust** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Generates and persists the root CA, caches host certs, validates trust state, installs trust via helper/app flows |
-| **Storage / session** | `TrafficSessionManager`, `LogSessionManager`, `SessionStore`, in-memory buffers | Buffers live data, persists selected state to SQLite, and batches updates to the UI |
+| **Storage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, in-memory buffers | Buffers live data, persists selected state to SQLite, and batches updates to the UI |
 | **Observability / analysis** | analytics, GraphQL detection, content-type detection, log correlation | Enriches captured traffic after or alongside transport processing |
 | **Privileged system integration** | `HelperConnection`, `RockxyHelperTool`, shared XPC protocol | Applies system proxy settings and privileged certificate operations with explicit trust checks |
 
@@ -452,6 +464,7 @@ docs/                          # Documentation (Mintlify format)
 ```bash
 git clone https://github.com/LocNguyenHuu/Rockxy.git
 cd Rockxy
+./scripts/setup-developer.sh   # Generates Configuration/Developer.xcconfig for local signing
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
 
@@ -486,6 +499,10 @@ brew install swiftlint swiftformat
 swiftlint lint --strict    # Must pass with zero violations
 swiftformat .              # Auto-format
 ```
+
+### Helper Tool Notes
+
+If you change code under `RockxyHelperTool/` or `Shared/RockxyHelperProtocol.swift`, rebuilding the app is not enough. You must uninstall the old helper and reinstall the new one via the app’s helper manager to pick up changes.
 
 ## Design Decisions
 
