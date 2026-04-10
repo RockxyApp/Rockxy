@@ -23,6 +23,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     static let shared = HelperService()
 
     func overrideSystemProxy(port: Int, ownerPID: Int32, withReply reply: @escaping (Bool, String?) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("overrideSystemProxy called with port \(port), ownerPID \(ownerPID)")
 
         guard Self.validPortRange.contains(port) else {
@@ -57,6 +58,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     func restoreSystemProxy(withReply reply: @escaping (Bool, String?) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("restoreSystemProxy called")
 
         do {
@@ -70,11 +72,13 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     func getProxyStatus(withReply reply: @escaping (Bool, Int) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         let status = ProxyConfigurator.getCurrentStatus()
         reply(status.isOverridden, status.port)
     }
 
     func getHelperInfo(withReply reply: @escaping (String, Int, Int) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         let version = Self.version
         let build = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
         let protocol_ = Int(Bundle.main.infoDictionary?["RockxyHelperProtocolVersion"] as? String ?? "0") ?? 0
@@ -82,6 +86,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     func prepareForUninstall(withReply reply: @escaping (Bool) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("prepareForUninstall called")
 
         stopOwnerWatchdog()
@@ -120,6 +125,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     // MARK: - Bypass Domain Management
 
     func setBypassDomains(_ domains: [String], withReply reply: @escaping (Bool, String?) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("setBypassDomains called with \(domains.count) domain(s)")
 
         guard domains.count <= 500 else {
@@ -140,9 +146,10 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     // MARK: - Certificate Trust Management
 
     func installRootCertificate(_ derData: Data, withReply reply: @escaping (Bool, String?) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("SECURITY: installRootCertificate called (\(derData.count) bytes)")
 
-        guard derData.count < 10000 else {
+        guard derData.count < 10_000 else {
             Self.logger.error("SECURITY: Rejected oversized certificate data (\(derData.count) bytes)")
             reply(false, "Certificate data too large — maximum 10,000 bytes")
             return
@@ -171,6 +178,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     func removeRootCertificate(withReply reply: @escaping (Bool, String?) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("SECURITY: removeRootCertificate called")
 
         let query: [String: Any] = [
@@ -221,6 +229,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     func verifyRootCertificateTrusted(_ fingerprint: String, withReply reply: @escaping (Bool) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.debug("verifyRootCertificateTrusted called for fingerprint: \(fingerprint)")
 
         let query: [String: Any] = [
@@ -265,6 +274,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         _ activeFingerprint: String,
         withReply reply: @escaping (Int, String?) -> Void
     ) {
+        IdleExitMonitor.resetIdleTimer()
         Self.logger.info("SECURITY: cleanupStaleCertificates called, keeping: \(activeFingerprint)")
 
         let query: [String: Any] = [
@@ -329,7 +339,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         category: "HelperService"
     )
     private static let version: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-    private static let validPortRange = 1024 ... 65535
+    private static let validPortRange = 1_024 ... 65_535
     private static let rateLimitInterval: TimeInterval = 2.0
     private static let ownerWatchdogInterval: TimeInterval = 2.0
     private static let connectionInvalidationGraceInterval: TimeInterval = 0.5
@@ -470,6 +480,12 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         }
         defer { try? FileManager.default.removeItem(at: tempURL) }
 
+        guard BinaryValidator.validateAppleSignedBinary(at: Self.securityToolPath) else {
+            throw CertificateInstallError.trustSettingsFailed(
+                detail: "security binary failed Apple code signature validation"
+            )
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: Self.securityToolPath)
         process.arguments = [
@@ -517,6 +533,11 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             return
         }
         defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        guard BinaryValidator.validateAppleSignedBinary(at: Self.securityToolPath) else {
+            Self.logger.error("SECURITY: security binary failed Apple code signature validation for trust removal")
+            return
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: Self.securityToolPath)

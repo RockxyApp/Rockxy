@@ -8,6 +8,7 @@ struct HTTPResponseData {
     let statusMessage: String
     var headers: [HTTPHeader]
     var body: Data?
+    var bodyTruncated: Bool = false
     var contentType: ContentType?
 
     var setCookies: [HTTPCookie] {

@@ -40,10 +40,10 @@ struct MapRemoteRewriteTests {
 
     @Test("Port replacement changes connection port")
     func portReplacement() {
-        let config = MapRemoteConfiguration(port: 8443)
+        let config = MapRemoteConfiguration(port: 8_443)
         let originalPort = 443
         let port = config.port ?? originalPort
-        #expect(port == 8443)
+        #expect(port == 8_443)
     }
 
     @Test("Path replacement overrides original path")
@@ -93,14 +93,14 @@ struct MapRemoteRewriteTests {
     func singleFieldOverride() {
         #expect(MapRemoteConfiguration(host: "x").hasOverride == true)
         #expect(MapRemoteConfiguration(scheme: "http").hasOverride == true)
-        #expect(MapRemoteConfiguration(port: 8080).hasOverride == true)
+        #expect(MapRemoteConfiguration(port: 8_080).hasOverride == true)
         #expect(MapRemoteConfiguration(path: "/new").hasOverride == true)
         #expect(MapRemoteConfiguration(query: "a=b").hasOverride == true)
     }
 
     @Test("Component-by-component independence")
     func componentIndependence() throws {
-        let config = MapRemoteConfiguration(scheme: "http", host: "staging.com", port: 8080)
+        let config = MapRemoteConfiguration(scheme: "http", host: "staging.com", port: 8_080)
         let originalURL = try #require(URL(string: "https://prod.com/api/v1?key=123"))
 
         let scheme = config.scheme ?? originalURL.scheme
@@ -111,7 +111,7 @@ struct MapRemoteRewriteTests {
 
         #expect(scheme == "http")
         #expect(host == "staging.com")
-        #expect(port == 8080)
+        #expect(port == 8_080)
         #expect(path == "/api/v1")
         #expect(query == "key=123")
     }
@@ -121,7 +121,7 @@ struct MapRemoteRewriteTests {
         let config = MapRemoteConfiguration(fromLegacyURL: "https://staging.example.com:8443/api/v2?debug=1")
         #expect(config.scheme == "https")
         #expect(config.host == "staging.example.com")
-        #expect(config.port == 8443)
+        #expect(config.port == 8_443)
         #expect(config.path == "/api/v2")
         #expect(config.query == "debug=1")
         #expect(config.preserveHostHeader == false)

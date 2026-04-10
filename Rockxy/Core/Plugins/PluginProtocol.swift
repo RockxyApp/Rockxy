@@ -1,5 +1,4 @@
 import Foundation
-import SwiftUI
 
 // Plugin protocols define the three extension points in Rockxy's architecture:
 // inspectors (custom body viewers), exporters (session output formats),
@@ -7,11 +6,21 @@ import SwiftUI
 
 // MARK: - InspectorPlugin
 
-/// Provides a custom SwiftUI view for inspecting transaction bodies of specific content types.
+/// Provides custom body inspection for transactions of specific content types.
+/// View rendering is handled in the Views layer, not by the plugin itself.
 protocol InspectorPlugin {
     var name: String { get }
     var supportedContentTypes: [ContentType] { get }
-    func inspectorView(for transaction: HTTPTransaction) -> AnyView
+    func canInspect(transaction: HTTPTransaction) -> Bool
+}
+
+extension InspectorPlugin {
+    func canInspect(transaction: HTTPTransaction) -> Bool {
+        guard let contentType = transaction.response?.contentType else {
+            return false
+        }
+        return supportedContentTypes.contains(contentType)
+    }
 }
 
 // MARK: - ExporterPlugin
@@ -25,10 +34,9 @@ protocol ExporterPlugin {
 
 // MARK: - ProtocolHandler
 
-/// Detects and provides inspection UI for application-layer protocols
-/// tunneled over HTTP (e.g., GraphQL, gRPC-Web, WebSocket subprotocols).
+/// Detects application-layer protocols tunneled over HTTP
+/// (e.g., GraphQL, gRPC-Web, WebSocket subprotocols).
 protocol ProtocolHandler {
     var protocolName: String { get }
     func canHandle(request: HTTPRequestData) -> Bool
-    func inspectorView(for transaction: HTTPTransaction) -> AnyView
 }

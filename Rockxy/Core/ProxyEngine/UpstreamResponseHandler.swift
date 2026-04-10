@@ -203,7 +203,19 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
             }
 
         case let .body(buffer):
-            responseBody?.writeImmutableBuffer(buffer)
+            if !responseBodyTruncated {
+                if ProxyHandlerShared.shouldTruncateCapture(
+                    currentBufferSize: responseBody?.readableBytes ?? 0,
+                    incomingChunkSize: buffer.readableBytes
+                ) {
+                    responseBodyTruncated = true
+                    upstreamLogger.info(
+                        "Response body exceeds capture limit for \(self.requestData.url, privacy: .private), truncating capture buffer"
+                    )
+                } else {
+                    responseBody?.writeImmutableBuffer(buffer)
+                }
+            }
             if !shouldBreakOnResponse {
                 relayResponseBody(buffer)
             }
@@ -266,6 +278,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
     private var responseHead: HTTPResponseHead?
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
+    private var responseBodyTruncated = false
     private var firstByteTime: DispatchTime?
     private var completed = false
     private var readTimeoutTask: Scheduled<Void>?
@@ -463,13 +476,14 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
         }
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
-        let responseData = HTTPResponseData(
+        var responseData = HTTPResponseData(
             statusCode: Int(head.status.code),
             statusMessage: head.status.reasonPhrase,
             headers: headers,
             body: body,
             contentType: contentType
         )
+        responseData.bodyTruncated = responseBodyTruncated
 
         let timing = buildTimingInfo(endTime: endTime)
 

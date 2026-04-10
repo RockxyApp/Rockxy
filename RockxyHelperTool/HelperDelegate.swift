@@ -17,6 +17,7 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate {
         }
 
         Self.logger.info("Accepted XPC connection from pid \(connection.processIdentifier)")
+        IdleExitMonitor.resetIdleTimer()
 
         connection.exportedInterface = NSXPCInterface(with: RockxyHelperProtocol.self)
         connection.exportedObject = HelperService.shared

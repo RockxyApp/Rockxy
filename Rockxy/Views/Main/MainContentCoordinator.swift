@@ -105,6 +105,7 @@ final class MainContentCoordinator {
         case .retry: .retry
         case .openGeneralSettings: .openGeneralSettings
         case .openAdvancedProxySettings: .openAdvancedProxySettings
+        case .reinstallAndTrust: .reinstallAndTrust
         case nil: nil
         }
         return SystemProxyWarning(message: warning.message, action: action, isDismissible: warning.isDismissible)
@@ -295,6 +296,7 @@ struct SystemProxyWarning {
         case retry
         case openGeneralSettings
         case openAdvancedProxySettings
+        case reinstallAndTrust
 
         // MARK: Internal
 
@@ -306,6 +308,8 @@ struct SystemProxyWarning {
                 String(localized: "Open Certificate Settings")
             case .openAdvancedProxySettings:
                 String(localized: "Open Advanced Proxy Settings")
+            case .reinstallAndTrust:
+                String(localized: "Install & Trust Certificate")
             }
         }
     }

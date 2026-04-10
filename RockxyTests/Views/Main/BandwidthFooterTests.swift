@@ -52,11 +52,11 @@ struct BandwidthFooterTests {
 
     @Test("extractBytes counts response body as download")
     func extractBytesDownload() {
-        let tx = makeTransactionWithBodies(requestSize: 0, responseSize: 1024)
+        let tx = makeTransactionWithBodies(requestSize: 0, responseSize: 1_024)
         let bytes = MainContentCoordinator.extractBytes(from: tx)
 
         #expect(bytes.upload == 0)
-        #expect(bytes.download == 1024)
+        #expect(bytes.download == 1_024)
     }
 
     @Test("extractBytes includes WebSocket frame sizes by direction")
@@ -131,7 +131,7 @@ struct BandwidthFooterTests {
     @Test("recomputeInstantaneousSpeeds with stale samples decays to zero")
     func speedsDecayToZero() {
         let coordinator = makeCoordinator()
-        let tx = makeTransactionWithBodies(requestSize: 1000, responseSize: 2000)
+        let tx = makeTransactionWithBodies(requestSize: 1_000, responseSize: 2_000)
 
         let pastTime = Date().addingTimeInterval(-5.0)
         coordinator.recordTrafficMetrics(for: [tx], at: pastTime)

@@ -333,7 +333,7 @@ struct MapLocalDirectoryResolverTests {
     @Test("Rejects files larger than 10 MB")
     func fileSizeLimit() throws {
         let largeFile = testDir.appendingPathComponent("large.bin")
-        let data = Data(count: 11 * 1024 * 1024)
+        let data = Data(count: 11 * 1_024 * 1_024)
         try data.write(to: largeFile)
 
         let result = MapLocalDirectoryResolver.resolve(

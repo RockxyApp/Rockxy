@@ -226,6 +226,15 @@ enum ProxyConfigurator {
     private static let networkSetupPath = "/usr/sbin/networksetup"
     private static let routePath = "/sbin/route"
 
+    private static func validateBinary(_ path: String) throws {
+        guard BinaryValidator.validateAppleSignedBinary(at: path) else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: path,
+                reason: "Binary failed Apple code signature validation"
+            )
+        }
+    }
+
     // MARK: - Network Service Detection
 
     /// Determines which enabled service is the actual primary by mapping the default
@@ -266,6 +275,11 @@ enum ProxyConfigurator {
     }
 
     private static func detectPrimaryInterface() -> String? {
+        guard BinaryValidator.validateAppleSignedBinary(at: routePath) else {
+            logger.error("SECURITY: /sbin/route failed Apple code signature validation")
+            return nil
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: routePath)
         process.arguments = ["-n", "get", "0.0.0.0"]
@@ -362,6 +376,8 @@ enum ProxyConfigurator {
 
     @discardableResult
     private static func runNetworkSetup(_ arguments: [String]) throws -> String {
+        try validateBinary(networkSetupPath)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: networkSetupPath)
         process.arguments = arguments

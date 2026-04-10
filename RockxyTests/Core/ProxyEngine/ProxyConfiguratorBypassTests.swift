@@ -40,13 +40,13 @@ struct ProxyBackupBypassTests {
             service: "Ethernet",
             httpEnabled: true,
             httpHost: "proxy.corp.com",
-            httpPort: 8080,
+            httpPort: 8_080,
             httpsEnabled: true,
             httpsHost: "proxy.corp.com",
-            httpsPort: 8443,
+            httpsPort: 8_443,
             socksEnabled: true,
             socksHost: "socks.corp.com",
-            socksPort: 1080,
+            socksPort: 1_080,
             bypassDomains: ["localhost", "127.0.0.1", "*.internal.corp.com"]
         )
         let original = ProxyBackupMirror(
@@ -62,13 +62,13 @@ struct ProxyBackupBypassTests {
         #expect(decodedService.service == "Ethernet")
         #expect(decodedService.httpEnabled == true)
         #expect(decodedService.httpHost == "proxy.corp.com")
-        #expect(decodedService.httpPort == 8080)
+        #expect(decodedService.httpPort == 8_080)
         #expect(decodedService.httpsEnabled == true)
         #expect(decodedService.httpsHost == "proxy.corp.com")
-        #expect(decodedService.httpsPort == 8443)
+        #expect(decodedService.httpsPort == 8_443)
         #expect(decodedService.socksEnabled == true)
         #expect(decodedService.socksHost == "socks.corp.com")
-        #expect(decodedService.socksPort == 1080)
+        #expect(decodedService.socksPort == 1_080)
         #expect(decodedService.bypassDomains.count == 3)
         #expect(decodedService.bypassDomains.contains("*.internal.corp.com"))
     }
@@ -129,7 +129,7 @@ struct ProxyBackupBypassTests {
             service: "Wi-Fi",
             httpEnabled: true,
             httpHost: "127.0.0.1",
-            httpPort: 9090,
+            httpPort: 9_090,
             httpsEnabled: false,
             httpsHost: "",
             httpsPort: 0,
@@ -145,10 +145,10 @@ struct ProxyBackupBypassTests {
             httpPort: 0,
             httpsEnabled: true,
             httpsHost: "proxy.corp.com",
-            httpsPort: 8443,
+            httpsPort: 8_443,
             socksEnabled: true,
             socksHost: "socks.corp.com",
-            socksPort: 1080,
+            socksPort: 1_080,
             bypassDomains: ["*.internal.corp.com", "10.0.0.0/8"]
         )
         let original = ProxyBackupMirror(
@@ -162,15 +162,15 @@ struct ProxyBackupBypassTests {
         #expect(decoded.services.count == 2)
         #expect(decoded.services[0].service == "Wi-Fi")
         #expect(decoded.services[0].httpEnabled == true)
-        #expect(decoded.services[0].httpPort == 9090)
+        #expect(decoded.services[0].httpPort == 9_090)
         #expect(decoded.services[0].socksEnabled == false)
         #expect(decoded.services[0].bypassDomains == ["localhost"])
         #expect(decoded.services[1].service == "Ethernet")
         #expect(decoded.services[1].httpsEnabled == true)
-        #expect(decoded.services[1].httpsPort == 8443)
+        #expect(decoded.services[1].httpsPort == 8_443)
         #expect(decoded.services[1].socksEnabled == true)
         #expect(decoded.services[1].socksHost == "socks.corp.com")
-        #expect(decoded.services[1].socksPort == 1080)
+        #expect(decoded.services[1].socksPort == 1_080)
         #expect(decoded.services[1].bypassDomains == ["*.internal.corp.com", "10.0.0.0/8"])
     }
 

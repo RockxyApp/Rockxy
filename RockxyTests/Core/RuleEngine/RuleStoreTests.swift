@@ -30,7 +30,7 @@ struct RuleStoreTests {
                 name: "Throttle Rule",
                 isEnabled: false,
                 matchCondition: RuleMatchCondition(method: "POST"),
-                action: .throttle(delayMs: 1000)
+                action: .throttle(delayMs: 1_000)
             )
         ]
 
@@ -190,7 +190,7 @@ struct RuleStoreTests {
 
         let store = TestableRuleStore(directory: tempDir)
         let oversizedURL = tempDir.appendingPathComponent("oversized.json")
-        let oversizedData = Data(repeating: 0x41, count: 5 * 1024 * 1024 + 1)
+        let oversizedData = Data(repeating: 0x41, count: 5 * 1_024 * 1_024 + 1)
         try oversizedData.write(to: oversizedURL)
 
         #expect(throws: RuleStore.RuleStoreError.self) {
@@ -252,7 +252,7 @@ private struct TestableRuleStore {
 
     // MARK: Private
 
-    private static let maxImportSize: UInt64 = 5 * 1024 * 1024
+    private static let maxImportSize: UInt64 = 5 * 1_024 * 1_024
 
     private let fileURL: URL
 }

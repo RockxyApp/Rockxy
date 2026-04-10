@@ -39,6 +39,32 @@
 
 > **状态**：积极开发中。核心代理引擎、HTTPS 拦截、规则系统、插件生态和 Inspector UI 已可用。进度请见 [CHANGELOG.md](CHANGELOG.md)。
 
+<!-- BEGIN GENERATED: latest-release -->
+## 最新发布
+
+**v0.4.0** — 2026-04-09
+
+### 新增
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### 修复
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
+### 变更
+
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
+
+完整发布历史见 [CHANGELOG.md](CHANGELOG.md)。
+<!-- END GENERATED: latest-release -->
+
 ## 功能
 
 ### 网络流量捕获
@@ -177,7 +203,7 @@ xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 Rockxy 划分为三个信任与执行域：
 
 1. **UI + 调度层** — SwiftUI/AppKit 窗口、Inspector、菜单与 `MainContentCoordinator`
-2. **代理/运行时层** — SwiftNIO channel handlers、证书签发、请求变更、存储、分析与插件
+2. **代理/运行时层** — SwiftNIO channel handlers、证书签发、请求变更、存储与插件
 3. **特权 helper 层** — 独立的 launchd 守护进程，仅用于需要高权限的系统级代理和证书操作
 
 设计目标是将包处理移出主线程，将特权操作移出应用进程，并通过明确的 actor 或 `@MainActor` 边界同步用户界面状态。
@@ -201,7 +227,6 @@ flowchart TB
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
         Storage["SessionStore + InMemory Buffers"]
-        Analytics["Analytics Engine"]
     end
 
     subgraph Privileged["Privileged Domain"]
@@ -217,7 +242,6 @@ flowchart TB
     Coordinator --> Traffic
     Coordinator --> LogMgr
     Coordinator --> Storage
-    Coordinator --> Analytics
     Proxy --> Rules
     Proxy --> Plugins
     Proxy --> Cert
@@ -238,7 +262,7 @@ flowchart TB
 | **变更 / 策略** | `RuleEngine`、`BreakpointRequestBuilder`、`AllowListManager`、`NoCacheHeaderMutator`、`MapLocalDirectoryResolver` | 在转发或存储前应用请求/响应规则与当前调试策略 |
 | **证书 / 信任** | `CertificateManager`、`RootCAGenerator`、`HostCertGenerator`、`CertificateStore`、`KeychainHelper` | 生成并持久化 root CA，缓存主机证书，验证信任状态，通过 helper/app 流程安装信任 |
 | **存储 / 会话** | `TrafficSessionManager`、`LogCaptureEngine`、`SessionStore`、内存缓冲区 | 缓冲实时数据，选择性持久化到 SQLite，批量更新 UI |
-| **可观测 / 分析** | analytics、GraphQL 检测、content-type 检测、日志关联 | 在传输处理期间或之后为已捕获流量添加元数据 |
+| **可观测 / 分析** | GraphQL 检测、content-type 检测、日志关联 | 在传输处理期间或之后为已捕获流量添加元数据 |
 | **特权系统集成** | `HelperConnection`、`RockxyHelperTool`、共享 XPC 协议 | 通过显式信任检查执行系统代理设置和特权证书操作 |
 
 ### 代理请求生命周期
@@ -423,7 +447,6 @@ Rockxy/
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
-│   ├── Analytics/         # ErrorGroup, PerformanceMetric, SessionTrend
 │   ├── Certificate/       # RootCA, RootCAStatusSnapshot
 │   ├── Rules/             # ProxyRule, RuleAction
 │   ├── Settings/          # AppSettings, ProxySettings

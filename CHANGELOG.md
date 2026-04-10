@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Response body size cap (`maxResponseBodySize` in `ProxyLimits`): capture buffer truncates at 100 MB while continuing to relay the full response to the client
+- Apple code-signature validation for all external binaries (`networksetup`, `route`, `security`) executed by the helper daemon via `BinaryValidator`
+- Helper daemon idle-exit: auto-exits after 5 minutes of no XPC activity when no active proxy override exists; launchd re-launches on demand
+- Certificate expiry detection with color-coded dates and warning callouts in CertificateStatusPanel
+- "Install & Trust Certificate" recovery action in workspace banner when trust is lost during capture
+- "View Advanced Diagnostics" link in WelcomeView when helper install fails
+- Helper approval guidance text in WelcomeView when macOS requires Login Items approval
+- Tokenize timeline waterfall colors into `Theme.Timing` and highlight colors into `Theme.Highlight`
+- Extract shared `ProxyHandlerShared.makeTransactionCallback` from HTTP/HTTPS proxy handlers
+
+### Changed
+
+- Remove SwiftUI dependency from `Core/Plugins/` — `PluginProtocol` no longer requires `AnyView`, `JSONInspectorView` moved to `Views/Inspector/`
+
+### Fixed
+
+- [Planned] Analytics docs: error-analysis and performance-insights pages now marked as "Planned" — no runtime implementation exists yet
+- Inconsistent timing colors in `TimingInspectorView` (DNS was blue instead of cyan, Transfer was cyan instead of blue)
+
+### Removed
+
+- Dead `WindowOpener` utility (zero callers, violated no-SwiftUI-in-Core rule)
+- SwiftUI import from all `Core/` files — zero `import SwiftUI` statements remain in Core
+- Stale analytics claims from docs, READMEs, and changelogs where features were described as shipped
+
 ## [0.4.0] - 2026-04-09
 
 ### Added
@@ -563,7 +590,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Certificate management module for HTTPS interception
 - Rule engine for traffic modification
 - Log capture engine for application log intelligence
-- Analytics engine for error analysis and performance insights
+- [Planned] Analytics engine for error analysis and performance insights
 - SQLite-based session persistence
 - Mintlify documentation for network debugging features (Traffic Capture, HTTPS Interception, WebSocket Inspection, GraphQL Support)
 - Mintlify documentation for intelligence features (Traffic Rules, Request Replay, Log Intelligence, Error Analysis, Performance Insights)
@@ -573,7 +600,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - PEM-based certificate persistence in Application Support
 - SQLite session store with 3 tables (transactions, log_entries, websocket_frames), body >1MB offloaded to disk
 - Compression framework body decoder (gzip, deflate, brotli) with growing buffer strategy
-- Analytics: error grouping by normalized URL pattern + status code, P50/P95/P99 latency per endpoint, timeline dependency detection, trend tracking vs baseline sessions
+- [Planned] Analytics: error grouping by normalized URL pattern + status code, P50/P95/P99 latency per endpoint, timeline dependency detection, trend tracking vs baseline sessions
 - OSLog stream capture with 500ms polling, process stdout/stderr capture via Process + Pipe
 - System proxy management via networksetup CLI (auto-detect active network service)
 - SwiftNIO proxy server with HTTP/HTTPS/WebSocket support (ServerBootstrap, ChannelInboundHandler pipeline)
@@ -585,7 +612,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Certificate setup view with generate/install/export/reset actions
 - Data flow wiring: ProxyServer → TrafficSessionManager (100ms batch timer) → MainContentCoordinator → SwiftUI views
 - Log engine wiring with LogCorrelator for request-log correlation
-- Auto-triggered analytics at every 100-transaction milestone
+- [Planned] Auto-triggered analytics at every 100-transaction milestone
 - Buffer eviction: oldest 10% moved to SQLite when exceeding 50k capacity
 - Plugin system with InspectorPlugin, ExporterPlugin, and ProtocolHandler protocols
 - HAR 1.2 exporter with full spec compliance (ISO8601 timestamps, timing breakdown, base64 binary bodies)

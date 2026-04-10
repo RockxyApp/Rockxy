@@ -104,12 +104,12 @@ enum HighlightColor: String, CaseIterable {
 
     var nsColor: NSColor {
         switch self {
-        case .red: .systemRed
-        case .orange: .systemOrange
-        case .yellow: .systemYellow
-        case .green: .systemGreen
-        case .blue: .systemBlue
-        case .purple: .systemPurple
+        case .red: Theme.Highlight.redNS
+        case .orange: Theme.Highlight.orangeNS
+        case .yellow: Theme.Highlight.yellowNS
+        case .green: Theme.Highlight.greenNS
+        case .blue: Theme.Highlight.blueNS
+        case .purple: Theme.Highlight.purpleNS
         }
     }
 }

@@ -78,14 +78,14 @@ struct RuleActionTests {
             name: "Throttle",
             isEnabled: true,
             matchCondition: RuleMatchCondition(urlPattern: ".*slow\\.com.*"),
-            action: .throttle(delayMs: 2000)
+            action: .throttle(delayMs: 2_000)
         ))
 
         let url = try #require(URL(string: "https://slow.com/api"))
         let result = await engine.evaluate(method: "GET", url: url, headers: [])
 
         if case let .throttle(delayMs) = result {
-            #expect(delayMs == 2000)
+            #expect(delayMs == 2_000)
         } else {
             Issue.record("Expected .throttle action")
         }
@@ -233,7 +233,7 @@ struct RuleActionTests {
                 host: "mirror.example.com",
                 path: "/api"
             )),
-            .throttle(delayMs: 1500),
+            .throttle(delayMs: 1_500),
             .breakpoint(),
             .modifyHeader(operations: [HeaderOperation(type: .add, headerName: "X-Test", headerValue: "1")]),
         ]
@@ -595,12 +595,12 @@ struct RuleActionTests {
 
     @Test("networkCondition custom preset codec roundtrip")
     func networkConditionCustomCodecRoundtrip() throws {
-        let action = RuleAction.networkCondition(preset: .custom, delayMs: 1234)
+        let action = RuleAction.networkCondition(preset: .custom, delayMs: 1_234)
         let data = try JSONEncoder().encode(action)
         let decoded = try JSONDecoder().decode(RuleAction.self, from: data)
         if case let .networkCondition(preset, delayMs) = decoded {
             #expect(preset == .custom)
-            #expect(delayMs == 1234)
+            #expect(delayMs == 1_234)
         } else {
             Issue.record("Expected .networkCondition, got \(decoded)")
         }

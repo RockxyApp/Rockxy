@@ -238,6 +238,12 @@ private enum DirectProxyWatchdog {
 
     @discardableResult
     private static func runNetworkSetup(_ arguments: [String]) throws -> String {
+        guard BinaryValidator.validateAppleSignedBinary(at: networkSetupPath) else {
+            throw NSError(domain: "DirectProxyWatchdog", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "networksetup binary failed Apple code signature validation",
+            ])
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: networkSetupPath)
         process.arguments = arguments
@@ -287,5 +293,7 @@ listener.delegate = delegate
 listener.resume()
 
 logger.info("RockxyHelperTool listening on Mach service \(machServiceName)")
+
+IdleExitMonitor.start()
 
 RunLoop.current.run()

@@ -134,7 +134,7 @@ struct AppSettingsStorageTests {
     // MARK: Private
 
     // swiftlint:disable:next number_separator
-    private static let testPort = 8888
+    private static let testPort = 8_888
     // swiftlint:disable:next number_separator
-    private static let defaultPort = 9090
+    private static let defaultPort = 9_090
 }

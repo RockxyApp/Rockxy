@@ -8,7 +8,7 @@ description: "SwiftNIO proxy engine, actor concurrency model, coordinator patter
 Rockxy is a native macOS application built with:
 
 - **SwiftUI + AppKit** hybrid UI (NSTableView for high-volume request lists, SwiftUI for everything else)
-- **Swift Concurrency** — actors for thread-safe proxy, storage, log, and analytics engines
+- **Swift Concurrency** — actors for thread-safe proxy, storage, and log engines
 - **SwiftNIO** — non-blocking event-driven proxy server
 - **swift-certificates** — X.509 certificate generation for HTTPS interception
 - **SQLite.swift** — session and log persistence
@@ -31,7 +31,6 @@ block-beta
   block:logic["Business Logic"]:3
     ProxyEngine["Proxy Engine (SwiftNIO)"]
     LogEngine["Log Engine"]
-    Analytics["Analytics Engine"]
     RuleEngine["Rule Engine"]
   end
   block:data["Data Layer"]:3
@@ -62,7 +61,6 @@ All dependencies are managed via Xcode's SPM integration — there is no top-lev
       - Certificate/ — Root CA generation, per-host certs, keychain integration
       - RuleEngine/ — Rule matching and actions (block, map, throttle, breakpoint)
       - LogEngine/ — OSLog capture, stdout/stderr, custom log sources
-      - Analytics/ — Error analysis, performance insights, trend tracking
       - TrafficCapture/ — System proxy manager, session manager, request replay
       - Storage/ — SQLite persistence, in-memory buffers, settings
       - Detection/ — GraphQL detector, content type detection, API grouping
@@ -72,7 +70,6 @@ All dependencies are managed via Xcode's SPM integration — there is no top-lev
     - Models/
       - Network/ — HTTPTransaction, Request, Response, WebSocket frames
       - Log/ — LogEntry, LogLevel, LogSource
-      - Analytics/ — ErrorGroup, PerformanceMetric
       - Rules/ — ProxyRule, RuleAction
       - Settings/ — AppSettings
       - UI/ — SidebarItem, InspectorTab, FilterCriteria
@@ -82,7 +79,6 @@ All dependencies are managed via Xcode's SPM integration — there is no top-lev
       - RequestList/
       - Inspector/ — 8 inspector tab views
       - Logs/
-      - Analytics/
       - Timeline/
       - Rules/
       - Settings/
@@ -130,7 +126,6 @@ All engines that handle concurrent data use Swift actors:
 - `ProxyServer` — owns the NIO event loop and server bootstrap
 - `CertificateManager` — manages root CA and per-host certificate cache (~1,000 entries LRU)
 - `LogCaptureEngine` — captures logs from multiple sources concurrently
-- `AnalyticsEngine` — runs analysis passes on demand
 - `InMemorySessionBuffer` — thread-safe ring buffer for active transactions
 
 Cross-isolation calls use `async/await`:
@@ -170,10 +165,6 @@ flowchart LR
     C --> D["Views"]
 ```
 
-### Analytics
-
-`AnalyticsEngine` runs on-demand (not streaming). It reads from `SessionStore` and `InMemorySessionBuffer`, then pushes results to the coordinator.
-
 ## Proxy Pipeline
 
 The SwiftNIO channel pipeline processes each connection through a series of handlers:
@@ -198,7 +189,6 @@ flowchart LR
 | Rules | JSON file | `RuleStore` |
 | Large bodies (>1MB) | Disk files | `~/Library/Application Support/Rockxy/bodies/` |
 | Log entries | SQLite | `SessionStore` (log_entries table) |
-| Analytics cache | In-memory | `AnalyticsEngine` |
 
 ## Privileged Helper & Security
 

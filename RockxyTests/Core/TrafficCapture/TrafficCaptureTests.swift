@@ -98,7 +98,7 @@ struct TrafficSessionManagerTests {
         let manager = TrafficSessionManager()
 
         await manager.setOnBatchReady { _ in }
-        await manager.setMaxBufferSize(50000)
+        await manager.setMaxBufferSize(50_000)
 
         let transaction = TestFixtures.makeTransaction()
         await manager.addTransaction(transaction)
@@ -132,7 +132,7 @@ struct TrafficSessionManagerTests {
                     resumed = true
                     continuation.resume(returning: true)
                 }
-                await manager.setMaxBufferSize(50000)
+                await manager.setMaxBufferSize(50_000)
                 await manager.startBatchTimer()
                 await manager.addTransaction(TestFixtures.makeTransaction())
             }

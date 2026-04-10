@@ -118,19 +118,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     )
         -> @Sendable (HTTPTransaction) -> Void
     {
-        let downstream = onTransactionComplete
-        let matchedRuleID = matchedRule?.id
-        let matchedRuleName = matchedRule?.name
-        let matchedRuleActionSummary = matchedRule?.action.matchedRuleActionSummary
-        let matchedRulePattern = matchedRule?.matchCondition.urlPattern
-
-        return { transaction in
-            transaction.matchedRuleID = matchedRuleID
-            transaction.matchedRuleName = matchedRuleName
-            transaction.matchedRuleActionSummary = matchedRuleActionSummary
-            transaction.matchedRulePattern = matchedRulePattern
-            downstream(transaction)
-        }
+        ProxyHandlerShared.makeTransactionCallback(
+            for: matchedRule,
+            downstream: onTransactionComplete
+        )
     }
 
     nonisolated private func processRequest(

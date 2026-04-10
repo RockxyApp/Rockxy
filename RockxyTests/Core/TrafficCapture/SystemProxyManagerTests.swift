@@ -148,7 +148,7 @@ struct SystemProxyManagerTests {
         let arguments = SystemProxyManager.directWatchdogSubmitArguments(
             label: "com.amunx.rockxy.community.direct-proxy-watchdog",
             executablePath: "/tmp/RockxyHelperTool",
-            parentPID: 4242,
+            parentPID: 4_242,
             backupPath: "/tmp/proxy-backup-direct.plist"
         )
 

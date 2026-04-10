@@ -39,6 +39,32 @@
 
 > **Statut** : Développement actif. Le moteur proxy principal, l'interception HTTPS, le système de règles, l'écosystème de plugins et l'interface d'inspection sont fonctionnels. Consultez le [CHANGELOG.md](CHANGELOG.md) pour suivre les avancées.
 
+<!-- BEGIN GENERATED: latest-release -->
+## Dernière Version
+
+**v0.4.0** — 2026-04-09
+
+### Ajouts
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### Corrections
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
+### Changements
+
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
+
+Consultez [CHANGELOG.md](CHANGELOG.md) pour l’historique complet des versions.
+<!-- END GENERATED: latest-release -->
+
 ## Fonctionnalités
 
 ### Capture du trafic réseau
@@ -177,7 +203,7 @@ Au premier lancement, la fenêtre d'accueil vous guide à travers :
 Rockxy est divisé en trois domaines de confiance et d'exécution :
 
 1. **Couche UI + orchestration** — fenêtres SwiftUI/AppKit, inspecteurs, menus et le `MainContentCoordinator`
-2. **Couche proxy/runtime** — gestionnaires de canaux SwiftNIO, émission de certificats, mutation de requêtes, stockage, analytique et plugins
+2. **Couche proxy/runtime** — gestionnaires de canaux SwiftNIO, émission de certificats, mutation de requêtes, stockage et plugins
 3. **Couche assistant privilégié** — un démon launchd séparé utilisé uniquement pour les opérations de proxy et de certificats au niveau système nécessitant des privilèges élevés
 
 L'objectif de conception est de maintenir le traitement des paquets hors du thread principal, de confiner les opérations privilégiées en dehors du processus de l'application, et de synchroniser l'état visible par l'utilisateur via des frontières explicites actor ou `@MainActor`.
@@ -201,7 +227,6 @@ flowchart TB
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
         Storage["SessionStore + InMemory Buffers"]
-        Analytics["Analytics Engine"]
     end
 
     subgraph Privileged["Privileged Domain"]
@@ -217,7 +242,6 @@ flowchart TB
     Coordinator --> Traffic
     Coordinator --> LogMgr
     Coordinator --> Storage
-    Coordinator --> Analytics
     Proxy --> Rules
     Proxy --> Plugins
     Proxy --> Cert
@@ -238,7 +262,7 @@ flowchart TB
 | **Mutation / politique** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Applique les règles de requête/réponse et la politique de débogage en cours avant la transmission ou le stockage |
 | **Certificat / confiance** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Génère et persiste le CA racine, met en cache les certificats par hôte, valide l'état de confiance, installe la confiance via les flux assistant/application |
 | **Stockage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, tampons en mémoire | Met en tampon les données en direct, persiste l'état sélectionné dans SQLite et regroupe les mises à jour pour l'UI |
-| **Observabilité / analyse** | analytique, détection GraphQL, détection de type de contenu, corrélation des journaux | Enrichit le trafic capturé après ou parallèlement au traitement du transport |
+| **Observabilité / analyse** | détection GraphQL, détection de type de contenu, corrélation des journaux | Enrichit le trafic capturé après ou parallèlement au traitement du transport |
 | **Intégration système privilégiée** | `HelperConnection`, `RockxyHelperTool`, protocole XPC partagé | Applique les paramètres du proxy système et les opérations de certificats privilégiées avec des vérifications de confiance explicites |
 
 ### Cycle de vie d'une requête proxy
@@ -423,7 +447,6 @@ Rockxy/
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
-│   ├── Analytics/         # ErrorGroup, PerformanceMetric, SessionTrend
 │   ├── Certificate/       # RootCA, RootCAStatusSnapshot
 │   ├── Rules/             # ProxyRule, RuleAction
 │   ├── Settings/          # AppSettings, ProxySettings

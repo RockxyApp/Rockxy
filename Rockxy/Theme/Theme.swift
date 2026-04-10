@@ -161,6 +161,34 @@ enum Theme {
         }
     }
 
+    // MARK: - Timing Phase Colors
+
+    enum Timing {
+        static let dns = Color.cyan
+        static let tcp = Color.green
+        static let tls = Color.purple
+        static let ttfb = Color.orange
+        static let transfer = Color.blue
+    }
+
+    // MARK: - Highlight Colors
+
+    enum Highlight {
+        static let red = Color(nsColor: .systemRed)
+        static let orange = Color(nsColor: .systemOrange)
+        static let yellow = Color(nsColor: .systemYellow)
+        static let green = Color(nsColor: .systemGreen)
+        static let blue = Color(nsColor: .systemBlue)
+        static let purple = Color(nsColor: .systemPurple)
+
+        static let redNS: NSColor = .systemRed
+        static let orangeNS: NSColor = .systemOrange
+        static let yellowNS: NSColor = .systemYellow
+        static let greenNS: NSColor = .systemGreen
+        static let blueNS: NSColor = .systemBlue
+        static let purpleNS: NSColor = .systemPurple
+    }
+
     // MARK: - Layout Tokens
 
     enum Layout {

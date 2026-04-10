@@ -106,7 +106,7 @@ struct GeneralSettingsTab: View {
     @Environment(\.openWindow) private var openWindow
 
     @AppStorage(RockxyIdentity.current.defaultsKey("proxyPort")) private var proxyPort =
-        9090 // swiftlint:disable:this number_separator
+        9_090
     @AppStorage(RockxyIdentity.current.defaultsKey("recordOnLaunch")) private var recordOnLaunch = true
     @State private var certSnapshot: RootCAStatusSnapshot?
     @State private var certLoading = false

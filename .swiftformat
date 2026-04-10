@@ -41,6 +41,12 @@
 --elseposition same-line
 --ifdef no-indent
 
+# Number formatting (align with SwiftLint number_separator rule)
+--decimalgrouping 3,4
+--binarygrouping none
+--octalgrouping none
+--hexgrouping none
+
 # Misc
 --self remove
 --selfrequired

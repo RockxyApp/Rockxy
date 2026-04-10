@@ -5,7 +5,7 @@ import Foundation
 // MARK: - BodyEncoding
 
 private enum BodyEncoding {
-    static let maxInlineSize = 10 * 1024 * 1024 // 10 MB
+    static let maxInlineSize = 10 * 1_024 * 1_024 // 10 MB
 
     static func encode(_ data: Data?) -> (base64: String?, truncated: Bool, originalSize: Int?) {
         guard let data else {

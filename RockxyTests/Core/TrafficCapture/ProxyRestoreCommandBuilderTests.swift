@@ -33,13 +33,13 @@ struct ProxyRestoreCommandBuilderTests {
         let snapshot = ServiceProxySnapshot(
             httpEnabled: true,
             httpHost: "corp-proxy.local",
-            httpPort: 8080,
+            httpPort: 8_080,
             httpsEnabled: true,
             httpsHost: "corp-secure.local",
-            httpsPort: 8443,
+            httpsPort: 8_443,
             socksEnabled: true,
             socksHost: "corp-socks.local",
-            socksPort: 1080
+            socksPort: 1_080
         )
 
         let commands = ProxyRestoreCommandBuilder.commands(service: "Wi-Fi", snapshot: snapshot)

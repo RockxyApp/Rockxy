@@ -258,8 +258,16 @@ enum CrashRecovery {
             throw ProxyConfiguratorError.executionFailed(command: "-get\(type)", reason: "Invalid proxy type: \(type)")
         }
 
+        let networkSetupPath = "/usr/sbin/networksetup"
+        guard BinaryValidator.validateAppleSignedBinary(at: networkSetupPath) else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: "-get\(type)",
+                reason: "networksetup binary failed Apple code signature validation"
+            )
+        }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/networksetup")
+        process.executableURL = URL(fileURLWithPath: networkSetupPath)
         process.arguments = ["-get\(type)", service]
 
         let pipe = Pipe()

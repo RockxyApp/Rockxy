@@ -13,10 +13,10 @@ struct SystemProxyBackupCompatibilityTests {
             service: "Wi-Fi",
             httpEnabled: true,
             httpHost: "127.0.0.1",
-            httpPort: 9090,
+            httpPort: 9_090,
             httpsEnabled: true,
             httpsHost: "127.0.0.1",
-            httpsPort: 9090,
+            httpsPort: 9_090,
             bypassDomains: ["localhost"]
         )
 
@@ -41,10 +41,10 @@ struct SystemProxyBackupCompatibilityTests {
             httpPort: 0,
             httpsEnabled: true,
             httpsHost: "proxy.corp.com",
-            httpsPort: 8443,
+            httpsPort: 8_443,
             socksEnabled: true,
             socksHost: "socks.corp.com",
-            socksPort: 1080,
+            socksPort: 1_080,
             bypassDomains: ["*.corp.internal"]
         )
 
@@ -53,7 +53,7 @@ struct SystemProxyBackupCompatibilityTests {
 
         #expect(decoded.socksEnabled == true)
         #expect(decoded.socksHost == "socks.corp.com")
-        #expect(decoded.socksPort == 1080)
+        #expect(decoded.socksPort == 1_080)
         #expect(decoded.bypassDomains == ["*.corp.internal"])
     }
 

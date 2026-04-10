@@ -39,6 +39,32 @@
 
 > **ステータス**: アクティブ開発中。コアプロキシエンジン、HTTPS インターセプト、ルールシステム、プラグインエコシステム、Inspector UI は動作しています。進捗は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 
+<!-- BEGIN GENERATED: latest-release -->
+## 最新リリース
+
+**v0.4.0** — 2026-04-09
+
+### 追加
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### 修正
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
+### 変更
+
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
+
+完全なリリース履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+<!-- END GENERATED: latest-release -->
+
 ## 機能
 
 ### ネットワークトラフィックのキャプチャ
@@ -177,7 +203,7 @@ xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 Rockxy は 3 つの信頼・実行ドメインに分かれています。
 
 1. **UI + オーケストレーション層** — SwiftUI/AppKit のウィンドウ、Inspector、メニュー、および `MainContentCoordinator`
-2. **プロキシ/ランタイム層** — SwiftNIO チャネルハンドラ、証明書発行、リクエスト変換、ストレージ、分析、プラグイン
+2. **プロキシ/ランタイム層** — SwiftNIO チャネルハンドラ、証明書発行、リクエスト変換、ストレージ、プラグイン
 3. **特権 helper 層** — 昇格権限が必要なシステムレベルのプロキシおよび証明書操作のみを担当する launchd デーモン
 
 設計目標は、パケット処理をメインスレッドから分離し、特権操作をアプリプロセスの外に配置し、明示的な actor または `@MainActor` 境界を通じてユーザー向けの状態を同期することです。
@@ -201,7 +227,6 @@ flowchart TB
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
         Storage["SessionStore + InMemory Buffers"]
-        Analytics["Analytics Engine"]
     end
 
     subgraph Privileged["Privileged Domain"]
@@ -217,7 +242,6 @@ flowchart TB
     Coordinator --> Traffic
     Coordinator --> LogMgr
     Coordinator --> Storage
-    Coordinator --> Analytics
     Proxy --> Rules
     Proxy --> Plugins
     Proxy --> Cert
@@ -238,7 +262,7 @@ flowchart TB
 | **Mutation / policy** | `RuleEngine`、`BreakpointRequestBuilder`、`AllowListManager`、`NoCacheHeaderMutator`、`MapLocalDirectoryResolver` | 転送または保存の前にリクエスト/レスポンスルールと現在のデバッグポリシーを適用 |
 | **Certificate / trust** | `CertificateManager`、`RootCAGenerator`、`HostCertGenerator`、`CertificateStore`、`KeychainHelper` | ルート CA の生成と永続化、ホスト証明書のキャッシュ、信頼状態の検証、helper/アプリ経由の信頼インストール |
 | **Storage / session** | `TrafficSessionManager`、`LogCaptureEngine`、`SessionStore`、インメモリバッファ | ライブデータのバッファリング、選択状態の SQLite への永続化、UI へのバッチ更新 |
-| **Observability / analysis** | analytics、GraphQL 検出、content-type 検出、ログ相関 | トランスポート処理と並行またはその後にキャプチャデータを補強 |
+| **Observability / analysis** | GraphQL 検出、content-type 検出、ログ相関 | トランスポート処理と並行またはその後にキャプチャデータを補強 |
 | **特権システム統合** | `HelperConnection`、`RockxyHelperTool`、共有 XPC プロトコル | 明示的な信頼チェックに基づくシステムプロキシ設定と特権証明書操作の適用 |
 
 ### プロキシリクエストのライフサイクル
@@ -423,7 +447,6 @@ Rockxy/
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
-│   ├── Analytics/         # ErrorGroup, PerformanceMetric, SessionTrend
 │   ├── Certificate/       # RootCA, RootCAStatusSnapshot
 │   ├── Rules/             # ProxyRule, RuleAction
 │   ├── Settings/          # AppSettings, ProxySettings

@@ -69,24 +69,24 @@ struct BodyDecoderTests {
     // MARK: Private
 
     private static func crc32(_ buffer: UnsafeRawBufferPointer) -> UInt32 {
-        var crc: UInt32 = 0xFFFF_FFFF
+        var crc: UInt32 = 0xFFFFFFFF
         for byte in buffer {
             crc ^= UInt32(byte)
             for _ in 0 ..< 8 {
                 if crc & 1 != 0 {
-                    crc = (crc >> 1) ^ 0xEDB8_8320
+                    crc = (crc >> 1) ^ 0xEDB88320
                 } else {
                     crc >>= 1
                 }
             }
         }
-        return crc ^ 0xFFFF_FFFF
+        return crc ^ 0xFFFFFFFF
     }
 
     // MARK: - Helpers
 
     private func deflateCompress(_ input: Data) -> Data? {
-        let capacity = input.count + 1024
+        let capacity = input.count + 1_024
         let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
         defer { destBuffer.deallocate() }
         let compressedSize = input.withUnsafeBytes { srcPtr -> Int in

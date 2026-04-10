@@ -37,8 +37,6 @@
         "group": "Analysis & Productivity",
         "pages": [
           "features/log-intelligence",
-          "features/error-analysis",
-          "features/performance-insights",
           "features/diff",
           "features/scripting",
           "features/sessions"

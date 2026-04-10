@@ -39,6 +39,32 @@
 
 > **상태**: 활발히 개발 중입니다. 핵심 프록시 엔진, HTTPS 가로채기, 규칙 시스템, 플러그인 생태계, Inspector UI가 동작합니다. 진행 상황은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
 
+<!-- BEGIN GENERATED: latest-release -->
+## 최신 릴리스
+
+**v0.4.0** — 2026-04-09
+
+### 추가
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### 수정
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
+### 변경
+
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
+
+전체 릴리스 기록은 [CHANGELOG.md](CHANGELOG.md)에서 확인하세요.
+<!-- END GENERATED: latest-release -->
+
 ## 기능
 
 ### 네트워크 트래픽 캡처
@@ -177,7 +203,7 @@ xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 Rockxy는 세 가지 신뢰 및 실행 도메인으로 구분됩니다:
 
 1. **UI + 오케스트레이션 계층** — SwiftUI/AppKit 윈도우, Inspector, 메뉴, `MainContentCoordinator`
-2. **프록시/런타임 계층** — SwiftNIO 채널 핸들러, 인증서 발급, 요청 변조, 스토리지, 분석, 플러그인
+2. **프록시/런타임 계층** — SwiftNIO 채널 핸들러, 인증서 발급, 요청 변조, 스토리지, 플러그인
 3. **특권 helper 계층** — 시스템 수준 프록시 및 인증서 작업에 필요한 권한 상승을 위한 별도의 launchd 데몬
 
 설계 목표는 패킷 처리를 메인 스레드에서 분리하고, 특권 작업을 앱 프로세스 외부에서 수행하며, 사용자 대면 상태를 명시적인 actor 또는 `@MainActor` 경계를 통해 동기화하는 것입니다.
@@ -201,7 +227,6 @@ flowchart TB
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
         Storage["SessionStore + InMemory Buffers"]
-        Analytics["Analytics Engine"]
     end
 
     subgraph Privileged["Privileged Domain"]
@@ -217,7 +242,6 @@ flowchart TB
     Coordinator --> Traffic
     Coordinator --> LogMgr
     Coordinator --> Storage
-    Coordinator --> Analytics
     Proxy --> Rules
     Proxy --> Plugins
     Proxy --> Cert
@@ -238,7 +262,7 @@ flowchart TB
 | **변조 / 정책** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | 포워딩 또는 저장 전에 요청/응답 규칙과 현재 디버깅 정책 적용 |
 | **인증서 / 신뢰** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | 루트 CA 생성 및 저장, 호스트 인증서 캐싱, 신뢰 상태 검증, helper/앱 플로우를 통한 신뢰 설치 |
 | **스토리지 / 세션** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, 인메모리 버퍼 | 실시간 데이터 버퍼링, 선택적 상태를 SQLite에 영속화, UI에 배치 업데이트 |
-| **관측 / 분석** | 분석 엔진, GraphQL 감지, content-type 감지, 로그 연관 | 트랜스포트 처리 중 또는 이후에 캡처된 트래픽 보강 |
+| **관측 / 분석** | GraphQL 감지, content-type 감지, 로그 연관 | 트랜스포트 처리 중 또는 이후에 캡처된 트래픽 보강 |
 | **특권 시스템 통합** | `HelperConnection`, `RockxyHelperTool`, 공유 XPC 프로토콜 | 명시적 신뢰 검사를 통해 시스템 프록시 설정 및 특권 인증서 작업 적용 |
 
 ### 프록시 요청 라이프사이클
@@ -423,7 +447,6 @@ Rockxy/
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
-│   ├── Analytics/         # ErrorGroup, PerformanceMetric, SessionTrend
 │   ├── Certificate/       # RootCA, RootCAStatusSnapshot
 │   ├── Rules/             # ProxyRule, RuleAction
 │   ├── Settings/          # AppSettings, ProxySettings

@@ -17,7 +17,7 @@ struct RequestListRowTests {
         )
         transaction.sequenceNumber = 42
         transaction.clientApp = "Safari"
-        transaction.sourcePort = 54321
+        transaction.sourcePort = 54_321
         transaction.isPinned = true
         transaction.isSaved = false
         transaction.comment = "Test comment"
@@ -34,7 +34,7 @@ struct RequestListRowTests {
         #expect(row.statusCode == 201)
         #expect(row.state == .completed)
         #expect(row.clientApp == "Safari")
-        #expect(row.sourcePort == 54321)
+        #expect(row.sourcePort == 54_321)
         #expect(row.isPinned == true)
         #expect(row.isSaved == false)
         #expect(row.comment == "Test comment")

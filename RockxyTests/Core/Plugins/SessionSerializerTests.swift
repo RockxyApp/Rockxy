@@ -171,7 +171,7 @@ struct SessionSerializerTests {
 
     @Test("Large body base64 encoding survives round-trip")
     func largeBodyRoundTrip() throws {
-        let bodyData = Data(repeating: 0xAB, count: 1024 * 512) // 512 KB
+        let bodyData = Data(repeating: 0xAB, count: 1_024 * 512) // 512 KB
         let transaction = TestFixtures.makeTransaction()
         transaction.response = TestFixtures.makeResponse(statusCode: 200, body: bodyData)
         let metadata = SessionSerializer.makeMetadata(transactionCount: 1)

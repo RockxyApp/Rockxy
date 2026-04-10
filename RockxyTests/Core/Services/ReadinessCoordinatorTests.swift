@@ -299,11 +299,41 @@ struct ReadinessCoordinatorTests {
 // MARK: - ReadinessWarningTests
 
 struct ReadinessWarningTests {
-    @Test("action titles are non-empty")
+    @Test("action titles are non-empty including reinstallAndTrust")
     func actionTitlesNonEmpty() {
         #expect(!ReadinessWarning.Action.retry.title.isEmpty)
         #expect(!ReadinessWarning.Action.openGeneralSettings.title.isEmpty)
         #expect(!ReadinessWarning.Action.openAdvancedProxySettings.title.isEmpty)
+        #expect(!ReadinessWarning.Action.reinstallAndTrust.title.isEmpty)
+    }
+
+    @Test("cert-not-trusted warning uses reinstallAndTrust action")
+    func certNotTrustedUsesReinstallAction() {
+        let warning = ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .installedNotTrusted,
+            isCaptureActive: true
+        )
+        #expect(warning != nil)
+        #expect(warning?.action == .reinstallAndTrust)
+        #expect(warning?.isDismissible == false)
+    }
+
+    @Test("cert-trusted state produces no cert warning")
+    func certTrustedNoWarning() {
+        let warning = ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .trusted,
+            isCaptureActive: true
+        )
+        #expect(warning == nil)
+    }
+
+    @Test("cert warning suppressed when capture is not active")
+    func certWarningRequiresActiveCapture() {
+        let warning = ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .notGenerated,
+            isCaptureActive: false
+        )
+        #expect(warning == nil)
     }
 
     @Test("CertReadiness descriptions are non-empty")

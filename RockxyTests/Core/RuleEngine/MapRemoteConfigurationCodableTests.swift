@@ -15,7 +15,7 @@ struct MapRemoteConfigurationCodableTests {
         if case let .mapRemote(config) = decoded {
             #expect(config.scheme == "https")
             #expect(config.host == "staging.example.com")
-            #expect(config.port == 8443)
+            #expect(config.port == 8_443)
             #expect(config.path == "/api/v2")
             #expect(config.query == "debug=true")
             #expect(config.preserveHostHeader == false)
@@ -29,7 +29,7 @@ struct MapRemoteConfigurationCodableTests {
         let config = MapRemoteConfiguration(
             scheme: "https",
             host: "staging.example.com",
-            port: 8443,
+            port: 8_443,
             path: "/api/v2",
             query: "debug=true",
             preserveHostHeader: true
@@ -41,7 +41,7 @@ struct MapRemoteConfigurationCodableTests {
         if case let .mapRemote(decodedConfig) = decoded {
             #expect(decodedConfig.scheme == "https")
             #expect(decodedConfig.host == "staging.example.com")
-            #expect(decodedConfig.port == 8443)
+            #expect(decodedConfig.port == 8_443)
             #expect(decodedConfig.path == "/api/v2")
             #expect(decodedConfig.query == "debug=true")
             #expect(decodedConfig.preserveHostHeader == true)
@@ -94,7 +94,7 @@ struct MapRemoteConfigurationCodableTests {
 
     @Test("destinationSummary shows host:port when both set")
     func summaryHostPort() {
-        let config = MapRemoteConfiguration(host: "staging.com", port: 8443)
+        let config = MapRemoteConfiguration(host: "staging.com", port: 8_443)
         #expect(config.destinationSummary == "staging.com:8443")
     }
 

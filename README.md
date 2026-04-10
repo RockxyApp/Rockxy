@@ -39,6 +39,32 @@
 
 > **Status**: Active development. Core proxy engine, HTTPS interception, rule system, plugin ecosystem, and inspector UI are functional. See [CHANGELOG.md](CHANGELOG.md) for progress.
 
+<!-- BEGIN GENERATED: latest-release -->
+## Latest Release
+
+**v0.4.0** — 2026-04-09
+
+### Added
+
+- Redesign rule editor with Proxyman-style dropdowns and enlarged window
+
+### Fixed
+
+- Prevent selectPlugin load failure from being overwritten by success status
+- Surface UI feedback when applyTemplate receives unknown name
+- Tighten scripting template fallback, scope subpaths toggle, localize provenance
+- Address code review findings for block-list PR
+- Restore quick-create handoff, remove nonfunctional controls, enforce honest UI
+
+### Changed
+
+- Merge remote-tracking branch 'origin/main'
+- Add multilingual README translations
+- Add localized readmes
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+<!-- END GENERATED: latest-release -->
+
 ## Features
 
 ### Network Traffic Capture
@@ -177,7 +203,7 @@ On first launch, the Welcome window guides you through:
 Rockxy is split into three trust and execution domains:
 
 1. **UI + orchestration layer** — SwiftUI/AppKit windows, inspectors, menus, and the `MainContentCoordinator`
-2. **proxy/runtime layer** — SwiftNIO channel handlers, certificate issuance, request mutation, storage, analytics, and plugins
+2. **proxy/runtime layer** — SwiftNIO channel handlers, certificate issuance, request mutation, storage, and plugins
 3. **privileged helper layer** — a separate launchd daemon used only for system-level proxy and certificate operations that require elevated privileges
 
 The design goal is to keep packet processing off the main thread, keep privileged operations outside the app process, and keep user-facing state synchronized through explicit actor or `@MainActor` boundaries.
@@ -201,7 +227,6 @@ flowchart TB
         Rules["RuleEngine"]
         Plugins["ScriptPluginManager"]
         Storage["SessionStore + InMemory Buffers"]
-        Analytics["Analytics Engine"]
     end
 
     subgraph Privileged["Privileged Domain"]
@@ -217,7 +242,6 @@ flowchart TB
     Coordinator --> Traffic
     Coordinator --> LogMgr
     Coordinator --> Storage
-    Coordinator --> Analytics
     Proxy --> Rules
     Proxy --> Plugins
     Proxy --> Cert
@@ -238,7 +262,7 @@ flowchart TB
 | **Mutation / policy** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator`, `MapLocalDirectoryResolver` | Applies request/response rules and current debugging policy before forwarding or storing |
 | **Certificate / trust** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Generates and persists the root CA, caches host certs, validates trust state, installs trust via helper/app flows |
 | **Storage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, in-memory buffers | Buffers live data, persists selected state to SQLite, and batches updates to the UI |
-| **Observability / analysis** | analytics, GraphQL detection, content-type detection, log correlation | Enriches captured traffic after or alongside transport processing |
+| **Observability / analysis** | GraphQL detection, content-type detection, log correlation | Enriches captured traffic after or alongside transport processing |
 | **Privileged system integration** | `HelperConnection`, `RockxyHelperTool`, shared XPC protocol | Applies system proxy settings and privileged certificate operations with explicit trust checks |
 
 ### Proxy Request Lifecycle
@@ -423,7 +447,6 @@ Rockxy/
 ├── Models/
 │   ├── Network/           # HTTPTransaction, Request/Response, TimingInfo, WebSocket
 │   ├── Log/               # LogEntry, LogLevel, LogSource
-│   ├── Analytics/         # ErrorGroup, PerformanceMetric, SessionTrend
 │   ├── Certificate/       # RootCA, RootCAStatusSnapshot
 │   ├── Rules/             # ProxyRule, RuleAction
 │   ├── Settings/          # AppSettings, ProxySettings

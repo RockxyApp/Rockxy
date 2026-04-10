@@ -21,7 +21,7 @@ struct DiffWindowView: View {
             Divider()
             DiffControlBar(viewModel: viewModel)
         }
-        .frame(minWidth: 900, idealWidth: 1240, minHeight: 600, idealHeight: 820)
+        .frame(minWidth: 900, idealWidth: 1_240, minHeight: 600, idealHeight: 820)
         .toolbar {
             ToolbarItemGroup {
                 Button {

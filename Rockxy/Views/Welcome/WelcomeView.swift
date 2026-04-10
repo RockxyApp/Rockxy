@@ -52,6 +52,7 @@ struct WelcomeView: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("onboardingCompletedOnce")) private var onboardingCompletedOnce =
         false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
 
     private var steps: [WelcomeStepItem] {
         [
@@ -186,11 +187,41 @@ struct WelcomeView: View {
                 .frame(height: 4)
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
+                VStack(spacing: 6) {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                    Button {
+                        openWindow(id: "advancedProxySettings")
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "wrench.and.screwdriver")
+                                .font(.system(size: 10))
+                            Text(String(localized: "View Advanced Diagnostics"))
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+                }
+                .padding(.horizontal, 40)
+            }
+
+            if viewModel.helperStatus == .requiresApproval {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10))
+                    Text(
+                        String(
+                            localized: "macOS requires you to approve the helper tool in System Settings \u{2192} General \u{2192} Login Items."
+                        )
+                    )
                     .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-                    .padding(.horizontal, 40)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 40)
             }
 
             HStack {

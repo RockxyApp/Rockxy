@@ -45,6 +45,7 @@ struct ReadinessWarning: Equatable {
         case retry
         case openGeneralSettings
         case openAdvancedProxySettings
+        case reinstallAndTrust
 
         // MARK: Internal
 
@@ -56,6 +57,8 @@ struct ReadinessWarning: Equatable {
                 String(localized: "Open Certificate Settings")
             case .openAdvancedProxySettings:
                 String(localized: "Open Advanced Proxy Settings")
+            case .reinstallAndTrust:
+                String(localized: "Install & Trust Certificate")
             }
         }
     }
@@ -109,6 +112,29 @@ final class ReadinessCoordinator {
             return false
         }
         return certReadiness != .trusted
+    }
+
+    /// Pure decision function: returns the warning that Priority 2 (cert-not-trusted)
+    /// would produce, or nil if the cert is trusted. Extracted for deterministic testing.
+    nonisolated static func certNotTrustedWarning(
+        certReadiness: CertReadiness,
+        isCaptureActive: Bool
+    )
+        -> ReadinessWarning?
+    {
+        guard isCaptureActive, certReadiness != .trusted else {
+            return nil
+        }
+        return ReadinessWarning(
+            message: String(
+                localized: """
+                HTTPS interception is unavailable because the Rockxy Root CA is not trusted. \
+                HTTP traffic and logs are still captured.
+                """
+            ),
+            action: .reinstallAndTrust,
+            isDismissible: false
+        )
     }
 
     nonisolated static func shouldPerformActivationDeepRefresh(
@@ -396,17 +422,11 @@ final class ReadinessCoordinator {
         }
 
         // Priority 2: Certificate not trusted — blocks HTTPS interception
-        if certReadiness != .trusted {
-            return ReadinessWarning(
-                message: String(
-                    localized: """
-                    HTTPS interception is unavailable because the Rockxy Root CA is not trusted. \
-                    HTTP traffic and logs are still captured.
-                    """
-                ),
-                action: .openGeneralSettings,
-                isDismissible: false
-            )
+        if let certWarning = Self.certNotTrustedWarning(
+            certReadiness: certReadiness,
+            isCaptureActive: isCaptureActive
+        ) {
+            return certWarning
         }
 
         // Priority 3: Direct mode fallback — degraded but not blocking

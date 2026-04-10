@@ -62,7 +62,7 @@ struct NetworkConditionsExclusivityTests {
             name: "Throttle Rule",
             isEnabled: true,
             matchCondition: RuleMatchCondition(urlPattern: ".*slow.*"),
-            action: .throttle(delayMs: 1000)
+            action: .throttle(delayMs: 1_000)
         )
         await engine.addRule(nc)
         await engine.addRule(block)

@@ -10,7 +10,7 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.threeG.defaultLatencyMs == 400)
         #expect(NetworkConditionPreset.edge.defaultLatencyMs == 850)
         #expect(NetworkConditionPreset.lte.defaultLatencyMs == 50)
-        #expect(NetworkConditionPreset.veryBadNetwork.defaultLatencyMs == 2000)
+        #expect(NetworkConditionPreset.veryBadNetwork.defaultLatencyMs == 2_000)
         #expect(NetworkConditionPreset.wifi.defaultLatencyMs == 2)
         #expect(NetworkConditionPreset.custom.defaultLatencyMs == 0)
     }
@@ -50,14 +50,14 @@ struct NetworkConditionPresetTests {
         let condition = RuleMatchCondition(urlPattern: ".*")
         let rule = NetworkConditionPreset.makeRule(
             preset: .custom,
-            latencyMs: 1234,
+            latencyMs: 1_234,
             name: "Custom Delay",
             matchCondition: condition
         )
 
         if case let .networkCondition(preset, delayMs) = rule.action {
             #expect(preset == .custom)
-            #expect(delayMs == 1234)
+            #expect(delayMs == 1_234)
         } else {
             Issue.record("Expected .networkCondition action")
         }
@@ -68,7 +68,7 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.from(delayMs: 400) == .threeG)
         #expect(NetworkConditionPreset.from(delayMs: 850) == .edge)
         #expect(NetworkConditionPreset.from(delayMs: 50) == .lte)
-        #expect(NetworkConditionPreset.from(delayMs: 2000) == .veryBadNetwork)
+        #expect(NetworkConditionPreset.from(delayMs: 2_000) == .veryBadNetwork)
         #expect(NetworkConditionPreset.from(delayMs: 2) == .wifi)
     }
 

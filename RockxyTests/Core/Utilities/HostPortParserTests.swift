@@ -16,7 +16,7 @@ struct HostPortParserTests {
     func nonStandardPort() throws {
         let result = try HostPortParser.parse("api.example.com:8080")
         #expect(result.host == "api.example.com")
-        #expect(result.port == 8080)
+        #expect(result.port == 8_080)
     }
 
     @Test("Parses bare host with default port")
@@ -37,14 +37,14 @@ struct HostPortParserTests {
     func ipv4HostPort() throws {
         let result = try HostPortParser.parse("192.168.1.1:9090")
         #expect(result.host == "192.168.1.1")
-        #expect(result.port == 9090)
+        #expect(result.port == 9_090)
     }
 
     @Test("Parses IPv6 bracket notation with port")
     func ipv6WithPort() throws {
         let result = try HostPortParser.parse("[::1]:8080")
         #expect(result.host == "::1")
-        #expect(result.port == 8080)
+        #expect(result.port == 8_080)
     }
 
     @Test("Parses IPv6 bracket notation without port")
@@ -77,7 +77,7 @@ struct HostPortParserTests {
     @Test("Parses port 65535 (maximum)")
     func maximumPort() throws {
         let result = try HostPortParser.parse("example.com:65535")
-        #expect(result.port == 65535)
+        #expect(result.port == 65_535)
     }
 
     // MARK: - Invalid Inputs

@@ -11,11 +11,11 @@ struct TimingInspectorView: View {
         if let timing = transaction.timingInfo {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    timingRow("DNS Lookup", duration: timing.dnsLookup, color: .blue)
-                    timingRow("TCP Connection", duration: timing.tcpConnection, color: .green)
-                    timingRow("TLS Handshake", duration: timing.tlsHandshake, color: .purple)
-                    timingRow("Time to First Byte", duration: timing.timeToFirstByte, color: .orange)
-                    timingRow("Content Transfer", duration: timing.contentTransfer, color: .cyan)
+                    timingRow("DNS Lookup", duration: timing.dnsLookup, color: Theme.Timing.dns)
+                    timingRow("TCP Connection", duration: timing.tcpConnection, color: Theme.Timing.tcp)
+                    timingRow("TLS Handshake", duration: timing.tlsHandshake, color: Theme.Timing.tls)
+                    timingRow("Time to First Byte", duration: timing.timeToFirstByte, color: Theme.Timing.ttfb)
+                    timingRow("Content Transfer", duration: timing.contentTransfer, color: Theme.Timing.transfer)
 
                     Divider()
 

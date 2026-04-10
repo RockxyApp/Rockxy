@@ -49,8 +49,8 @@ struct ImportSizePolicyTests {
     @Test("Error description includes sizes")
     func errorDescription() {
         let error = ImportSizeError.fileTooLarge(
-            actualBytes: 150 * 1024 * 1024,
-            limitBytes: 100 * 1024 * 1024
+            actualBytes: 150 * 1_024 * 1_024,
+            limitBytes: 100 * 1_024 * 1_024
         )
         let desc = error.localizedDescription
         #expect(desc.contains("150"))

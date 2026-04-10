@@ -197,7 +197,7 @@ struct BreakpointRequestBuilderTests {
             originalRequestData: originalData
         )
 
-        #expect(result.requestData.url.port == 8080)
+        #expect(result.requestData.url.port == 8_080)
     }
 
     @Test("Content-Length recomputed after body edit")

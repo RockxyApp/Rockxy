@@ -34,11 +34,11 @@ struct RequestTimelineView: View {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RequestTimelineView")
 
     private let phaseColors: [(String, Color)] = [
-        ("DNS", .cyan),
-        ("TCP", .green),
-        ("TLS", .purple),
-        ("TTFB", .orange),
-        ("Transfer", .blue)
+        ("DNS", Theme.Timing.dns),
+        ("TCP", Theme.Timing.tcp),
+        ("TLS", Theme.Timing.tls),
+        ("TTFB", Theme.Timing.ttfb),
+        ("Transfer", Theme.Timing.transfer),
     ]
 
     private let rowHeight: CGFloat = 28
@@ -168,11 +168,11 @@ struct RequestTimelineView: View {
 
         let scale = maxDuration > 0 ? totalWidth / maxDuration : 0
         let phases: [(TimeInterval, Color)] = [
-            (timing.dnsLookup, .cyan),
-            (timing.tcpConnection, .green),
-            (timing.tlsHandshake, .purple),
-            (timing.timeToFirstByte, .orange),
-            (timing.contentTransfer, .blue)
+            (timing.dnsLookup, Theme.Timing.dns),
+            (timing.tcpConnection, Theme.Timing.tcp),
+            (timing.tlsHandshake, Theme.Timing.tls),
+            (timing.timeToFirstByte, Theme.Timing.ttfb),
+            (timing.contentTransfer, Theme.Timing.transfer),
         ]
 
         return AnyView(

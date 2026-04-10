@@ -1,6 +1,7 @@
 import AppKit
 import os
 import SwiftUI
+
 // swiftlint:disable file_length
 
 // Renders the request table interface for traffic list presentation.
