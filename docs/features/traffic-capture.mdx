@@ -132,6 +132,52 @@ When the ring buffer reaches capacity, the oldest entries are evicted automatica
 | WebSocket | Full | Frame-level capture after HTTP upgrade |
 | GraphQL-over-HTTP | Auto-detected | POST requests to `/graphql` endpoints with `query` field |
 
+## Allow List
+
+When you only care about traffic from a specific set of services, enable the **Allow List** to record only matching requests. Traffic that doesn't match is still proxied (forwarded transparently to the destination), it just isn't shown in the request list or saved to the session.
+
+Open the Allow List window via **Tools > Allow List…** (`Cmd+Opt+A`) or right-click any captured request > **Tools > Allow List…** to create a pre-filled rule from that request.
+
+### Rule fields
+
+- **Name** — free-form label shown in the rule table. Leave blank to use the pattern as the name.
+- **Matching Rule** — the URL pattern to match against. Supports wildcard (`*`, `?`) or regex.
+- **Method** — HTTP method filter (ANY, GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS, TRACE).
+- **Match Type** — `Use Wildcard` escapes the pattern and treats `*` as any characters and `?` as a single character. `Use Regex` passes the pattern through to `NSRegularExpression` unchanged.
+- **Include all subpaths of this URL** — wildcard-only toggle. When enabled, the pattern is anchored to allow any trailing path, query, or fragment.
+
+New user-authored regex rules are **case-sensitive by default**. To match a pattern case-insensitively, prepend `(?i)` to your regex (e.g., `(?i)^https://api\.example\.com/.*$`).
+
+### Creating a rule from a captured request
+
+Right-click any request in the traffic list, then choose **Tools > Allow List…**. The editor sheet opens pre-filled with:
+
+- A wildcard pattern based on the request's host and path (e.g., `*api.github.com/repos/owner/repo/issues*`)
+- The request's HTTP method
+- A suggested name that references the request
+
+Edit any field before saving. The new rule is added and immediately selected in the rule list.
+
+### Quick-create from the sidebar
+
+Right-click any domain in the sidebar, then choose **Tools > Create Allow List Rule…**. The editor sheet opens pre-filled with a wildcard pattern for that domain (e.g., `*api.stripe.com/*`) and method `ANY`.
+
+### Managing rules
+
+The Allow List window mirrors the Block List and Breakpoint Rules windows:
+
+- **Enable Allow List Tool** toggle at the top activates or deactivates the entire filter. While inactive, all traffic is recorded as usual.
+- **Filter** button in the bottom bar reveals a filter bar that narrows the visible rules by Name, Method, or Matching Rule column.
+- **More** menu at the bottom exposes New / Edit / Duplicate / Enable / Export Settings / Import Settings / Delete.
+- **Import Settings** accepts exports from earlier versions (host-only schema) and auto-migrates them into anchored regex rules that preserve the old matching semantics exactly.
+
+### Legacy migration
+
+If you have an existing `allow-list.json` from before the redesign, it is loaded automatically on first launch and converted to the new rule format. The original file is preserved as `allow-list.legacy.json` in the same directory for recovery. Migrated entries:
+
+- Exact host `example.com` becomes an anchored regex that matches only `example.com` (with any scheme, port, path, query, or fragment) — never substring hosts like `notexample.com` or subdomains like `api.example.com`.
+- Subdomain wildcard `*.example.com` becomes an anchored regex that matches subdomains only (`api.example.com`, `a.b.example.com`) — never the bare root `example.com` and never substring hosts.
+
 ## Sessions and Export
 
 Save your captured traffic for later analysis or sharing.

@@ -2,263 +2,412 @@ import Foundation
 @testable import Rockxy
 import Testing
 
-/// AllowListManager tests validate the matching and filtering logic at the manager boundary.
-/// The actual capture-level filtering in MainContentCoordinator.processBatch delegates to
-/// AllowListManager.shared.isHostAllowed() — the same method tested here. Direct processBatch
-/// testing requires instantiating the full @MainActor coordinator + proxy pipeline, which is
-/// impractical for unit tests. The manager tests prove the filtering contract that processBatch
-/// relies on: when isActive is true, only hosts matching enabled entries pass through.
+/// `AllowListManager` runtime-matching tests for **new user-authored rules**.
+/// All matching tests (wildcard, regex, method filter, include-subpaths, URL truncation)
+/// live here because the manager is the sole runtime matcher. Rules in these tests use
+/// default case-sensitive regex semantics — case-insensitivity via inline `(?i)` is
+/// exercised in `AllowListManagerMigrationTests`.
+@MainActor
 struct AllowListManagerTests {
-    // MARK: - Domain Matching
+    // MARK: Internal
 
-    @Test("Exact domain match")
-    @MainActor
-    func exactMatch() {
-        let entry = AllowListEntry(domain: "httpbin.org")
-        #expect(entry.matches("httpbin.org"))
-        #expect(!entry.matches("api.httpbin.org"))
-        #expect(!entry.matches("httpbin.org.evil.com"))
+    // MARK: - Inactive Master Toggle
+
+    @Test
+    func inactiveAllowsEverything() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*"))
+        manager.setActive(false)
+
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+        #expect(manager.isRequestAllowed(method: "POST", url: self.url("https://other.com/bar")))
+        #expect(manager.isRequestAllowed(method: "DELETE", url: self.url("https://nothing.allow.com")))
     }
 
-    @Test("Wildcard domain match")
-    @MainActor
-    func wildcardMatch() {
-        let entry = AllowListEntry(domain: "*.example.com")
-        #expect(entry.matches("api.example.com"))
-        #expect(entry.matches("sub.api.example.com"))
-        #expect(!entry.matches("example.com"))
-        #expect(!entry.matches("notexample.com"))
+    // MARK: - Wildcard Matching
+
+    @Test
+    func wildcardStarMatchesPrefixAndSuffix() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("github", pattern: "*api.github.com*"))
+        manager.setActive(true)
+
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://api.github.com/user")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("http://api.github.com:8080/foo")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://gitlab.com/user")))
     }
 
-    @Test("Case-insensitive matching")
-    @MainActor
-    func caseInsensitive() {
-        let entry = AllowListEntry(domain: "API.Example.COM")
-        #expect(entry.matches("api.example.com"))
-        #expect(entry.matches("API.EXAMPLE.COM"))
+    @Test
+    func wildcardQuestionMarkMatchesSingleChar() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        let wildcard = AllowListEntry(domain: "*.Example.COM")
-        #expect(wildcard.matches("sub.example.com"))
-        #expect(wildcard.matches("SUB.EXAMPLE.COM"))
+        manager.addRule(makeWildcardRule("version", pattern: "*example.com/v?/*"))
+        manager.setActive(true)
+
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/v1/users")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/v9/users")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/v10/users")))
     }
 
-    // MARK: - isActive Toggle
+    @Test
+    func wildcardIncludeSubpathsOn() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-    @Test("When inactive, isHostAllowed always returns true")
-    @MainActor
-    func inactiveAllowsAll() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
-        manager.isActive = false
-        manager.addEntry("api.example.com")
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com/api", includeSubpaths: true))
+        manager.setActive(true)
 
-        #expect(manager.isHostAllowed("api.example.com"))
-        #expect(manager.isHostAllowed("totally.different.host"))
-        #expect(manager.isHostAllowed("anything.goes"))
-
-        try? FileManager.default.removeItem(at: tempURL)
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api/users")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api")))
     }
 
-    @Test("When active with matching host, returns true")
-    @MainActor
-    func activeMatchingHost() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
-        manager.addEntry("api.example.com")
-        manager.addEntry("*.stripe.com")
-        manager.isActive = true
+    @Test
+    func wildcardIncludeSubpathsOff() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        #expect(manager.isHostAllowed("api.example.com"))
-        #expect(manager.isHostAllowed("checkout.stripe.com"))
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com/api", includeSubpaths: false))
+        manager.setActive(true)
 
-        try? FileManager.default.removeItem(at: tempURL)
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api?q=1")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api#frag")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/api/users")))
     }
 
-    @Test("When active with non-matching host, returns false")
-    @MainActor
-    func activeNonMatchingHost() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
-        manager.addEntry("api.example.com")
-        manager.isActive = true
+    // MARK: - Regex Length Cap (ReDoS Defense)
 
-        #expect(!manager.isHostAllowed("cdn.other.com"))
-        #expect(!manager.isHostAllowed("totally.different.host"))
+    @Test
+    func oversizedRegexPatternIsSkipped() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        try? FileManager.default.removeItem(at: tempURL)
+        // 3000 chars — over the 2048 defense-in-depth cap.
+        let huge = String(repeating: "a", count: 3_000)
+        manager.addRule(makeRegexRule("huge", pattern: huge))
+        manager.setActive(true)
+
+        // The oversized rule is skipped; nothing matches.
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://\(huge).com/")))
     }
 
-    // MARK: - Add / Remove / Toggle
+    // MARK: - Regex Matching (Case-Sensitive by Default)
 
-    @Test("Add and remove entries")
-    @MainActor
-    func addRemove() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
+    @Test
+    func regexDefaultIsCaseSensitive() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        manager.addEntry("api.example.com")
-        #expect(manager.entries.count == 1)
+        // New user-authored rule — no (?i) prefix — must be case-sensitive.
+        manager.addRule(makeRegexRule("github", pattern: "^https://api\\.github\\.com/.*$"))
+        manager.setActive(true)
 
-        manager.addEntry("*.stripe.com")
-        #expect(manager.entries.count == 2)
-
-        // Deduplicate
-        manager.addEntry("api.example.com")
-        #expect(manager.entries.count == 2)
-
-        let firstID = manager.entries[0].id
-        manager.removeEntry(id: firstID)
-        #expect(manager.entries.count == 1)
-        #expect(manager.entries[0].domain == "*.stripe.com")
-
-        try? FileManager.default.removeItem(at: tempURL)
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://api.github.com/user")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://API.GITHUB.COM/user")))
     }
 
-    @Test("Toggle entry enabled state")
-    @MainActor
-    func toggleEntry() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
+    @Test
+    func regexWithInlineCaseInsensitiveFlag() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        manager.addEntry("api.example.com")
-        #expect(manager.entries[0].isEnabled)
+        // User can opt into case-insensitivity via (?i) inline.
+        manager.addRule(makeRegexRule("github", pattern: "(?i)^https://api\\.github\\.com/.*$"))
+        manager.setActive(true)
 
-        manager.toggleEntry(id: manager.entries[0].id)
-        #expect(!manager.entries[0].isEnabled)
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://API.GITHUB.COM/user")))
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://api.github.com/user")))
+    }
 
-        // Disabled entry should not match when active
-        manager.isActive = true
-        #expect(!manager.isHostAllowed("api.example.com"))
+    // MARK: - Method Filter
 
-        manager.toggleEntry(id: manager.entries[0].id)
-        #expect(manager.isHostAllowed("api.example.com"))
+    @Test
+    func methodFilterAny() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        try? FileManager.default.removeItem(at: tempURL)
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*", method: nil))
+        manager.setActive(true)
+
+        for method in ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"] {
+            #expect(manager.isRequestAllowed(method: method, url: self.url("https://example.com/foo")))
+        }
+    }
+
+    @Test
+    func methodFilterSpecific() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*", method: "POST"))
+        manager.setActive(true)
+
+        #expect(manager.isRequestAllowed(method: "POST", url: self.url("https://example.com/foo")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+    }
+
+    @Test
+    func methodFilterIsUppercaseInsensitive() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*", method: "POST"))
+        manager.setActive(true)
+
+        // Caller sends lowercase but manager uppercases internally.
+        #expect(manager.isRequestAllowed(method: "post", url: self.url("https://example.com/foo")))
+    }
+
+    // MARK: - Enabled / Disabled Rules
+
+    @Test
+    func disabledRulesAreSkipped() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*", enabled: false))
+        manager.setActive(true)
+
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+    }
+
+    @Test
+    func toggleRuleAffectsMatching() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*"))
+        manager.setActive(true)
+        let id = manager.rules[0].id
+
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+
+        manager.toggleRule(id: id)
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+
+        manager.toggleRule(id: id)
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://example.com/foo")))
+    }
+
+    // MARK: - CRUD
+
+    @Test
+    func addRuleAppends() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        #expect(manager.rules.isEmpty)
+        manager.addRule(makeWildcardRule("a", pattern: "*a.com*"))
+        manager.addRule(makeWildcardRule("b", pattern: "*b.com*"))
+        #expect(manager.rules.count == 2)
+        #expect(manager.rules[0].name == "a")
+        #expect(manager.rules[1].name == "b")
+    }
+
+    @Test
+    func updateRuleReplacesByID() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("original", pattern: "*a.com*"))
+        let id = manager.rules[0].id
+
+        var updated = manager.rules[0]
+        updated.name = "renamed"
+        updated.rawPattern = "*renamed.com*"
+        manager.updateRule(updated)
+
+        #expect(manager.rules.count == 1)
+        #expect(manager.rules[0].id == id)
+        #expect(manager.rules[0].name == "renamed")
+        #expect(manager.rules[0].rawPattern == "*renamed.com*")
+    }
+
+    @Test
+    func removeRuleByID() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("a", pattern: "*a.com*"))
+        manager.addRule(makeWildcardRule("b", pattern: "*b.com*"))
+        let firstID = manager.rules[0].id
+
+        manager.removeRule(id: firstID)
+        #expect(manager.rules.count == 1)
+        #expect(manager.rules[0].name == "b")
+    }
+
+    @Test
+    func replaceAllReplacesWholeList() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("old", pattern: "*old.com*"))
+
+        let newRules = [
+            makeWildcardRule("x", pattern: "*x.com*"),
+            makeWildcardRule("y", pattern: "*y.com*"),
+        ]
+        manager.replaceAll(newRules)
+
+        #expect(manager.rules.count == 2)
+        #expect(manager.rules.map(\.name) == ["x", "y"])
+    }
+
+    // MARK: - Invalid Regex Is Skipped
+
+    @Test
+    func invalidRegexRuleIsSkippedOnCacheRebuild() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeRegexRule("valid", pattern: "^https://api\\.example\\.com.*$"))
+        manager.addRule(makeRegexRule("invalid", pattern: "^[unclosed")) // broken regex
+        manager.setActive(true)
+
+        // Valid rule still matches; invalid rule is silently skipped.
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://api.example.com/foo")))
+        #expect(!manager.isRequestAllowed(method: "GET", url: self.url("https://other.com/foo")))
+    }
+
+    // MARK: - URL Length Truncation
+
+    @Test
+    func urlLengthTruncatedAtProxyLimit() throws {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(makeWildcardRule("api", pattern: "*example.com*"))
+        manager.setActive(true)
+
+        // Build a URL longer than ProxyLimits.maxURILength.
+        let longPath = String(repeating: "a", count: ProxyLimits.maxURILength * 2)
+        let longURL = try #require(URL(string: "https://example.com/\(longPath)"))
+        // Host is still near the beginning, so truncation preserves the match.
+        #expect(manager.isRequestAllowed(method: "GET", url: longURL))
     }
 
     // MARK: - Persistence Round-Trip
 
-    @Test("Persistence round-trip saves and restores state")
-    @MainActor
-    func persistenceRoundTrip() {
+    @Test
+    func schemaV2RoundTrip() {
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
+            .appendingPathComponent("allow-list-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
 
-        // Write
         let writer = AllowListManager(storageURL: tempURL)
-        writer.addEntry("api.example.com")
-        writer.addEntry("*.stripe.com")
-        writer.isActive = true
+        writer.addRule(makeWildcardRule("a", pattern: "*a.com*"))
+        writer.addRule(makeRegexRule("b", pattern: "^https://b\\.com.*$", method: "POST"))
+        writer.setActive(true)
 
-        // Read
         let reader = AllowListManager(storageURL: tempURL)
         #expect(reader.isActive)
-        #expect(reader.entries.count == 2)
-        #expect(reader.entries[0].domain == "api.example.com")
-        #expect(reader.entries[1].domain == "*.stripe.com")
-        #expect(reader.isHostAllowed("api.example.com"))
-        #expect(!reader.isHostAllowed("cdn.other.com"))
-
-        try? FileManager.default.removeItem(at: tempURL)
+        #expect(reader.rules.count == 2)
+        #expect(reader.rules[0].name == "a")
+        #expect(reader.rules[0].matchType == .wildcard)
+        #expect(reader.rules[1].name == "b")
+        #expect(reader.rules[1].matchType == .regex)
+        #expect(reader.rules[1].method == "POST")
     }
 
-    @Test("Disabled entry is excluded from matching")
-    @MainActor
-    func disabledEntryExcluded() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
+    // MARK: - Import / Export
 
-        manager.addEntry("api.example.com")
-        manager.addEntry("cdn.example.com")
-        manager.isActive = true
+    @Test
+    func exportAndImportNewSchema() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-        // Disable the second entry
-        manager.toggleEntry(id: manager.entries[1].id)
+        manager.addRule(makeWildcardRule("a", pattern: "*a.com*"))
+        manager.setActive(true)
+        guard let data = manager.exportRulesJSON() else {
+            Issue.record("exportRulesJSON returned nil")
+            return
+        }
 
-        #expect(manager.isHostAllowed("api.example.com"))
-        #expect(!manager.isHostAllowed("cdn.example.com"))
+        let (target, targetURL) = makeManager()
+        defer { cleanup(targetURL) }
+        do {
+            try target.importRulesJSON(data)
+        } catch {
+            Issue.record("importRulesJSON threw: \(error)")
+            return
+        }
 
-        try? FileManager.default.removeItem(at: tempURL)
+        #expect(target.rules.count == 1)
+        #expect(target.rules[0].name == "a")
+        #expect(target.isActive)
     }
 
-    // MARK: - Batch Filtering (Processing Path)
+    @Test
+    func importMalformedJSONThrows() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
 
-    @Test("Mixed batch filters correctly when active")
-    @MainActor
-    func mixedBatchFiltering() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
-        manager.addEntry("api.example.com")
-        manager.isActive = true
-
-        let allowed = TestFixtures.makeTransaction(url: "https://api.example.com/data")
-        let blocked = TestFixtures.makeTransaction(url: "https://other.com/data")
-
-        let batch = [allowed, blocked]
-        let filtered = batch.filter { manager.isHostAllowed($0.request.host) }
-
-        #expect(filtered.count == 1)
-        #expect(filtered[0].request.host == "api.example.com")
-
-        try? FileManager.default.removeItem(at: tempURL)
+        let garbage = Data("not json".utf8)
+        #expect(throws: (any Error).self) {
+            try manager.importRulesJSON(garbage)
+        }
     }
 
-    @Test("Batch passes through when inactive")
-    @MainActor
-    func batchPassesThroughWhenInactive() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
-        manager.addEntry("api.example.com")
-        manager.isActive = false
+    // MARK: Private
 
-        let t1 = TestFixtures.makeTransaction(url: "https://api.example.com/data")
-        let t2 = TestFixtures.makeTransaction(url: "https://other.com/data")
+    // MARK: - Helpers
 
-        let batch = [t1, t2]
-        let filtered = batch.filter { manager.isHostAllowed($0.request.host) }
-
-        #expect(filtered.count == 2)
-
-        try? FileManager.default.removeItem(at: tempURL)
+    private func makeManager() -> (AllowListManager, URL) {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allow-list-\(UUID()).json")
+        return (AllowListManager(storageURL: url), url)
     }
 
-    // MARK: - Bulk Operations
+    private func cleanup(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        let legacy = url.deletingLastPathComponent().appendingPathComponent("allow-list.legacy.json")
+        try? FileManager.default.removeItem(at: legacy)
+    }
 
-    @Test("Remove multiple entries by IDs")
-    @MainActor
-    func removeMultiple() {
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("json")
-        let manager = AllowListManager(storageURL: tempURL)
+    private func makeWildcardRule(
+        _ name: String,
+        pattern: String,
+        method: String? = nil,
+        includeSubpaths: Bool = true,
+        enabled: Bool = true
+    )
+        -> AllowListRule
+    {
+        AllowListRule(
+            name: name,
+            isEnabled: enabled,
+            rawPattern: pattern,
+            method: method,
+            matchType: .wildcard,
+            includeSubpaths: includeSubpaths
+        )
+    }
 
-        manager.addEntry("a.com")
-        manager.addEntry("b.com")
-        manager.addEntry("c.com")
-        #expect(manager.entries.count == 3)
+    private func makeRegexRule(
+        _ name: String,
+        pattern: String,
+        method: String? = nil,
+        enabled: Bool = true
+    )
+        -> AllowListRule
+    {
+        AllowListRule(
+            name: name,
+            isEnabled: enabled,
+            rawPattern: pattern,
+            method: method,
+            matchType: .regex,
+            includeSubpaths: true
+        )
+    }
 
-        let idsToRemove: Set<UUID> = [manager.entries[0].id, manager.entries[2].id]
-        manager.removeEntries(ids: idsToRemove)
-        #expect(manager.entries.count == 1)
-        #expect(manager.entries[0].domain == "b.com")
-
-        try? FileManager.default.removeItem(at: tempURL)
+    private func url(_ s: String) -> URL {
+        URL(string: s)!
     }
 }

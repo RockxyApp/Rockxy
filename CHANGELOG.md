@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Master "Enable Breakpoint Tool" toggle that disables all breakpoint evaluation without modifying individual rules
 - Breakpoint editor context pipeline for cross-window handoff (context menu → rules window with pre-filled sheet)
 - Shared `RuleMatchType` and `HTTPMethodFilter` enums extracted for reuse across rule editors
+- "Allow List…" entry in the request list right-click Tools submenu, opening the editor sheet pre-filled from the selected transaction
+- Filter bar and More menu (New / Edit / Duplicate / Enable / Export / Import / Delete) in the new Allow List window
+- Grouped Tools submenu layout on request right-click: Breakpoint / Map Local • Map Remote / Block List • Allow List / Network Conditions / SSL Proxying
 
 ### Changed
 
@@ -20,12 +23,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Existing breakpoint execution window simplified to show only paused items (rules managed in the new dedicated window)
 - Tools menu split: "Breakpoint Rules..." (Cmd+Shift+B) for rule management, "Breakpoint Queue..." for paused items
 - `RuleSyncService.syncAll()` no longer directly updates `BreakpointWindowModel`; windows refresh via `.rulesDidChange` notification
+- Redesigned Allow List with full URL pattern matching, HTTP method filtering, wildcard/regex modes, and a dedicated 860×620 management window consistent with Block List and Breakpoint Rules
+- Allow List capture filter now evaluates full URL patterns via `isRequestAllowed(method:url:)` instead of host-only equality, with method filter + include-subpaths support
+- Legacy `allow-list.json` files (host-only entries) auto-migrate on load into anchored `(?i)` regex rules that preserve old matching semantics exactly (exact host vs subdomain wildcard, no substring hosts, case-insensitive host). A one-time `allow-list.legacy.json` snapshot is written for recovery.
+- Sidebar domain context menu replaces the silent "Add/Remove from Allow List" toggle with "Create Allow List Rule…" in the Tools submenu, opening the pre-filled editor sheet (consistent with Block / Breakpoint / Map Local)
+- `CenterContentView` now holds a stable reference to `AllowListManager.shared` so the status bar re-renders when the allow list master toggle changes
+- JSON schema for `allow-list.json` bumped to version 2 (`{schemaVersion, isActive, rules}`); v1 format still readable for migration and import
 
 ### Removed
 
 - `BreakpointRuleBuilder` (replaced by `BreakpointEditorContextBuilder` + user review sheet)
 - `.breakpointRuleCreated` notification (replaced by `.openBreakpointRulesWindow`)
 - Rule selection and rule detail view from the breakpoint queue window
+- `AllowListEntry` model, `AllowListView` settings-style window, and dead `.allowListDidChange` notification (no consumers; replaced by direct `@Observable` observation on `AllowListManager`)
+- Silent `addToAllowList` / `removeFromAllowList` / `isInAllowList` / `containsDomain` sidebar helpers (replaced by `createAllowListRuleForDomain` + editor sheet)
 
 ## [0.5.0] - 2026-04-10
 

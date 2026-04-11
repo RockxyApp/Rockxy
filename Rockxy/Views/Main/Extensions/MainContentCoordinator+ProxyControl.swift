@@ -245,16 +245,11 @@ extension MainContentCoordinator {
             return
         }
 
-        let filteredBatch: [HTTPTransaction]
-        if AllowListManager.shared.isActive {
-            filteredBatch = batch.filter { AllowListManager.shared.isHostAllowed($0.request.host) }
-            if filteredBatch.count < batch.count {
-                Self.logger.debug(
-                    "Allow list filtered \(batch.count - filteredBatch.count) of \(batch.count) transactions"
-                )
-            }
-        } else {
-            filteredBatch = batch
+        let filteredBatch = Self.filterBatchThroughAllowList(batch, using: AllowListManager.shared)
+        if filteredBatch.count < batch.count {
+            Self.logger.debug(
+                "Allow list filtered \(batch.count - filteredBatch.count) of \(batch.count) transactions"
+            )
         }
 
         guard !filteredBatch.isEmpty else {
@@ -340,6 +335,29 @@ extension MainContentCoordinator {
             )
             appNodeIndexMap[appName] = appNodes.count
             appNodes.append(info)
+        }
+    }
+
+    // MARK: - Allow List Filtering (pure helper for processBatch + tests)
+
+    /// Applies the Allow List capture filter to a batch of transactions.
+    ///
+    /// This is the single code path used by `processBatch` to decide which
+    /// transactions enter the session. Extracted as a pure static helper so
+    /// tests can verify the filter contract with an injected `AllowListManager`
+    /// instance — no `.shared` singleton reliance in test code.
+    ///
+    /// - When the allow list is inactive: every transaction passes through.
+    /// - When the allow list is active: only transactions whose `method` + `url`
+    ///   match at least one enabled rule via `isRequestAllowed(method:url:)` pass.
+    nonisolated static func filterBatchThroughAllowList(
+        _ batch: [HTTPTransaction],
+        using manager: AllowListManager
+    )
+        -> [HTTPTransaction]
+    {
+        batch.filter {
+            manager.isRequestAllowed(method: $0.request.method, url: $0.request.url)
         }
     }
 }

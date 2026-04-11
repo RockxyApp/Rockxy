@@ -610,6 +610,11 @@ extension RequestTableView {
         }
 
         @objc
+        func handleAllow(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.createAllowListRule(for: $1) }
+        }
+
+        @objc
         func handleBreakpoint(_ sender: NSMenuItem) {
             withCoordinator(sender) { $0.createBreakpointRule(for: $1) }
         }
@@ -958,6 +963,18 @@ extension RequestTableView {
 
         private func buildToolsGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
             let toolsSubmenu = NSMenu()
+
+            // Group 1: Debugging
+            let breakpointItem = menuItem(
+                String(localized: "Breakpoint…"), action: #selector(handleBreakpoint(_:)),
+                transaction: transaction
+            )
+            breakpointItem.image = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: nil)
+            toolsSubmenu.addItem(breakpointItem)
+
+            toolsSubmenu.addItem(.separator())
+
+            // Group 2: Request modification
             let mapLocalItem = menuItem(
                 String(localized: "Map Local…"), action: #selector(handleMapLocal(_:)),
                 transaction: transaction
@@ -972,6 +989,9 @@ extension RequestTableView {
             mapRemoteItem.image = NSImage(systemSymbolName: "arrow.triangle.swap", accessibilityDescription: nil)
             toolsSubmenu.addItem(mapRemoteItem)
 
+            toolsSubmenu.addItem(.separator())
+
+            // Group 3: Request filtering
             let blockItem = menuItem(
                 String(localized: "Block List…"), action: #selector(handleBlock(_:)),
                 transaction: transaction
@@ -979,13 +999,19 @@ extension RequestTableView {
             blockItem.image = NSImage(systemSymbolName: "nosign", accessibilityDescription: nil)
             toolsSubmenu.addItem(blockItem)
 
-            let breakpointItem = menuItem(
-                String(localized: "Breakpoint…"), action: #selector(handleBreakpoint(_:)),
+            let allowItem = menuItem(
+                String(localized: "Allow List…"), action: #selector(handleAllow(_:)),
                 transaction: transaction
             )
-            breakpointItem.image = NSImage(systemSymbolName: "pause.circle", accessibilityDescription: nil)
-            toolsSubmenu.addItem(breakpointItem)
+            allowItem.image = NSImage(
+                systemSymbolName: "line.3.horizontal.decrease.circle",
+                accessibilityDescription: nil
+            )
+            toolsSubmenu.addItem(allowItem)
 
+            toolsSubmenu.addItem(.separator())
+
+            // Group 4: Protocol conditions
             let networkConditionsItem = menuItem(
                 String(localized: "Network Conditions…"), action: #selector(handleNetworkConditions(_:)),
                 transaction: transaction
@@ -998,6 +1024,7 @@ extension RequestTableView {
 
             toolsSubmenu.addItem(.separator())
 
+            // Group 5: SSL
             let sslItem = menuItem(
                 String(localized: "SSL Proxying"), action: #selector(handleSSLProxying(_:)),
                 transaction: transaction

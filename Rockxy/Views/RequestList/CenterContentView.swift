@@ -93,7 +93,7 @@ struct CenterContentView: View {
                 uploadSpeed: coordinator.uploadSpeed,
                 downloadSpeed: coordinator.downloadSpeed,
                 isProxyOverridden: coordinator.isProxyOverridden,
-                isAllowListActive: AllowListManager.shared.isActive,
+                isAllowListActive: allowListManager.isActive,
                 isNoCachingActive: isNoCachingEnabled,
                 isAutoSelectEnabled: coordinator.isAutoSelectEnabled,
                 isFilterBarVisible: coordinator.isFilterBarVisible,
@@ -129,6 +129,11 @@ struct CenterContentView: View {
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
 
     @State private var selectedIDs: Set<UUID> = []
+
+    /// Stable reference to the Allow List singleton so SwiftUI's Observation framework
+    /// tracks access to `isActive` inside `body` and re-renders the status bar when
+    /// the master toggle changes.
+    private let allowListManager = AllowListManager.shared
 
     private var tableContent: some View {
         RequestTableView(

@@ -385,20 +385,6 @@ struct SidebarView: View {
             }
         }
 
-        if coordinator.isInAllowList(domain) {
-            Button {
-                coordinator.removeFromAllowList(domain)
-            } label: {
-                Label(String(localized: "Remove from Allow List"), systemImage: "line.3.horizontal.decrease.circle")
-            }
-        } else {
-            Button {
-                coordinator.addToAllowList(domain)
-            } label: {
-                Label(String(localized: "Add to Allow List"), systemImage: "line.3.horizontal.decrease.circle")
-            }
-        }
-
         Button {
             coordinator.sortDomainTreeAlphabetically()
         } label: {
@@ -409,6 +395,14 @@ struct SidebarView: View {
 
         Menu {
             Button {
+                coordinator.createBreakpointRuleForDomain(domain)
+            } label: {
+                Label(String(localized: "Breakpoint"), systemImage: "pause.circle")
+            }
+
+            Divider()
+
+            Button {
                 coordinator.createMapLocalRuleForDomain(domain)
             } label: {
                 Label(String(localized: "Map Local"), systemImage: "doc")
@@ -418,16 +412,25 @@ struct SidebarView: View {
             } label: {
                 Label(String(localized: "Map Remote"), systemImage: "arrow.triangle.swap")
             }
+
+            Divider()
+
             Button {
                 coordinator.createBlockRuleForDomain(domain)
             } label: {
                 Label(String(localized: "Block"), systemImage: "nosign")
             }
             Button {
-                coordinator.createBreakpointRuleForDomain(domain)
+                coordinator.createAllowListRuleForDomain(domain)
             } label: {
-                Label(String(localized: "Breakpoint"), systemImage: "pause.circle")
+                Label(
+                    String(localized: "Create Allow List Rule…"),
+                    systemImage: "line.3.horizontal.decrease.circle"
+                )
             }
+
+            Divider()
+
             Button {
                 coordinator.createNetworkConditionsRuleForDomain(domain)
             } label: {

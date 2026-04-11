@@ -68,28 +68,6 @@ extension MainContentCoordinator {
         }
     }
 
-    // MARK: - Allow List
-
-    func isInAllowList(_ domain: String) -> Bool {
-        AllowListManager.shared.containsDomain(domain)
-    }
-
-    func addToAllowList(_ domain: String) {
-        AllowListManager.shared.addEntry(domain)
-        Self.logger.info("Added domain to allow list: \(domain)")
-    }
-
-    func removeFromAllowList(_ domain: String) {
-        let matchingIDs = AllowListManager.shared.entries
-            .filter { $0.matches(domain) }
-            .map(\.id)
-        let idSet = Set(matchingIDs)
-        if !idSet.isEmpty {
-            AllowListManager.shared.removeEntries(ids: idSet)
-            Self.logger.info("Removed domain from allow list: \(domain)")
-        }
-    }
-
     // MARK: - Favorites Toggle
 
     func toggleSidebarFavorite(_ item: SidebarItem) {
@@ -266,6 +244,13 @@ extension MainContentCoordinator {
         BlockRuleEditorContextStore.shared.setPending(context)
         NotificationCenter.default.post(name: .openBlockListWindow, object: nil)
         Self.logger.info("Created Block rule context for domain: \(domain)")
+    }
+
+    func createAllowListRuleForDomain(_ domain: String) {
+        let context = AllowListEditorContextBuilder.fromDomain(domain)
+        AllowListEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openAllowListWindow, object: nil)
+        Self.logger.info("Created Allow List rule context for domain: \(domain)")
     }
 
     func createMapLocalRuleForDomain(_ domain: String) {

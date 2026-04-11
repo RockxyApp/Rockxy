@@ -179,6 +179,13 @@ extension MainContentCoordinator {
         Self.logger.info("Created Block rule context for \(transaction.request.url.absoluteString)")
     }
 
+    func createAllowListRule(for transaction: HTTPTransaction) {
+        let context = AllowListEditorContextBuilder.fromTransaction(transaction)
+        AllowListEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openAllowListWindow, object: nil)
+        Self.logger.info("Created Allow List rule context for \(transaction.request.url.absoluteString)")
+    }
+
     func createNetworkConditionsRule(for transaction: HTTPTransaction) {
         let draft = NetworkConditionsDraftBuilder.fromTransaction(transaction)
         NetworkConditionsDraftStore.shared.setPending(draft)

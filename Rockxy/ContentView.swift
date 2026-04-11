@@ -63,6 +63,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openBlockListWindow)) { _ in
             openWindow(id: "blockList")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openAllowListWindow)) { _ in
+            openWindow(id: "allowList")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .openMapLocalWindow)) { _ in
             openWindow(id: "mapLocal")
         }
