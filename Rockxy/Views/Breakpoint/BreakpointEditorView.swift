@@ -18,8 +18,6 @@ struct BreakpointEditorView: View {
         switch windowModel.selectionMode {
         case .none:
             emptyState
-        case let .rule(ruleId):
-            ruleDetailView(ruleId: ruleId)
         case let .pausedItem(itemId):
             pausedItemEditor(itemId: itemId)
         }
@@ -59,35 +57,6 @@ struct BreakpointEditorView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private func ruleDetailView(ruleId: UUID) -> some View {
-        if let rule = windowModel.breakpointRules.first(where: { $0.id == ruleId }) {
-            VStack(spacing: 8) {
-                Image(systemName: "clock.badge.checkmark")
-                    .font(.title2).foregroundStyle(.secondary)
-                Text(String(localized: "Waiting for traffic matching this breakpoint rule"))
-                    .font(.caption).foregroundStyle(.secondary)
-                GroupBox {
-                    LabeledContent(String(localized: "Pattern")) {
-                        Text(rule.matchCondition.urlPattern ?? "")
-                            .font(.system(.caption, design: .monospaced))
-                    }
-                    LabeledContent(String(localized: "Phase")) {
-                        Text(phaseText(for: rule))
-                    }
-                    LabeledContent(String(localized: "Status")) {
-                        Text(rule.isEnabled ? String(localized: "Enabled") : String(localized: "Disabled"))
-                            .foregroundStyle(rule.isEnabled ? .green : .secondary)
-                    }
-                }
-                .font(.caption)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            emptyState
-        }
     }
 
     @ViewBuilder
@@ -371,17 +340,6 @@ struct BreakpointEditorView: View {
         }
         .onAppear { syncQueryItemsFromURL(itemId: itemId) }
         .onChange(of: draftFor(itemId)?.url) { _, _ in syncQueryItemsFromURL(itemId: itemId) }
-    }
-
-    private func phaseText(for rule: ProxyRule) -> String {
-        if case let .breakpoint(phase) = rule.action {
-            switch phase {
-            case .request: return String(localized: "Request")
-            case .response: return String(localized: "Response")
-            case .both: return String(localized: "Both")
-            }
-        }
-        return ""
     }
 
     private func itemPhase(itemId: UUID) -> BreakpointPhase? {

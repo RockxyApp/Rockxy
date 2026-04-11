@@ -122,7 +122,15 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
-        Window(String(localized: "Breakpoints"), id: "breakpoints") {
+        Window(String(localized: "Breakpoint Rules"), id: "breakpointRules") {
+            BreakpointRulesWindowView()
+        }
+        .commandsRemoved()
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .windowToolbarStyle(.unifiedCompact)
+
+        Window(String(localized: "Breakpoint Queue"), id: "breakpoints") {
             BreakpointWindowView()
         }
         .commandsRemoved()
@@ -521,10 +529,14 @@ struct RockxyMenuCommands: Commands {
 
             Divider()
 
-            Button(String(localized: "Breakpoints…")) {
-                openWindow(id: "breakpoints")
+            Button(String(localized: "Breakpoint Rules…")) {
+                openWindow(id: "breakpointRules")
             }
             .keyboardShortcut("b", modifiers: [.command, .shift])
+
+            Button(String(localized: "Breakpoint Queue…")) {
+                openWindow(id: "breakpoints")
+            }
 
             Divider()
 

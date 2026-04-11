@@ -2,8 +2,8 @@ import Foundation
 import os
 
 /// Coordinates rule mutations between the shared `RuleEngine` actor, disk persistence
-/// via `RuleStore`, `BreakpointWindowModel` refresh, and UI notification via
-/// `NotificationCenter`. All rule changes should flow through this service.
+/// via `RuleStore`, and UI notification via `NotificationCenter`.
+/// All rule changes should flow through this service.
 enum RuleSyncService {
     // MARK: Internal
 
@@ -52,8 +52,15 @@ enum RuleSyncService {
         await syncAll()
     }
 
+    static func setBreakpointToolEnabled(_ enabled: Bool) async {
+        UserDefaults.standard.set(enabled, forKey: "breakpointToolEnabled")
+        await RuleEngine.shared.setBreakpointToolEnabled(enabled)
+    }
+
     static func loadFromDisk() async {
         try? await RuleEngine.shared.loadRules(from: RuleStore())
+        let bpEnabled = UserDefaults.standard.object(forKey: "breakpointToolEnabled") as? Bool ?? true
+        await RuleEngine.shared.setBreakpointToolEnabled(bpEnabled)
         await syncAll()
     }
 
@@ -64,7 +71,6 @@ enum RuleSyncService {
     private static func syncAll() async {
         let allRules = await RuleEngine.shared.allRules
         try? RuleStore().saveRules(allRules)
-        await BreakpointWindowModel.shared.refreshBreakpointRules(from: allRules)
         NotificationCenter.default.post(name: .rulesDidChange, object: allRules)
         logger.debug("Rules synced: \(allRules.count) rules")
     }

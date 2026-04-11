@@ -1,32 +1,7 @@
 import Foundation
 
-// MARK: - HTTPMethodFilter
-
-enum HTTPMethodFilter: String, CaseIterable {
-    case any = "ANY"
-    case get = "GET"
-    case post = "POST"
-    case put = "PUT"
-    case delete = "DELETE"
-    case patch = "PATCH"
-    case head = "HEAD"
-    case options = "OPTIONS"
-    case trace = "TRACE"
-
-    // MARK: Internal
-
-    /// Returns the method string for rule matching, or `nil` for `.any`.
-    var methodValue: String? {
-        self == .any ? nil : rawValue
-    }
-}
-
-// MARK: - BlockMatchType
-
-enum BlockMatchType: String, CaseIterable {
-    case wildcard = "Use Wildcard"
-    case regex = "Use Regex"
-}
+/// Backward-compatible alias — `BlockMatchType` was extracted to `RuleMatchType` for reuse.
+typealias BlockMatchType = RuleMatchType
 
 // MARK: - BlockActionType
 

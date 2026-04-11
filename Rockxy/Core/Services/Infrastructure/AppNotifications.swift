@@ -22,7 +22,6 @@ extension Notification.Name {
     static let bypassProxyListDidChange = identity.notificationName("bypassProxyListDidChange")
     static let allowListDidChange = identity.notificationName("allowListDidChange")
     static let breakpointHit = identity.notificationName("breakpointHit")
-    static let breakpointRuleCreated = identity.notificationName("breakpointRuleCreated")
     static let rulesDidChange = identity.notificationName("rulesDidChange")
     static let openDiffWindow = identity.notificationName("openDiffWindow")
     static let openComposeWindow = identity.notificationName("openComposeWindow")
@@ -30,4 +29,5 @@ extension Notification.Name {
     static let openMapLocalWindow = identity.notificationName("openMapLocalWindow")
     static let openMapRemoteWindow = identity.notificationName("openMapRemoteWindow")
     static let openNetworkConditionsWindow = identity.notificationName("openNetworkConditionsWindow")
+    static let openBreakpointRulesWindow = identity.notificationName("openBreakpointRulesWindow")
 }

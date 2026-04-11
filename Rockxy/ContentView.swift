@@ -41,9 +41,6 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .breakpointHit)) { _ in
             openWindow(id: "breakpoints")
         }
-        .onReceive(NotificationCenter.default.publisher(for: .breakpointRuleCreated)) { _ in
-            openWindow(id: "breakpoints")
-        }
         .onReceive(NotificationCenter.default.publisher(for: .openDiffWindow)) { _ in
             openWindow(id: "diff")
         }
@@ -74,6 +71,9 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .openNetworkConditionsWindow)) { _ in
             openWindow(id: "networkConditions")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openBreakpointRulesWindow)) { _ in
+            openWindow(id: "breakpointRules")
         }
         .alert(
             String(localized: "Proxy Error"),

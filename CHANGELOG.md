@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Dedicated Breakpoint Rules management window with table view, enable toggle, filter bar, and More menu
+- Add/Edit Breakpoint Rule sheet with name, URL pattern, method/match-type pickers, request/response phase checkboxes
+- Master "Enable Breakpoint Tool" toggle that disables all breakpoint evaluation without modifying individual rules
+- Breakpoint editor context pipeline for cross-window handoff (context menu → rules window with pre-filled sheet)
+- Shared `RuleMatchType` and `HTTPMethodFilter` enums extracted for reuse across rule editors
+
+### Changed
+
+- Breakpoint rule creation from context menu now opens the rules window with a pre-filled sheet instead of silently adding rules
+- Existing breakpoint execution window simplified to show only paused items (rules managed in the new dedicated window)
+- Tools menu split: "Breakpoint Rules..." (Cmd+Shift+B) for rule management, "Breakpoint Queue..." for paused items
+- `RuleSyncService.syncAll()` no longer directly updates `BreakpointWindowModel`; windows refresh via `.rulesDidChange` notification
+
+### Removed
+
+- `BreakpointRuleBuilder` (replaced by `BreakpointEditorContextBuilder` + user review sheet)
+- `.breakpointRuleCreated` notification (replaced by `.openBreakpointRulesWindow`)
+- Rule selection and rule detail view from the breakpoint queue window
+
 ## [0.5.0] - 2026-04-10
 
 ### Added

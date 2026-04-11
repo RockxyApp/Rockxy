@@ -283,8 +283,9 @@ extension MainContentCoordinator {
     }
 
     func createBreakpointRuleForDomain(_ domain: String) {
-        let rule = BreakpointRuleBuilder.fromDomain(domain)
-        registerCreatedBreakpointRule(rule)
+        let context = BreakpointEditorContextBuilder.fromDomain(domain)
+        BreakpointEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openBreakpointRulesWindow, object: nil)
     }
 
     func createNetworkConditionsRuleForDomain(_ domain: String) {

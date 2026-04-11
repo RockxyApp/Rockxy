@@ -23,15 +23,8 @@ extension MainContentCoordinator {
     }
 
     func createBreakpointRule(for transaction: HTTPTransaction) {
-        let rule = BreakpointRuleBuilder.fromTransaction(transaction)
-        registerCreatedBreakpointRule(rule)
-    }
-
-    func registerCreatedBreakpointRule(_ rule: ProxyRule) {
-        Task {
-            await RuleSyncService.addRule(rule)
-            BreakpointWindowModel.shared.selectRule(rule.id)
-            NotificationCenter.default.post(name: .breakpointRuleCreated, object: nil)
-        }
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
+        BreakpointEditorContextStore.shared.setPending(context)
+        NotificationCenter.default.post(name: .openBreakpointRulesWindow, object: nil)
     }
 }

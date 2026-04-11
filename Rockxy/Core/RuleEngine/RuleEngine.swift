@@ -29,6 +29,9 @@ actor RuleEngine {
     /// Used by Map Local Directory to extract the URL pattern for subpath resolution.
     func evaluateRule(method: String, url: URL, headers: [HTTPHeader]) -> ProxyRule? {
         for rule in rules where rule.isEnabled {
+            if !breakpointToolEnabled, case .breakpoint = rule.action {
+                continue
+            }
             let compiled = compiledPatterns[rule.id]
             if rule.matchCondition.matches(method: method, url: url, headers: headers, compiledPattern: compiled) {
                 Self.logger.debug("Rule matched: \(rule.name)")
@@ -120,11 +123,16 @@ actor RuleEngine {
         }
     }
 
+    func setBreakpointToolEnabled(_ enabled: Bool) {
+        breakpointToolEnabled = enabled
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
 
     private var rules: [ProxyRule] = []
+    private var breakpointToolEnabled: Bool = true
     private var compiledPatterns: [UUID: NSRegularExpression] = [:]
 
     private func compilePatterns() {

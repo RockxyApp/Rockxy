@@ -25,15 +25,6 @@ struct BreakpointWindowView: View {
             actionBar
         }
         .frame(minWidth: 800, minHeight: 500)
-        .task {
-            let allRules = await RuleEngine.shared.allRules
-            windowModel.refreshBreakpointRules(from: allRules)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .rulesDidChange)) { notification in
-            if let allRules = notification.object as? [ProxyRule] {
-                windowModel.refreshBreakpointRules(from: allRules)
-            }
-        }
     }
 
     // MARK: Private
@@ -56,19 +47,6 @@ struct BreakpointWindowView: View {
                     .disabled(true)
                 Button(String(localized: "Execute")) {}
                     .disabled(true)
-
-            case let .rule(ruleId):
-                if let rule = windowModel.breakpointRules.first(where: { $0.id == ruleId }) {
-                    Button(rule.isEnabled
-                        ? String(localized: "Disable Rule")
-                        : String(localized: "Enable Rule"))
-                    {
-                        Task { await RuleSyncService.toggleRule(id: ruleId) }
-                    }
-                    Button(String(localized: "Remove Rule"), role: .destructive) {
-                        Task { await RuleSyncService.removeRule(id: ruleId) }
-                    }
-                }
 
             case .pausedItem:
                 Button(String(localized: "Abort (503)")) {

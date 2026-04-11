@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 struct BreakpointQuickCreateTests {
-    @Test("Transaction breakpoint builder includes method and normalized path")
+    @Test("Transaction context builder includes method and normalized path")
     @MainActor
     func transactionBuilder() {
         let transaction = TestFixtures.makeTransaction(
@@ -12,23 +12,18 @@ struct BreakpointQuickCreateTests {
             statusCode: 200
         )
 
-        let rule = BreakpointRuleBuilder.fromTransaction(transaction)
-        let pattern = rule.matchCondition.urlPattern ?? ""
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
 
-        #expect(rule.name == "Breakpoint — PATCH api.example.com/v1/profile")
-        #expect(rule.matchCondition.method == "PATCH")
-        #expect(pattern.contains(#"api\.example\.com"#))
-        #expect(pattern.contains(#"\/v1\/profile"#))
-        #expect(pattern.contains(#"?.*)?$"#))
-
-        if case let .breakpoint(phase) = rule.action {
-            #expect(phase == .both)
-        } else {
-            Issue.record("Expected breakpoint action")
-        }
+        #expect(context.suggestedName == "Breakpoint — PATCH api.example.com/v1/profile")
+        #expect(context.sourceMethod == "PATCH")
+        #expect(context.sourceHost == "api.example.com")
+        #expect(context.sourcePath == "/v1/profile")
+        #expect(context.defaultPattern == "*api.example.com/v1/profile")
+        #expect(context.breakpointRequest == true)
+        #expect(context.breakpointResponse == true)
     }
 
-    @Test("Transaction breakpoint builder normalizes empty path to slash")
+    @Test("Transaction context builder normalizes empty path to slash")
     @MainActor
     func transactionBuilderNormalizesEmptyPath() {
         let transaction = TestFixtures.makeTransaction(
@@ -37,41 +32,66 @@ struct BreakpointQuickCreateTests {
             statusCode: 200
         )
 
-        let rule = BreakpointRuleBuilder.fromTransaction(transaction)
-        let pattern = rule.matchCondition.urlPattern ?? ""
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
 
-        #expect(rule.name == "Breakpoint — GET api.example.com/")
-        #expect(pattern.contains(#"api\.example\.com\/"#))
-        #expect(pattern.contains(#"?.*)?$"#))
+        #expect(context.suggestedName == "Breakpoint — GET api.example.com/")
+        #expect(context.defaultPattern == "*api.example.com/")
     }
 
-    @Test("Domain breakpoint builder omits method and scopes to domain")
+    @Test("Domain context builder omits method and scopes to domain")
     func domainBuilder() {
-        let rule = BreakpointRuleBuilder.fromDomain("cdn.example.com")
+        let context = BreakpointEditorContextBuilder.fromDomain("cdn.example.com")
 
-        #expect(rule.name == "Breakpoint — cdn.example.com")
-        #expect(rule.matchCondition.method == nil)
-        #expect(rule.matchCondition.urlPattern == #".*cdn\.example\.com(?:[/?#].*)?$"#)
-
-        if case let .breakpoint(phase) = rule.action {
-            #expect(phase == .both)
-        } else {
-            Issue.record("Expected breakpoint action")
-        }
+        #expect(context.suggestedName == "Breakpoint — cdn.example.com")
+        #expect(context.httpMethod == .any)
+        #expect(context.sourceMethod == nil)
+        #expect(context.defaultPattern == "*cdn.example.com/")
+        #expect(context.breakpointRequest == true)
+        #expect(context.breakpointResponse == true)
     }
 
-    @Test("Domain breakpoint pattern matches bare host and paths but not prefix collisions")
-    func domainBuilderMatchesBareHost() throws {
-        let rule = BreakpointRuleBuilder.fromDomain("cdn.example.com")
-        let pattern = try #require(rule.matchCondition.urlPattern)
-        let regex = try NSRegularExpression(pattern: pattern)
+    @Test("Context from transaction populates shared store for handoff")
+    @MainActor
+    func contextPopulatesStore() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.example.com/v1/users",
+            statusCode: 201
+        )
 
-        let bareHost = "https://cdn.example.com"
-        let withPath = "https://cdn.example.com/assets/logo.png"
-        let evilHost = "https://cdn.example.com.evil.com/"
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
+        let store = BreakpointEditorContextStore.shared
+        store.setPending(context)
 
-        #expect(regex.firstMatch(in: bareHost, range: NSRange(bareHost.startIndex..., in: bareHost)) != nil)
-        #expect(regex.firstMatch(in: withPath, range: NSRange(withPath.startIndex..., in: withPath)) != nil)
-        #expect(regex.firstMatch(in: evilHost, range: NSRange(evilHost.startIndex..., in: evilHost)) == nil)
+        let consumed = store.consumePending()
+        #expect(consumed?.sourceHost == "api.example.com")
+        #expect(consumed?.sourceMethod == "POST")
+        #expect(consumed?.origin == .selectedTransaction)
+    }
+
+    @Test("Context from domain populates shared store for handoff")
+    @MainActor
+    func domainContextPopulatesStore() {
+        let context = BreakpointEditorContextBuilder.fromDomain("cdn.example.com")
+        let store = BreakpointEditorContextStore.shared
+        store.setPending(context)
+
+        let consumed = store.consumePending()
+        #expect(consumed?.sourceHost == "cdn.example.com")
+        #expect(consumed?.origin == .domainQuickCreate)
+    }
+
+    @Test("Shared store consumes context only once")
+    @MainActor
+    func storeConsumesOnce() {
+        let context = BreakpointEditorContextBuilder.fromDomain("cdn.example.com")
+        let store = BreakpointEditorContextStore.shared
+        store.setPending(context)
+
+        let first = store.consumePending()
+        let second = store.consumePending()
+
+        #expect(first != nil)
+        #expect(second == nil)
     }
 }
