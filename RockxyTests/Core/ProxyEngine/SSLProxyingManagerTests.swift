@@ -295,6 +295,42 @@ struct SSLProxyingManagerTests {
         #expect(manager.rules.count > countBefore)
     }
 
+    // MARK: - Persisted Enable-State (Fix 1 regression)
+
+    @Test("persisted isEnabled=false is reflected in shouldIntercept after reload")
+    func persistedDisabledState() {
+        let url = makeTempURL()
+        let manager1 = SSLProxyingManager(storageURL: url)
+        manager1.addRule(SSLProxyingRule(domain: "test.com", listType: .include))
+        manager1.setEnabled(false)
+
+        let manager2 = SSLProxyingManager(storageURL: url)
+        #expect(manager2.isEnabled == false)
+        #expect(!manager2.shouldIntercept("test.com"))
+    }
+
+    // MARK: - Wildcard Match-All (Fix 3 regression)
+
+    @Test("rule with domain * matches every host")
+    func wildcardMatchAll() {
+        let manager = makeManager()
+        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        #expect(manager.shouldIntercept("anything.example.com"))
+        #expect(manager.shouldIntercept("localhost"))
+        #expect(manager.shouldIntercept("192.168.1.1"))
+    }
+
+    // MARK: - Disabled Exclude Rule (Fix 4 regression)
+
+    @Test("disabled exclude rule does not block interception")
+    func disabledExcludeDoesNotBlock() {
+        let manager = makeManager()
+        manager.addRule(SSLProxyingRule(domain: "*.example.com", listType: .include))
+        manager.addRule(SSLProxyingRule(domain: "secret.example.com", listType: .exclude))
+        manager.toggleRule(id: manager.excludeRules[0].id)
+        #expect(manager.shouldIntercept("secret.example.com"))
+    }
+
     // MARK: Private
 
     private func makeManager() -> SSLProxyingManager {

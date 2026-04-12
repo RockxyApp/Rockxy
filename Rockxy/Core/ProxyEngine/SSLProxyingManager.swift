@@ -198,16 +198,18 @@ final class SSLProxyingManager {
                 if let storage = try? JSONDecoder().decode(SSLProxyingStorage.self, from: data),
                    storage.schemaVersion >= 2
                 {
-                    rules = storage.rules
                     isEnabled = storage.isEnabled
                     bypassDomains = storage.bypassDomains
+                    rules = storage.rules
+                    rebuildCache()
                     Self.logger
                         .info("Loaded v\(storage.schemaVersion) SSL proxying settings (\(self.rules.count) rules)")
                 } else {
                     let legacyRules = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
-                    rules = legacyRules
                     isEnabled = true
                     bypassDomains = Self.defaultBypassDomains
+                    rules = legacyRules
+                    rebuildCache()
                     Self.logger.info("Migrated \(legacyRules.count) legacy SSL proxying rules to v2")
                     save()
                 }
@@ -346,7 +348,7 @@ final class SSLProxyingManager {
         passthroughLock.unlock()
     }
 
-    private nonisolated func matchesBypassPattern(_ host: String, patterns: [String]) -> Bool {
+    nonisolated private func matchesBypassPattern(_ host: String, patterns: [String]) -> Bool {
         let lowerHost = host.lowercased()
         for pattern in patterns {
             if pattern == "*" {

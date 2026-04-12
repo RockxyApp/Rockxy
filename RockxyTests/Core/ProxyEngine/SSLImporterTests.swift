@@ -39,7 +39,7 @@ struct CharlesSSLImporterTests {
         #expect(rules.allSatisfy { $0.listType == .include })
     }
 
-    @Test("converts bare * to *.*")
+    @Test("bare * is preserved and matches all hosts")
     func convertsBareWildcard() throws {
         let plist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -54,7 +54,29 @@ struct CharlesSSLImporterTests {
         </plist>
         """
         let rules = try CharlesSSLImporter.importRules(from: Data(plist.utf8))
-        #expect(rules[0].domain == "*.*")
+        #expect(rules[0].domain == "*")
+        #expect(rules[0].matches("anything.example.com"))
+        #expect(rules[0].matches("localhost"))
+    }
+
+    @Test("throws when all hosts are empty after trimming")
+    func allEmptyHosts() {
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>location</key>
+            <array>
+                <dict><key>host</key><string>   </string></dict>
+                <dict><key>host</key><string></string></dict>
+            </array>
+        </dict>
+        </plist>
+        """
+        #expect(throws: CharlesSSLImporter.ImportError.self) {
+            try CharlesSSLImporter.importRules(from: Data(plist.utf8))
+        }
     }
 
     @Test("deduplicates case-insensitively")
@@ -144,6 +166,26 @@ struct ProxymanSSLImporterTests {
             try ProxymanSSLImporter.importRules(from: Data("bad".utf8))
         }
     }
+
+    @Test("throws noHostsFound for structured format with empty arrays")
+    func emptyStructured() {
+        let json = """
+        {"includeDomains":[],"excludeDomains":[]}
+        """
+        #expect(throws: ProxymanSSLImporter.ImportError.self) {
+            try ProxymanSSLImporter.importRules(from: Data(json.utf8))
+        }
+    }
+
+    @Test("throws noHostsFound for flat array of only whitespace")
+    func flatArrayWhitespace() {
+        let json = """
+        ["  ","","   "]
+        """
+        #expect(throws: ProxymanSSLImporter.ImportError.self) {
+            try ProxymanSSLImporter.importRules(from: Data(json.utf8))
+        }
+    }
 }
 
 // MARK: - HTTPToolkitImporterTests
@@ -160,16 +202,7 @@ struct HTTPToolkitImporterTests {
         #expect(rules.allSatisfy { $0.listType == .include })
     }
 
-    @Test("imports flat array")
-    func importFlatArray() throws {
-        let json = """
-        ["x.com","y.com"]
-        """
-        let rules = try HTTPToolkitImporter.importRules(from: Data(json.utf8))
-        #expect(rules.count == 2)
-    }
-
-    @Test("deduplicates across keys")
+    @Test("deduplicates across known keys")
     func deduplicates() throws {
         let json = """
         {"whitelistedHosts":["dup.com"],"hosts":["DUP.com"]}
@@ -182,6 +215,36 @@ struct HTTPToolkitImporterTests {
     func invalidFormat() {
         #expect(throws: HTTPToolkitImporter.ImportError.self) {
             try HTTPToolkitImporter.importRules(from: Data("bad".utf8))
+        }
+    }
+
+    @Test("throws invalidFormat for flat string array (not a dict)")
+    func rejectsFlatArray() {
+        let json = """
+        ["example.com","other.com"]
+        """
+        #expect(throws: HTTPToolkitImporter.ImportError.self) {
+            try HTTPToolkitImporter.importRules(from: Data(json.utf8))
+        }
+    }
+
+    @Test("throws noHostsFound for dict with no known keys")
+    func unknownKeysOnly() {
+        let json = """
+        {"randomKey":["example.com"],"otherKey":"value"}
+        """
+        #expect(throws: HTTPToolkitImporter.ImportError.self) {
+            try HTTPToolkitImporter.importRules(from: Data(json.utf8))
+        }
+    }
+
+    @Test("throws noHostsFound for dict with empty known arrays")
+    func emptyKnownArrays() {
+        let json = """
+        {"hosts":[],"interceptedHosts":[]}
+        """
+        #expect(throws: HTTPToolkitImporter.ImportError.self) {
+            try HTTPToolkitImporter.importRules(from: Data(json.utf8))
         }
     }
 }

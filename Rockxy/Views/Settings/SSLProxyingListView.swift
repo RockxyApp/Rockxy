@@ -73,9 +73,11 @@ struct SSLProxyingListView: View {
             String(localized: "Import Failed"),
             isPresented: Binding(
                 get: { importError != nil },
-                set: { if !$0 {
-                    importError = nil
-                } }
+                set: { newValue in
+                    if !newValue {
+                        importError = nil
+                    }
+                }
             )
         ) {
             Button(String(localized: "OK")) { importError = nil }
@@ -325,6 +327,14 @@ struct SSLProxyingListView: View {
 
             Spacer()
 
+            Button {
+                viewModel.isFilterBarVisible = true
+            } label: {
+                Label(String(localized: "Filter"), systemImage: "line.3.horizontal.decrease.circle")
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut("f", modifiers: .command)
+
             moreMenu
         }
         .padding(.horizontal, 12)
@@ -478,12 +488,21 @@ struct SSLProxyingListView: View {
                     try viewModel.manager.importRules(from: data)
                 case .charlesProxy:
                     let rules = try CharlesSSLImporter.importRules(from: data)
+                    guard !rules.isEmpty else {
+                        return
+                    }
                     viewModel.manager.replaceAllRules(rules)
                 case .proxyman:
                     let rules = try ProxymanSSLImporter.importRules(from: data)
+                    guard !rules.isEmpty else {
+                        return
+                    }
                     viewModel.manager.replaceAllRules(rules)
                 case .httpToolkit:
                     let rules = try HTTPToolkitImporter.importRules(from: data)
+                    guard !rules.isEmpty else {
+                        return
+                    }
                     viewModel.manager.replaceAllRules(rules)
                 }
             } catch {

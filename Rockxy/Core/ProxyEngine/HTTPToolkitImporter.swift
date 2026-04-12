@@ -10,6 +10,7 @@ enum HTTPToolkitImporter {
 
     enum ImportError: LocalizedError {
         case invalidFormat
+        case noHostsFound
 
         // MARK: Internal
 
@@ -17,20 +18,22 @@ enum HTTPToolkitImporter {
             switch self {
             case .invalidFormat:
                 String(localized: "The file is not a valid HTTPToolkit settings export.")
+            case .noHostsFound:
+                String(localized: "No usable SSL hosts found in the imported file.")
             }
         }
     }
 
     static func importRules(from data: Data) throws -> [SSLProxyingRule] {
-        if let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return extractFromDictionary(dict)
+        guard let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ImportError.invalidFormat
         }
 
-        if let flat = try? JSONDecoder().decode([String].self, from: data) {
-            return deduplicate(flat)
+        let rules = extractFromDictionary(dict)
+        guard !rules.isEmpty else {
+            throw ImportError.noHostsFound
         }
-
-        throw ImportError.invalidFormat
+        return rules
     }
 
     // MARK: Private
@@ -40,7 +43,7 @@ enum HTTPToolkitImporter {
         category: "HTTPToolkitImporter"
     )
 
-    private static let knownKeys = ["whitelistedHosts", "interceptedHosts", "hosts"]
+    private static let knownKeys: Set<String> = ["whitelistedHosts", "interceptedHosts", "hosts"]
 
     private static func extractFromDictionary(_ dict: [String: Any]) -> [SSLProxyingRule] {
         var allHosts: [String] = []
@@ -48,14 +51,6 @@ enum HTTPToolkitImporter {
         for key in knownKeys {
             if let hosts = dict[key] as? [String] {
                 allHosts.append(contentsOf: hosts)
-            }
-        }
-
-        if allHosts.isEmpty {
-            for value in dict.values {
-                if let hosts = value as? [String] {
-                    allHosts.append(contentsOf: hosts)
-                }
             }
         }
 

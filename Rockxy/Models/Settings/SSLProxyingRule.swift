@@ -45,6 +45,10 @@ struct SSLProxyingRule: Codable, Identifiable, Hashable {
         let lowerDomain = domain.lowercased()
         let lowerHost = host.lowercased()
 
+        if lowerDomain == "*" {
+            return true
+        }
+
         if lowerDomain.hasPrefix("*.") {
             let suffix = String(lowerDomain.dropFirst(1))
             return lowerHost.hasSuffix(suffix) && lowerHost.count > suffix.count

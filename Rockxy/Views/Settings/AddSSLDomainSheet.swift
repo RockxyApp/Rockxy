@@ -29,7 +29,7 @@ struct AddSSLDomainSheet: View {
                     Text(String(localized: "Only Host: without Port, Path and Query"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(String(localized: "Support wildcard: * and ?"))
+                    Text(String(localized: "Use * to match all, or *.domain.com for subdomains"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

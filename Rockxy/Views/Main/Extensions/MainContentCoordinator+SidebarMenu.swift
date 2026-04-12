@@ -14,14 +14,14 @@ extension MainContentCoordinator {
     // MARK: - SSL Proxying
 
     func isSSLProxyingEnabled(for domain: String) -> Bool {
-        SSLProxyingManager.shared.rules.contains { $0.matches(domain) }
+        SSLProxyingManager.shared.includeRules.contains { $0.isEnabled && $0.matches(domain) }
     }
 
     func enableSSLProxyingForDomain(_ domain: String) {
         guard !domain.isEmpty else {
             return
         }
-        let rule = SSLProxyingRule(domain: domain)
+        let rule = SSLProxyingRule(domain: domain, listType: .include)
         SSLProxyingManager.shared.addRule(rule)
         Self.logger.info("Enabled SSL proxying for domain: \(domain)")
     }
@@ -30,10 +30,10 @@ extension MainContentCoordinator {
         guard !domain.isEmpty else {
             return
         }
-        let matchingRuleIDs = SSLProxyingManager.shared.rules
+        let matchingIncludeIDs = SSLProxyingManager.shared.includeRules
             .filter { $0.matches(domain) }
             .map(\.id)
-        let idSet = Set(matchingRuleIDs)
+        let idSet = Set(matchingIncludeIDs)
         if !idSet.isEmpty {
             SSLProxyingManager.shared.removeRules(ids: idSet)
             Self.logger.info("Disabled SSL proxying for domain: \(domain)")

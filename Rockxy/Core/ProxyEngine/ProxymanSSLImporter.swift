@@ -10,6 +10,7 @@ enum ProxymanSSLImporter {
 
     enum ImportError: LocalizedError {
         case invalidFormat
+        case noHostsFound
 
         // MARK: Internal
 
@@ -17,17 +18,27 @@ enum ProxymanSSLImporter {
             switch self {
             case .invalidFormat:
                 String(localized: "The file is not a valid SSL settings export.")
+            case .noHostsFound:
+                String(localized: "No usable hosts found in the imported file.")
             }
         }
     }
 
     static func importRules(from data: Data) throws -> [SSLProxyingRule] {
         if let structured = try? JSONDecoder().decode(StructuredExport.self, from: data) {
-            return buildRules(from: structured)
+            let rules = buildRules(from: structured)
+            guard !rules.isEmpty else {
+                throw ImportError.noHostsFound
+            }
+            return rules
         }
 
         if let flat = try? JSONDecoder().decode([String].self, from: data) {
-            return deduplicateAsInclude(flat)
+            let rules = deduplicateAsInclude(flat)
+            guard !rules.isEmpty else {
+                throw ImportError.noHostsFound
+            }
+            return rules
         }
 
         throw ImportError.invalidFormat

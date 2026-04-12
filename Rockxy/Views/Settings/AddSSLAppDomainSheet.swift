@@ -4,8 +4,10 @@ import UniformTypeIdentifiers
 
 // MARK: - AddSSLAppDomainSheet
 
-/// Sheet for adding apps or domains to the SSL Proxying list.
-/// Shows running applications grouped hierarchically with search.
+/// Sheet for browsing running applications and their observed domains,
+/// then adding selected domains to the SSL Proxying list.
+/// When no observed domains are available for a selected app, the user
+/// is prompted to enter a domain manually via the Add Domain sheet.
 struct AddSSLAppDomainSheet: View {
     // MARK: Lifecycle
 
@@ -29,6 +31,12 @@ struct AddSSLAppDomainSheet: View {
         }
         .frame(width: 500, height: 520)
         .onAppear { refreshRunningApps() }
+        .sheet(isPresented: $showAddDomainSheet) {
+            AddSSLDomainSheet { domain in
+                onAdd([domain])
+                dismiss()
+            }
+        }
     }
 
     // MARK: Private
@@ -52,7 +60,7 @@ struct AddSSLAppDomainSheet: View {
 
     @State private var searchText = ""
     @State private var runningApps: [RunningAppItem] = []
-    @State private var selectedItemID: String?
+    @State private var selectedDomains: Set<String> = []
     @State private var showAddDomainSheet = false
     @FocusState private var isSearchFocused: Bool
 
@@ -60,7 +68,11 @@ struct AddSSLAppDomainSheet: View {
         guard !searchText.isEmpty else {
             return runningApps
         }
-        return runningApps.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        let query = searchText
+        return runningApps.filter { app in
+            app.name.localizedCaseInsensitiveContains(query)
+                || (app.bundleIdentifier?.localizedCaseInsensitiveContains(query) ?? false)
+        }
     }
 
     private var headerSection: some View {
@@ -90,7 +102,7 @@ struct AddSSLAppDomainSheet: View {
     }
 
     private var listSection: some View {
-        List(selection: $selectedItemID) {
+        List {
             Section {
                 ForEach(filteredApps) { app in
                     HStack(spacing: 8) {
@@ -108,8 +120,20 @@ struct AddSSLAppDomainSheet: View {
                         Text(app.name)
                             .font(.system(size: 12))
                             .lineLimit(1)
+
+                        Spacer()
+
+                        if let bundleID = app.bundleIdentifier {
+                            Text(bundleID)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
                     }
-                    .tag(app.id)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) {
+                        showAddDomainSheet = true
+                    }
                 }
             } header: {
                 HStack {
@@ -134,7 +158,7 @@ struct AddSSLAppDomainSheet: View {
     private var footerHint: some View {
         HStack {
             Spacer()
-            Text(String(localized: "Launch your app/domain to see it in the list"))
+            Text(String(localized: "Double-click an app or use Add Domain to enter a host pattern"))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -151,36 +175,12 @@ struct AddSSLAppDomainSheet: View {
 
             Spacer()
 
-            Menu {
-                Button(String(localized: "App…")) {
-                    pickAppFromDisk()
-                }
-                Button(String(localized: "Domain…")) {
-                    showAddDomainSheet = true
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(String(localized: "Select"))
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                }
+            Button(String(localized: "Add Domain…")) {
+                showAddDomainSheet = true
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            Button(String(localized: "Add")) {
-                addSelectedItems()
-            }
-            .disabled(selectedItemID == nil)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .sheet(isPresented: $showAddDomainSheet) {
-            AddSSLDomainSheet { domain in
-                onAdd([domain])
-                dismiss()
-            }
-        }
     }
 
     private func refreshRunningApps() {
@@ -209,40 +209,5 @@ struct AddSSLAppDomainSheet: View {
 
         apps.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         runningApps = apps
-    }
-
-    private func addSelectedItems() {
-        guard let selectedID = selectedItemID else {
-            return
-        }
-        if let app = runningApps.first(where: { $0.id == selectedID }) {
-            let domain = "*.\(app.name.lowercased().replacingOccurrences(of: " ", with: ""))"
-            onAdd([domain])
-        }
-        dismiss()
-    }
-
-    private func pickAppFromDisk() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.application]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications")
-        panel.message = String(localized: "Select an application")
-
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-        guard let bundle = Bundle(url: url),
-              let name = bundle.infoDictionary?["CFBundleName"] as? String
-              ?? bundle.infoDictionary?["CFBundleDisplayName"] as? String else
-        {
-            return
-        }
-
-        let domain = "*.\(name.lowercased().replacingOccurrences(of: " ", with: ""))"
-        onAdd([domain])
-        dismiss()
     }
 }

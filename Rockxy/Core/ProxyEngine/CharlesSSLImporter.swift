@@ -45,13 +45,17 @@ enum CharlesSSLImporter {
             guard !trimmed.isEmpty else {
                 continue
             }
-            let domain = trimmed == "*" ? "*.*" : trimmed
+            let domain = trimmed
             let key = domain.lowercased()
             guard !seen.contains(key) else {
                 continue
             }
             seen.insert(key)
             rules.append(SSLProxyingRule(domain: domain, listType: .include))
+        }
+
+        guard !rules.isEmpty else {
+            throw ImportError.noLocationsFound
         }
 
         logger.info("Imported \(rules.count) rules from Charles Proxy format")
