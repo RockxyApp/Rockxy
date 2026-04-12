@@ -57,32 +57,33 @@ enum ProxymanSSLImporter {
     )
 
     private static func buildRules(from export: StructuredExport) -> [SSLProxyingRule] {
-        var seen = Set<String>()
+        var includeSeen = Set<String>()
+        var excludeSeen = Set<String>()
         var rules: [SSLProxyingRule] = []
 
         for domain in export.includeDomains ?? [] {
-            let trimmed = domain.trimmingCharacters(in: .whitespaces)
+            let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 continue
             }
             let key = trimmed.lowercased()
-            guard !seen.contains(key) else {
+            guard !includeSeen.contains(key) else {
                 continue
             }
-            seen.insert(key)
+            includeSeen.insert(key)
             rules.append(SSLProxyingRule(domain: trimmed, listType: .include))
         }
 
         for domain in export.excludeDomains ?? [] {
-            let trimmed = domain.trimmingCharacters(in: .whitespaces)
+            let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 continue
             }
             let key = trimmed.lowercased()
-            guard !seen.contains(key) else {
+            guard !excludeSeen.contains(key) else {
                 continue
             }
-            seen.insert(key)
+            excludeSeen.insert(key)
             rules.append(SSLProxyingRule(domain: trimmed, listType: .exclude))
         }
 
@@ -95,7 +96,7 @@ enum ProxymanSSLImporter {
         var rules: [SSLProxyingRule] = []
 
         for domain in domains {
-            let trimmed = domain.trimmingCharacters(in: .whitespaces)
+            let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
                 continue
             }

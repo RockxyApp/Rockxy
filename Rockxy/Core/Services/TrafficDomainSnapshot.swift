@@ -30,8 +30,14 @@ final class TrafficDomainSnapshot {
         appEntries = appNodes.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
-        domains = domainTree.map(\.domain).sorted {
-            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
-        }
+        var seen = Set<String>()
+        domains = domainTree.map(\.domain)
+            .filter { seen.insert($0).inserted }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func reset() {
+        appEntries = []
+        domains = []
     }
 }

@@ -244,13 +244,13 @@ struct AddSSLAppDomainSheet: View {
     }
 
     private func selectAllDomainsForFirstApp() {
-        if let first = snapshot.appEntries.first {
+        if let first = filteredApps.first {
             selectedItem = .app(first.name)
         }
     }
 
     private func selectFirstDomain() {
-        if let first = snapshot.domains.first {
+        if let first = filteredDomains.first {
             selectedItem = .domain(first)
         }
     }

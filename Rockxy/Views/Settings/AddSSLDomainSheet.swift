@@ -56,11 +56,12 @@ struct AddSSLDomainSheet: View {
                     ? String(localized: "Done")
                     : String(localized: "Add"))
                 {
-                    onSave(domain)
+                    let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
+                    onSave(trimmed)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(domain.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(domain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 10)

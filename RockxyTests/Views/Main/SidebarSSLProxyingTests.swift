@@ -8,6 +8,7 @@ import Testing
 /// `MainContentCoordinator+SidebarMenu.swift`. Each test seeds
 /// `SSLProxyingManager.shared` with known state, calls the coordinator
 /// method under test, then cleans up to avoid cross-test pollution.
+@Suite(.serialized)
 @MainActor
 struct SidebarSSLProxyingTests {
     // MARK: - isSSLProxyingEnabled(for:)
@@ -56,7 +57,10 @@ struct SidebarSSLProxyingTests {
         let excludeRule = SSLProxyingRule(domain: "api.example.com", listType: .exclude)
         manager.addRule(includeRule)
         manager.addRule(excludeRule)
-        defer { manager.removeRule(id: excludeRule.id) }
+        defer {
+            manager.removeRule(id: includeRule.id)
+            manager.removeRule(id: excludeRule.id)
+        }
 
         coordinator.disableSSLProxyingForDomain("api.example.com")
 

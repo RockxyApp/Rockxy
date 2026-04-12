@@ -168,18 +168,21 @@ enum SigningDiagnostics {
             )
         }
 
+        let appSigner = env.appSignerSummary() ?? "unknown"
+        let helperSigner = env.helperSignerSummary() ?? "unknown"
+
         guard appChain.count == helperChain.count else {
             return .signingIdentityMismatch(
-                appSigner: env.appSignerSummary() ?? "unknown",
-                helperSigner: env.helperSignerSummary() ?? "unknown"
+                appSigner: appSigner,
+                helperSigner: helperSigner
             )
         }
 
         for index in appChain.indices {
             if appChain[index] != helperChain[index] {
                 return .signingIdentityMismatch(
-                    appSigner: env.appSignerSummary() ?? "unknown",
-                    helperSigner: env.helperSignerSummary() ?? "unknown"
+                    appSigner: appSigner,
+                    helperSigner: helperSigner
                 )
             }
         }

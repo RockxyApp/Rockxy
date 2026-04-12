@@ -52,6 +52,14 @@ struct SSLProxyingRuleTests {
         #expect(!rule.matches("example.com"))
     }
 
+    @Test("global wildcard * matches any host")
+    func matchesGlobalWildcard() {
+        let rule = SSLProxyingRule(domain: "*")
+        #expect(rule.matches("example.com"))
+        #expect(rule.matches("sub.example.com"))
+        #expect(rule.matches("foo.bar"))
+    }
+
     // MARK: - Codable
 
     @Test("encodes and decodes with listType")

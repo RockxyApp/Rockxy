@@ -12,7 +12,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("initial state has include tab selected")
     func initialState() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         #expect(vm.selectedTab == .include)
         #expect(vm.selectedRuleID == nil)
         #expect(vm.isFilterBarVisible == false)
@@ -26,7 +27,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("switchTab changes tab and clears selection")
     func switchTab() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         vm.selectedRuleID = vm.manager.rules.first?.id
         vm.filterText = "test"
@@ -41,7 +43,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("currentTabRules filters by tab")
     func currentTabRulesFilters() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "include.com")
         vm.switchTab(to: .exclude)
         vm.addRule(domain: "exclude.com")
@@ -57,7 +60,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("currentTabRules filters by search text")
     func currentTabRulesSearch() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "api.example.com")
         vm.addRule(domain: "cdn.other.com")
 
@@ -70,7 +74,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("ruleCount returns count for current tab only")
     func ruleCount() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "inc1.com")
         vm.addRule(domain: "inc2.com")
         vm.switchTab(to: .exclude)
@@ -87,7 +92,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("addRule adds to current tab's list type")
     func addRule() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         #expect(vm.manager.rules.count == 1)
         #expect(vm.manager.rules[0].listType == .include)
@@ -96,7 +102,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("addRule on exclude tab creates exclude rule")
     func addRuleExcludeTab() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.switchTab(to: .exclude)
         vm.addRule(domain: "excluded.com")
         #expect(vm.manager.rules[0].listType == .exclude)
@@ -104,7 +111,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("addRule trims whitespace and rejects empty")
     func addRuleTrims() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "  ")
         #expect(vm.manager.rules.isEmpty)
 
@@ -114,7 +122,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("updateRule changes domain")
     func updateRule() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "old.com")
         let id = vm.manager.rules[0].id
         vm.updateRule(id: id, domain: "new.com")
@@ -123,7 +132,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("removeSelected removes and clears selection")
     func removeSelected() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         vm.selectedRuleID = vm.manager.rules[0].id
         vm.removeSelected()
@@ -133,7 +143,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("removeSelected does nothing without selection")
     func removeSelectedNoSelection() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         vm.selectedRuleID = nil
         vm.removeSelected()
@@ -142,7 +153,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("toggleRule toggles enabled state")
     func toggleRule() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         let id = vm.manager.rules[0].id
         #expect(vm.manager.rules[0].isEnabled == true)
@@ -154,7 +166,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("reconcileSelectionAfterRulesChange clears invalid selection")
     func reconcileSelection() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         let id = vm.manager.rules[0].id
         vm.selectedRuleID = id
@@ -165,7 +178,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("reconcileSelectionAfterRulesChange keeps valid selection")
     func reconcileSelectionValid() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         let id = vm.manager.rules[0].id
         vm.selectedRuleID = id
@@ -177,7 +191,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("enableDisableLabel returns correct text")
     func enableDisableLabel() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         let id = vm.manager.rules[0].id
         vm.selectedRuleID = id
@@ -189,7 +204,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("enableDisableLabel defaults when no selection")
     func enableDisableLabelNoSelection() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         #expect(vm.enableDisableLabel == String(localized: "Enable Rule"))
     }
 
@@ -197,7 +213,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("presentEditorForSelection sets editing rule")
     func presentEditor() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.addRule(domain: "test.com")
         vm.selectedRuleID = vm.manager.rules[0].id
         vm.presentEditorForSelection()
@@ -208,7 +225,8 @@ struct SSLProxyingListViewModelTests {
 
     @Test("presentEditorForSelection does nothing without selection")
     func presentEditorNoSelection() {
-        let vm = makeViewModel()
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
         vm.presentEditorForSelection()
         #expect(vm.editingRule == nil)
         #expect(vm.showAddDomainSheet == false)
@@ -216,10 +234,10 @@ struct SSLProxyingListViewModelTests {
 
     // MARK: Private
 
-    private func makeViewModel() -> SSLProxyingListViewModel {
+    private func makeViewModel() -> (SSLProxyingListViewModel, URL) {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("rockxy-vm-test-\(UUID().uuidString).json")
         let manager = SSLProxyingManager(storageURL: url)
-        return SSLProxyingListViewModel(manager: manager)
+        return (SSLProxyingListViewModel(manager: manager), url)
     }
 }

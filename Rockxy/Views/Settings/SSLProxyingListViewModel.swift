@@ -57,7 +57,7 @@ final class SSLProxyingListViewModel {
     }
 
     func addRule(domain: String) {
-        let trimmed = domain.trimmingCharacters(in: .whitespaces)
+        let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return
         }
@@ -67,10 +67,14 @@ final class SSLProxyingListViewModel {
     }
 
     func updateRule(id: UUID, domain: String) {
+        let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return
+        }
         guard var rule = manager.rules.first(where: { $0.id == id }) else {
             return
         }
-        rule.domain = domain.trimmingCharacters(in: .whitespaces)
+        rule.domain = trimmed
         manager.updateRule(rule)
         selectedRuleID = rule.id
     }

@@ -488,21 +488,12 @@ struct SSLProxyingListView: View {
                     try viewModel.manager.importRules(from: data)
                 case .charlesProxy:
                     let rules = try CharlesSSLImporter.importRules(from: data)
-                    guard !rules.isEmpty else {
-                        return
-                    }
                     viewModel.manager.replaceAllRules(rules)
                 case .proxyman:
                     let rules = try ProxymanSSLImporter.importRules(from: data)
-                    guard !rules.isEmpty else {
-                        return
-                    }
                     viewModel.manager.replaceAllRules(rules)
                 case .httpToolkit:
                     let rules = try HTTPToolkitImporter.importRules(from: data)
-                    guard !rules.isEmpty else {
-                        return
-                    }
                     viewModel.manager.replaceAllRules(rules)
                 }
             } catch {

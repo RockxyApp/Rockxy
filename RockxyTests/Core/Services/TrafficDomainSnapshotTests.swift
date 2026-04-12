@@ -4,12 +4,14 @@ import Testing
 
 // MARK: - TrafficDomainSnapshotTests
 
+@Suite(.serialized)
 @MainActor
 struct TrafficDomainSnapshotTests {
     // MARK: - Snapshot Population
 
     @Test("update populates app entries with domains")
     func updatePopulatesAppEntries() {
+        TrafficDomainSnapshot.shared.reset()
         let snapshot = TrafficDomainSnapshot.shared
         let apps = [
             AppInfo(name: "TestApp", domains: ["api.test.com", "cdn.test.com"], requestCount: 5),
