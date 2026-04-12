@@ -217,6 +217,23 @@ struct AddSSLAppDomainSheet: View {
 
             Spacer()
 
+            Menu {
+                Button(String(localized: "App…")) {
+                    selectAllDomainsForFirstApp()
+                }
+                Button(String(localized: "Domain…")) {
+                    selectFirstDomain()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(String(localized: "Select"))
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                }
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
             Button(String(localized: "Add")) {
                 addSelectedItem()
             }
@@ -224,6 +241,18 @@ struct AddSSLAppDomainSheet: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private func selectAllDomainsForFirstApp() {
+        if let first = snapshot.appEntries.first {
+            selectedItem = .app(first.name)
+        }
+    }
+
+    private func selectFirstDomain() {
+        if let first = snapshot.domains.first {
+            selectedItem = .domain(first)
+        }
     }
 
     private func addSelectedItem() {

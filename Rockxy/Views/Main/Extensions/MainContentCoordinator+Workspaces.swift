@@ -18,6 +18,7 @@ extension MainContentCoordinator {
         for workspace in workspaceStore.workspaces {
             workspace.reset()
         }
+        TrafficDomainSnapshot.shared.update(appNodes: [], domainTree: [])
     }
 
     func updateAllWorkspaces(with batch: [HTTPTransaction]) {
@@ -86,6 +87,7 @@ extension MainContentCoordinator {
             updateDomainTree(for: transaction, in: workspace)
             updateAppNodes(for: transaction, in: workspace)
         }
+        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
     }
 
     // MARK: - Eviction Across Workspaces

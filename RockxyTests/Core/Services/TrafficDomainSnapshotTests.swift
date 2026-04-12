@@ -6,6 +6,8 @@ import Testing
 
 @MainActor
 struct TrafficDomainSnapshotTests {
+    // MARK: - Snapshot Population
+
     @Test("update populates app entries with domains")
     func updatePopulatesAppEntries() {
         let snapshot = TrafficDomainSnapshot.shared
@@ -47,18 +49,9 @@ struct TrafficDomainSnapshotTests {
         #expect(result.isEmpty)
     }
 
-    @Test("selecting a domain adds it directly without manual entry")
-    func domainSelectionAddsDirect() {
-        let snapshot = TrafficDomainSnapshot.shared
-        let domains = [
-            DomainNode(id: "api.test.com", domain: "api.test.com", requestCount: 1, children: []),
-        ]
-        snapshot.update(appNodes: [], domainTree: domains)
+    // MARK: - Picker Flow: App Selection
 
-        #expect(snapshot.domains.contains("api.test.com"))
-    }
-
-    @Test("selecting an app resolves its real observed domains")
+    @Test("app selection resolves real observed domains, not guessed wildcards")
     func appSelectionUsesRealDomains() {
         let snapshot = TrafficDomainSnapshot.shared
         let apps = [
@@ -71,7 +64,7 @@ struct TrafficDomainSnapshotTests {
         #expect(!resolved.contains { $0.hasPrefix("*.") })
     }
 
-    @Test("app with no observed domains returns empty — no guessed wildcards")
+    @Test("app with no observed domains returns empty — Add button stays disabled")
     func appWithNoDomains() {
         let snapshot = TrafficDomainSnapshot.shared
         let apps = [
@@ -81,5 +74,71 @@ struct TrafficDomainSnapshotTests {
 
         let resolved = snapshot.domains(forApp: "SilentApp")
         #expect(resolved.isEmpty)
+    }
+
+    // MARK: - Picker Flow: Domain Selection
+
+    @Test("domain selection routes directly to onAdd — no manual sheet")
+    func domainSelectionAddsDirect() {
+        let snapshot = TrafficDomainSnapshot.shared
+        let domains = [
+            DomainNode(id: "api.test.com", domain: "api.test.com", requestCount: 1, children: []),
+        ]
+        snapshot.update(appNodes: [], domainTree: domains)
+
+        #expect(snapshot.domains.contains("api.test.com"))
+    }
+
+    // MARK: - Snapshot Refresh After Clear/Rebuild
+
+    @Test("update with empty arrays clears the snapshot")
+    func clearSnapshotOnSessionClear() {
+        let snapshot = TrafficDomainSnapshot.shared
+        snapshot.update(
+            appNodes: [AppInfo(name: "App", domains: ["d.com"], requestCount: 1)],
+            domainTree: [DomainNode(id: "d.com", domain: "d.com", requestCount: 1, children: [])]
+        )
+        #expect(!snapshot.appEntries.isEmpty)
+        #expect(!snapshot.domains.isEmpty)
+
+        snapshot.update(appNodes: [], domainTree: [])
+        #expect(snapshot.appEntries.isEmpty)
+        #expect(snapshot.domains.isEmpty)
+    }
+
+    @Test("update replaces stale data after rebuild")
+    func refreshAfterRebuild() {
+        let snapshot = TrafficDomainSnapshot.shared
+        snapshot.update(
+            appNodes: [AppInfo(name: "OldApp", domains: ["old.com"], requestCount: 1)],
+            domainTree: [DomainNode(id: "old.com", domain: "old.com", requestCount: 1, children: [])]
+        )
+
+        snapshot.update(
+            appNodes: [AppInfo(name: "NewApp", domains: ["new.com"], requestCount: 1)],
+            domainTree: [DomainNode(id: "new.com", domain: "new.com", requestCount: 1, children: [])]
+        )
+
+        #expect(snapshot.appEntries.count == 1)
+        #expect(snapshot.appEntries[0].name == "NewApp")
+        #expect(snapshot.domains == ["new.com"])
+        #expect(snapshot.domains(forApp: "OldApp").isEmpty)
+    }
+
+    @Test("update after enrichment adds app domains that were previously unknown")
+    func refreshAfterEnrichment() {
+        let snapshot = TrafficDomainSnapshot.shared
+        snapshot.update(
+            appNodes: [AppInfo(name: "Unknown", domains: ["api.com"], requestCount: 1)],
+            domainTree: [DomainNode(id: "api.com", domain: "api.com", requestCount: 1, children: [])]
+        )
+        #expect(snapshot.domains(forApp: "Unknown") == ["api.com"])
+
+        snapshot.update(
+            appNodes: [AppInfo(name: "Chrome", domains: ["api.com"], requestCount: 1)],
+            domainTree: [DomainNode(id: "api.com", domain: "api.com", requestCount: 1, children: [])]
+        )
+        #expect(snapshot.domains(forApp: "Chrome") == ["api.com"])
+        #expect(snapshot.domains(forApp: "Unknown").isEmpty)
     }
 }
