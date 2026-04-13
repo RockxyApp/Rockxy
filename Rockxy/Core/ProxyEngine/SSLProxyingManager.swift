@@ -90,6 +90,11 @@ final class SSLProxyingManager {
         save()
     }
 
+    func addRules(_ newRules: [SSLProxyingRule]) {
+        rules.append(contentsOf: newRules)
+        save()
+    }
+
     func removeRule(id: UUID) {
         rules.removeAll { $0.id == id }
         save()

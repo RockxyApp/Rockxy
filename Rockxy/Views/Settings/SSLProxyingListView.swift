@@ -32,6 +32,9 @@ struct SSLProxyingListView: View {
         .onChange(of: viewModel.manager.rules) { _, _ in
             viewModel.reconcileSelectionAfterRulesChange()
         }
+        .onChange(of: viewModel.currentTabRules.map(\.id)) { _, _ in
+            viewModel.reconcileSelectionAfterRulesChange()
+        }
         .sheet(isPresented: $viewModel.showAddDomainSheet) {
             viewModel.editingRule = nil
         } content: {
@@ -46,9 +49,7 @@ struct SSLProxyingListView: View {
         }
         .sheet(isPresented: $viewModel.showAddAppSheet) {
             AddSSLAppDomainSheet { domains in
-                for domain in domains {
-                    viewModel.addRule(domain: domain)
-                }
+                viewModel.addRules(domains)
             }
         }
         .sheet(isPresented: $viewModel.showBypassSheet) {

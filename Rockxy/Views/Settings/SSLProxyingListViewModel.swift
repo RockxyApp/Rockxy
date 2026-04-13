@@ -56,6 +56,21 @@ final class SSLProxyingListViewModel {
         manager.setEnabled(enabled)
     }
 
+    func addRules(_ domains: [String]) {
+        let rules = domains.compactMap { domain -> SSLProxyingRule? in
+            let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return nil
+            }
+            return SSLProxyingRule(domain: trimmed, listType: selectedTab)
+        }
+        guard !rules.isEmpty else {
+            return
+        }
+        selectedRuleID = rules.last?.id
+        manager.addRules(rules)
+    }
+
     func addRule(domain: String) {
         let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -95,7 +110,7 @@ final class SSLProxyingListViewModel {
         guard let id = selectedRuleID else {
             return
         }
-        if !manager.rules.contains(where: { $0.id == id }) {
+        if !currentTabRules.contains(where: { $0.id == id }) {
             selectedRuleID = nil
         }
     }

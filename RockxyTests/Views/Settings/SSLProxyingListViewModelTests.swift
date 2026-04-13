@@ -197,6 +197,92 @@ struct SSLProxyingListViewModelTests {
         #expect(vm.selectedRuleID == id)
     }
 
+    @Test("reconcileSelection clears when rule is hidden by tab switch")
+    func reconcileSelectionHiddenByTab() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRule(domain: "include.com")
+        let id = vm.manager.rules[0].id
+        vm.selectedRuleID = id
+
+        vm.switchTab(to: .exclude)
+        vm.selectedRuleID = id
+        vm.reconcileSelectionAfterRulesChange()
+        #expect(vm.selectedRuleID == nil)
+    }
+
+    @Test("reconcileSelection clears when rule is hidden by filter")
+    func reconcileSelectionHiddenByFilter() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRule(domain: "api.example.com")
+        let id = vm.manager.rules[0].id
+        vm.selectedRuleID = id
+
+        vm.filterText = "nomatch"
+        vm.reconcileSelectionAfterRulesChange()
+        #expect(vm.selectedRuleID == nil)
+    }
+
+    @Test("filter change hides selected rule so reconciliation clears it")
+    func filterChangeTriggersReconciliation() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRule(domain: "api.example.com")
+        vm.addRule(domain: "cdn.other.com")
+        let apiID = vm.manager.rules[0].id
+        vm.selectedRuleID = apiID
+
+        #expect(vm.currentTabRules.contains(where: { $0.id == apiID }))
+
+        vm.filterText = "other"
+
+        #expect(!vm.currentTabRules.contains(where: { $0.id == apiID }))
+
+        vm.reconcileSelectionAfterRulesChange()
+        #expect(vm.selectedRuleID == nil)
+    }
+
+    @Test("addRules batch path does not call addRule per domain")
+    func addRulesBatchIsSinglePersistence() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        let countBefore = vm.manager.rules.count
+        vm.addRules(["a.com", "b.com", "c.com"])
+        #expect(vm.manager.rules.count == countBefore + 3)
+        #expect(vm.manager.rules.map(\.domain) == ["a.com", "b.com", "c.com"])
+    }
+
+    // MARK: - Batch Add
+
+    @Test("addRules batch-adds multiple domains in one save")
+    func addRulesBatch() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRules(["a.com", "b.com", "c.com"])
+        #expect(vm.manager.rules.count == 3)
+        #expect(vm.selectedRuleID == vm.manager.rules.last?.id)
+    }
+
+    @Test("addRules trims and skips empty entries")
+    func addRulesBatchTrims() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRules(["  a.com  ", "", "  ", "b.com"])
+        #expect(vm.manager.rules.count == 2)
+        #expect(vm.manager.rules[0].domain == "a.com")
+        #expect(vm.manager.rules[1].domain == "b.com")
+    }
+
+    @Test("addRules uses current tab list type")
+    func addRulesBatchUsesTab() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.switchTab(to: .exclude)
+        vm.addRules(["x.com"])
+        #expect(vm.manager.rules[0].listType == .exclude)
+    }
+
     // MARK: - Enable/Disable Label
 
     @Test("enableDisableLabel returns correct text")
