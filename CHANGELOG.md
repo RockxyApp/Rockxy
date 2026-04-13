@@ -6,22 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-13
+
 ### Added
 
-- Redesign SSL Proxying List with Include/Exclude tabs, global enable toggle, and bypass proxy settings
-- Add App and Add Domain picker sheets for SSL proxying rule creation
-- Import SSL settings from Charles Proxy, Proxyman, and HTTPToolkit formats
-- Bypass Proxy Settings inline editor with comma-separated domain support
-- Helper signing diagnostics and registration recovery UI/messages
-- BTM reset recovery flow
+- Redesign SSL Proxying List with Include/Exclude tabs and import support
+
+### Fixed
+
+- Empty include list no longer intercepts all traffic, rebuild bypass cache on import
+- Reconcile selection on visible-list changes and batch Add-App saves
+- Reject unrelated JSON in SSL importer, route context menu to clicked row
+- Detect helper signing mismatch and BTM desync instead of looping
+- Refresh snapshot after HAR/session import, add picker flow + coordinator path tests
+- Refresh snapshot on clear/rebuild/enrichment, restore Select control, add picker flow tests
+- Add App uses real observed domains — no manual fallback or guessed wildcards
+- Add App picker shows both Apps and Domains sections from live traffic
+- Restore Add App picker UI matching Figma design
+- Cleanup pass — remove misleading app picker, fix bypass help text, add sidebar tests
+- Harden SSL Proxying List — cache loading, import validation, sidebar toggle, wildcard matching
 
 ### Changed
 
-- SSL proxying rules now support Include/Exclude list types with versioned storage (v2 with v1 migration)
-- SSL interception logic now evaluates: enabled → bypass → exclude → include rule chain
-- Improved helper signing diagnostics and automatic registration recovery steps
-- BTM reset now triggers recovery workflow
-
+- Assert only newly added slice in addRulesAddsMultipleDomains
+- Harden SSL importer normalization, domain validation, snapshot dedupe, and test isolation
+- Add coordinator-entrypoint regression tests for sidebar SSL toggle
 ## [0.6.0] - 2026-04-11
 
 ### Added

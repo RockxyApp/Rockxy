@@ -42,19 +42,31 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## 最新リリース
 
-**v0.6.0** — 2026-04-11
+**v0.7.0** — 2026-04-13
 
 ### 追加
 
-- Redesign Allow List with full URL pattern matching and dedicated management window
-- Redesign breakpoint rules window with dedicated management UI
+- Redesign SSL Proxying List with Include/Exclude tabs and import support
+
+### 修正
+
+- Empty include list no longer intercepts all traffic, rebuild bypass cache on import
+- Reconcile selection on visible-list changes and batch Add-App saves
+- Reject unrelated JSON in SSL importer, route context menu to clicked row
+- Detect helper signing mismatch and BTM desync instead of looping
+- Refresh snapshot after HAR/session import, add picker flow + coordinator path tests
+- Refresh snapshot on clear/rebuild/enrichment, restore Select control, add picker flow tests
+- Add App uses real observed domains — no manual fallback or guessed wildcards
+- Add App picker shows both Apps and Domains sections from live traffic
+- Restore Add App picker UI matching Figma design
+- Cleanup pass — remove misleading app picker, fix bypass help text, add sidebar tests
+- Harden SSL Proxying List — cache loading, import validation, sidebar toggle, wildcard matching
 
 ### 変更
 
-- Sync changelog surfaces
-- Trim Allow List rule name before persisting
-- Noun-phrase inflection for paused header, trim and regex-safe Allow List save
-- Allow List and Breakpoint cleanup pass — normalize method, tighten logs, localize headers, tighten tests
+- Assert only newly added slice in addRulesAddsMultipleDomains
+- Harden SSL importer normalization, domain validation, snapshot dedupe, and test isolation
+- Add coordinator-entrypoint regression tests for sidebar SSL toggle
 
 完全なリリース履歴は [CHANGELOG.md](CHANGELOG.md) を参照してください。
 <!-- END GENERATED: latest-release -->
