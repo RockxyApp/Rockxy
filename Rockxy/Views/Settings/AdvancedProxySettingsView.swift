@@ -86,6 +86,12 @@ struct AdvancedProxySettingsView: View {
             "arrow.triangle.2.circlepath.circle.fill"
         case .unreachable:
             "xmark.circle.fill"
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                "xmark.seal.fill"
+            } else {
+                "exclamationmark.triangle.fill"
+            }
         }
     }
 
@@ -102,6 +108,12 @@ struct AdvancedProxySettingsView: View {
             .yellow
         case .unreachable:
             .red
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                .red
+            } else {
+                .orange
+            }
         }
     }
 
@@ -119,6 +131,12 @@ struct AdvancedProxySettingsView: View {
             String(localized: "Incompatible Version")
         case .unreachable:
             String(localized: "Installed But Unreachable")
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                String(localized: "Invalid App Signature")
+            } else {
+                String(localized: "Signing Mismatch")
+            }
         }
     }
 
@@ -136,6 +154,9 @@ struct AdvancedProxySettingsView: View {
             String(localized: "Installed helper is incompatible with this app version.")
         case .unreachable:
             String(localized: "Rockxy could not communicate with the helper over XPC.")
+        case .signingMismatch:
+            helperManager.lastErrorMessage
+                ?? String(localized: "The app and helper have mismatched signing certificates.")
         }
     }
 
@@ -412,6 +433,19 @@ struct AdvancedProxySettingsView: View {
                 }
                 .disabled(helperManager.isBusy)
 
+                Button(String(localized: "Reset Registration")) {
+                    Task {
+                        do {
+                            try await helperManager.forceResetRegistration()
+                        } catch {
+                            Self.logger.error(
+                                "Failed to force-reset helper: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                }
+                .disabled(helperManager.isBusy)
+
             case .installedCompatible:
                 Button(String(localized: "Check Again")) {
                     Task { await helperManager.checkStatus() }
@@ -450,6 +484,24 @@ struct AdvancedProxySettingsView: View {
                     showingUninstallConfirmation = true
                 }
                 .disabled(helperManager.isBusy)
+
+            case .signingMismatch:
+                if case .identityMismatch = helperManager.signingIssue {
+                    Button(String(localized: "Reinstall Helper")) {
+                        reinstallHelper()
+                    }
+                    .disabled(helperManager.isBusy)
+
+                    Button(String(localized: "Uninstall")) {
+                        showingUninstallConfirmation = true
+                    }
+                    .disabled(helperManager.isBusy)
+                } else {
+                    Button(String(localized: "Check Again")) {
+                        Task { await helperManager.checkStatus() }
+                    }
+                    .disabled(helperManager.isBusy)
+                }
             }
         }
     }

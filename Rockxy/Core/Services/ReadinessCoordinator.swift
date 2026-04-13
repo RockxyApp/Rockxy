@@ -87,6 +87,7 @@ final class ReadinessCoordinator {
 
     private(set) var certReadiness: CertReadiness = .notGenerated
     private(set) var helperReadiness: HelperManager.HelperStatus = .notInstalled
+    private(set) var helperSigningIssue: HelperManager.SigningIssue?
     private(set) var proxyMode: ProxyMode = .unavailable
     private(set) var activeWarning: ReadinessWarning?
     private(set) var isCaptureActive: Bool = false
@@ -352,6 +353,7 @@ final class ReadinessCoordinator {
 
     private func refreshHelperState() {
         helperReadiness = HelperManager.shared.status
+        helperSigningIssue = HelperManager.shared.signingIssue
     }
 
     private func refreshProxyMode(isEnabled: Bool) {
@@ -470,6 +472,8 @@ final class ReadinessCoordinator {
             String(localized: "the helper tool is unreachable")
         case .installedCompatible:
             String(localized: "the helper tool could not be used")
+        case .signingMismatch:
+            HelperManager.signingMismatchWarningReason(issue: helperSigningIssue)
         }
 
         return ReadinessWarning(

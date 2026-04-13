@@ -57,7 +57,8 @@ actor CertificateManager {
         case .notInstalled,
              .requiresApproval,
              .installedIncompatible,
-             .unreachable:
+             .unreachable,
+             .signingMismatch:
             return false
         }
     }

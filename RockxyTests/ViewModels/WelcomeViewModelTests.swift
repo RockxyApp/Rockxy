@@ -156,4 +156,90 @@ struct WelcomeViewModelTests {
         #expect(viewModel.totalSteps == 4)
         #expect(viewModel.canGetStarted == false)
     }
+
+    // MARK: - Signing Mismatch Tests
+
+    @Test("completedSteps does not count signingMismatch as complete")
+    func completedStepsSigningMismatch() {
+        let viewModel = WelcomeViewModel()
+        viewModel.helperStatus = .signingMismatch
+
+        #expect(viewModel.completedSteps == 0)
+    }
+
+    @Test("canGetStarted is false when helper has signing mismatch")
+    func canGetStartedFalseSigningMismatch() {
+        let viewModel = WelcomeViewModel()
+        viewModel.certInstalled = true
+        viewModel.certTrusted = true
+        viewModel.helperStatus = .signingMismatch
+        viewModel.systemProxyEnabled = true
+
+        #expect(viewModel.canGetStarted == false)
+    }
+
+    @Test("subtype-only change through applyHelperState diverges action label")
+    func subtypeChangeThroughApplyPath() {
+        let viewModel = WelcomeViewModel()
+
+        viewModel.applyHelperState(
+            status: .signingMismatch,
+            signingIssue: .appSignatureInvalid(detail: "stale")
+        )
+        #expect(viewModel.helperStatus == .signingMismatch)
+        #expect(viewModel.helperSigningIssue == .appSignatureInvalid(detail: "stale"))
+        let label1 = HelperManager.helperActionLabel(
+            status: viewModel.helperStatus,
+            signingIssue: viewModel.helperSigningIssue
+        )
+        #expect(label1 == nil)
+
+        viewModel.applyHelperState(
+            status: .signingMismatch,
+            signingIssue: .identityMismatch(appSigner: "Dev", helperSigner: "Prod")
+        )
+        #expect(viewModel.helperStatus == .signingMismatch)
+        #expect(
+            viewModel.helperSigningIssue == .identityMismatch(
+                appSigner: "Dev",
+                helperSigner: "Prod"
+            )
+        )
+        let label2 = HelperManager.helperActionLabel(
+            status: viewModel.helperStatus,
+            signingIssue: viewModel.helperSigningIssue
+        )
+        #expect(label2 == String(localized: "Reinstall"))
+    }
+
+    // MARK: - Helper Action Label Alignment
+
+    @Test("unreachable label is Retry, not Install")
+    func unreachableLabelIsRetry() {
+        let label = HelperManager.helperActionLabel(
+            status: .unreachable,
+            signingIssue: nil
+        )
+        #expect(label == String(localized: "Retry"))
+    }
+
+    @Test("action labels cover all statuses consistently")
+    func actionLabelsAllStatuses() {
+        let cases: [(HelperManager.HelperStatus, HelperManager.SigningIssue?, String?)] = [
+            (.notInstalled, nil, String(localized: "Install")),
+            (.requiresApproval, nil, String(localized: "Open Settings")),
+            (.installedCompatible, nil, nil),
+            (.installedOutdated, nil, String(localized: "Update")),
+            (.installedIncompatible, nil, String(localized: "Update")),
+            (.unreachable, nil, String(localized: "Retry")),
+            (.signingMismatch, .appSignatureInvalid(detail: "x"), nil),
+            (.signingMismatch, .identityMismatch(appSigner: "a", helperSigner: "b"), String(localized: "Reinstall")),
+            (.signingMismatch, nil, nil),
+        ]
+
+        for (status, issue, expected) in cases {
+            let label = HelperManager.helperActionLabel(status: status, signingIssue: issue)
+            #expect(label == expected, "status=\(status) issue=\(String(describing: issue))")
+        }
+    }
 }

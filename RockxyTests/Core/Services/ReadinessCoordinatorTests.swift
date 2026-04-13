@@ -187,6 +187,81 @@ struct ReadinessCoordinatorTests {
         #expect(coordinator.helperReadiness == HelperManager.shared.status)
     }
 
+    @Test("signing issue subtype change propagates through notification path")
+    @MainActor
+    func signingIssueSubtypeChangePropagates() async throws {
+        let coordinator = ReadinessCoordinator.shared
+        let manager = HelperManager.shared
+        coordinator.startObserving()
+
+        // Wrap assertions so cleanup always runs even on thrown errors.
+        var caughtError: (any Error)?
+        do {
+            // First state: signingMismatch + appSignatureInvalid
+            manager.injectHelperStateForTests(
+                status: .signingMismatch,
+                signingIssue: .appSignatureInvalid(detail: "stale")
+            )
+
+            for _ in 0 ..< 40 {
+                if coordinator.helperSigningIssue == .appSignatureInvalid(detail: "stale") {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            #expect(coordinator.helperReadiness == .signingMismatch)
+            #expect(coordinator.helperSigningIssue == .appSignatureInvalid(detail: "stale"))
+
+            // Subtype-only change: same status, different issue
+            manager.injectHelperStateForTests(
+                status: .signingMismatch,
+                signingIssue: .identityMismatch(appSigner: "Dev", helperSigner: "Prod")
+            )
+
+            for _ in 0 ..< 40 {
+                if coordinator.helperSigningIssue == .identityMismatch(
+                    appSigner: "Dev",
+                    helperSigner: "Prod"
+                ) {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            #expect(coordinator.helperReadiness == .signingMismatch)
+            #expect(
+                coordinator.helperSigningIssue == .identityMismatch(
+                    appSigner: "Dev",
+                    helperSigner: "Prod"
+                )
+            )
+        } catch {
+            caughtError = error
+        }
+
+        // Async cleanup: reset baseline and wait for the coordinator to reflect
+        // it before stopping the observer. Uses try? so cleanup itself cannot throw.
+        manager.injectHelperStateForTests(
+            status: .notInstalled,
+            signingIssue: nil,
+            isReachable: false,
+            installedInfo: nil,
+            lastErrorMessage: nil
+        )
+        for _ in 0 ..< 40 {
+            if coordinator.helperReadiness == .notInstalled,
+               coordinator.helperSigningIssue == nil
+            {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        coordinator.stopObserving()
+
+        if let caughtError {
+            throw caughtError
+        }
+    }
+
     @Test("app-active refresh updates cert state without proxy start")
     @MainActor
     func appActiveRefreshUpdatesCertState() async throws {

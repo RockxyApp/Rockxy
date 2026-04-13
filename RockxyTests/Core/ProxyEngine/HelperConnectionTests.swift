@@ -42,6 +42,22 @@ struct HelperConnectionErrorTests {
         #expect(description.contains("timed out"))
     }
 
+    @Test("appSignatureInvalid includes detail in description")
+    func appSignatureInvalidDescription() {
+        let error = HelperConnectionError.appSignatureInvalid("stale build")
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("code signature"))
+        #expect(description.contains("stale build"))
+    }
+
+    @Test("signingIdentityMismatch includes signer names in description")
+    func signingIdentityMismatchDescription() {
+        let error = HelperConnectionError.signingIdentityMismatch(app: "Dev", helper: "Prod")
+        let description = error.errorDescription ?? ""
+        #expect(description.contains("Dev"))
+        #expect(description.contains("Prod"))
+    }
+
     @Test("All cases conform to LocalizedError with non-nil descriptions")
     func allCasesHaveDescriptions() {
         let cases: [HelperConnectionError] = [
@@ -50,6 +66,8 @@ struct HelperConnectionErrorTests {
             .proxyRestoreFailed("test"),
             .uninstallFailed,
             .xpcTimeout,
+            .appSignatureInvalid("test"),
+            .signingIdentityMismatch(app: "test", helper: "test"),
         ]
 
         for error in cases {

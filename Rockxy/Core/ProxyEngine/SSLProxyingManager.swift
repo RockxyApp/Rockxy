@@ -1,8 +1,10 @@
 import Foundation
 import os
 
+// MARK: - SSLProxyingManager
+
 /// Manages the list of domains for which Rockxy will perform TLS interception.
-/// Domains not in this list pass through as raw encrypted tunnels.
+/// Supports Include and Exclude lists, a global enable toggle, and bypass domains.
 ///
 /// The `shouldIntercept(_:)` method is `nonisolated` and thread-safe so it can be
 /// called directly from NIO event loops without hopping to the main actor.
@@ -11,7 +13,16 @@ final class SSLProxyingManager {
     // MARK: Lifecycle
 
     private init() {
-        cachedEnabledRules = []
+        cachedEnabledIncludeRules = []
+        cachedEnabledExcludeRules = []
+        load()
+    }
+
+    /// Test-only initializer with injectable storage path.
+    init(storageURL: URL) {
+        customStorageURL = storageURL
+        cachedEnabledIncludeRules = []
+        cachedEnabledExcludeRules = []
         load()
     }
 
@@ -19,10 +30,24 @@ final class SSLProxyingManager {
 
     static let shared = SSLProxyingManager()
 
+    static let defaultBypassDomains =
+        "dns.google,one.one.one.one,ocsp.digicert.com,ocsp.apple.com,ocsp2.apple.com"
+
+    private(set) var isEnabled: Bool = true
+    private(set) var bypassDomains: String = SSLProxyingManager.defaultBypassDomains
+
     private(set) var rules: [SSLProxyingRule] = [] {
         didSet {
             rebuildCache()
         }
+    }
+
+    var includeRules: [SSLProxyingRule] {
+        rules.filter { $0.listType == .include }
+    }
+
+    var excludeRules: [SSLProxyingRule] {
+        rules.filter { $0.listType == .exclude }
     }
 
     /// When true, all CONNECT requests pass through as raw tunnels without interception.
@@ -41,8 +66,32 @@ final class SSLProxyingManager {
         }
     }
 
+    func setEnabled(_ enabled: Bool) {
+        isEnabled = enabled
+        rebuildCache()
+        save()
+        Self.logger.info("SSL proxying tool \(enabled ? "enabled" : "disabled")")
+    }
+
+    func setBypassDomains(_ text: String) {
+        bypassDomains = text
+        rebuildBypassCache()
+        save()
+    }
+
+    func resetBypassToDefault() {
+        bypassDomains = Self.defaultBypassDomains
+        rebuildBypassCache()
+        save()
+    }
+
     func addRule(_ rule: SSLProxyingRule) {
         rules.append(rule)
+        save()
+    }
+
+    func addRules(_ newRules: [SSLProxyingRule]) {
+        rules.append(contentsOf: newRules)
         save()
     }
 
@@ -64,32 +113,58 @@ final class SSLProxyingManager {
         save()
     }
 
+    func updateRule(_ rule: SSLProxyingRule) {
+        guard let index = rules.firstIndex(where: { $0.id == rule.id }) else {
+            return
+        }
+        rules[index] = rule
+        save()
+    }
+
+    func replaceAllRules(_ newRules: [SSLProxyingRule]) {
+        rules = newRules
+        save()
+        Self.logger.info("Replaced all SSL proxying rules (\(newRules.count) rules)")
+    }
+
     /// Thread-safe check usable from NIO event loops.
-    /// Uses a lock-protected snapshot of enabled rules to avoid main-actor hop.
+    /// Decision chain: enabled → global passthrough → bypass → exclude → include.
     nonisolated func shouldIntercept(_ host: String) -> Bool {
+        lock.lock()
+        let enabled = cachedIsEnabled
+        let includeSnapshot = cachedEnabledIncludeRules
+        let excludeSnapshot = cachedEnabledExcludeRules
+        lock.unlock()
+
+        if !enabled {
+            return false
+        }
+
         passthroughLock.lock()
         let globalPassthrough = _forceGlobalPassthrough
+        let bypassPatterns = cachedBypassPatterns
         passthroughLock.unlock()
 
         if globalPassthrough {
             return false
         }
 
-        let snapshot: [SSLProxyingRule]
-        lock.lock()
-        snapshot = cachedEnabledRules
-        lock.unlock()
-
-        if snapshot.isEmpty {
-            return true
+        if matchesBypassPattern(host, patterns: bypassPatterns) {
+            return false
         }
 
-        return snapshot.contains { $0.matches(host) }
+        if excludeSnapshot.contains(where: { $0.matches(host) }) {
+            return false
+        }
+
+        if includeSnapshot.isEmpty {
+            return false
+        }
+
+        return includeSnapshot.contains { $0.matches(host) }
     }
 
     /// Called from PostHandshakeHandler when a client rejects our intercepted certificate.
-    /// Marks the host for raw passthrough so subsequent connections skip interception.
-    /// Persists to disk so passthrough survives app restarts.
     nonisolated func markHostForPassthrough(_ host: String) {
         passthroughLock.lock()
         autoPassthroughHosts[host] = Date()
@@ -98,7 +173,6 @@ final class SSLProxyingManager {
         persistPassthroughHosts()
     }
 
-    /// Removes all persisted auto-passthrough hosts, allowing interception to be retried.
     nonisolated func clearAutoPassthrough() {
         passthroughLock.lock()
         autoPassthroughHosts.removeAll()
@@ -108,7 +182,6 @@ final class SSLProxyingManager {
     }
 
     /// Thread-safe check for hosts that should skip interception due to recent TLS failure.
-    /// Uses a 24-hour TTL for persisted entries before retrying interception.
     nonisolated func isAutoPassthrough(_ host: String) -> Bool {
         passthroughLock.lock()
         defer { passthroughLock.unlock() }
@@ -123,27 +196,50 @@ final class SSLProxyingManager {
     }
 
     func load() {
-        let url = Self.storageURL
+        let url = resolvedStorageURL
         if FileManager.default.fileExists(atPath: url.path) {
             do {
                 let data = try Data(contentsOf: url)
-                rules = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
-                Self.logger.info("Loaded \(self.rules.count) SSL proxying rules")
+                if let storage = try? JSONDecoder().decode(SSLProxyingStorage.self, from: data),
+                   storage.schemaVersion >= 2
+                {
+                    isEnabled = storage.isEnabled
+                    bypassDomains = storage.bypassDomains
+                    rules = storage.rules
+                    rebuildCache()
+                    Self.logger
+                        .info("Loaded v\(storage.schemaVersion) SSL proxying settings (\(self.rules.count) rules)")
+                } else {
+                    let legacyRules = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
+                    isEnabled = true
+                    bypassDomains = Self.defaultBypassDomains
+                    rules = legacyRules
+                    rebuildCache()
+                    Self.logger.info("Migrated \(legacyRules.count) legacy SSL proxying rules to v2")
+                    save()
+                }
             } catch {
                 Self.logger.error("Failed to load SSL proxying rules: \(error.localizedDescription)")
             }
         } else {
-            Self.logger.info("No SSL proxying rules file found, starting with empty list")
+            Self.logger.info("No SSL proxying rules file found, starting with defaults")
         }
+        rebuildBypassCache()
         loadPassthroughHosts()
     }
 
     func save() {
-        let url = Self.storageURL
+        let url = resolvedStorageURL
         do {
             let dir = url.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(rules)
+            let storage = SSLProxyingStorage(
+                schemaVersion: 2,
+                isEnabled: isEnabled,
+                bypassDomains: bypassDomains,
+                rules: rules
+            )
+            let data = try JSONEncoder().encode(storage)
             try data.write(to: url, options: .atomic)
             Self.logger.debug("Saved \(self.rules.count) SSL proxying rules")
         } catch {
@@ -154,14 +250,30 @@ final class SSLProxyingManager {
     func exportRules() -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try? encoder.encode(rules)
+        let storage = SSLProxyingStorage(
+            schemaVersion: 2,
+            isEnabled: isEnabled,
+            bypassDomains: bypassDomains,
+            rules: rules
+        )
+        return try? encoder.encode(storage)
     }
 
     func importRules(from data: Data) throws {
-        let decoded = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
-        rules = decoded
-        save()
-        Self.logger.info("Imported \(decoded.count) SSL proxying rules")
+        if let storage = try? JSONDecoder().decode(SSLProxyingStorage.self, from: data),
+           storage.schemaVersion >= 2
+        {
+            isEnabled = storage.isEnabled
+            bypassDomains = storage.bypassDomains
+            rebuildBypassCache()
+            replaceAllRules(storage.rules)
+        } else {
+            let decoded = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
+            isEnabled = true
+            bypassDomains = Self.defaultBypassDomains
+            rebuildBypassCache()
+            replaceAllRules(decoded)
+        }
     }
 
     func addPresets() {
@@ -193,9 +305,9 @@ final class SSLProxyingManager {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SSLProxyingManager")
-    private static let passthroughTTLSeconds: TimeInterval = 86_400 // 24 hours
+    private static let passthroughTTLSeconds: TimeInterval = 86_400
 
-    private static var storageURL: URL {
+    private static var defaultStorageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return appSupport
             .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
@@ -209,18 +321,57 @@ final class SSLProxyingManager {
             .appendingPathComponent("auto-passthrough-hosts.json")
     }
 
+    private var customStorageURL: URL?
+
     private let lock = NSLock()
-    nonisolated(unsafe) private var cachedEnabledRules: [SSLProxyingRule]
+    nonisolated(unsafe) private var cachedEnabledIncludeRules: [SSLProxyingRule]
+    nonisolated(unsafe) private var cachedEnabledExcludeRules: [SSLProxyingRule]
+    nonisolated(unsafe) private var cachedIsEnabled: Bool = true
 
     private let passthroughLock = NSLock()
     nonisolated(unsafe) private var autoPassthroughHosts: [String: Date] = [:]
     nonisolated(unsafe) private var _forceGlobalPassthrough = false
+    nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
+
+    private var resolvedStorageURL: URL {
+        customStorageURL ?? Self.defaultStorageURL
+    }
 
     private func rebuildCache() {
-        let enabled = rules.filter(\.isEnabled)
+        let enabledInclude = rules.filter { $0.isEnabled && $0.listType == .include }
+        let enabledExclude = rules.filter { $0.isEnabled && $0.listType == .exclude }
         lock.lock()
-        cachedEnabledRules = enabled
+        cachedEnabledIncludeRules = enabledInclude
+        cachedEnabledExcludeRules = enabledExclude
+        cachedIsEnabled = isEnabled
         lock.unlock()
+    }
+
+    private func rebuildBypassCache() {
+        let patterns = bypassDomains
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty }
+        passthroughLock.lock()
+        cachedBypassPatterns = patterns
+        passthroughLock.unlock()
+    }
+
+    nonisolated private func matchesBypassPattern(_ host: String, patterns: [String]) -> Bool {
+        let lowerHost = host.lowercased()
+        for pattern in patterns {
+            if pattern == "*" {
+                return true
+            } else if pattern.hasPrefix("*.") {
+                let suffix = String(pattern.dropFirst(1))
+                if lowerHost.hasSuffix(suffix), lowerHost.count > suffix.count {
+                    return true
+                }
+            } else if lowerHost == pattern {
+                return true
+            }
+        }
+        return false
     }
 
     private func loadPassthroughHosts() {
@@ -262,4 +413,14 @@ final class SSLProxyingManager {
             Self.logger.error("Failed to persist auto-passthrough hosts: \(error.localizedDescription)")
         }
     }
+}
+
+// MARK: - SSLProxyingStorage
+
+/// Versioned envelope for persisting SSL proxying settings.
+private struct SSLProxyingStorage: Codable {
+    let schemaVersion: Int
+    let isEnabled: Bool
+    let bypassDomains: String
+    let rules: [SSLProxyingRule]
 }

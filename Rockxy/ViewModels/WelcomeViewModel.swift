@@ -13,6 +13,7 @@ final class WelcomeViewModel {
     var certInstalled = false
     var certTrusted = false
     var helperStatus: HelperManager.HelperStatus = .notInstalled
+    var helperSigningIssue: HelperManager.SigningIssue?
     var systemProxyEnabled = false
     var isPerformingAction = false
     var errorMessage: String?
@@ -88,6 +89,51 @@ final class WelcomeViewModel {
         }
     }
 
+    func applyHelperState(
+        status: HelperManager.HelperStatus,
+        signingIssue: HelperManager.SigningIssue?
+    ) {
+        helperStatus = status
+        helperSigningIssue = signingIssue
+    }
+
+    func retryHelperConnection() async {
+        isPerformingAction = true
+        errorMessage = nil
+        defer { isPerformingAction = false }
+
+        await HelperManager.shared.retryConnection()
+        await refreshStatus()
+    }
+
+    func forceResetHelper() async {
+        isPerformingAction = true
+        errorMessage = nil
+        defer { isPerformingAction = false }
+
+        do {
+            try await HelperManager.shared.forceResetRegistration()
+            await refreshStatus()
+        } catch {
+            Self.logger.error("Failed to force-reset helper: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func reinstallHelper() async {
+        isPerformingAction = true
+        errorMessage = nil
+        defer { isPerformingAction = false }
+
+        do {
+            try await HelperManager.shared.reinstall()
+            await refreshStatus()
+        } catch {
+            Self.logger.error("Failed to reinstall helper: \(error.localizedDescription)")
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func updateHelper() async {
         isPerformingAction = true
         errorMessage = nil
@@ -124,7 +170,7 @@ final class WelcomeViewModel {
     private func apply(readiness: ReadinessCoordinator) {
         certInstalled = readiness.certReadiness != .notGenerated
         certTrusted = readiness.canInterceptHTTPS
-        helperStatus = readiness.helperReadiness
+        applyHelperState(status: readiness.helperReadiness, signingIssue: readiness.helperSigningIssue)
         systemProxyEnabled = SystemProxyManager.shared.isSystemProxyEnabled()
     }
 }

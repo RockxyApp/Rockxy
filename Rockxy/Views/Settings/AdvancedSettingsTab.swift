@@ -107,6 +107,18 @@ struct AdvancedSettingsTab: View {
                                     Task { await helperManager.checkStatus() }
                                 }
                                 .disabled(helperManager.isBusy)
+                                Button(String(localized: "Reset Registration")) {
+                                    Task {
+                                        do {
+                                            try await helperManager.forceResetRegistration()
+                                        } catch {
+                                            Self.logger.error(
+                                                "Failed to force-reset helper: \(error.localizedDescription)"
+                                            )
+                                        }
+                                    }
+                                }
+                                .disabled(helperManager.isBusy)
                             case .installedCompatible:
                                 Button(String(localized: "Check Again")) {
                                     Task { await helperManager.checkStatus() }
@@ -139,6 +151,22 @@ struct AdvancedSettingsTab: View {
                                     showUninstallConfirmation = true
                                 }
                                 .disabled(helperManager.isBusy)
+                            case .signingMismatch:
+                                if case .identityMismatch = helperManager.signingIssue {
+                                    Button(String(localized: "Reinstall Helper")) {
+                                        reinstallHelper()
+                                    }
+                                    .disabled(helperManager.isBusy)
+                                    Button(String(localized: "Uninstall")) {
+                                        showUninstallConfirmation = true
+                                    }
+                                    .disabled(helperManager.isBusy)
+                                } else {
+                                    Button(String(localized: "Check Again")) {
+                                        Task { await helperManager.checkStatus() }
+                                    }
+                                    .disabled(helperManager.isBusy)
+                                }
                             }
                         }
                     }
@@ -216,6 +244,12 @@ struct AdvancedSettingsTab: View {
             "arrow.triangle.2.circlepath.circle.fill"
         case .unreachable:
             "xmark.circle.fill"
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                "xmark.seal.fill"
+            } else {
+                "exclamationmark.triangle.fill"
+            }
         }
     }
 
@@ -232,6 +266,12 @@ struct AdvancedSettingsTab: View {
             .yellow
         case .unreachable:
             .red
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                .red
+            } else {
+                .orange
+            }
         }
     }
 
@@ -248,6 +288,12 @@ struct AdvancedSettingsTab: View {
             String(localized: "Update Available")
         case .unreachable:
             String(localized: "Unreachable")
+        case .signingMismatch:
+            if case .appSignatureInvalid = helperManager.signingIssue {
+                String(localized: "Invalid App Signature")
+            } else {
+                String(localized: "Signing Mismatch")
+            }
         }
     }
 
@@ -287,6 +333,9 @@ struct AdvancedSettingsTab: View {
             String(localized: "Installed helper version is incompatible with this app.")
         case .unreachable:
             String(localized: "Rockxy could not communicate with the helper over XPC.")
+        case .signingMismatch:
+            helperManager.lastErrorMessage
+                ?? String(localized: "The app and helper have mismatched signing certificates.")
         }
     }
 

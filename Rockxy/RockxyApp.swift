@@ -79,6 +79,7 @@ struct RockxyApp: App {
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+        .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Bypass Proxy List"), id: "bypassProxyList") {
             BypassProxyListView()

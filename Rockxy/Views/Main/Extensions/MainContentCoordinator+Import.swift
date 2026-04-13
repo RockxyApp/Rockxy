@@ -166,6 +166,7 @@ extension MainContentCoordinator {
             }
             recomputeFilteredTransactions()
             headerColumnStore.updateDiscoveredHeaders(from: transactions)
+            TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
 
             sessionProvenance = SessionProvenance(
                 fileName: fileName,
@@ -211,6 +212,7 @@ extension MainContentCoordinator {
 
             recomputeFilteredTransactions()
             headerColumnStore.updateDiscoveredHeaders(from: transactions)
+            TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
 
             sessionProvenance = SessionProvenance(
                 fileName: fileName,

@@ -255,7 +255,10 @@ enum ConnectionValidator {
         )
 
         guard validityStatus == errSecSuccess else {
-            logger.error("SecStaticCodeCheckValidity failed for \(label): \(validityStatus)")
+            let statusDesc = SecCopyErrorMessageString(validityStatus, nil) as String? ?? "unknown"
+            logger.error(
+                "SecStaticCodeCheckValidity failed for \(label): OSStatus \(validityStatus) (\(statusDesc))"
+            )
             return nil
         }
 
@@ -299,7 +302,11 @@ enum ConnectionValidator {
             let rhsData = SecCertificateCopyData(rhs[index]) as Data
 
             if lhsData != rhsData {
-                logger.debug("Certificate mismatch at chain index \(index)")
+                let lhsSummary = SecCertificateCopySubjectSummary(lhs[index]) as String? ?? "unknown"
+                let rhsSummary = SecCertificateCopySubjectSummary(rhs[index]) as String? ?? "unknown"
+                logger.debug(
+                    "Certificate mismatch at index \(index): self=\"\(lhsSummary)\" caller=\"\(rhsSummary)\""
+                )
                 return false
             }
         }

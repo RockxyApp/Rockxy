@@ -40,6 +40,9 @@ struct WelcomeView: View {
         .onChange(of: ReadinessCoordinator.shared.helperReadiness) {
             viewModel.syncFromCoordinator()
         }
+        .onChange(of: ReadinessCoordinator.shared.helperSigningIssue) {
+            viewModel.syncFromCoordinator()
+        }
         .onChange(of: ReadinessCoordinator.shared.proxyMode) {
             viewModel.syncFromCoordinator()
         }
@@ -85,6 +88,12 @@ struct WelcomeView: View {
                         .helperStatus == .installedIncompatible
                     {
                         await viewModel.updateHelper()
+                    } else if viewModel.helperStatus == .signingMismatch {
+                        if case .identityMismatch = viewModel.helperSigningIssue {
+                            await viewModel.reinstallHelper()
+                        }
+                    } else if viewModel.helperStatus == .unreachable {
+                        await viewModel.retryHelperConnection()
                     } else {
                         await viewModel.installHelper()
                     }
@@ -102,19 +111,10 @@ struct WelcomeView: View {
     }
 
     private var helperActionLabel: String? {
-        switch viewModel.helperStatus {
-        case .installedCompatible:
-            nil
-        case .installedOutdated,
-             .installedIncompatible:
-            String(localized: "Update")
-        case .notInstalled:
-            String(localized: "Install")
-        case .requiresApproval:
-            String(localized: "Open Settings")
-        case .unreachable:
-            String(localized: "Retry")
-        }
+        HelperManager.helperActionLabel(
+            status: viewModel.helperStatus,
+            signingIssue: viewModel.helperSigningIssue
+        )
     }
 
     private var appVersion: String {

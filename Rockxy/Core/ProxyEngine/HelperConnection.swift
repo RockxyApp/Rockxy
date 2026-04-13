@@ -15,6 +15,8 @@ enum HelperConnectionError: LocalizedError {
     case certInstallFailed(String)
     case certRemoveFailed(String)
     case bypassDomainsFailed(String)
+    case appSignatureInvalid(String)
+    case signingIdentityMismatch(app: String, helper: String)
 
     // MARK: Internal
 
@@ -36,8 +38,40 @@ enum HelperConnectionError: LocalizedError {
             "Helper failed to remove root certificate: \(reason)"
         case let .bypassDomainsFailed(reason):
             "Helper failed to set bypass domains: \(reason)"
+        case let .appSignatureInvalid(detail):
+            "This app build has an invalid code signature: \(detail)"
+        case let .signingIdentityMismatch(app, helper):
+            "This app is signed by \"\(app)\" but the installed helper was signed by \"\(helper)\""
         }
     }
+}
+
+// MARK: - SigningPreflightCache
+
+/// Memoized signing diagnostic. Caches the result until explicitly invalidated.
+/// Provider is injectable for tests.
+@MainActor
+final class SigningPreflightCache {
+    // MARK: Internal
+
+    var provider: () -> SigningDiagnostics.Result = { SigningDiagnostics.diagnose() }
+
+    func evaluate() -> SigningDiagnostics.Result {
+        if let cached {
+            return cached
+        }
+        let result = provider()
+        cached = result
+        return result
+    }
+
+    func invalidate() {
+        cached = nil
+    }
+
+    // MARK: Private
+
+    private var cached: SigningDiagnostics.Result?
 }
 
 // MARK: - HelperConnection
@@ -51,6 +85,8 @@ final class HelperConnection {
     // MARK: Internal
 
     static let shared = HelperConnection()
+
+    let signingCache = SigningPreflightCache()
 
     nonisolated static func performEmergencyProxyRestore(timeout: TimeInterval = 3) -> Bool {
         let connection = NSXPCConnection(machServiceName: Self.machServiceName, options: .privileged)
@@ -114,6 +150,10 @@ final class HelperConnection {
         }
 
         return succeeded
+    }
+
+    func invalidateSigningCache() {
+        signingCache.invalidate()
     }
 
     /// Check whether the helper daemon is installed and responding to XPC messages.
@@ -336,6 +376,7 @@ final class HelperConnection {
         }
         connection?.invalidate()
         connection = nil
+        signingCache.invalidate()
     }
 
     /// Set the system proxy bypass domain list via the helper tool.
@@ -563,8 +604,25 @@ final class HelperConnection {
 
     private var connection: NSXPCConnection?
 
+    /// Evaluate the signing preflight cache and throw a typed error if the
+    /// current app has a signing issue relative to the installed helper.
+    private func signingPreflight() throws {
+        let result = signingCache.evaluate()
+        switch result {
+        case let .appSignatureInvalid(detail):
+            throw HelperConnectionError.appSignatureInvalid(detail)
+        case let .signingIdentityMismatch(app, helper):
+            throw HelperConnectionError.signingIdentityMismatch(app: app, helper: helper)
+        case .healthy,
+             .helperBinaryNotFound,
+             .diagnosticError:
+            break
+        }
+    }
+
     /// Create or reuse an NSXPCConnection to the helper's Mach service.
     private func getProxy() throws -> any RockxyHelperProtocol {
+        try signingPreflight()
         let conn: NSXPCConnection
         if let existing = connection {
             conn = existing

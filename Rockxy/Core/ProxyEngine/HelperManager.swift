@@ -22,6 +22,27 @@ final class HelperManager {
         case installedOutdated
         case installedIncompatible
         case unreachable
+        case signingMismatch
+    }
+
+    /// Identifies the specific signing issue when status is `.signingMismatch`.
+    enum SigningIssue: Equatable {
+        case appSignatureInvalid(detail: String)
+        case identityMismatch(appSigner: String, helperSigner: String)
+    }
+
+    /// Normalized result from a helper info probe, scoped to the actual error surface.
+    enum ProbeOutcome: Equatable {
+        case appSignatureInvalid(detail: String)
+        case signingIdentityMismatch(appSigner: String, helperSigner: String)
+        case xpcFailure
+    }
+
+    /// Recovery action determined from a probe outcome.
+    enum RecoveryAction: Equatable {
+        case surfaceAppSignatureInvalid(detail: String)
+        case surfaceSigningMismatch(appSigner: String, helperSigner: String)
+        case attemptReRegistration
     }
 
     enum InstallDisposition: Equatable {
@@ -32,12 +53,20 @@ final class HelperManager {
 
     static let shared = HelperManager()
 
-    private(set) var status: HelperStatus = .notInstalled
+    private(set) var signingIssue: SigningIssue?
     private(set) var installedInfo: HelperInfo?
     private(set) var isReachable: Bool = false
     private(set) var lastErrorMessage: String?
     private(set) var isBusy: Bool = false
     private(set) var registrationStatus: String = "Unknown"
+
+    private(set) var status: HelperStatus = .notInstalled {
+        didSet {
+            if status != .signingMismatch {
+                signingIssue = nil
+            }
+        }
+    }
 
     var bundledHelperVersion: String {
         Bundle.main.infoDictionary?["RockxyBundledHelperVersion"] as? String ?? "0.0.0"
@@ -92,14 +121,105 @@ final class HelperManager {
         return helperApprovalMessage
     }
 
+    /// Classify a probe-path `HelperConnectionError` into a normalized outcome.
+    /// Only maps the error cases that actually occur on the probe path
+    /// (`getProxy()` → `getHelperInfo()`).
+    nonisolated static func classifyProbeError(_ error: HelperConnectionError) -> ProbeOutcome {
+        switch error {
+        case let .appSignatureInvalid(detail):
+            .appSignatureInvalid(detail: detail)
+        case let .signingIdentityMismatch(app, helper):
+            .signingIdentityMismatch(appSigner: app, helperSigner: helper)
+        default:
+            .xpcFailure
+        }
+    }
+
+    /// Determine recovery action from a normalized probe outcome.
+    nonisolated static func decideRecovery(probe: ProbeOutcome) -> RecoveryAction {
+        switch probe {
+        case let .appSignatureInvalid(detail):
+            .surfaceAppSignatureInvalid(detail: detail)
+        case let .signingIdentityMismatch(app, helper):
+            .surfaceSigningMismatch(appSigner: app, helperSigner: helper)
+        case .xpcFailure:
+            .attemptReRegistration
+        }
+    }
+
+    /// Action label for the helper step in Welcome and Settings views.
+    /// Returns `nil` when no action button should be shown.
+    nonisolated static func helperActionLabel(
+        status: HelperStatus,
+        signingIssue: SigningIssue?
+    )
+        -> String?
+    {
+        switch status {
+        case .installedCompatible:
+            nil
+        case .installedOutdated,
+             .installedIncompatible:
+            String(localized: "Update")
+        case .notInstalled:
+            String(localized: "Install")
+        case .requiresApproval:
+            String(localized: "Open Settings")
+        case .unreachable:
+            String(localized: "Retry")
+        case .signingMismatch:
+            switch signingIssue {
+            case .appSignatureInvalid:
+                nil
+            case .identityMismatch:
+                String(localized: "Reinstall")
+            case nil:
+                nil
+            }
+        }
+    }
+
+    /// Warning reason text for the signing mismatch case in readiness warnings.
+    nonisolated static func signingMismatchWarningReason(issue: SigningIssue?) -> String {
+        switch issue {
+        case .appSignatureInvalid:
+            String(
+                localized: "this app build has an invalid code signature \u{2014} clean the build folder and rebuild"
+            )
+        case .identityMismatch:
+            String(
+                localized: "the installed helper was signed by a different Rockxy build \u{2014} reinstall it from the current build"
+            )
+        case nil:
+            String(localized: "the helper tool has a signing issue")
+        }
+    }
+
+    /// Detect whether any helper state property changed, including `signingIssue`.
+    nonisolated static func helperStateDidChange(
+        previousStatus: HelperStatus, currentStatus: HelperStatus,
+        previousReachable: Bool, currentReachable: Bool,
+        previousInfo: HelperInfo?, currentInfo: HelperInfo?,
+        previousSigningIssue: SigningIssue?, currentSigningIssue: SigningIssue?
+    )
+        -> Bool
+    {
+        currentStatus != previousStatus
+            || currentReachable != previousReachable
+            || currentInfo != previousInfo
+            || currentSigningIssue != previousSigningIssue
+    }
+
     /// Register the helper daemon via SMAppService.
     ///
     /// On macOS 13+, this uses `SMAppService.daemon(plistName:).register()` which
     /// requires user approval in System Settings > Login Items.
     func install() async throws {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -107,7 +227,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
         try performInstall()
@@ -118,9 +239,11 @@ final class HelperManager {
 
     /// Uninstall the helper by preparing it via XPC, then unregistering from launchd.
     func uninstall() async throws {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -128,7 +251,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
         try await performUninstall()
@@ -136,9 +260,11 @@ final class HelperManager {
 
     /// Check whether the helper is installed, responding, and at the correct version.
     func checkStatus() async {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -146,7 +272,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
         await performCheckStatus()
@@ -156,9 +283,11 @@ final class HelperManager {
     /// After unregistering, BTM trust is cleared so re-registration may require
     /// user approval in System Settings > Login Items.
     func update() async throws {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -166,7 +295,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
 
@@ -193,9 +323,11 @@ final class HelperManager {
 
     /// Retry establishing connection with the helper.
     func retryConnection() async {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -203,7 +335,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
         HelperConnection.shared.resetConnection()
@@ -212,9 +345,11 @@ final class HelperManager {
 
     /// Reinstall the helper by uninstalling, then installing fresh.
     func reinstall() async throws {
+        HelperConnection.shared.invalidateSigningCache()
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
         lastErrorMessage = nil
         isBusy = true
         defer {
@@ -222,7 +357,8 @@ final class HelperManager {
             postStatusChangeIfNeeded(
                 previousStatus: previousStatus,
                 previousReachable: previousReachable,
-                previousInfo: previousInfo
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
             )
         }
         do {
@@ -236,6 +372,90 @@ final class HelperManager {
             throw error
         }
     }
+
+    /// Force-reset the helper registration to recover from BTM desync.
+    ///
+    /// When macOS Background Task Management gets into a stuck state where
+    /// `SMAppService` reports `.requiresApproval` but toggling the System Settings
+    /// switch has no effect, this method clears the registration and re-registers
+    /// with a longer delay to allow BTM to settle.
+    func forceResetRegistration() async throws {
+        HelperConnection.shared.invalidateSigningCache()
+        let previousStatus = status
+        let previousReachable = isReachable
+        let previousInfo = installedInfo
+        let previousSigningIssue = signingIssue
+        lastErrorMessage = nil
+        isBusy = true
+        defer {
+            isBusy = false
+            postStatusChangeIfNeeded(
+                previousStatus: previousStatus,
+                previousReachable: previousReachable,
+                previousInfo: previousInfo,
+                previousSigningIssue: previousSigningIssue
+            )
+        }
+
+        Self.logger.info("Force-resetting helper registration to recover from BTM desync")
+        let service = SMAppService.daemon(plistName: Self.plistName)
+
+        do {
+            try await service.unregister()
+        } catch {
+            Self.logger.warning("Unregister during force-reset: \(error.localizedDescription)")
+        }
+
+        status = .notInstalled
+        installedInfo = nil
+        isReachable = false
+        registrationStatus = "Not Registered"
+        HelperConnection.shared.resetConnection()
+
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+
+        do {
+            try performInstall()
+            if status != .requiresApproval {
+                await performCheckStatus()
+            }
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    // MARK: - Test Support
+
+    #if DEBUG
+    /// Inject a full helper state snapshot and route through the real
+    /// change-detection / notification emission pipeline.
+    func injectHelperStateForTests(
+        status: HelperStatus,
+        signingIssue: SigningIssue?,
+        isReachable: Bool = false,
+        installedInfo: HelperInfo? = nil,
+        lastErrorMessage: String? = nil
+    ) {
+        let previousStatus = self.status
+        let previousReachable = self.isReachable
+        let previousInfo = self.installedInfo
+        let previousSigningIssue = self.signingIssue
+
+        self.installedInfo = installedInfo
+        self.isReachable = isReachable
+        self.lastErrorMessage = lastErrorMessage
+        self.signingIssue = signingIssue
+        self.status = status
+
+        postStatusChangeIfNeeded(
+            previousStatus: previousStatus,
+            previousReachable: previousReachable,
+            previousInfo: previousInfo,
+            previousSigningIssue: previousSigningIssue
+        )
+    }
+    #endif
 
     // MARK: Private
 
@@ -253,11 +473,15 @@ final class HelperManager {
     private func postStatusChangeIfNeeded(
         previousStatus: HelperStatus,
         previousReachable: Bool,
-        previousInfo: HelperInfo?
+        previousInfo: HelperInfo?,
+        previousSigningIssue: SigningIssue?
     ) {
-        let changed = status != previousStatus
-            || isReachable != previousReachable
-            || installedInfo != previousInfo
+        let changed = Self.helperStateDidChange(
+            previousStatus: previousStatus, currentStatus: status,
+            previousReachable: previousReachable, currentReachable: isReachable,
+            previousInfo: previousInfo, currentInfo: installedInfo,
+            previousSigningIssue: previousSigningIssue, currentSigningIssue: signingIssue
+        )
         if changed {
             NotificationCenter.default.post(name: .helperStatusChanged, object: nil)
         }
@@ -338,6 +562,7 @@ final class HelperManager {
             status = .notInstalled
             installedInfo = nil
             isReachable = false
+            registrationStatus = "Not Registered"
             Self.logger.info("Helper tool uninstalled")
         } catch {
             lastErrorMessage = error.localizedDescription
@@ -385,8 +610,7 @@ final class HelperManager {
 
     /// Handle the case where SMAppService reports the helper as enabled.
     /// Checks XPC reachability, then evaluates protocol-aware compatibility.
-    /// Best-effort heuristic: XPC call failure → `.installedIncompatible`,
-    /// connection failure → `.unreachable`.
+    /// Signing-related failures are surfaced immediately without re-registration attempts.
     private func checkEnabledHelper(service: SMAppService) async {
         do {
             let info = try await probeHelperInfo()
@@ -394,34 +618,84 @@ final class HelperManager {
             isReachable = true
             lastErrorMessage = nil
             status = evaluateCompatibility(info)
+        } catch let error as HelperConnectionError {
+            let probe = Self.classifyProbeError(error)
+            let action = Self.decideRecovery(probe: probe)
+
+            switch action {
+            case let .surfaceAppSignatureInvalid(detail):
+                setSigningMismatchState(.appSignatureInvalid(detail: detail))
+                return
+
+            case let .surfaceSigningMismatch(app, helper):
+                setSigningMismatchState(.identityMismatch(appSigner: app, helperSigner: helper))
+                return
+
+            case .attemptReRegistration:
+                Self.logger.info(
+                    "Helper registered but not responding (\(error.localizedDescription)) — attempting re-registration"
+                )
+                do {
+                    guard try await reRegister(service: service) else {
+                        return
+                    }
+                    do {
+                        let info = try await probeHelperInfo()
+                        installedInfo = info
+                        isReachable = true
+                        lastErrorMessage = nil
+                        status = evaluateCompatibility(info)
+                    } catch let retryError as HelperConnectionError {
+                        let retryProbe = Self.classifyProbeError(retryError)
+                        let retryAction = Self.decideRecovery(probe: retryProbe)
+                        switch retryAction {
+                        case let .surfaceAppSignatureInvalid(detail):
+                            setSigningMismatchState(.appSignatureInvalid(detail: detail))
+                        case let .surfaceSigningMismatch(app, helper):
+                            setSigningMismatchState(.identityMismatch(appSigner: app, helperSigner: helper))
+                        case .attemptReRegistration:
+                            Self.logger.warning(
+                                "Helper still not responding after re-registration: \(retryError.localizedDescription)"
+                            )
+                            installedInfo = nil
+                            isReachable = false
+                            lastErrorMessage = String(
+                                localized: "Helper is installed but incompatible or unreachable. Try reinstalling the helper tool."
+                            )
+                            status = .installedIncompatible
+                        }
+                    } catch {
+                        Self.logger.warning(
+                            "Helper still not responding after re-registration: \(error.localizedDescription)"
+                        )
+                        installedInfo = nil
+                        isReachable = false
+                        lastErrorMessage = String(
+                            localized: "Helper is installed but incompatible or unreachable. Try reinstalling the helper tool."
+                        )
+                        status = .installedIncompatible
+                    }
+                } catch {
+                    Self.logger.warning("Re-registration failed: \(error.localizedDescription)")
+                    installedInfo = nil
+                    isReachable = false
+                    lastErrorMessage = error.localizedDescription
+                    status = .unreachable
+                }
+            }
         } catch {
             Self.logger.info(
                 "Helper registered but not responding (\(error.localizedDescription)) — attempting re-registration"
             )
             do {
-                try await service.unregister()
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                try service.register()
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                HelperConnection.shared.resetConnection()
-
-                do {
-                    let info = try await probeHelperInfo()
-                    installedInfo = info
-                    isReachable = true
-                    lastErrorMessage = nil
-                    status = evaluateCompatibility(info)
-                } catch {
-                    Self.logger.warning(
-                        "Helper still not responding after re-registration: \(error.localizedDescription)"
-                    )
-                    installedInfo = nil
-                    isReachable = false
-                    lastErrorMessage = String(
-                        localized: "Helper is installed but incompatible or unreachable. Try reinstalling the helper tool."
-                    )
-                    status = .installedIncompatible
+                guard try await reRegister(service: service) else {
+                    return
                 }
+                let info = try await probeHelperInfo()
+                installedInfo = info
+                isReachable = true
+                lastErrorMessage = nil
+                status = evaluateCompatibility(info)
             } catch {
                 Self.logger.warning("Re-registration failed: \(error.localizedDescription)")
                 installedInfo = nil
@@ -430,6 +704,69 @@ final class HelperManager {
                 status = .unreachable
             }
         }
+    }
+
+    /// Centralized state setter for signing mismatch conditions.
+    private func setSigningMismatchState(_ issue: SigningIssue) {
+        installedInfo = nil
+        isReachable = false
+        signingIssue = issue
+        switch issue {
+        case let .appSignatureInvalid(detail):
+            lastErrorMessage = String(
+                localized: """
+                This app build has an invalid code signature (\(detail)). \
+                Clean the build folder (Product \u{2192} Clean Build Folder) and rebuild, \
+                or use the release version of Rockxy.
+                """
+            )
+        case let .identityMismatch(app, helper):
+            lastErrorMessage = String(
+                localized: """
+                This app is signed by \u{201C}\(app)\u{201D} but the installed helper expects \
+                \u{201C}\(helper)\u{201D}. Reinstall the helper from the current build, \
+                or run the matching release version.
+                """
+            )
+        }
+        status = .signingMismatch
+    }
+
+    /// Attempt to re-register the helper via SMAppService, handling the case where
+    /// the new registration requires Login Items approval. Returns `true` if the
+    /// service is now enabled and probing should proceed, or `false` if approval is
+    /// required and the caller should stop the retry path.
+    private func reRegister(service: SMAppService) async throws -> Bool {
+        try await service.unregister()
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+
+        do {
+            try service.register()
+        } catch {
+            if Self.requiresApproval(error: error, serviceStatus: service.status) {
+                Self.logger.info("Re-registration requires user approval in System Settings")
+                status = .requiresApproval
+                registrationStatus = "Awaiting Approval"
+                lastErrorMessage = Self.approvalMessage(error: error, serviceStatus: service.status)
+                SMAppService.openSystemSettingsLoginItems()
+                return false
+            }
+            throw error
+        }
+
+        let currentStatus = service.status
+        if currentStatus == .requiresApproval {
+            Self.logger.info("Re-registered helper requires user approval in System Settings")
+            status = .requiresApproval
+            registrationStatus = "Awaiting Approval"
+            lastErrorMessage = Self.helperApprovalMessage
+            SMAppService.openSystemSettingsLoginItems()
+            return false
+        }
+
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        HelperConnection.shared.resetConnection()
+        return true
     }
 
     /// Evaluate helper compatibility based on protocol version and build number.
