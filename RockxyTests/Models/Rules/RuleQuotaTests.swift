@@ -7,12 +7,13 @@ import Testing
 /// Tests ``RulePolicyGate`` per-category active rule limits.
 ///
 /// Counts pre-existing rules in the shared ``RuleEngine`` before seeding,
-/// so tests are immune to cross-suite singleton pollution from parallel
-/// test processes.
+/// so tests are immune to cross-suite singleton pollution.
 @Suite(.serialized)
 @MainActor
 struct RuleQuotaTests {
     // MARK: Internal
+
+    // MARK: - Add / Toggle Quota
 
     @Test("Adding rule at quota is rejected")
     func addAtQuotaRejected() async {
@@ -62,17 +63,6 @@ struct RuleQuotaTests {
         await removeRules(ids)
     }
 
-    @Test("Cross-category independence")
-    func crossCategory() async {
-        let ids = await seedThrottleRules(count: 2)
-
-        let allRules = await RuleEngine.shared.allRules
-        let throttleCount = allRules.filter { $0.isEnabled && $0.action.toolCategory == "throttle" }.count
-        #expect(throttleCount >= 2)
-
-        await removeRules(ids)
-    }
-
     @Test("toolCategory mapping")
     func toolCategoryMapping() {
         #expect(RuleAction.block(statusCode: 403).toolCategory == "block")
@@ -84,43 +74,87 @@ struct RuleQuotaTests {
         #expect(RuleAction.networkCondition(preset: .custom, delayMs: 0).toolCategory == "networkCondition")
     }
 
-    // MARK: - Bulk Replace Quota
+    // MARK: - Atomic Concurrent Enables
 
-    @Test("capEnabledPerCategory caps excess in changed category only")
-    func bulkReplaceCapsChangedCategoryOnly() {
-        // Baseline: 2 blocks enabled, 1 throttle enabled
-        let baseline: [ProxyRule] = [
-            makeNamedRule(name: "B1", action: .block(statusCode: 403), enabled: true),
-            makeNamedRule(name: "B2", action: .block(statusCode: 403), enabled: true),
-            makeNamedRule(name: "T1", action: .throttle(delayMs: 100), enabled: true),
-        ]
-        // Replacement: enable ALL 4 blocks, keep 1 throttle
+    @Test("Concurrent rule enables through engine are serialized")
+    func concurrentRuleEnablesAreSerialized() async {
+        let baseline = await activeCount(for: "throttle")
+        let ids = await seedThrottleRules(count: 2)
+        let limit = baseline + 3
+
+        // Add 5 disabled throttle rules
+        var disabledIDs: [UUID] = []
+        for _ in 0 ..< 5 {
+            var rule = makeThrottle()
+            rule.isEnabled = false
+            await RuleEngine.shared.addRule(rule)
+            disabledIDs.append(rule.id)
+        }
+
+        // Try to enable all 5 concurrently — only 1 should succeed (limit = baseline+3, already have baseline+2)
+        await withTaskGroup(of: Bool.self) { group in
+            for id in disabledIDs {
+                group.addTask {
+                    await RuleEngine.shared.toggleRuleIfAllowed(id: id, maxPerCategory: limit)
+                }
+            }
+            var accepted = 0
+            for await ok in group where ok {
+                accepted += 1
+            }
+            #expect(accepted == 1)
+        }
+
+        for id in disabledIDs {
+            await RuleEngine.shared.removeRule(id: id)
+        }
+        await removeRules(ids)
+    }
+
+    // MARK: - Bulk Replace
+
+    @Test("capEnabledPerCategory preserves already-enabled rules first")
+    func bulkReplacePreservesAlreadyEnabled() {
+        let ruleA = makeNamedRule(name: "A", action: .mapLocal(filePath: "/a"), enabled: true)
+        let ruleB = makeNamedRule(name: "B", action: .mapLocal(filePath: "/b"), enabled: true)
+        let ruleC = makeNamedRule(name: "C", action: .mapLocal(filePath: "/c"), enabled: false)
+
+        let baseline: [ProxyRule] = [ruleA, ruleB, ruleC]
+
+        // Bulk enable all 3
         var replacement = baseline
-        replacement.append(makeNamedRule(name: "B3", action: .block(statusCode: 403), enabled: true))
-        replacement.append(makeNamedRule(name: "B4", action: .block(statusCode: 403), enabled: true))
+        replacement[2].isEnabled = true
 
-        let capped = RulePolicyGate.capEnabledPerCategory(replacement, limit: 3, baseline: baseline)
+        let capped = RulePolicyGate.capEnabledPerCategory(replacement, limit: 2, baseline: baseline)
+        let enabledIDs = Set(capped.filter(\.isEnabled).map(\.id))
+
+        // A and B were already enabled — they should survive. C is newly enabled — trimmed.
+        #expect(enabledIDs.contains(ruleA.id))
+        #expect(enabledIDs.contains(ruleB.id))
+        #expect(!enabledIDs.contains(ruleC.id))
+    }
+
+    @Test("capEnabledPerCategory does not touch unrelated categories")
+    func bulkReplacePreservesUnrelatedCategories() {
+        let block = makeNamedRule(name: "B1", action: .block(statusCode: 403), enabled: true)
+        let throttle = makeNamedRule(name: "T1", action: .throttle(delayMs: 100), enabled: true)
+
+        let baseline: [ProxyRule] = [block, throttle]
+
+        // Add 2 more blocks (exceeds limit of 2)
+        var replacement = baseline
+        replacement.append(makeNamedRule(name: "B2", action: .block(statusCode: 403), enabled: true))
+        replacement.append(makeNamedRule(name: "B3", action: .block(statusCode: 403), enabled: true))
+
+        let capped = RulePolicyGate.capEnabledPerCategory(replacement, limit: 2, baseline: baseline)
         let enabledBlocks = capped.filter { $0.isEnabled && $0.action.toolCategory == "block" }.count
         let enabledThrottles = capped.filter { $0.isEnabled && $0.action.toolCategory == "throttle" }.count
-        // Blocks capped at 3 (grew from 2 → 4, exceeds limit 3)
-        #expect(enabledBlocks == 3)
-        // Throttle untouched (was 1, still 1 — no growth beyond limit)
-        #expect(enabledThrottles == 1)
-    }
 
-    @Test("capEnabledPerCategory does not touch categories within quota")
-    func bulkReplacePreservesWithinQuota() {
-        let baseline: [ProxyRule] = [
-            makeNamedRule(name: "B1", action: .block(statusCode: 403), enabled: true),
-            makeNamedRule(name: "B2", action: .block(statusCode: 403), enabled: true),
-        ]
-        // No change — same rules
-        let capped = RulePolicyGate.capEnabledPerCategory(baseline, limit: 3, baseline: baseline)
-        let enabledBlocks = capped.filter { $0.isEnabled && $0.action.toolCategory == "block" }.count
         #expect(enabledBlocks == 2)
+        #expect(enabledThrottles == 1) // Untouched
     }
 
-    // MARK: - Policy Injection
+    // MARK: - Policy Injection (no cross-test pollution)
 
     @Test("Custom policy takes effect through .shared assignment")
     func customPolicyInjectable() {
@@ -134,23 +168,23 @@ struct RuleQuotaTests {
         #expect(RulePolicyGate.shared.policy.maxActiveRulesPerTool == 99)
     }
 
-    @Test("Multiple coordinators can each set different policy")
-    func multipleCoordinatorPolicies() {
+    @Test("Coordinator construction does not pollute shared gate")
+    func coordinatorDoesNotPolluteGate() {
         let saved = RulePolicyGate.shared
         defer { RulePolicyGate.shared = saved }
 
-        _ = MainContentCoordinator(policy: PolicyWithLimit(3))
-        #expect(RulePolicyGate.shared.policy.maxActiveRulesPerTool == 3)
+        RulePolicyGate.shared = RulePolicyGate(policy: PolicyWithLimit(42))
 
+        // Creating a coordinator should NOT overwrite the shared gate
         _ = MainContentCoordinator(policy: PolicyWithLimit(7))
-        #expect(RulePolicyGate.shared.policy.maxActiveRulesPerTool == 7)
+        #expect(RulePolicyGate.shared.policy.maxActiveRulesPerTool == 42)
     }
 
     // MARK: Private
 
     private func activeCount(for category: String) async -> Int {
-        let allRules = await RuleEngine.shared.allRules
-        return allRules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
+        await RuleEngine.shared.allRules
+            .filter { $0.isEnabled && $0.action.toolCategory == category }.count
     }
 
     private func makeThrottle() -> ProxyRule {
@@ -190,7 +224,6 @@ struct RuleQuotaTests {
 
 // MARK: - PolicyWithLimit
 
-/// Policy that sets the per-tool limit to a specific value.
 private struct PolicyWithLimit: AppPolicy {
     // MARK: Lifecycle
 

@@ -45,6 +45,7 @@ struct ContentView: View {
             openWindow(id: "diff")
         }
         .onAppear {
+            coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
         }
         .task {

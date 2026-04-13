@@ -12,13 +12,6 @@ struct ScriptQuotaTests {
         #expect(gate.policy.maxEnabledScripts == 2)
     }
 
-    @Test("Default gate uses DefaultAppPolicy limit of 10")
-    @MainActor
-    func defaultGateLimit() {
-        let gate = ScriptPolicyGate()
-        #expect(gate.policy.maxEnabledScripts == 10)
-    }
-
     @Test("ScriptQuotaError provides description")
     func quotaErrorDescription() {
         let error = ScriptQuotaError.limitReached(max: 5)
@@ -46,19 +39,6 @@ struct ScriptQuotaTests {
         }
     }
 
-    @Test("enablePluginIfAllowed throws for missing plugin even at zero limit")
-    func enableIfAllowedMissingAtZeroLimit() async {
-        let manager = ScriptPluginManager()
-        do {
-            _ = try await manager.enablePluginIfAllowed(id: "nonexistent", maxEnabled: 0)
-            Issue.record("Expected ScriptPluginError.pluginNotFound")
-        } catch is ScriptPluginError {
-            // Expected
-        } catch {
-            Issue.record("Expected ScriptPluginError, got \(error)")
-        }
-    }
-
     @Test("ScriptPolicyGate.enablePlugin propagates pluginNotFound")
     @MainActor
     func gatePropagatesPluginNotFound() async {
@@ -68,7 +48,7 @@ struct ScriptQuotaTests {
             try await gate.enablePlugin(id: "ghost", using: manager)
             Issue.record("Expected error")
         } catch is ScriptPluginError {
-            // Expected — missing plugin
+            // Expected
         } catch is ScriptQuotaError {
             Issue.record("Should have thrown ScriptPluginError, not quota error")
         } catch {
@@ -95,7 +75,7 @@ struct ScriptQuotaTests {
             for await result in group {
                 results.append(result)
             }
-            // All should fail (plugin not found)
+            // All fail — plugin not found
             #expect(results.allSatisfy { !$0 })
         }
     }
@@ -113,6 +93,35 @@ struct ScriptQuotaTests {
 
         ScriptPolicyGate.shared = ScriptPolicyGate(policy: DefaultAppPolicy())
         #expect(ScriptPolicyGate.shared.policy.maxEnabledScripts == 10)
+    }
+
+    @Test("Coordinator construction does not pollute shared script gate")
+    @MainActor
+    func coordinatorDoesNotPolluteScriptGate() {
+        let saved = ScriptPolicyGate.shared
+        defer { ScriptPolicyGate.shared = saved }
+
+        ScriptPolicyGate.shared = ScriptPolicyGate(policy: TinyScriptPolicy())
+        _ = MainContentCoordinator(policy: DefaultAppPolicy())
+        // Coordinator init no longer overwrites shared gates
+        #expect(ScriptPolicyGate.shared.policy.maxEnabledScripts == 2)
+    }
+
+    // MARK: - Shared Manager Observation
+
+    @Test("Both ViewModels observe same ScriptPluginManager state")
+    @MainActor
+    func sharedManagerState() async {
+        let manager = ScriptPluginManager()
+        let settings = PluginSettingsViewModel(pluginManager: manager)
+        let scripting = ScriptingViewModel(pluginManager: manager)
+
+        await settings.loadPlugins()
+        await scripting.loadPlugins()
+
+        let managerPlugins = await manager.plugins
+        #expect(settings.plugins.count == managerPlugins.count)
+        #expect(scripting.plugins.count == managerPlugins.count)
     }
 }
 

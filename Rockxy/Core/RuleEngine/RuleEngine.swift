@@ -127,6 +127,66 @@ actor RuleEngine {
         breakpointToolEnabled = enabled
     }
 
+    // MARK: - Atomic Quota-Checked Operations
+
+    func addRuleIfAllowed(_ rule: ProxyRule, maxPerCategory: Int) -> Bool {
+        guard rule.isEnabled else {
+            addRule(rule)
+            return true
+        }
+        let category = rule.action.toolCategory
+        let activeCount = rules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
+        guard activeCount < maxPerCategory else {
+            return false
+        }
+        addRule(rule)
+        return true
+    }
+
+    func toggleRuleIfAllowed(id: UUID, maxPerCategory: Int) -> Bool {
+        guard let index = rules.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        if rules[index].isEnabled {
+            rules[index].isEnabled = false
+            return true
+        }
+        let category = rules[index].action.toolCategory
+        let activeCount = rules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
+        guard activeCount < maxPerCategory else {
+            return false
+        }
+        rules[index].isEnabled = true
+        return true
+    }
+
+    func setEnabledIfAllowed(id: UUID, enabled: Bool, maxPerCategory: Int) -> Bool {
+        guard let index = rules.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        guard enabled else {
+            rules[index].isEnabled = false
+            return true
+        }
+        let category = rules[index].action.toolCategory
+        let activeCount = rules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
+        guard activeCount < maxPerCategory else {
+            return false
+        }
+        rules[index].isEnabled = true
+        return true
+    }
+
+    func addNetworkConditionExclusiveIfAllowed(_ rule: ProxyRule, maxPerCategory: Int) -> Bool {
+        let category = rule.action.toolCategory
+        let activeCount = rules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
+        guard activeCount < maxPerCategory else {
+            return false
+        }
+        addNetworkConditionExclusive(rule)
+        return true
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")

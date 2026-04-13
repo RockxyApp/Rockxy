@@ -33,21 +33,26 @@ actor ScriptPluginManager {
     func loadAllPlugins() async {
         plugins = await discovery.discoverPlugins()
         for i in plugins.indices where plugins[i].isEnabled {
+            let id = plugins[i].id
             do {
                 try await runtime.loadPlugin(plugins[i])
-                plugins[i].status = .active
+                // Re-resolve after await — another caller may have mutated plugins
+                if let j = plugins.firstIndex(where: { $0.id == id }) {
+                    plugins[j].status = .active
+                }
             } catch {
-                plugins[i].status = .error(error.localizedDescription)
-                Self.logger.error("Failed to load plugin \(self.plugins[i].id): \(error.localizedDescription)")
+                if let j = plugins.firstIndex(where: { $0.id == id }) {
+                    plugins[j].status = .error(error.localizedDescription)
+                }
+                Self.logger.error("Failed to load plugin \(id): \(error.localizedDescription)")
             }
         }
         Self.logger.info("Loaded \(self.plugins.count) plugins")
     }
 
-    /// Enable a plugin if the quota allows. Claims the enabled slot synchronously
-    /// before the first `await` so concurrent callers see the updated count.
-    /// Rolls back on load failure. Throws `ScriptPluginError.pluginNotFound` if
-    /// the plugin ID does not exist.
+    /// Atomically check quota, claim the enabled slot, load the runtime, and
+    /// commit or roll back. The count check + isEnabled = true happen before
+    /// the first await, so concurrent callers see the claimed slot.
     func enablePluginIfAllowed(id: String, maxEnabled: Int) async throws -> Bool {
         guard let index = plugins.firstIndex(where: { $0.id == id }) else {
             throw ScriptPluginError.pluginNotFound(id)
@@ -58,41 +63,56 @@ actor ScriptPluginManager {
             return false
         }
 
-        // Claim the slot synchronously — no await has occurred yet, so this
-        // is atomic with the count check above within the actor.
+        // Claim before first await — atomic with count check above
         plugins[index].isEnabled = true
 
         do {
             try await runtime.loadPlugin(plugins[index])
-            plugins[index].status = .active
+            // Re-resolve after await
+            if let j = plugins.firstIndex(where: { $0.id == id }) {
+                plugins[j].status = .active
+            }
             UserDefaults.standard.set(true, forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
             Self.logger.info("Enabled plugin: \(id)")
             return true
         } catch {
-            plugins[index].isEnabled = false
-            plugins[index].status = .error(error.localizedDescription)
+            // Roll back — re-resolve in case index shifted
+            if let j = plugins.firstIndex(where: { $0.id == id }) {
+                plugins[j].isEnabled = false
+                plugins[j].status = .error(error.localizedDescription)
+            }
             throw error
         }
     }
 
     func disablePlugin(id: String) async {
-        guard let index = plugins.firstIndex(where: { $0.id == id }) else {
+        guard plugins.contains(where: { $0.id == id }) else {
             return
         }
         await runtime.unloadPlugin(id: id)
-        plugins[index].isEnabled = false
-        plugins[index].status = .disabled
+        // Re-resolve after await
+        if let index = plugins.firstIndex(where: { $0.id == id }) {
+            plugins[index].isEnabled = false
+            plugins[index].status = .disabled
+        }
         UserDefaults.standard.set(false, forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
         Self.logger.info("Disabled plugin: \(id)")
     }
 
     func reloadPlugin(id: String) async throws {
-        guard let index = plugins.firstIndex(where: { $0.id == id }) else {
+        guard plugins.contains(where: { $0.id == id }) else {
             return
         }
         await runtime.unloadPlugin(id: id)
+        // Re-resolve after await
+        guard let index = plugins.firstIndex(where: { $0.id == id }) else {
+            return
+        }
         try await runtime.loadPlugin(plugins[index])
-        plugins[index].status = .active
+        // Re-resolve again after second await
+        if let j = plugins.firstIndex(where: { $0.id == id }) {
+            plugins[j].status = .active
+        }
         Self.logger.info("Reloaded plugin: \(id)")
     }
 
@@ -100,10 +120,14 @@ actor ScriptPluginManager {
         guard let index = plugins.firstIndex(where: { $0.id == id }) else {
             return
         }
+        let bundlePath = plugins[index].bundlePath
         await runtime.unloadPlugin(id: id)
-        try await discovery.uninstallPlugin(bundlePath: plugins[index].bundlePath)
+        try await discovery.uninstallPlugin(bundlePath: bundlePath)
+        // Re-resolve after awaits — remove by ID, not stale index
+        if let j = plugins.firstIndex(where: { $0.id == id }) {
+            plugins.remove(at: j)
+        }
         UserDefaults.standard.removeObject(forKey: RockxyIdentity.current.pluginEnabledKey(pluginID: id))
-        plugins.remove(at: index)
         Self.logger.info("Uninstalled plugin: \(id)")
     }
 

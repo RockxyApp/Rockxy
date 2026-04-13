@@ -17,8 +17,6 @@ final class MainContentCoordinator {
     init(policy: any AppPolicy = DefaultAppPolicy()) {
         self.policy = policy
         self.workspaceStore = WorkspaceStore(maxWorkspaces: policy.maxWorkspaceTabs)
-        RulePolicyGate.shared = RulePolicyGate(policy: policy)
-        ScriptPolicyGate.shared = ScriptPolicyGate(policy: policy)
     }
 
     // MARK: Internal
@@ -227,6 +225,14 @@ final class MainContentCoordinator {
         let persisted = persistedFavorites.filter(\.isSaved)
         let liveIds = Set(live.map(\.id))
         return live + persisted.filter { !liveIds.contains($0.id) }
+    }
+
+    /// Configure shared policy gates. Called once from the app's main
+    /// ContentView after the first coordinator is created. Separated from
+    /// init so test-created coordinators do not overwrite shared gate state.
+    func configureSharedGates() {
+        RulePolicyGate.shared = RulePolicyGate(policy: policy)
+        ScriptPolicyGate.shared = ScriptPolicyGate(policy: policy)
     }
 
     // MARK: - Transaction Lookup (migration seam — O(n), next issue replaces with indexed/store lookup)

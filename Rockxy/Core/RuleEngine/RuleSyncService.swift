@@ -52,6 +52,48 @@ enum RuleSyncService {
         await syncAll()
     }
 
+    // MARK: - Atomic Quota-Checked Operations
+
+    static func addRuleIfAllowed(_ rule: ProxyRule, maxPerCategory: Int) async -> Bool {
+        let accepted = await RuleEngine.shared.addRuleIfAllowed(rule, maxPerCategory: maxPerCategory)
+        if accepted {
+            await syncAll()
+        }
+        return accepted
+    }
+
+    static func toggleRuleIfAllowed(id: UUID, maxPerCategory: Int) async -> Bool {
+        let accepted = await RuleEngine.shared.toggleRuleIfAllowed(id: id, maxPerCategory: maxPerCategory)
+        await syncAll()
+        return accepted
+    }
+
+    static func setEnabledIfAllowed(id: UUID, enabled: Bool, maxPerCategory: Int) async -> Bool {
+        let accepted = await RuleEngine.shared.setEnabledIfAllowed(
+            id: id,
+            enabled: enabled,
+            maxPerCategory: maxPerCategory
+        )
+        await syncAll()
+        return accepted
+    }
+
+    static func addNetworkConditionExclusiveIfAllowed(
+        _ rule: ProxyRule,
+        maxPerCategory: Int
+    )
+        async -> Bool
+    {
+        let accepted = await RuleEngine.shared.addNetworkConditionExclusiveIfAllowed(
+            rule,
+            maxPerCategory: maxPerCategory
+        )
+        if accepted {
+            await syncAll()
+        }
+        return accepted
+    }
+
     static func setBreakpointToolEnabled(_ enabled: Bool) async {
         UserDefaults.standard.set(enabled, forKey: "breakpointToolEnabled")
         await RuleEngine.shared.setBreakpointToolEnabled(enabled)

@@ -5,8 +5,9 @@ import os
 /// per-category active rule limits. All rule-creating UI surfaces route
 /// add, toggle, and enable calls through this gate.
 ///
-/// Non-quota-affected operations (remove, update, disable) pass through
-/// directly to `RuleSyncService`.
+/// Quota-checked operations use atomic methods on ``RuleEngine`` (actor)
+/// that count + mutate in a single synchronous block, preventing
+/// concurrent enables from both passing.
 @MainActor
 final class RulePolicyGate {
     // MARK: Lifecycle
@@ -21,8 +22,9 @@ final class RulePolicyGate {
 
     let policy: any AppPolicy
 
-    /// Cap enabled rules only in categories that exceed the limit compared to the
-    /// `baseline`. Categories unchanged or within quota are left untouched.
+    /// Cap enabled rules only in categories that grew beyond the limit compared
+    /// to the `baseline`. Already-enabled rules in the baseline are preserved
+    /// first; only newly-enabled overflow is trimmed.
     static func capEnabledPerCategory(
         _ rules: [ProxyRule],
         limit: Int,
@@ -30,14 +32,13 @@ final class RulePolicyGate {
     )
         -> [ProxyRule]
     {
+        let baselineEnabled = enabledIDsByCategory(in: baseline)
+        let newCounts = enabledCounts(in: rules)
         let baselineCounts = enabledCounts(in: baseline)
-        var newCounts = enabledCounts(in: rules)
 
-        // Only enforce on categories that grew beyond the limit
         var categoriesToCap: Set<String> = []
         for (cat, count) in newCounts where count > limit {
-            let prior = baselineCounts[cat, default: 0]
-            if count > prior {
+            if count > baselineCounts[cat, default: 0] {
                 categoriesToCap.insert(cat)
             }
         }
@@ -48,75 +49,90 @@ final class RulePolicyGate {
 
         var result = rules
         var running: [String: Int] = [:]
+
+        // First pass: count already-enabled rules from baseline (they get priority)
         for index in result.indices where result[index].isEnabled {
             let cat = result[index].action.toolCategory
             guard categoriesToCap.contains(cat) else {
                 continue
             }
+            if baselineEnabled[cat]?.contains(result[index].id) == true {
+                running[cat, default: 0] += 1
+            }
+        }
+
+        // Cap running counts at limit (baseline might already exceed)
+        for cat in categoriesToCap {
+            if let count = running[cat], count > limit {
+                running[cat] = limit
+            }
+        }
+
+        // Second pass: disable newly-enabled rules that overflow
+        for index in result.indices where result[index].isEnabled {
+            let cat = result[index].action.toolCategory
+            guard categoriesToCap.contains(cat) else {
+                continue
+            }
+            if baselineEnabled[cat]?.contains(result[index].id) == true {
+                continue // Already counted in first pass
+            }
             let count = running[cat, default: 0]
             if count >= limit {
                 result[index].isEnabled = false
-                newCounts[cat] = (newCounts[cat] ?? 0) - 1
             } else {
                 running[cat] = count + 1
             }
         }
+
         return result
     }
 
-    // MARK: - Quota-Checked Operations
+    // MARK: - Atomic Quota-Checked Operations
 
     @discardableResult
     func addRule(_ rule: ProxyRule) async -> Bool {
-        if rule.isEnabled {
-            guard await canAddActiveRule(action: rule.action) else {
-                Self.logger.info("Rule quota reached for \(rule.action.toolCategory)")
-                return false
-            }
+        let accepted = await RuleSyncService.addRuleIfAllowed(rule, maxPerCategory: policy.maxActiveRulesPerTool)
+        if !accepted {
+            Self.logger.info("Rule quota reached for \(rule.action.toolCategory)")
         }
-        await RuleSyncService.addRule(rule)
-        return true
+        return accepted
     }
 
     @discardableResult
     func toggleRule(id: UUID) async -> Bool {
-        let allRules = await RuleEngine.shared.allRules
-        guard let rule = allRules.first(where: { $0.id == id }) else {
-            return false
+        let accepted = await RuleSyncService.toggleRuleIfAllowed(
+            id: id,
+            maxPerCategory: policy.maxActiveRulesPerTool
+        )
+        if !accepted {
+            Self.logger.info("Cannot toggle rule — quota reached")
         }
-        if !rule.isEnabled {
-            guard await canAddActiveRule(action: rule.action) else {
-                Self.logger.info("Cannot enable rule — quota reached for \(rule.action.toolCategory)")
-                return false
-            }
-        }
-        await RuleSyncService.toggleRule(id: id)
-        return true
+        return accepted
     }
 
     @discardableResult
     func setRuleEnabled(id: UUID, enabled: Bool) async -> Bool {
-        if enabled {
-            let allRules = await RuleEngine.shared.allRules
-            guard let rule = allRules.first(where: { $0.id == id }) else {
-                return false
-            }
-            guard await canAddActiveRule(action: rule.action) else {
-                Self.logger.info("Cannot enable rule — quota reached for \(rule.action.toolCategory)")
-                return false
-            }
+        let accepted = await RuleSyncService.setEnabledIfAllowed(
+            id: id,
+            enabled: enabled,
+            maxPerCategory: policy.maxActiveRulesPerTool
+        )
+        if !accepted {
+            Self.logger.info("Cannot enable rule — quota reached")
         }
-        await RuleSyncService.setRuleEnabled(id: id, enabled: enabled)
-        return true
+        return accepted
     }
 
     func addNetworkConditionExclusive(_ rule: ProxyRule) async -> Bool {
-        guard await canAddActiveRule(action: rule.action) else {
+        let accepted = await RuleSyncService.addNetworkConditionExclusiveIfAllowed(
+            rule,
+            maxPerCategory: policy.maxActiveRulesPerTool
+        )
+        if !accepted {
             Self.logger.info("Rule quota reached for networkCondition")
-            return false
         }
-        await RuleSyncService.addNetworkConditionExclusive(rule)
-        return true
+        return accepted
     }
 
     // MARK: - Pass-Through Operations (no quota impact)
@@ -162,10 +178,11 @@ final class RulePolicyGate {
         return counts
     }
 
-    private func canAddActiveRule(action: RuleAction) async -> Bool {
-        let allRules = await RuleEngine.shared.allRules
-        let category = action.toolCategory
-        let activeCount = allRules.filter { $0.isEnabled && $0.action.toolCategory == category }.count
-        return activeCount < policy.maxActiveRulesPerTool
+    private static func enabledIDsByCategory(in rules: [ProxyRule]) -> [String: Set<UUID>] {
+        var result: [String: Set<UUID>] = [:]
+        for rule in rules where rule.isEnabled {
+            result[rule.action.toolCategory, default: []].insert(rule.id)
+        }
+        return result
     }
 }
