@@ -16,6 +16,7 @@ final class MainContentCoordinator {
 
     init(policy: any AppPolicy = DefaultAppPolicy()) {
         self.policy = policy
+        self.workspaceStore = WorkspaceStore(maxWorkspaces: policy.maxWorkspaceTabs)
     }
 
     // MARK: Internal
@@ -93,7 +94,7 @@ final class MainContentCoordinator {
 
     // MARK: - Workspace Tabs
 
-    var workspaceStore = WorkspaceStore()
+    var workspaceStore: WorkspaceStore
     var previewTabStore = PreviewTabStore()
     var headerColumnStore = HeaderColumnStore()
 

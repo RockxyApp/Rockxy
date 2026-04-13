@@ -57,6 +57,7 @@ struct WorkspaceTabStrip: View {
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
+        .disabled(store.workspaces.count >= store.maxWorkspaces)
         .help(String(localized: "New Tab"))
     }
 }

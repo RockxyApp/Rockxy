@@ -7,7 +7,8 @@ import os
 final class WorkspaceStore {
     // MARK: Lifecycle
 
-    init() {
+    init(maxWorkspaces: Int = 8) {
+        self.maxWorkspaces = maxWorkspaces
         let defaultWorkspace = WorkspaceState(
             title: String(localized: "All Traffic"),
             isClosable: false
@@ -18,7 +19,7 @@ final class WorkspaceStore {
 
     // MARK: Internal
 
-    static let maxWorkspaces = 8
+    let maxWorkspaces: Int
 
     var workspaces: [WorkspaceState]
     var activeWorkspaceID: UUID
@@ -38,8 +39,8 @@ final class WorkspaceStore {
     )
         -> WorkspaceState
     {
-        guard workspaces.count < Self.maxWorkspaces else {
-            Self.logger.warning("Maximum workspace count (\(Self.maxWorkspaces)) reached")
+        guard workspaces.count < maxWorkspaces else {
+            Self.logger.warning("Maximum workspace count (\(self.maxWorkspaces)) reached")
             return activeWorkspace
         }
         let workspace = WorkspaceState(
@@ -112,7 +113,7 @@ final class WorkspaceStore {
 
     func duplicateWorkspace(id: UUID) -> WorkspaceState? {
         guard let source = workspaces.first(where: { $0.id == id }),
-              workspaces.count < Self.maxWorkspaces else
+              workspaces.count < maxWorkspaces else
         {
             return nil
         }
