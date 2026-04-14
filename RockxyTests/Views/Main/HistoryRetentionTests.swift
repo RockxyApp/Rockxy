@@ -50,6 +50,36 @@ struct HistoryRetentionTests {
         #expect(coordinator.cachedSessionStore == nil)
     }
 
+    @Test("TrafficSessionManager posts eviction notification when buffer overflows")
+    @MainActor
+    func sessionManagerEvictionNotification() async {
+        let manager = TrafficSessionManager()
+        await manager.setMaxBufferSize(20)
+        await manager.setOnBatchReady { _ in }
+
+        var evictionCount: Int?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bufferEvictionRequested, object: nil, queue: .main
+        ) { notification in
+            evictionCount = notification.userInfo?["count"] as? Int
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        // Add 50 transactions to trigger flushAndDeliver via batch-size threshold.
+        // totalBuffered becomes 50, which exceeds maxBufferSize (20),
+        // so evictOldest() fires and posts the notification.
+        for i in 0 ..< 50 {
+            await manager.addTransaction(
+                TestFixtures.makeTransaction(url: "https://evict-actor.com/\(i)")
+            )
+        }
+
+        // evictOldest() posts via Task { await MainActor.run { ... } }
+        try? await Task.sleep(for: .milliseconds(100))
+
+        #expect(evictionCount == 2) // maxBufferSize / 10 = 20 / 10
+    }
+
     @Test("Pinned/saved transactions are independent of live buffer")
     @MainActor
     func pinnedSavedIndependent() {

@@ -221,7 +221,7 @@ struct ScriptQuotaTests {
         let scripting = ScriptingViewModel()
 
         await settings.loadPlugins()
-        scripting.plugins = await PluginManager.shared.scriptManager.plugins
+        await scripting.loadPlugins()
 
         #expect(settings.plugins.contains { $0.id == id })
         #expect(scripting.plugins.contains { $0.id == id })
@@ -269,6 +269,13 @@ struct ScriptQuotaTests {
                 successes += 1
             }
             #expect(successes == 2)
+        }
+
+        // Verify postcondition: both plugins are actually enabled in the shared manager
+        let finalPlugins = await manager.plugins
+        for id in pluginIDs {
+            let plugin = finalPlugins.first { $0.id == id }
+            #expect(plugin?.isEnabled == true)
         }
     }
 }
