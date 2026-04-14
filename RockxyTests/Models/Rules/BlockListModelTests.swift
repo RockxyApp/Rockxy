@@ -459,8 +459,13 @@ struct BlockListViewModelTests {
         // Optimistic append happened
         #expect(vm.blockRules.count == beforeCount + 1)
 
-        // Wait for async rollback — same cooperative yield convention as RuleCoordinatorWiringTests
-        try? await Task.sleep(for: .milliseconds(500))
+        // Wait for the async rollback — poll with bounded yields
+        for _ in 0 ..< 200 {
+            if vm.blockRules.count == beforeCount {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(vm.blockRules.count == beforeCount)
 
@@ -498,8 +503,13 @@ struct BlockListViewModelTests {
         let optimistic = vm.allRules.first { $0.id == disabled.id }
         #expect(optimistic?.isEnabled == true)
 
-        // Wait for async gate rejection and rollback
-        try? await Task.sleep(for: .milliseconds(500))
+        // Wait for the async rollback — poll with bounded yields
+        for _ in 0 ..< 200 {
+            if vm.allRules.first(where: { $0.id == disabled.id })?.isEnabled == false {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         // After rollback, the rule should be disabled again (gate rejected the enable)
         let afterRollback = vm.allRules.first { $0.id == disabled.id }

@@ -21,18 +21,31 @@ struct RuleCoordinatorWiringTests {
         let coordinator = MainContentCoordinator()
         await RuleSyncService.replaceAllRules([])
 
-        var notificationFired = false
-        let observer = NotificationCenter.default.addObserver(
-            forName: .rulesDidChange, object: nil, queue: .main
-        ) { _ in notificationFired = true }
-        defer { NotificationCenter.default.removeObserver(observer) }
-
         let rule = TestFixtures.makeRule(name: "WiringAdd", action: .block(statusCode: 403))
-        coordinator.addRule(rule)
 
-        try? await Task.sleep(for: .milliseconds(100))
+        // Wait for .rulesDidChange deterministically instead of fixed sleep
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let observer = NotificationCenter.default.addObserver(
+                forName: .rulesDidChange, object: nil, queue: .main
+            ) { _ in
+                guard !resumed else {
+                    return
+                }
+                resumed = true
+                continuation.resume()
+            }
+            coordinator.addRule(rule)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                guard !resumed else {
+                    return
+                }
+                resumed = true
+                NotificationCenter.default.removeObserver(observer)
+                continuation.resume()
+            }
+        }
 
-        #expect(notificationFired)
         #expect(coordinator.activeToast == nil)
 
         let engineRules = await RuleEngine.shared.allRules
@@ -54,9 +67,15 @@ struct RuleCoordinatorWiringTests {
 
         let coordinator = MainContentCoordinator()
         let overflow = TestFixtures.makeRule(name: "Overflow", action: .block(statusCode: 403))
-        coordinator.addRule(overflow)
 
-        try? await Task.sleep(for: .milliseconds(100))
+        // Rejection path does NOT call syncAll — poll for toast
+        coordinator.addRule(overflow)
+        for _ in 0 ..< 200 {
+            if coordinator.activeToast != nil {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(coordinator.activeToast != nil)
         #expect(coordinator.activeToast?.style == .error)
@@ -81,21 +100,31 @@ struct RuleCoordinatorWiringTests {
 
         let coordinator = MainContentCoordinator()
 
-        var notificationFired = false
-        let observer = NotificationCenter.default.addObserver(
-            forName: .rulesDidChange, object: nil, queue: .main
-        ) { _ in notificationFired = true }
-        defer { NotificationCenter.default.removeObserver(observer) }
-        notificationFired = false
+        // Wait for .rulesDidChange deterministically
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let observer = NotificationCenter.default.addObserver(
+                forName: .rulesDidChange, object: nil, queue: .main
+            ) { _ in
+                guard !resumed else {
+                    return
+                }
+                resumed = true
+                continuation.resume()
+            }
+            coordinator.toggleRule(id: rule.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                guard !resumed else {
+                    return
+                }
+                resumed = true
+                NotificationCenter.default.removeObserver(observer)
+                continuation.resume()
+            }
+        }
 
-        coordinator.toggleRule(id: rule.id)
-
-        try? await Task.sleep(for: .milliseconds(100))
-
-        #expect(notificationFired)
         #expect(coordinator.activeToast == nil)
 
-        // Verify the rule is actually disabled in the engine
         let engineRules = await RuleEngine.shared.allRules
         let toggled = engineRules.first { $0.id == rule.id }
         #expect(toggled?.isEnabled == false)
@@ -119,9 +148,15 @@ struct RuleCoordinatorWiringTests {
         RulePolicyGate.shared = RulePolicyGate(policy: TinyRulePolicy())
 
         let coordinator = MainContentCoordinator()
-        coordinator.toggleRule(id: disabled.id)
 
-        try? await Task.sleep(for: .milliseconds(100))
+        // Poll for toast (deterministic, no timing dependency)
+        coordinator.toggleRule(id: disabled.id)
+        for _ in 0 ..< 200 {
+            if coordinator.activeToast != nil {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
 
         #expect(coordinator.activeToast != nil)
         #expect(coordinator.activeToast?.style == .error)

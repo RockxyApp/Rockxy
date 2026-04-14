@@ -172,15 +172,11 @@ extension MainContentCoordinator {
         clearAllWorkspaces()
         resetTrafficMetrics()
 
-        // Reset the actor-side buffer and increment generation atomically.
-        // Awaiting ensures the actor's generation is updated before any new
-        // traffic can be flushed, so fresh post-clear batches carry the new
-        // generation and are not falsely rejected. Pre-clear in-flight
-        // batches carry the old generation and are correctly dropped.
-        Task {
-            await sessionManager.resetBufferState()
-            sessionGeneration = await sessionManager.currentGeneration
-        }
+        // Reset actor-side pending buffer and increment actor generation.
+        // The callback in setOnBatchReady updates sessionGeneration from
+        // the actor's generation on every batch delivery, so fresh post-clear
+        // traffic is accepted and pre-clear in-flight batches are dropped.
+        Task { await sessionManager.resetBufferState() }
 
         // Advance nextSequenceNumber past highest assigned to any remaining persisted favorite
         if persistedFavorites.isEmpty {
@@ -226,6 +222,9 @@ extension MainContentCoordinator {
                 return
             }
             Task { @MainActor in
+                // Update sessionGeneration from the actor's generation on every batch
+                // so it is always in sync before processBatch checks it.
+                self.sessionGeneration = generation
                 self.processBatch(batch, generation: generation)
             }
         }

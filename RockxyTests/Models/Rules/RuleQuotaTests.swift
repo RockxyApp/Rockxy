@@ -157,6 +157,7 @@ struct RuleQuotaTests {
     // MARK: - Policy Injection (no cross-test pollution)
 
     @Test("Custom policy takes effect through .shared assignment")
+
     func customPolicyInjectable() {
         let saved = RulePolicyGate.shared
         defer { RulePolicyGate.shared = saved }
@@ -169,6 +170,7 @@ struct RuleQuotaTests {
     }
 
     @Test("Coordinator construction does not pollute shared gate")
+    @MainActor
     func coordinatorDoesNotPolluteGate() {
         let saved = RulePolicyGate.shared
         defer { RulePolicyGate.shared = saved }
@@ -313,6 +315,7 @@ struct RuleQuotaTests {
     // MARK: - Rule Loading Race Regression
 
     @Test("ruleLoadTask is nil on fresh coordinator")
+    @MainActor
     func ruleLoadTaskInitialState() {
         let coordinator = MainContentCoordinator()
         #expect(coordinator.ruleLoadTask == nil)
@@ -320,6 +323,7 @@ struct RuleQuotaTests {
     }
 
     @Test("loadInitialRules fires async load without blocking")
+    @MainActor
     func loadInitialRulesIsAsync() async {
         let engineSnapshot = await RuleEngine.shared.allRules
         let coordinator = MainContentCoordinator()
