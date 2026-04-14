@@ -227,6 +227,50 @@ struct ScriptQuotaTests {
         #expect(scripting.plugins.contains { $0.id == id })
         #expect(settings.plugins.count == scripting.plugins.count)
     }
+
+    @Test("PluginManager.shared returns same instance")
+    func pluginManagerSingletonIdentity() {
+        let first = PluginManager.shared
+        let second = PluginManager.shared
+        #expect(first === second)
+    }
+
+    @Test("Concurrent enable of 2 real plugins both succeed at high limit")
+    func concurrentRealPluginSuccess() async throws {
+        var pluginIDs: [String] = []
+        var pluginDirs: [URL] = []
+        for i in 0 ..< 2 {
+            let id = "concurrent-real-\(i)-\(UUID().uuidString.prefix(8))"
+            let dir = try TestFixtures.createTempPlugin(id: id, enabled: false)
+            pluginIDs.append(id)
+            pluginDirs.append(dir)
+        }
+        defer {
+            for (id, dir) in zip(pluginIDs, pluginDirs) {
+                TestFixtures.cleanupTempPlugin(id: id, bundlePath: dir)
+            }
+        }
+
+        let manager = ScriptPluginManager()
+        await manager.loadAllPlugins()
+
+        await withTaskGroup(of: Bool.self) { group in
+            for id in pluginIDs {
+                group.addTask {
+                    do {
+                        return try await manager.enablePluginIfAllowed(id: id, maxEnabled: 10)
+                    } catch {
+                        return false
+                    }
+                }
+            }
+            var successes = 0
+            for await result in group where result {
+                successes += 1
+            }
+            #expect(successes == 2)
+        }
+    }
 }
 
 // MARK: - TinyScriptPolicy
