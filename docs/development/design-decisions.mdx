@@ -17,7 +17,7 @@ macOS requires admin authentication for each `networksetup` call. The helper too
 
 ## Actor-Based Concurrency Model
 
-The proxy server, session managers, and certificate manager are all Swift actors. This eliminates data races without manual locking. The coordinator bridges actor-isolated state to `@MainActor` for SwiftUI consumption via batched updates (every 250ms).
+The proxy server, session managers, and certificate manager are all Swift actors. This eliminates data races without manual locking. The coordinator bridges actor-isolated state to `@MainActor` for SwiftUI consumption via batched updates (every 100ms).
 
 ### Three Isolation Domains
 
@@ -38,7 +38,7 @@ JavaScript plugins run in JavaScriptCore with a controlled bridge API (`$rockxy`
 | **NSTableView virtual scrolling** | 100k+ rows with cell reuse, O(1) scroll performance |
 | **Ring buffer eviction** | At 50k transactions, oldest 10% moved to SQLite or discarded |
 | **Body offloading** | Response/request bodies >1MB stored on disk, loaded on-demand |
-| **Batched UI updates** | Proxy transactions batched every 250ms or 50 items before UI delivery |
+| **Batched UI updates** | Proxy transactions batched every 100ms or 50 items before UI delivery |
 | **O(1) string length** | `NSString.length` instead of `String.count` for large bodies |
 | **Log buffer cap** | 100k entries in-memory, overflow to SQLite |
 | **Concurrent NIO threads** | `System.coreCount` event loop threads |
@@ -52,7 +52,7 @@ JavaScript plugins run in JavaScriptCore with a controlled bridge API (`$rockxy`
 | Saved sessions | SQLite | `SessionStore` |
 | Root CA private key | macOS Keychain | `KeychainHelper` |
 | Rules | JSON file | `RuleStore` |
-| Large bodies (>1MB) | Disk files | `~/Library/Application Support/Rockxy/bodies/` |
+| Large bodies (>1MB) | Disk files | `~/Library/Application Support/com.amunx.rockxy/bodies/` or `~/Library/Application Support/com.amunx.rockxy.community/bodies/` depending on the active build |
 | Log entries | SQLite | `SessionStore` (log_entries table) |
 | Proxy backup | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
 | Plugins | JS files + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
