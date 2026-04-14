@@ -312,15 +312,19 @@ struct RuleQuotaTests {
 
     // MARK: - Rule Loading Race Regression
 
-    @Test("rulesLoaded is false until loadFromDisk completes")
-    func rulesLoadedAfterCompletion() {
+    @Test("ruleLoadTask is nil on fresh coordinator")
+    func ruleLoadTaskInitialState() {
         let coordinator = MainContentCoordinator()
+        #expect(coordinator.ruleLoadTask == nil)
         #expect(!coordinator.rulesLoaded)
-        // loadInitialRules fires the async load but does NOT
-        // set rulesLoaded = true synchronously
+    }
+
+    @Test("loadInitialRules fires async load without blocking")
+    func loadInitialRulesIsAsync() {
+        let coordinator = MainContentCoordinator()
         coordinator.loadInitialRules()
-        // rulesLoaded is still false immediately after the call
-        // (the Task hasn't completed yet)
+        // Task is stored but not yet completed
+        #expect(coordinator.ruleLoadTask != nil)
         #expect(!coordinator.rulesLoaded)
     }
 

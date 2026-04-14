@@ -39,14 +39,7 @@ extension MainContentCoordinator {
                     }
                 }
 
-                if !rulesLoaded {
-                    if let existing = rulesLoadingTask {
-                        await existing.value
-                    } else {
-                        loadInitialRules()
-                        await rulesLoadingTask?.value
-                    }
-                }
+                await ensureRulesLoaded()
                 Self.logger.info("Rules loaded")
 
                 let resolution = try ProxyPortResolver.resolve(
