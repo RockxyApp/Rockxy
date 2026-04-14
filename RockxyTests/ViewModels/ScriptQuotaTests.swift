@@ -216,15 +216,18 @@ struct ScriptQuotaTests {
 
     // MARK: - Default Wiring
 
-    @Test("Default-init settings and scripting VMs discover same plugin")
+    @Test("Settings and scripting VMs backed by same manager discover same plugin")
     @MainActor
-    func defaultWiringBothVMsDiscover() async throws {
-        let id = "default-wiring-\(UUID().uuidString.prefix(8))"
-        let pluginDir = try TestFixtures.createTempPlugin(id: id, enabled: false)
-        defer { TestFixtures.cleanupTempPlugin(id: id, bundlePath: pluginDir) }
+    func sharedManagerBothVMsDiscover() async throws {
+        let pluginsDir = TestFixtures.makeIsolatedPluginDir()
+        defer { TestFixtures.cleanupIsolatedPluginDir(pluginsDir) }
 
-        let settings = PluginSettingsViewModel()
-        let scripting = ScriptingViewModel()
+        let id = "default-wiring-\(UUID().uuidString.prefix(8))"
+        _ = try TestFixtures.createTempPlugin(id: id, enabled: false, in: pluginsDir)
+
+        let manager = TestFixtures.makeIsolatedPluginManager(pluginsDir: pluginsDir)
+        let settings = PluginSettingsViewModel(pluginManager: manager)
+        let scripting = ScriptingViewModel(pluginManager: manager)
 
         await settings.loadPlugins()
         await scripting.loadPlugins()
