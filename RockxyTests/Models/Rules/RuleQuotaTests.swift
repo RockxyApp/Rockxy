@@ -320,12 +320,16 @@ struct RuleQuotaTests {
     }
 
     @Test("loadInitialRules fires async load without blocking")
-    func loadInitialRulesIsAsync() {
+    func loadInitialRulesIsAsync() async {
+        let engineSnapshot = await RuleEngine.shared.allRules
         let coordinator = MainContentCoordinator()
         coordinator.loadInitialRules()
-        // Task is stored but not yet completed
         #expect(coordinator.ruleLoadTask != nil)
         #expect(!coordinator.rulesLoaded)
+
+        // Await completion so the background Task doesn't contend with later tests
+        await coordinator.ruleLoadTask?.value
+        await RuleEngine.shared.replaceAll(engineSnapshot)
     }
 
     // MARK: Private

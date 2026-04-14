@@ -19,7 +19,6 @@ struct RuleCoordinatorWiringTests {
         RulePolicyGate.shared = RulePolicyGate(policy: LargePolicy())
 
         let coordinator = MainContentCoordinator()
-        coordinator.setupRulesObserver()
         await RuleSyncService.replaceAllRules([])
 
         var notificationFired = false

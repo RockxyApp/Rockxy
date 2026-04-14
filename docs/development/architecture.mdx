@@ -32,7 +32,7 @@ The design goal is to keep packet processing off the main thread, keep privilege
 
 ```mermaid
 flowchart TB
-    subgraph UI["UI Process: Rockxy Community.app"]
+    subgraph UI["UI Process: Rockxy.app"]
         Menus["Menus / Commands"]
         Windows["SwiftUI + AppKit Windows"]
         Coordinator["MainContentCoordinator (@MainActor)"]

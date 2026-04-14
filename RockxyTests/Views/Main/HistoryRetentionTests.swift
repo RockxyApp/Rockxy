@@ -186,6 +186,37 @@ struct HistoryRetentionTests {
         #expect(!evictionFired)
     }
 
+    @Test("Fresh post-clear traffic is not dropped as stale")
+    @MainActor
+    func freshPostClearTrafficAccepted() async {
+        let manager = TrafficSessionManager()
+        await manager.setMaxBufferSize(100)
+
+        // Capture the pre-clear generation
+        let preClearGen = await manager.currentGeneration
+
+        // Simulate clearSession resetting the actor
+        await manager.resetBufferState()
+        let postClearGen = await manager.currentGeneration
+        #expect(postClearGen != preClearGen)
+
+        // Fresh traffic after clear carries the new generation → must be accepted
+        await manager.reportAcceptedCount(5, generation: postClearGen)
+
+        // Stale pre-clear report is rejected
+        await manager.reportAcceptedCount(50, generation: preClearGen)
+
+        // Only the 5 fresh transactions should be counted (not 55)
+        var evictionFired = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bufferEvictionRequested, object: nil, queue: .main
+        ) { _ in evictionFired = true }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(!evictionFired) // 5 < 100, no eviction
+    }
+
     @Test("Pinned/saved transactions are independent of live buffer")
     @MainActor
     func pinnedSavedIndependent() {

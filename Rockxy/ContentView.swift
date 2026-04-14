@@ -1,6 +1,8 @@
 import Combine
 import SwiftUI
 
+// MARK: - ContentView
+
 /// Root view of the main window. Sets up a two-column `NavigationSplitView` with
 /// `SidebarView` on the left and `CenterContentView` as the detail area.
 /// Owns the `MainContentCoordinator` that drives all data flow to child views.
@@ -45,10 +47,18 @@ struct ContentView: View {
             openWindow(id: "diff")
         }
         .onAppear {
+            guard !ProcessInfo.processInfo.isTestHost else {
+                return
+            }
             coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
         }
         .task {
+            // Skip startup tasks when running as a test host to avoid actor
+            // contention between the app's loadInitialRules and test suites.
+            guard !ProcessInfo.processInfo.isTestHost else {
+                return
+            }
             coordinator.readiness.startObserving()
             coordinator.setupRulesObserver()
             coordinator.loadInitialRules()
@@ -155,5 +165,14 @@ struct ContentView: View {
         case nil:
             break
         }
+    }
+}
+
+// MARK: - ProcessInfo + Test Host Detection
+
+extension ProcessInfo {
+    /// Returns `true` when the process is running as a test host (XCTest bundle loaded).
+    var isTestHost: Bool {
+        NSClassFromString("XCTestCase") != nil
     }
 }

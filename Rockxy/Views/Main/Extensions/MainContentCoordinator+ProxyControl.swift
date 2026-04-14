@@ -160,10 +160,6 @@ extension MainContentCoordinator {
     }
 
     func clearSession() {
-        // Increment generation FIRST so any in-flight batch arriving after
-        // this point is rejected by processBatch's generation check.
-        sessionGeneration &+= 1
-
         transactions.removeAll()
         selectedTransactionIDs.removeAll()
         logEntries.removeAll()
@@ -176,8 +172,15 @@ extension MainContentCoordinator {
         clearAllWorkspaces()
         resetTrafficMetrics()
 
-        // Also reset the actor-side buffer counter and pending updates.
-        Task { await sessionManager.resetBufferState() }
+        // Reset the actor-side buffer and increment generation atomically.
+        // Awaiting ensures the actor's generation is updated before any new
+        // traffic can be flushed, so fresh post-clear batches carry the new
+        // generation and are not falsely rejected. Pre-clear in-flight
+        // batches carry the old generation and are correctly dropped.
+        Task {
+            await sessionManager.resetBufferState()
+            sessionGeneration = await sessionManager.currentGeneration
+        }
 
         // Advance nextSequenceNumber past highest assigned to any remaining persisted favorite
         if persistedFavorites.isEmpty {

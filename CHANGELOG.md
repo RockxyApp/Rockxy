@@ -191,7 +191,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Import error dialogs now show specific titles and messages per failure type (size exceeded, invalid format, deserialization error) instead of a generic "Import Failed"
 - README roadmap updated: `.rockxy format` corrected to `.rockxysession format`
-- Removed iOS Simulator Certificate step from Welcome screen — Rockxy Community ships with 4 setup steps (Install Cert, Trust Cert, Install Helper, Enable Proxy)
+- Removed iOS Simulator Certificate step from Welcome screen — Rockxy ships with 4 setup steps (Install Cert, Trust Cert, Install Helper, Enable Proxy)
 - Removed Platform settings tab
 - Removed "Restore previous proxy settings on quit" toggle from Advanced Settings — restore-on-quit is now mandatory and always-on via persistent backup
 - `stopProxy()` no longer gates `disableSystemProxy()` behind `isSystemProxyConfigured` flag — the ownership-aware disable handles all cases internally

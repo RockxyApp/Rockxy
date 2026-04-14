@@ -18,7 +18,7 @@ import Testing
 ///   2. write it to `AllowListEditorContextStore.shared` via `setPending(_:)`
 ///   3. post `.openAllowListWindow` on `NotificationCenter.default`
 ///
-/// Rockxy's `RockxyTests` target uses `TEST_HOST = Rockxy Community.app`, so
+/// Rockxy's `RockxyTests` target uses `TEST_HOST = Rockxy.app`, so
 /// tests run inside the live app process. That means the scene-hosted
 /// `AllowListWindowView.onReceive(.openAllowListWindow)` handler is already
 /// registered and synchronously calls `consumePendingContext()` as part of the
