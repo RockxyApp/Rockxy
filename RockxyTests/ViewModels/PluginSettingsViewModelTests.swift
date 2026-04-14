@@ -211,6 +211,47 @@ struct PluginSettingsViewModelTests {
         #expect(scripting.plugins.isEmpty)
     }
 
+    // MARK: - Config/Install Environment Isolation
+
+    @Test("updateConfig writes to manager's injected defaults")
+    func configUsesInjectedDefaults() async throws {
+        let env = TestFixtures.makeIsolatedPluginEnv()
+        defer { env.cleanup() }
+
+        let id = "config-test-\(UUID().uuidString.prefix(8))"
+        _ = try TestFixtures.createTempPlugin(id: id, enabled: false, in: env.pluginsDir, defaults: env.defaults)
+
+        await env.manager.loadAllPlugins()
+        let viewModel = PluginSettingsViewModel(pluginManager: env.manager)
+
+        viewModel.updateConfig(pluginID: id, key: "testKey", value: "testValue")
+
+        let key = RockxyIdentity.current.pluginConfigPrefix(pluginID: id) + "testKey"
+        let stored = env.defaults.string(forKey: key)
+        #expect(stored == "testValue")
+
+        // Must NOT be in standard defaults
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+    }
+
+    @Test("configValue reads from manager's injected defaults")
+    func configValueUsesInjectedDefaults() async throws {
+        let env = TestFixtures.makeIsolatedPluginEnv()
+        defer { env.cleanup() }
+
+        let id = "config-read-\(UUID().uuidString.prefix(8))"
+        _ = try TestFixtures.createTempPlugin(id: id, enabled: false, in: env.pluginsDir, defaults: env.defaults)
+
+        await env.manager.loadAllPlugins()
+
+        let key = RockxyIdentity.current.pluginConfigPrefix(pluginID: id) + "readKey"
+        env.defaults.set("isolated", forKey: key)
+
+        let viewModel = PluginSettingsViewModel(pluginManager: env.manager)
+        let value = viewModel.configValue(pluginID: id, key: "readKey") as? String
+        #expect(value == "isolated")
+    }
+
     // MARK: Private
 
     private func makePlugin(

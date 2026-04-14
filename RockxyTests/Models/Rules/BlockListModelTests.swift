@@ -89,6 +89,7 @@ struct BlockActionTypeTests {
 
 // MARK: - BlockListViewModelTests
 
+@Suite(.serialized)
 struct BlockListViewModelTests {
     @Test("addBlockRule with wildcard creates correct pattern")
     @MainActor

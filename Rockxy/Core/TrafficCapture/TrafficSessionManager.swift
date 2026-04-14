@@ -67,6 +67,11 @@ actor TrafficSessionManager {
         batchTimerTask = nil
     }
 
+    func resetBufferState() {
+        pendingUpdates.removeAll()
+        totalBuffered = 0
+    }
+
     // MARK: Private
 
     private static let logger = Logger(

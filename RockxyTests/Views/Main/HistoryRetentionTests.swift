@@ -108,6 +108,30 @@ struct HistoryRetentionTests {
         #expect(evictionCount == 1)
     }
 
+    @Test("clearSession resets actor-side buffer state")
+    @MainActor
+    func clearSessionResetsActorState() async {
+        let coordinator = MainContentCoordinator(policy: SmallHistoryPolicy())
+        coordinator.isRecording = true
+
+        // Seed some transactions and simulate partial buffering on the actor
+        for i in 0 ..< 5 {
+            await coordinator.sessionManager.addTransaction(
+                TestFixtures.makeTransaction(url: "https://buffered.com/\(i)")
+            )
+        }
+
+        // Clear session — must also flush actor-side pending state
+        coordinator.clearSession()
+
+        // Give the actor reset Task time to complete
+        try? await Task.sleep(for: .milliseconds(100))
+
+        // Verify the actor's pending buffer is empty
+        let pending = await coordinator.sessionManager.flushPendingUpdates()
+        #expect(pending.isEmpty)
+    }
+
     @Test("Pinned/saved transactions are independent of live buffer")
     @MainActor
     func pinnedSavedIndependent() {

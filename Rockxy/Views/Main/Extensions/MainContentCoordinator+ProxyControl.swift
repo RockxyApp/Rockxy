@@ -172,6 +172,10 @@ extension MainContentCoordinator {
         clearAllWorkspaces()
         resetTrafficMetrics()
 
+        // Flush stale pending transactions and reset the actor-side buffer counter
+        // so cleared sessions cannot be repopulated by a pending batch timer flush.
+        Task { await sessionManager.resetBufferState() }
+
         // Advance nextSequenceNumber past highest assigned to any remaining persisted favorite
         if persistedFavorites.isEmpty {
             nextSequenceNumber = 0

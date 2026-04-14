@@ -33,6 +33,8 @@ actor ScriptPluginManager {
 
     private(set) var plugins: [PluginInfo] = []
 
+    nonisolated let defaults: UserDefaults
+
     nonisolated var identity: ObjectIdentifier {
         ObjectIdentifier(self)
     }
@@ -166,9 +168,18 @@ actor ScriptPluginManager {
         Self.logger.info("Uninstalled plugin: \(id)")
     }
 
+    func installPlugin(from sourceURL: URL) async throws {
+        try await discovery.installPlugin(from: sourceURL)
+    }
+
     func updateConfig(pluginID: String, key: String, value: Any) async {
         let configKey = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key
-        UserDefaults.standard.set(value, forKey: configKey)
+        defaults.set(value, forKey: configKey)
+    }
+
+    func configValue(pluginID: String, key: String) async -> Any? {
+        let configKey = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key
+        return defaults.object(forKey: configKey)
     }
 
     // MARK: - Pipeline Hooks
@@ -209,6 +220,5 @@ actor ScriptPluginManager {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptPluginManager")
 
     private let discovery: PluginDiscovery
-    private let defaults: UserDefaults
     private let runtime = ScriptRuntime()
 }

@@ -93,7 +93,7 @@ final class PluginSettingsViewModel {
         do {
             try FileManager.default.copyItem(at: plugin.bundlePath, to: tempDir)
             try? await pluginManager.uninstallPlugin(id: id)
-            try await PluginDiscovery().installPlugin(from: tempDir)
+            try await pluginManager.installPlugin(from: tempDir)
             try? FileManager.default.removeItem(at: tempDir)
         } catch {
             Self.logger.error("Failed to reinstall plugin: \(error.localizedDescription)")
@@ -104,11 +104,11 @@ final class PluginSettingsViewModel {
     }
 
     func updateConfig(pluginID: String, key: String, value: Any) {
-        UserDefaults.standard.set(value, forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
+        pluginManager.defaults.set(value, forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
     }
 
     func configValue(pluginID: String, key: String) -> Any? {
-        UserDefaults.standard.object(forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
+        pluginManager.defaults.object(forKey: RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID) + key)
     }
 
     func revealInFinder(plugin: PluginInfo) {
@@ -131,7 +131,7 @@ final class PluginSettingsViewModel {
         if panel.runModal() == .OK, let url = panel.url {
             Task {
                 do {
-                    try await PluginDiscovery().installPlugin(from: url)
+                    try await pluginManager.installPlugin(from: url)
                     await loadPlugins()
                 } catch {
                     Self.logger.error("Failed to install plugin: \(error.localizedDescription)")
