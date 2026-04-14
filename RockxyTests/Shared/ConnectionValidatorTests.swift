@@ -3,12 +3,17 @@ import Foundation
 import Security
 import Testing
 
+// MARK: - ConnectionValidatorTests
+
 /// Direct tests for `ConnectionValidator` — the real helper XPC caller-validation entrypoint.
 ///
-/// `ConnectionValidator.validateCaller(pid:auditTokenData:)` is the testable seam that
-/// `isValidCaller(_:)` delegates to after extracting PID and audit token from the
-/// connection object. Tests exercise this seam with the real test-host PID and
-/// synthesized audit token data to cover both accept and reject paths.
+/// `isValidCaller(_:)` delegates to `validateCaller(pid:auditTokenData:)` after extracting
+/// PID and audit token from the connection. These tests exercise both the testable seam
+/// and the production entrypoint on real NSXPCConnection objects.
+///
+/// Anonymous XPC listeners do not fire shouldAcceptNewConnection in the unit-test host
+/// (no run loop pump), so server-side accept-path coverage is through the testable seam
+/// with the real test-host PID — exercising the exact same CallerValidation code path.
 @Suite(.serialized)
 struct ConnectionValidatorTests {
     // MARK: - Allowlist Contract
@@ -32,9 +37,15 @@ struct ConnectionValidatorTests {
     @Test("validateCaller accepts test host PID with invalid audit token (graceful skip)")
     func acceptsTestHostPIDWithInvalidAuditToken() {
         let pid = ProcessInfo.processInfo.processIdentifier
-        // Invalid token data → secCodeFromAuditToken returns nil → audit recheck skipped.
-        // PID validation still passes → overall result is accept.
         let accepted = ConnectionValidator.validateCaller(pid: pid, auditTokenData: Data([1, 2, 3]))
+        #expect(accepted)
+    }
+
+    @Test("validateCaller with zero-filled audit token data still accepts valid PID")
+    func validPIDWithZeroAuditTokenAccepts() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let zeroToken = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
+        let accepted = ConnectionValidator.validateCaller(pid: pid, auditTokenData: zeroToken)
         #expect(accepted)
     }
 
@@ -53,27 +64,23 @@ struct ConnectionValidatorTests {
         #expect(!rejected)
     }
 
-    // MARK: - isValidCaller(_:) Connection Entrypoint
+    // MARK: - isValidCaller(_:) Production Entrypoint
 
     @Test("isValidCaller rejects client-side connection (processIdentifier == 0)")
     func rejectsClientSideConnection() {
         let connection = NSXPCConnection(serviceName: "com.amunx.rockxy.test.stub")
         defer { connection.invalidate() }
-
         #expect(connection.processIdentifier == 0)
         #expect(!ConnectionValidator.isValidCaller(connection))
     }
 
-    // MARK: - extractAuditTokenData
-
-    @Test("extractAuditTokenData returns nil for client-side connection")
-    func extractReturnsNilForClientConnection() {
+    @Test("extractAuditTokenData returns nil or valid-sized data for client-side connection")
+    func extractHandlesClientConnection() {
         let connection = NSXPCConnection(serviceName: "com.amunx.rockxy.test.stub")
         defer { connection.invalidate() }
-
         let data = ConnectionValidator.extractAuditTokenData(from: connection)
-        // Client-side connections typically return nil for auditToken KVC
-        // (the audit token is populated by the XPC runtime for server-side connections)
+        // Client-side connections may or may not have audit token data depending
+        // on the macOS version. If present, it must be the correct size.
         #expect(data == nil || data?.count == MemoryLayout<audit_token_t>.size)
     }
 
@@ -95,27 +102,10 @@ struct ConnectionValidatorTests {
         #expect(CallerValidation.secCodeFromAuditToken(tooLarge) == nil)
     }
 
-    // MARK: - NSValue Audit Token Conversion Coverage
-
     @Test("secCodeFromAuditToken rejects zero-filled token-sized data")
     func zeroFilledTokenRejected() {
-        // A zero-filled buffer is the right size but maps to PID 0 / invalid process.
-        // This exercises the same Data → SecCode conversion that the NSValue branch
-        // in extractAuditTokenData would produce after getValue.
         let zeroToken = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
         #expect(CallerValidation.secCodeFromAuditToken(zeroToken) == nil)
-    }
-
-    @Test("validateCaller with zero-filled audit token data still accepts valid PID")
-    func validPIDWithZeroAuditTokenAccepts() {
-        // Simulates the production flow when KVC returns an NSValue containing
-        // a zero audit token: the token fails SecCode lookup, the recheck is
-        // skipped, and the PID-based validation result stands.
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let zeroToken = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
-
-        let accepted = ConnectionValidator.validateCaller(pid: pid, auditTokenData: zeroToken)
-        #expect(accepted)
     }
 
     // MARK: - PID-Based Identity Equivalence
@@ -127,7 +117,6 @@ struct ConnectionValidatorTests {
             Issue.record("Cannot get SecCode for current PID")
             return
         }
-
         let satisfied = CallerValidation.callerSatisfiesAnyIdentifier(
             callerCode: code,
             allowedIdentifiers: RockxyIdentity.current.allowedCallerIdentifiers
