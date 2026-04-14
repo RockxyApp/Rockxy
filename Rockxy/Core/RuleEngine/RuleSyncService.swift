@@ -131,7 +131,11 @@ enum RuleSyncService {
 
     private static func syncAll() async {
         let allRules = await RuleEngine.shared.allRules
-        try? RuleStore().saveRules(allRules)
+        // Perform disk I/O off the actor's executor to avoid blocking
+        // other RuleEngine calls while the file system is under load.
+        Task.detached(priority: .utility) {
+            try? RuleStore().saveRules(allRules)
+        }
         NotificationCenter.default.post(name: .rulesDidChange, object: allRules)
         logger.debug("Rules synced: \(allRules.count) rules")
     }

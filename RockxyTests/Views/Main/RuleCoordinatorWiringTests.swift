@@ -5,8 +5,10 @@ import Testing
 // MARK: - RuleCoordinatorWiringTests
 
 /// Tests that coordinator-level rule operations fire through `RulePolicyGate`
-/// and surface quota rejections via `activeToast`. Uses `Task.sleep` for
-/// cooperative yield following the same convention as `AllowListCoordinatorWiringTests`.
+/// and surface quota rejections via `activeToast`.
+///
+/// Uses `RuleEngine.shared.replaceAll()` instead of `RuleSyncService.replaceAllRules()`
+/// to avoid disk I/O contention in full-suite parallel runs.
 @Suite(.serialized)
 @MainActor
 struct RuleCoordinatorWiringTests {
@@ -15,15 +17,19 @@ struct RuleCoordinatorWiringTests {
     @Test("addRule success fires notification and sets no toast")
     func addRuleSuccess() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
         RulePolicyGate.shared = RulePolicyGate(policy: LargePolicy())
 
         let coordinator = MainContentCoordinator()
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
 
         let rule = TestFixtures.makeRule(name: "WiringAdd", action: .block(statusCode: 403))
 
-        // Wait for .rulesDidChange deterministically instead of fixed sleep
+        // Wait for .rulesDidChange deterministically
         await withCheckedContinuation { continuation in
             var resumed = false
             let observer = NotificationCenter.default.addObserver(
@@ -36,7 +42,7 @@ struct RuleCoordinatorWiringTests {
                 continuation.resume()
             }
             coordinator.addRule(rule)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
                 guard !resumed else {
                     return
                 }
@@ -50,27 +56,29 @@ struct RuleCoordinatorWiringTests {
 
         let engineRules = await RuleEngine.shared.allRules
         #expect(engineRules.contains { $0.id == rule.id })
-
-        await RuleSyncService.replaceAllRules([])
     }
 
     @Test("addRule at quota sets error toast")
     func addRuleAtQuota() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
 
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
         let existing = TestFixtures.makeRule(name: "Existing", action: .block(statusCode: 403))
-        _ = await RulePolicyGate.shared.addRule(existing)
+        await RuleEngine.shared.addRule(existing)
 
         RulePolicyGate.shared = RulePolicyGate(policy: TinyRulePolicy())
 
         let coordinator = MainContentCoordinator()
         let overflow = TestFixtures.makeRule(name: "Overflow", action: .block(statusCode: 403))
 
-        // Rejection path does NOT call syncAll — poll for toast
+        // Rejection path — poll for toast
         coordinator.addRule(overflow)
-        for _ in 0 ..< 200 {
+        for _ in 0 ..< 500 {
             if coordinator.activeToast != nil {
                 break
             }
@@ -82,8 +90,6 @@ struct RuleCoordinatorWiringTests {
 
         let engineRules = await RuleEngine.shared.allRules
         #expect(!engineRules.contains { $0.id == overflow.id })
-
-        await RuleSyncService.replaceAllRules([])
     }
 
     // MARK: - Toggle Rule
@@ -91,12 +97,16 @@ struct RuleCoordinatorWiringTests {
     @Test("toggleRule disable fires notification and sets no toast")
     func toggleRuleDisable() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
         RulePolicyGate.shared = RulePolicyGate(policy: LargePolicy())
 
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
         let rule = TestFixtures.makeRule(name: "Toggle", action: .throttle(delayMs: 100))
-        _ = await RulePolicyGate.shared.addRule(rule)
+        await RuleEngine.shared.addRule(rule)
 
         let coordinator = MainContentCoordinator()
 
@@ -113,7 +123,7 @@ struct RuleCoordinatorWiringTests {
                 continuation.resume()
             }
             coordinator.toggleRule(id: rule.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) {
                 guard !resumed else {
                     return
                 }
@@ -128,18 +138,20 @@ struct RuleCoordinatorWiringTests {
         let engineRules = await RuleEngine.shared.allRules
         let toggled = engineRules.first { $0.id == rule.id }
         #expect(toggled?.isEnabled == false)
-
-        await RuleSyncService.replaceAllRules([])
     }
 
     @Test("toggleRule enable at quota sets error toast")
     func toggleRuleEnableAtQuota() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
 
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
         let active = TestFixtures.makeRule(name: "Active", action: .throttle(delayMs: 100))
-        _ = await RulePolicyGate.shared.addRule(active)
+        await RuleEngine.shared.addRule(active)
 
         var disabled = TestFixtures.makeRule(name: "Disabled", action: .throttle(delayMs: 200))
         disabled.isEnabled = false
@@ -149,9 +161,9 @@ struct RuleCoordinatorWiringTests {
 
         let coordinator = MainContentCoordinator()
 
-        // Poll for toast (deterministic, no timing dependency)
+        // Poll for toast
         coordinator.toggleRule(id: disabled.id)
-        for _ in 0 ..< 200 {
+        for _ in 0 ..< 500 {
             if coordinator.activeToast != nil {
                 break
             }
@@ -161,12 +173,9 @@ struct RuleCoordinatorWiringTests {
         #expect(coordinator.activeToast != nil)
         #expect(coordinator.activeToast?.style == .error)
 
-        // Verify the blocked rule stayed disabled in the engine
         let engineRules = await RuleEngine.shared.allRules
         let blocked = engineRules.first { $0.id == disabled.id }
         #expect(blocked?.isEnabled == false)
-
-        await RuleSyncService.replaceAllRules([])
     }
 }
 

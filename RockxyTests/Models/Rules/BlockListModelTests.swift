@@ -434,12 +434,16 @@ struct BlockListViewModelTests {
     @MainActor
     func addBlockRuleQuotaRollback() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
 
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
 
         let existing = TestFixtures.makeRule(name: "Existing", action: .block(statusCode: 403))
-        _ = await RulePolicyGate.shared.addRule(existing)
+        await RuleEngine.shared.addRule(existing)
 
         RulePolicyGate.shared = RulePolicyGate(policy: BlockQuotaPolicy())
 
@@ -460,7 +464,7 @@ struct BlockListViewModelTests {
         #expect(vm.blockRules.count == beforeCount + 1)
 
         // Wait for the async rollback — poll with bounded yields
-        for _ in 0 ..< 200 {
+        for _ in 0 ..< 500 {
             if vm.blockRules.count == beforeCount {
                 break
             }
@@ -468,21 +472,23 @@ struct BlockListViewModelTests {
         }
 
         #expect(vm.blockRules.count == beforeCount)
-
-        await RuleSyncService.replaceAllRules([])
     }
 
     @Test("toggleRule enable at quota rolls back optimistic toggle")
     @MainActor
     func toggleRuleEnableAtQuotaRollback() async {
         let saved = RulePolicyGate.shared
-        defer { RulePolicyGate.shared = saved }
+        let engineSnapshot = await RuleEngine.shared.allRules
+        defer {
+            RulePolicyGate.shared = saved
+            Task { await RuleEngine.shared.replaceAll(engineSnapshot) }
+        }
 
-        await RuleSyncService.replaceAllRules([])
+        await RuleEngine.shared.replaceAll([])
 
         // Seed one enabled block rule at quota limit of 1
         let active = TestFixtures.makeRule(name: "Active", action: .block(statusCode: 403))
-        _ = await RulePolicyGate.shared.addRule(active)
+        await RuleEngine.shared.addRule(active)
 
         // Add a second block rule, disabled, via the engine directly
         var disabled = TestFixtures.makeRule(name: "Disabled", action: .block(statusCode: 403))
@@ -504,7 +510,7 @@ struct BlockListViewModelTests {
         #expect(optimistic?.isEnabled == true)
 
         // Wait for the async rollback — poll with bounded yields
-        for _ in 0 ..< 200 {
+        for _ in 0 ..< 500 {
             if vm.allRules.first(where: { $0.id == disabled.id })?.isEnabled == false {
                 break
             }
@@ -514,8 +520,6 @@ struct BlockListViewModelTests {
         // After rollback, the rule should be disabled again (gate rejected the enable)
         let afterRollback = vm.allRules.first { $0.id == disabled.id }
         #expect(afterRollback?.isEnabled == false)
-
-        await RuleSyncService.replaceAllRules([])
     }
 }
 

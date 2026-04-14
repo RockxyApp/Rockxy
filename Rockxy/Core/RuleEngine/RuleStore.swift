@@ -55,7 +55,7 @@ struct RuleStore {
         let directory = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(rules)
-        try data.write(to: fileURL)
+        try data.write(to: fileURL, options: .atomic)
         Self.logger.info("Saved \(rules.count) rules")
     }
 
