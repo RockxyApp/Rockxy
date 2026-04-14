@@ -426,4 +426,55 @@ struct BlockListViewModelTests {
         #expect(pattern.contains(".*"))
         #expect(pattern.contains(".page"))
     }
+
+    // MARK: - Quota Rollback
+
+    @Test("addBlockRule at quota rolls back optimistic append")
+    @MainActor
+    func addBlockRuleQuotaRollback() async {
+        let saved = RulePolicyGate.shared
+        defer { RulePolicyGate.shared = saved }
+
+        await RuleSyncService.replaceAllRules([])
+
+        let existing = TestFixtures.makeRule(name: "Existing", action: .block(statusCode: 403))
+        _ = await RulePolicyGate.shared.addRule(existing)
+
+        RulePolicyGate.shared = RulePolicyGate(policy: BlockQuotaPolicy())
+
+        let vm = BlockListViewModel()
+        await vm.refreshFromEngine()
+        let beforeCount = vm.blockRules.count
+
+        vm.addBlockRule(
+            ruleName: "Overflow",
+            urlPattern: "*.overflow.com",
+            httpMethod: .any,
+            matchType: .wildcard,
+            blockAction: .returnForbidden,
+            includeSubpaths: false
+        )
+
+        // Optimistic append happened
+        #expect(vm.blockRules.count == beforeCount + 1)
+
+        // Wait for async rollback
+        for _ in 0 ..< 50 where vm.blockRules.count != beforeCount {
+            await Task.yield()
+        }
+
+        #expect(vm.blockRules.count == beforeCount)
+
+        await RuleSyncService.replaceAllRules([])
+    }
+}
+
+// MARK: - BlockQuotaPolicy
+
+private struct BlockQuotaPolicy: AppPolicy {
+    let maxWorkspaceTabs = 8
+    let maxDomainFavorites = 5
+    let maxActiveRulesPerTool = 1
+    let maxEnabledScripts = 10
+    let maxLiveHistoryEntries = 1_000
 }

@@ -207,6 +207,26 @@ struct ScriptQuotaTests {
         _ = MainContentCoordinator(policy: DefaultAppPolicy())
         #expect(ScriptPolicyGate.shared.policy.maxEnabledScripts == 2)
     }
+
+    // MARK: - Default Wiring
+
+    @Test("Default-init settings and scripting VMs discover same plugin")
+    @MainActor
+    func defaultWiringBothVMsDiscover() async throws {
+        let id = "default-wiring-\(UUID().uuidString.prefix(8))"
+        let pluginDir = try TestFixtures.createTempPlugin(id: id, enabled: false)
+        defer { TestFixtures.cleanupTempPlugin(id: id, bundlePath: pluginDir) }
+
+        let settings = PluginSettingsViewModel()
+        let scripting = ScriptingViewModel()
+
+        await settings.loadPlugins()
+        scripting.plugins = await PluginManager.shared.scriptManager.plugins
+
+        #expect(settings.plugins.contains { $0.id == id })
+        #expect(scripting.plugins.contains { $0.id == id })
+        #expect(settings.plugins.count == scripting.plugins.count)
+    }
 }
 
 // MARK: - TinyScriptPolicy
