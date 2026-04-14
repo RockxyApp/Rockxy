@@ -53,6 +53,8 @@
         "group": "Development",
         "pages": [
           "development/architecture",
+          "development/security",
+          "development/design-decisions",
           "development/code-style",
           "development/building"
         ]

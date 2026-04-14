@@ -18,27 +18,72 @@ Rockxy is a native macOS application built with:
   Rockxy is 100% native — no Electron, no web views, no embedded browser engines. Every pixel is rendered by AppKit or SwiftUI.
 </Note>
 
-## Architecture Overview
+## System Overview
+
+Rockxy is split into three trust and execution domains:
+
+1. **UI + orchestration layer** — SwiftUI/AppKit windows, inspectors, menus, and the `MainContentCoordinator`
+2. **Proxy/runtime layer** — SwiftNIO channel handlers, certificate issuance, request mutation, storage, and plugins
+3. **Privileged helper layer** — a separate launchd daemon for system-level proxy and certificate operations requiring elevated privileges
+
+The design goal is to keep packet processing off the main thread, keep privileged operations outside the app process, and keep user-facing state synchronized through explicit actor or `@MainActor` boundaries.
+
+### Component Map
 
 ```mermaid
-block-beta
-  columns 3
-  block:ui["UI Layer"]:3
-    Views["Views (SwiftUI + AppKit)"]
-    Coordinator["MainContentCoordinator (@Observable)"]
-    Theme["Theme"]
-  end
-  block:logic["Business Logic"]:3
-    ProxyEngine["Proxy Engine (SwiftNIO)"]
-    LogEngine["Log Engine"]
-    RuleEngine["Rule Engine"]
-  end
-  block:data["Data Layer"]:3
-    Models["Models (Structs)"]
-    Storage["Storage (SQLite)"]
-    Keychain["Keychain"]
-  end
+flowchart TB
+    subgraph UI["UI Process: Rockxy Community.app"]
+        Menus["Menus / Commands"]
+        Windows["SwiftUI + AppKit Windows"]
+        Coordinator["MainContentCoordinator (@MainActor)"]
+        Workspace["Workspace / Request List / Inspector"]
+    end
+
+    subgraph Runtime["Runtime Services"]
+        Proxy["ProxyServer (actor)"]
+        Traffic["TrafficSessionManager (actor)"]
+        LogMgr["LogCaptureEngine (actor)"]
+        Cert["CertificateManager (actor)"]
+        Rules["RuleEngine"]
+        Plugins["ScriptPluginManager"]
+        Storage["SessionStore + InMemory Buffers"]
+    end
+
+    subgraph Privileged["Privileged Domain"]
+        HelperClient["HelperConnection (@MainActor)"]
+        Helper["RockxyHelperTool (launchd daemon)"]
+        System["macOS Network / Keychain / Trust Settings"]
+    end
+
+    Windows --> Coordinator
+    Menus --> Coordinator
+    Coordinator --> Workspace
+    Coordinator --> Proxy
+    Coordinator --> Traffic
+    Coordinator --> LogMgr
+    Coordinator --> Storage
+    Proxy --> Rules
+    Proxy --> Plugins
+    Proxy --> Cert
+    Proxy --> Traffic
+    Traffic --> Coordinator
+    LogMgr --> Coordinator
+    Cert --> HelperClient
+    HelperClient --> Helper
+    Helper --> System
 ```
+
+### Runtime Layers
+
+| Layer | Main Types | Responsibility |
+|-------|------------|----------------|
+| **Presentation** | `MainContentCoordinator`, `ContentView`, inspector/request-list/sidebar views | Holds user-facing state, routes commands, binds proxy/log data into SwiftUI/AppKit |
+| **Capture / transport** | `ProxyServer`, `HTTPProxyHandler`, `TLSInterceptHandler`, `HTTPSProxyRelayHandler` | Accepts proxy traffic, performs CONNECT handling, MITM TLS interception, and upstream forwarding |
+| **Mutation / policy** | `RuleEngine`, `BreakpointRequestBuilder`, `AllowListManager`, `NoCacheHeaderMutator` | Applies request/response rules and current debugging policy before forwarding or storing |
+| **Certificate / trust** | `CertificateManager`, `RootCAGenerator`, `HostCertGenerator`, `CertificateStore`, `KeychainHelper` | Generates and persists the root CA, caches host certs, validates trust state |
+| **Storage / session** | `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, in-memory buffers | Buffers live data, persists selected state to SQLite, and batches updates to the UI |
+| **Observability / analysis** | GraphQL detection, content-type detection, log correlation | Enriches captured traffic after or alongside transport processing |
+| **Privileged system integration** | `HelperConnection`, `RockxyHelperTool`, shared XPC protocol | Applies system proxy settings and privileged certificate operations with explicit trust checks |
 
 ## SPM Dependencies
 
@@ -145,6 +190,70 @@ Rockxy defines protocols for extensibility:
 
 Plugins register with `PluginManager` and are discovered at launch.
 
+## Proxy Request Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant NIO as ProxyServer / NIO Pipeline
+    participant HTTP as HTTPProxyHandler
+    participant TLS as TLSInterceptHandler
+    participant HTTPS as HTTPSProxyRelayHandler
+    participant Rules as RuleEngine
+    participant Plugins as ScriptPluginManager
+    participant Traffic as TrafficSessionManager
+    participant UI as MainContentCoordinator
+    participant Upstream
+
+    Client->>NIO: TCP connection to local proxy
+    NIO->>HTTP: HTTP request or CONNECT tunnel
+
+    alt Plain HTTP
+        HTTP->>Rules: evaluate rules
+        Rules-->>HTTP: action / no action
+        HTTP->>Plugins: optional request hooks
+        Plugins-->>HTTP: modified request
+        HTTP->>Upstream: forward cleartext HTTP
+        Upstream-->>HTTP: response
+    else HTTPS via CONNECT
+        HTTP->>Client: 200 Connection Established
+        HTTP->>TLS: hand off channel
+        TLS->>TLS: generate host cert from root CA
+        TLS->>Client: terminate client TLS
+        TLS->>HTTPS: decrypted HTTP pipeline
+        HTTPS->>Rules: evaluate rules
+        Rules-->>HTTPS: action / no action
+        HTTPS->>Plugins: optional request hooks
+        Plugins-->>HTTPS: modified request
+        HTTPS->>Upstream: TLS client connection to real host
+        Upstream-->>HTTPS: decrypted response
+    end
+
+    HTTP-->>Traffic: completed transaction
+    HTTPS-->>Traffic: completed transaction
+    Traffic-->>UI: batched updates
+```
+
+### HTTP vs HTTPS Flow
+
+```mermaid
+flowchart LR
+    A["Inbound client request"] --> B{"CONNECT tunnel?"}
+    B -- No --> C["HTTPProxyHandler"]
+    C --> D["RuleEngine + plugins"]
+    D --> E["Forward to upstream over HTTP"]
+    E --> F["Capture response + timings"]
+
+    B -- Yes --> G["Reply 200 Connection Established"]
+    G --> H["TLSInterceptHandler"]
+    H --> I["Generate / reuse per-host leaf cert"]
+    I --> J["Terminate client TLS"]
+    J --> K["HTTPSProxyRelayHandler"]
+    K --> L["RuleEngine + plugins"]
+    L --> M["Forward to upstream over TLS"]
+    M --> N["Capture response + timings"]
+```
+
 ## Data Flow
 
 ### Network Traffic
@@ -211,11 +320,14 @@ For vulnerability reporting, see [SECURITY.md](https://github.com/LocNguyenHuu/R
 
 ## Next Steps
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
+  <Card title="Security" icon="shield" href="/development/security">
+    Security boundaries, XPC trust model, and certificate trust
+  </Card>
+  <Card title="Design Decisions" icon="lightbulb" href="/development/design-decisions">
+    Why SwiftNIO, NSTableView, actors, and the helper daemon
+  </Card>
   <Card title="Code Style" icon="paintbrush" href="/development/code-style">
     SwiftLint rules, formatting standards, and naming conventions
-  </Card>
-  <Card title="Building" icon="hammer" href="/development/building">
-    Build from source, run tests, and set up your development environment
   </Card>
 </CardGroup>

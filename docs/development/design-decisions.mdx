@@ -1,0 +1,77 @@
+---
+title: "Design Decisions"
+description: "Why SwiftNIO, NSTableView, actors, the privileged helper, and key performance and storage design choices"
+---
+
+## Why SwiftNIO Instead of URLSession
+
+URLSession is a high-level HTTP client. Rockxy needs a low-level TCP server that can accept connections, parse HTTP, perform MITM TLS interception via CONNECT tunnels, and forward traffic — all things that require direct socket control. SwiftNIO provides the event-driven, non-blocking I/O foundation that makes this possible in pure Swift.
+
+## Why NSTableView for the Request List
+
+SwiftUI `List` cannot handle 100k+ rows with virtual scrolling. The request list uses `NSTableView` wrapped in `NSViewRepresentable` for O(1) scrolling performance regardless of traffic volume. Cell reuse keeps memory constant even at high row counts.
+
+## Why a Privileged Helper Daemon
+
+macOS requires admin authentication for each `networksetup` call. The helper tool (`SMAppService.daemon()`) runs as root and validates callers via certificate-chain comparison, eliminating repeated password prompts while maintaining security through defense-in-depth.
+
+## Actor-Based Concurrency Model
+
+The proxy server, session managers, and certificate manager are all Swift actors. This eliminates data races without manual locking. The coordinator bridges actor-isolated state to `@MainActor` for SwiftUI consumption via batched updates (every 250ms).
+
+### Three Isolation Domains
+
+| Isolation | Types | Bridge Pattern |
+|---|---|---|
+| **Swift `actor`** | `ProxyServer`, `CertificateManager`, `RuleEngine`, `TrafficSessionManager`, `LogCaptureEngine`, `SessionStore`, `InMemorySessionBuffer`, `InMemoryLogBuffer`, `ScriptPluginManager` | NIO to actor: `eventLoop.makeFutureWithTask { await ... }` |
+| **`@MainActor @Observable`** | `MainContentCoordinator`, `HelperManager`, `HelperConnection`, `SSLProxyingManager`, `BypassProxyManager`, `AllowListManager`, `AppSettingsManager`, `BreakpointManager` | Actor to MainActor: `Task { @MainActor in ... }` |
+| **NIO event loop** (`@unchecked Sendable`) | `HTTPProxyHandler`, `HTTPSProxyRelayHandler`, `TLSInterceptHandler`, `UpstreamResponseHandler`, `WebSocketFrameHandler` | MainActor to NIO reads: `nonisolated` methods with `NSLock` snapshot |
+
+## Plugin Sandbox
+
+JavaScript plugins run in JavaScriptCore with a controlled bridge API (`$rockxy`). Each script execution has a 5-second timeout. Plugins can inspect and modify requests but cannot access the filesystem or network directly.
+
+## Performance Design
+
+| Technique | What It Solves |
+|-----------|---------------|
+| **NSTableView virtual scrolling** | 100k+ rows with cell reuse, O(1) scroll performance |
+| **Ring buffer eviction** | At 50k transactions, oldest 10% moved to SQLite or discarded |
+| **Body offloading** | Response/request bodies >1MB stored on disk, loaded on-demand |
+| **Batched UI updates** | Proxy transactions batched every 250ms or 50 items before UI delivery |
+| **O(1) string length** | `NSString.length` instead of `String.count` for large bodies |
+| **Log buffer cap** | 100k entries in-memory, overflow to SQLite |
+| **Concurrent NIO threads** | `System.coreCount` event loop threads |
+
+## Storage Architecture
+
+| Data | Mechanism | Location |
+|------|-----------|----------|
+| User preferences | UserDefaults | `AppSettingsStorage` |
+| Active sessions | In-memory ring buffer (50k) | `InMemorySessionBuffer` |
+| Saved sessions | SQLite | `SessionStore` |
+| Root CA private key | macOS Keychain | `KeychainHelper` |
+| Rules | JSON file | `RuleStore` |
+| Large bodies (>1MB) | Disk files | `~/Library/Application Support/Rockxy/bodies/` |
+| Log entries | SQLite | `SessionStore` (log_entries table) |
+| Proxy backup | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
+| Plugins | JS files + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
+
+## CI/CD Pipeline
+
+GitHub Actions workflow (manual dispatch with optional channel parameter):
+
+1. **Lint** — `swiftlint lint --strict` on macOS 14
+2. **Build** — parallel arm64 and x86_64 release builds with Xcode 16
+3. **Artifacts** — uploads signed build artifacts for distribution
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/development/architecture">
+    Proxy engine, actor model, coordinator pattern, and data flow
+  </Card>
+  <Card title="Security" icon="shield" href="/development/security">
+    Security boundaries, XPC trust, and certificate model
+  </Card>
+</CardGroup>
