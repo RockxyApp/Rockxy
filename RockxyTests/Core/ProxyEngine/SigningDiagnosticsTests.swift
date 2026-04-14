@@ -165,8 +165,8 @@ struct SigningDiagnosticsClassifyTests {
 
 /// Tests against `LiveEnvironment` running in the signed test host.
 /// These verify identity-derived paths and the real classify contract.
-/// Full caller-validation logic is tested in `CallerValidationTests` via the
-/// shared `CallerValidation.validateCaller(pid:allowedIdentifiers:)` primitive.
+/// Full caller-validation logic is tested in `CallerValidationTests` and
+/// `ConnectionValidatorTests` via the shared validation primitives.
 struct SigningDiagnosticsLiveTests {
     @Test("LiveEnvironment validates test host app signature successfully")
     func liveAppSignatureValid() {
