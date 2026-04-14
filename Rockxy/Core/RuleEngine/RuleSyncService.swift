@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+// MARK: - RuleSyncService
+
 /// Coordinates rule mutations between the shared `RuleEngine` actor, disk persistence
 /// via `RuleStore`, and UI notification via `NotificationCenter`.
 /// All rule changes should flow through this service.
@@ -80,7 +82,9 @@ enum RuleSyncService {
 
     static func toggleRuleIfAllowed(id: UUID, maxPerCategory: Int) async -> Bool {
         let accepted = await RuleEngine.shared.toggleRuleIfAllowed(id: id, maxPerCategory: maxPerCategory)
-        await syncAll()
+        if accepted {
+            await syncAll()
+        }
         return accepted
     }
 
@@ -90,7 +94,9 @@ enum RuleSyncService {
             enabled: enabled,
             maxPerCategory: maxPerCategory
         )
-        await syncAll()
+        if accepted {
+            await syncAll()
+        }
         return accepted
     }
 
@@ -137,6 +143,8 @@ enum RuleSyncService {
         logger.debug("Rules synced: \(allRules.count) rules")
     }
 }
+
+// MARK: - RulePersistenceQueue
 
 private actor RulePersistenceQueue {
     func save(_ rules: [ProxyRule]) {

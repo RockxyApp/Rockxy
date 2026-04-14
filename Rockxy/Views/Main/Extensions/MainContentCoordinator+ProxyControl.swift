@@ -160,6 +160,12 @@ extension MainContentCoordinator {
     }
 
     func clearSession() async {
+        // Reentry guard: if a clear is already in flight, skip so the in-flight
+        // clear's deferredSessionBatches and clearingTargetGeneration are not clobbered.
+        guard !isClearingSession else {
+            return
+        }
+
         // Mark the rollover intent synchronously so batches delivered while the
         // main actor is suspended can be classified deterministically.
         let targetGeneration = sessionGeneration &+ 1
@@ -171,6 +177,13 @@ extension MainContentCoordinator {
         // the main actor is suspended joins the new session instead of being
         // stamped with an old generation.
         let resolvedGeneration = await sessionManager.beginNewSession()
+
+        // Validate that this clear is still the authoritative in-flight clear
+        // after the suspension. A different generation here would mean state
+        // has been reset out from under us; abandon the rest of the clear.
+        guard clearingTargetGeneration == targetGeneration else {
+            return
+        }
         sessionGeneration = resolvedGeneration
 
         transactions.removeAll()
@@ -317,11 +330,6 @@ extension MainContentCoordinator {
         updateAllWorkspaces(with: filteredBatch)
 
         headerColumnStore.updateDiscoveredHeaders(fromBatch: filteredBatch)
-
-        if transactions.count > policy.maxLiveHistoryEntries {
-            let overflow = transactions.count - policy.maxLiveHistoryEntries
-            evictOldestTransactions(count: overflow)
-        }
     }
 
     func handleClientAppEnrichment(_ enrichedIDs: [UUID]) {

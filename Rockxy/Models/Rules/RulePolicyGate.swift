@@ -17,6 +17,14 @@ final class RulePolicyGate: @unchecked Sendable {
 
     // MARK: Internal
 
+    /// Shared gate used by all rule-mutating surfaces.
+    ///
+    /// **Mutability contract:** `shared` is a `var` because `MainContentCoordinator.configureSharedGates()`
+    /// rebinds it once at app startup to inject the runtime `AppPolicy`, and serialized tests
+    /// (`@Suite(.serialized)`) rebind it inside `defer { ... }` blocks to exercise alternate policies.
+    /// Reassignment is safe only under these controlled conditions — the final store wins and
+    /// there is no concurrent rule evaluation racing with the swap. Do not reassign from
+    /// parallel tests or from arbitrary runtime paths.
     static var shared = RulePolicyGate()
 
     let policy: any AppPolicy

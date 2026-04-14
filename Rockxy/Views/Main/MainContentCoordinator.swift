@@ -12,11 +12,6 @@ import os
 /// each file focused and within SwiftLint size limits.
 @MainActor @Observable
 final class MainContentCoordinator {
-    struct DeferredBatch {
-        let transactions: [HTTPTransaction]
-        let generation: UInt
-    }
-
     // MARK: Lifecycle
 
     init(policy: any AppPolicy = DefaultAppPolicy()) {
@@ -25,6 +20,11 @@ final class MainContentCoordinator {
     }
 
     // MARK: Internal
+
+    struct DeferredBatch {
+        let transactions: [HTTPTransaction]
+        let generation: UInt
+    }
 
     static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MainContentCoordinator")
 
@@ -274,20 +274,31 @@ final class MainContentCoordinator {
         guard ruleLoadTask == nil else {
             return
         }
-        ruleLoadTask = Task {
+        ruleLoadTask = Task { [weak self] in
             await RuleSyncService.loadFromDisk()
-            rulesLoaded = true
+            guard let self else {
+                return
+            }
+            self.rulesLoaded = true
+            self.ruleLoadTask = nil
         }
     }
 
     func ensureRulesLoaded() async {
+        if rulesLoaded {
+            return
+        }
         if let existing = ruleLoadTask {
             await existing.value
             return
         }
-        let task = Task {
+        let task = Task { [weak self] in
             await RuleSyncService.loadFromDisk()
-            rulesLoaded = true
+            guard let self else {
+                return
+            }
+            self.rulesLoaded = true
+            self.ruleLoadTask = nil
         }
         ruleLoadTask = task
         await task.value

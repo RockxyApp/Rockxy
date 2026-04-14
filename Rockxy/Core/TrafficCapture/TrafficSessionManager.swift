@@ -4,7 +4,8 @@ import os
 /// Batches incoming HTTP transactions from the proxy engine before delivering them to the UI layer.
 /// Transactions are flushed either when the batch reaches 50 items or every 100ms, whichever comes
 /// first. This prevents per-request UI updates that would bottleneck SwiftUI at high traffic volumes.
-/// When the in-memory buffer exceeds `maxBufferSize` (default 50k), the oldest 10% are evicted.
+/// When the accepted-count exceeds `maxBufferSize`, the actor posts a single eviction request
+/// sized to the exact overflow so the main-actor live history converges to the cap in one round.
 actor TrafficSessionManager {
     // MARK: Internal
 
@@ -76,12 +77,19 @@ actor TrafficSessionManager {
         batchTimerTask = nil
     }
 
+    /// Clears pending updates, resets buffered counts, and bumps the generation.
+    /// Synchronous. Does not invoke `onBeginNewSession`. Use when the caller only needs
+    /// local state cleared (e.g. tests) and does not rely on the rollover callback.
     func resetBufferState() {
         pendingUpdates.removeAll()
         totalBuffered = 0
         generation &+= 1
     }
 
+    /// Clears pending updates, resets buffered counts, bumps the generation, and invokes
+    /// `onBeginNewSession(generation)` when set. Returns the new generation so the caller
+    /// can align its own generation tag with the actor's. Use this for production session
+    /// rollovers where the callback must run before the new generation is observed.
     func beginNewSession() async -> UInt {
         pendingUpdates.removeAll()
         totalBuffered = 0
@@ -151,19 +159,22 @@ actor TrafficSessionManager {
     // MARK: - Eviction
 
     private func evictOldest() {
-        let evictionCount = max(maxBufferSize / 10, 1)
-        Self.logger.info("Buffer exceeded \(self.maxBufferSize), evicting \(evictionCount) oldest transactions")
+        let overflow = totalBuffered - maxBufferSize
+        guard overflow > 0 else {
+            return
+        }
+        Self.logger.info("Buffer exceeded \(self.maxBufferSize), evicting \(overflow) oldest transactions")
 
         Task {
             await MainActor.run {
                 NotificationCenter.default.post(
                     name: .bufferEvictionRequested,
                     object: nil,
-                    userInfo: ["count": evictionCount]
+                    userInfo: ["count": overflow]
                 )
             }
         }
 
-        totalBuffered = max(0, totalBuffered - evictionCount)
+        totalBuffered = maxBufferSize
     }
 }
