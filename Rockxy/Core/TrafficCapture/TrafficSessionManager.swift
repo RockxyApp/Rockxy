@@ -72,6 +72,13 @@ actor TrafficSessionManager {
         totalBuffered = 0
     }
 
+    func reportAcceptedCount(_ count: Int) {
+        totalBuffered += count
+        if totalBuffered > maxBufferSize {
+            evictOldest()
+        }
+    }
+
     // MARK: Private
 
     private static let logger = Logger(
@@ -96,11 +103,6 @@ actor TrafficSessionManager {
 
         let batch = pendingUpdates
         pendingUpdates.removeAll()
-        totalBuffered += batch.count
-
-        if totalBuffered > maxBufferSize {
-            evictOldest()
-        }
 
         onBatchReady?(batch)
 

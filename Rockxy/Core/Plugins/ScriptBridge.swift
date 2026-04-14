@@ -10,14 +10,19 @@ import os
 enum ScriptBridge {
     // MARK: Internal
 
-    static func install(in context: JSContext, pluginID: String, logger: Logger) {
+    static func install(
+        in context: JSContext,
+        pluginID: String,
+        logger: Logger,
+        defaults: UserDefaults = .standard
+    ) {
         let rockxy = JSValue(newObjectIn: context)
 
         installLogging(on: rockxy, context: context, logger: logger)
         installCrypto(on: rockxy, context: context)
         installEncoding(on: rockxy, context: context)
-        installStorage(on: rockxy, context: context, pluginID: pluginID)
-        installEnv(on: rockxy, context: context, pluginID: pluginID)
+        installStorage(on: rockxy, context: context, pluginID: pluginID, defaults: defaults)
+        installEnv(on: rockxy, context: context, pluginID: pluginID, defaults: defaults)
 
         context.setObject(rockxy, forKeyedSubscript: "$rockxy" as NSString)
 
@@ -96,7 +101,12 @@ enum ScriptBridge {
         rockxy?.setObject(encoding, forKeyedSubscript: "encoding" as NSString)
     }
 
-    private static func installStorage(on rockxy: JSValue?, context: JSContext, pluginID: String) {
+    private static func installStorage(
+        on rockxy: JSValue?,
+        context: JSContext,
+        pluginID: String,
+        defaults: UserDefaults
+    ) {
         let storage = JSValue(newObjectIn: context)
         let prefix = RockxyIdentity.current.pluginStoragePrefix(pluginID: pluginID)
 
@@ -105,21 +115,21 @@ enum ScriptBridge {
                 bridgeLogger.debug("storage.get rejected invalid key '\(key)' for \(pluginID)")
                 return nil
             }
-            return UserDefaults.standard.object(forKey: prefix + key)
+            return defaults.object(forKey: prefix + key)
         }
         let setFn: @convention(block) (String, Any) -> Void = { key, value in
             guard PluginValidator.isValidKey(key) else {
                 bridgeLogger.debug("storage.set rejected invalid key '\(key)' for \(pluginID)")
                 return
             }
-            UserDefaults.standard.set(value, forKey: prefix + key)
+            defaults.set(value, forKey: prefix + key)
         }
         let deleteFn: @convention(block) (String) -> Void = { key in
             guard PluginValidator.isValidKey(key) else {
                 bridgeLogger.debug("storage.delete rejected invalid key '\(key)' for \(pluginID)")
                 return
             }
-            UserDefaults.standard.removeObject(forKey: prefix + key)
+            defaults.removeObject(forKey: prefix + key)
         }
 
         storage?.setObject(getFn, forKeyedSubscript: "get" as NSString)
@@ -129,7 +139,12 @@ enum ScriptBridge {
         rockxy?.setObject(storage, forKeyedSubscript: "storage" as NSString)
     }
 
-    private static func installEnv(on rockxy: JSValue?, context: JSContext, pluginID: String) {
+    private static func installEnv(
+        on rockxy: JSValue?,
+        context: JSContext,
+        pluginID: String,
+        defaults: UserDefaults
+    ) {
         let env = JSValue(newObjectIn: context)
         let prefix = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID)
 
@@ -138,7 +153,7 @@ enum ScriptBridge {
                 bridgeLogger.debug("env.get rejected invalid key '\(key)' for \(pluginID)")
                 return nil
             }
-            return UserDefaults.standard.object(forKey: prefix + key)
+            return defaults.object(forKey: prefix + key)
         }
 
         env?.setObject(getFn, forKeyedSubscript: "get" as NSString)

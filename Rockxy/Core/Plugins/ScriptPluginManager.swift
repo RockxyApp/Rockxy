@@ -27,6 +27,7 @@ actor ScriptPluginManager {
     init(discovery: PluginDiscovery = PluginDiscovery(), defaults: UserDefaults = .standard) {
         self.discovery = discovery
         self.defaults = defaults
+        self.runtime = ScriptRuntime(defaults: defaults)
     }
 
     // MARK: Internal
@@ -220,5 +221,5 @@ actor ScriptPluginManager {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptPluginManager")
 
     private let discovery: PluginDiscovery
-    private let runtime = ScriptRuntime()
+    private let runtime: ScriptRuntime
 }

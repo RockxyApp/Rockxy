@@ -27,6 +27,12 @@ enum ScriptRuntimeError: Error, LocalizedError {
 // MARK: - ScriptRuntime
 
 actor ScriptRuntime {
+    // MARK: Lifecycle
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
     // MARK: Internal
 
     func loadPlugin(_ info: PluginInfo) throws {
@@ -57,7 +63,7 @@ actor ScriptRuntime {
         }
 
         let pluginLogger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "Plugin.\(info.id)")
-        ScriptBridge.install(in: context, pluginID: info.id, logger: pluginLogger)
+        ScriptBridge.install(in: context, pluginID: info.id, logger: pluginLogger, defaults: defaults)
 
         context.evaluateScript(source)
         if let exception = context.exception {
@@ -205,6 +211,7 @@ actor ScriptRuntime {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptRuntime")
     private static let timeout: TimeInterval = 5
 
+    private let defaults: UserDefaults
     private var contexts: [String: JSContext] = [:]
     private var queues: [String: DispatchQueue] = [:]
 }

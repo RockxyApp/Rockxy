@@ -51,12 +51,11 @@ struct HistoryRetentionTests {
         #expect(coordinator.cachedSessionStore == nil)
     }
 
-    @Test("TrafficSessionManager posts eviction notification when buffer overflows")
+    @Test("reportAcceptedCount triggers eviction when buffer overflows")
     @MainActor
-    func sessionManagerEvictionNotification() async {
+    func reportAcceptedCountTriggersEviction() async {
         let manager = TrafficSessionManager()
         await manager.setMaxBufferSize(20)
-        await manager.setOnBatchReady { _ in }
 
         var evictionCount: Int?
         let observer = NotificationCenter.default.addObserver(
@@ -66,16 +65,9 @@ struct HistoryRetentionTests {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        // Add 50 transactions to trigger flushAndDeliver via batch-size threshold.
-        // totalBuffered becomes 50, which exceeds maxBufferSize (20),
-        // so evictOldest() fires and posts the notification.
-        for i in 0 ..< 50 {
-            await manager.addTransaction(
-                TestFixtures.makeTransaction(url: "https://evict-actor.com/\(i)")
-            )
-        }
+        // Report 25 accepted transactions — exceeds maxBufferSize (20)
+        await manager.reportAcceptedCount(25)
 
-        // evictOldest() posts via Task { await MainActor.run { ... } }
         try? await Task.sleep(for: .milliseconds(100))
 
         #expect(evictionCount == 2) // maxBufferSize / 10 = 20 / 10
@@ -86,7 +78,6 @@ struct HistoryRetentionTests {
     func smallBufferEvictionNotZero() async {
         let manager = TrafficSessionManager()
         await manager.setMaxBufferSize(5)
-        await manager.setOnBatchReady { _ in }
 
         var evictionCount: Int?
         let observer = NotificationCenter.default.addObserver(
@@ -96,16 +87,44 @@ struct HistoryRetentionTests {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        for i in 0 ..< 50 {
-            await manager.addTransaction(
-                TestFixtures.makeTransaction(url: "https://small-buffer.com/\(i)")
-            )
-        }
+        // Report 10 accepted — exceeds maxBufferSize (5)
+        await manager.reportAcceptedCount(10)
 
         try? await Task.sleep(for: .milliseconds(100))
 
         // max(5 / 10, 1) = max(0, 1) = 1
         #expect(evictionCount == 1)
+    }
+
+    @Test("Paused recording does not consume live-history budget")
+    @MainActor
+    func pausedRecordingDoesNotConsumeBuffer() async {
+        let manager = TrafficSessionManager()
+        await manager.setMaxBufferSize(20)
+
+        var batchDelivered = false
+        await manager.setOnBatchReady { _ in batchDelivered = true }
+
+        // Add 50 transactions — flushAndDeliver fires, delivering the batch
+        for i in 0 ..< 50 {
+            await manager.addTransaction(
+                TestFixtures.makeTransaction(url: "https://paused.com/\(i)")
+            )
+        }
+
+        // Batch was delivered to callback but no reportAcceptedCount was called
+        // (simulating isRecording == false in processBatch which would drop the batch)
+        #expect(batchDelivered)
+
+        // No eviction should have fired because totalBuffered was never incremented
+        var evictionFired = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bufferEvictionRequested, object: nil, queue: .main
+        ) { _ in evictionFired = true }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(!evictionFired)
     }
 
     @Test("clearSession resets actor-side buffer state")

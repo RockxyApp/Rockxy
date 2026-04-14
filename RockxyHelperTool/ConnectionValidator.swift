@@ -91,30 +91,16 @@ enum ConnectionValidator {
             return false
         }
 
-        for identifier in allowedCallerIdentifiers {
-            var requirement: SecRequirement?
-            let reqStatus = SecRequirementCreateWithString(
-                "identifier \"\(identifier)\" and anchor apple generic" as CFString,
-                [],
-                &requirement
-            )
-
-            guard reqStatus == errSecSuccess, let requirement else {
-                logger.error(
-                    "SECURITY: Failed to create SecRequirement for \(identifier) (status: \(reqStatus))"
-                )
-                continue
-            }
-
-            let validityStatus = SecCodeCheckValidity(callerCode, [], requirement)
-            if validityStatus == errSecSuccess {
-                logger.debug("SECURITY: Bundle identity requirement satisfied for pid \(pid)")
-                return true
-            }
+        let satisfied = CallerValidation.callerSatisfiesAnyIdentifier(
+            callerCode: callerCode,
+            allowedIdentifiers: allowedCallerIdentifiers
+        )
+        if satisfied {
+            logger.debug("SECURITY: Bundle identity requirement satisfied for pid \(pid)")
+        } else {
+            logger.error("SECURITY: Caller pid \(pid) does not satisfy any allowed bundle identifier")
         }
-
-        logger.error("SECURITY: Caller pid \(pid) does not satisfy any allowed bundle identifier")
-        return false
+        return satisfied
     }
 
     /// Obtains a `SecCode` reference for the XPC connection's caller.
@@ -292,25 +278,13 @@ enum ConnectionValidator {
     )
         -> Bool
     {
-        guard lhs.count == rhs.count else {
-            logger.debug("Certificate chain length mismatch: \(lhs.count) vs \(rhs.count)")
-            return false
+        let lhsData = CallerValidation.certificateDERData(from: lhs)
+        let rhsData = CallerValidation.certificateDERData(from: rhs)
+        let matches = CallerValidation.certificateDataChainsMatch(lhsData, rhsData)
+        if !matches {
+            let count = "chain lengths: \(lhs.count) vs \(rhs.count)"
+            logger.debug("Certificate chain mismatch (\(count))")
         }
-
-        for index in lhs.indices {
-            let lhsData = SecCertificateCopyData(lhs[index]) as Data
-            let rhsData = SecCertificateCopyData(rhs[index]) as Data
-
-            if lhsData != rhsData {
-                let lhsSummary = SecCertificateCopySubjectSummary(lhs[index]) as String? ?? "unknown"
-                let rhsSummary = SecCertificateCopySubjectSummary(rhs[index]) as String? ?? "unknown"
-                logger.debug(
-                    "Certificate mismatch at index \(index): self=\"\(lhsSummary)\" caller=\"\(rhsSummary)\""
-                )
-                return false
-            }
-        }
-
-        return true
+        return matches
     }
 }
