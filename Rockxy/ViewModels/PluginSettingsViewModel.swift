@@ -41,6 +41,10 @@ final class PluginSettingsViewModel {
         plugins.first { $0.id == selectedPluginID }
     }
 
+    var pluginManagerIdentity: ObjectIdentifier {
+        pluginManager.identity
+    }
+
     func loadPlugins() async {
         await pluginManager.loadAllPlugins()
         plugins = await pluginManager.plugins

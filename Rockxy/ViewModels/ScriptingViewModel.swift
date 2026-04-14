@@ -123,6 +123,10 @@ final class ScriptingViewModel {
         return plugins.first { $0.id == id }
     }
 
+    var pluginManagerIdentity: ObjectIdentifier {
+        pluginManager.identity
+    }
+
     func loadPlugins() async {
         isLoading = true
         defer { isLoading = false }

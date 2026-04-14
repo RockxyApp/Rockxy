@@ -216,6 +216,17 @@ struct ScriptQuotaTests {
 
     // MARK: - Default Wiring
 
+    @Test("Default-init VMs share PluginManager.shared.scriptManager identity")
+    @MainActor
+    func defaultInitVMsShareManager() {
+        let settings = PluginSettingsViewModel()
+        let scripting = ScriptingViewModel()
+
+        let expected = PluginManager.shared.scriptManager.identity
+        #expect(settings.pluginManagerIdentity == expected)
+        #expect(scripting.pluginManagerIdentity == expected)
+    }
+
     @Test("Settings and scripting VMs backed by same manager discover same plugin")
     @MainActor
     func sharedManagerBothVMsDiscover() async throws {

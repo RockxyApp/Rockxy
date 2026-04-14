@@ -32,6 +32,10 @@ actor ScriptPluginManager {
 
     private(set) var plugins: [PluginInfo] = []
 
+    nonisolated var identity: ObjectIdentifier {
+        ObjectIdentifier(self)
+    }
+
     var pluginsDirectoryURL: URL {
         get async { await discovery.pluginsDirectoryURL }
     }
