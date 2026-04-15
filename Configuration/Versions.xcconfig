@@ -1,19 +1,15 @@
-// Versions.xcconfig — Single source of truth for release versions and bundle builds.
+// Versions.xcconfig — Single source of truth for all version and build numbers.
 //
 // This file is the ONLY place version/build values should be edited.
 // Updated by: scripts/release-set-version.sh
 // Read at build time via pbxproj variables → Info.plist → Bundle.main at runtime.
 //
-// Naming model:
-// - ROCKXY_*_VERSION = marketing version / SemVer for release communication
-// - ROCKXY_*_BUILD = bundle build number / CFBundleVersion for Apple packaging
-//
-// Do NOT duplicate these values in Swift constants. All runtime code reads from
-// Bundle.main.infoDictionary.
+// Do NOT duplicate these values in Swift constants. All runtime code reads
+// from Bundle.main.infoDictionary.
 
-ROCKXY_APP_VERSION = 0.7.0
-ROCKXY_APP_BUILD = 9
+ROCKXY_APP_VERSION = 0.7.1
+ROCKXY_APP_BUILD = 10
 
-ROCKXY_HELPER_VERSION = 0.7.0
-ROCKXY_HELPER_BUILD = 6
+ROCKXY_HELPER_VERSION = 0.7.1
+ROCKXY_HELPER_BUILD = 7
 ROCKXY_HELPER_PROTOCOL_VERSION = 1

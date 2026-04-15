@@ -38,6 +38,75 @@
 
 ---
 
+<!-- BEGIN GENERATED: latest-release -->
+## 最新发布
+
+**v0.7.1** — 2026-04-15
+
+### 修复
+
+- Align live-history cap with actor accounting, guard clearSession reentry, clear ruleLoadTask on completion
+- Finalize upstream normalization cleanup
+- Cross-suite RuleEngine serialization via RuleTestLock and clearSession regression test
+- Replace fire-and-forget engine restore with awaited cleanup in rule tests
+- Eliminate MainActor starvation in rule tests and close clearSession generation gap
+- Synchronous sessionGeneration in clearSession, atomic rule store writes, and detached syncAll disk I/O
+- ClearSession generation sync, deterministic rollback polls, and test isolation
+- ClearSession race, rule test isolation, and docs product-name normalization
+- Testable ConnectionValidator seam with accept-path and audit-token coverage
+- Generation-safe accepted-count reporting and audit-token SecCode extraction seam
+- Real caller-validation entrypoint, generation-safe session clear, and bridge defaults isolation
+- Real caller-validation tests, correct history accounting, and full plugin environment normalization
+- Session clear race, plugin environment normalization, and test serialization
+- Hermetic plugin test isolation, real runtime transition test, and error-status assertion
+- Refresh VM on failed enable, isolate plugin fixtures, guard small-buffer eviction, and tighten signing tests
+- Use Task.sleep instead of Task.yield for VM rollback test stability
+- Single-flight rule loading via ensureRulesLoaded()
+- Harden plugin/rule race conditions, quota logic, and error surfacing
+- Short-circuit re-enable for already-enabled plugins
+- Snapshot plugin IDs across await and fix exclusive netcond quota
+- Rule loading race and exclusive network-condition quota bypass
+- Make quota paths truly atomic and isolate gate policy from tests
+- Address final review findings for gates, bulk replace, and selection
+- Make script enable atomic and propagate missing-plugin errors
+- Address review findings for policy gate correctness
+- Make RuleQuotaTests immune to cross-suite singleton state
+
+### 变更
+
+- Correct batched-update interval to 100ms and qualify large-body storage path per build
+- Validate loadInitialRules reuses in-flight ruleLoadTask and clears it on completion
+- Harden plugin env cleanup, dedupe allowed-caller constants, remove hardcoded audit_token_t ObjC encoding, guarantee rule lock release
+- Delegate RockxyIdentity bundle init to infoDictionary init
+- Tighten .gitignore entries, fix README badges, correct architecture and security diagrams
+- Exercise real audit-token revalidation branch in isValidCaller
+- Full isValidCaller accept path and NSValue audit-token branch via TestXPCConnection
+- Stabilize ConnectionValidator tests and remove infeasible XPC harness
+- Direct ConnectionValidator coverage via Shared/ relocation
+- Prove enable transition through real default-init production singleton
+- Prove default-init VMs load consistent state through real production path
+- Restore default-init wiring coverage via pluginManagerIdentity seam
+- Isolate default-wiring plugin test from real app-support state
+- Complete helper signing diagnostics, toggle rollback, and engine-state assertions
+- Strengthen actor eviction, default VM wiring, and concurrent enable postconditions
+- Cover default plugin runtime wiring
+- Cover coordinator rule wiring, VM quota rollback, and script default paths
+- Extract shared temp plugin helpers to TestFixtures
+- Remove dead SessionStore coupling from eviction and strengthen history retention tests
+- Add helper caller validation matrix
+- Annotate identity fallbacks and bind tests to live config
+- Add identity and helper trust matrix coverage
+- Unify ScriptPluginManager ownership and add script quota
+- Cap live history buffer at policy-defined limit
+- Add RulePolicyGate and route rule mutations through it
+- Add domain favorites capacity at coordinator boundary
+- Inject workspace capacity via init
+- Remove edition leakage and introduce AppPolicy
+- Split family config from product identity
+
+完整发布历史见 [CHANGELOG.md](CHANGELOG.md)。
+<!-- END GENERATED: latest-release -->
+
 ## 功能特性
 
 **流量捕获** — 基于 SwiftNIO 的代理，支持 CONNECT 隧道、自动为每个主机生成 TLS 证书、WebSocket 帧捕获，以及自动检测 GraphQL 操作。
