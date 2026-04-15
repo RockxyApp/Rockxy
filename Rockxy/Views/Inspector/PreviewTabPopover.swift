@@ -58,7 +58,7 @@ struct PreviewTabPopover: View {
 
                             Menu {
                                 Button(String(localized: "Edit Script…")) {
-                                    openWindow(id: "scripting")
+                                    openWindow(id: "scriptingList")
                                 }
                                 Divider()
                                 Button(String(localized: "Remove"), role: .destructive) {

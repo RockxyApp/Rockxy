@@ -85,47 +85,37 @@
 		94D100EF398E433CBF214BB5 /* SSLImporterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SSLImporterTests.swift; path = RockxyTests/Core/ProxyEngine/SSLImporterTests.swift; sourceTree = "<group>"; };
 		B4AB602A25240F8F700239D0 /* SSLProxyingRuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SSLProxyingRuleTests.swift; path = RockxyTests/Models/Settings/SSLProxyingRuleTests.swift; sourceTree = "<group>"; };
 		C3468A7E29A7BB264F6895FA /* TrafficDomainSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TrafficDomainSnapshotTests.swift; path = RockxyTests/Core/Services/TrafficDomainSnapshotTests.swift; sourceTree = "<group>"; };
-		DCA99FBB2F61ADC9005B1552 /* Rockxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Rockxy.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DCA99FBB2F61ADC9005B1552 /* Rockxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rockxy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA99FCA2F61ADCC005B1552 /* RockxyTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA99FD42F61ADCC005B1552 /* RockxyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RockxyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA9D0012F700000005B1552 /* RockxyHelperTool */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RockxyHelperTool; sourceTree = BUILT_PRODUCTS_DIR; };
 		DCA9D00E2F700001005B1552 /* com.amunx.rockxy.helper.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = com.amunx.rockxy.helper.plist; path = RockxyHelperTool/com.amunx.rockxy.helper.plist; sourceTree = SOURCE_ROOT; };
-		DCA9D0202F700100005B1552 /* Developer.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Developer.xcconfig; sourceTree = SOURCE_ROOT; };
+		DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Configuration/Developer.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DCA99FBD2F61ADC9005B1552 /* Rockxy */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Rockxy;
 			sourceTree = "<group>";
 		};
 		DCA99FCD2F61ADCC005B1552 /* RockxyTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = RockxyTests;
 			sourceTree = "<group>";
 		};
 		DCA99FD72F61ADCC005B1552 /* RockxyUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = RockxyUITests;
 			sourceTree = "<group>";
 		};
 		DCA9D0022F700000005B1552 /* RockxyHelperTool */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = RockxyHelperTool;
 			sourceTree = "<group>";
 		};
 		DCA9D0032F700000005B1552 /* Shared */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Shared;
 			sourceTree = "<group>";
 		};
@@ -328,7 +318,7 @@
 		DCA99FB22F61ADC9005B1552 = {
 			isa = PBXGroup;
 			children = (
-				DCA9D0202F700100005B1552 /* Developer.xcconfig */,
+				DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */,
 				DCA99FBD2F61ADC9005B1552 /* Rockxy */,
 				DCA9D0022F700000005B1552 /* RockxyHelperTool */,
 				DCA9D0032F700000005B1552 /* Shared */,
@@ -522,7 +512,7 @@
 				DCA9A6392F624A6F005B1552 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */,
 				DCA9A63A2F624B04005B1552 /* XCRemoteSwiftPackageReference "swift-certificates" */,
 				DCA9A63B2F624B15005B1552 /* XCRemoteSwiftPackageReference "swift-crypto" */,
-				DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite.swift" */,
+				DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DCA99FBC2F61ADC9005B1552 /* Products */;
@@ -756,7 +746,7 @@
 		};
 		DCA99FDF2F61ADCC005B1552 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -789,7 +779,7 @@
 		};
 		DCA99FE02F61ADCC005B1552 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -822,7 +812,7 @@
 		};
 		DCA99FE22F61ADCC005B1552 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -843,7 +833,7 @@
 		};
 		DCA99FE32F61ADCC005B1552 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
@@ -900,7 +890,7 @@
 		};
 		DCA9D00B2F700000005B1552 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
@@ -921,7 +911,7 @@
 		};
 		DCA9D00C2F700000005B1552 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DCA9D0202F700100005B1552 /* Developer.xcconfig */;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
@@ -1023,7 +1013,7 @@
 				minimumVersion = 4.2.0;
 			};
 		};
-		DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite.swift" */ = {
+		DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/stephencelis/SQLite.swift";
 			requirement = {
@@ -1036,7 +1026,7 @@
 /* Begin XCSwiftPackageProductDependency section */
 		DCA9A63D2F624B36005B1552 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite.swift" */;
+			package = DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
 		};
 		DCA9A63E2F624B50005B1552 /* X509 */ = {

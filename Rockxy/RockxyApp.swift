@@ -103,11 +103,19 @@ struct RockxyApp: App {
         .defaultSize(width: 1_240, height: 820)
         .defaultPosition(.center)
 
-        Window(String(localized: "Scripting"), id: "scripting") {
-            ScriptingWindowView()
+        Window(String(localized: "Scripting"), id: "scriptingList") {
+            ScriptingListWindowView()
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .defaultSize(width: 900, height: 640)
+
+        Window(String(localized: "Script Editor"), id: "scriptEditor") {
+            ScriptEditorWindowView()
+        }
+        .commandsRemoved()
+        .defaultSize(width: 1_120, height: 740)
         .defaultPosition(.center)
 
         Window(String(localized: "Custom Previewer Tabs"), id: "customPreviewerTabs") {
@@ -578,7 +586,7 @@ struct RockxyMenuCommands: Commands {
     private var scriptingMenu: some Commands {
         CommandMenu(String(localized: "Scripting")) {
             Button(String(localized: "Script List…")) {
-                openWindow(id: "scripting")
+                openWindow(id: "scriptingList")
             }
             .keyboardShortcut("i", modifiers: [.command, .option])
         }

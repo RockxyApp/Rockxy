@@ -232,10 +232,15 @@ extension MainContentCoordinator {
         )
 
         let bpManager = breakpointManager
+        // Ensure scripts are loaded before the proxy starts accepting connections,
+        // so the first captured request sees the same script state as every later one.
+        // After the first call this is a fast no-op.
+        await PluginManager.shared.ensureLoadedOnce()
         proxyServer = ProxyServer(
             configuration: configuration,
             certificateManager: certificateManager,
             ruleEngine: RuleEngine.shared,
+            scriptPluginManager: PluginManager.shared.scriptManager,
             onTransactionComplete: { transaction in
                 Task {
                     await manager.addTransaction(transaction)

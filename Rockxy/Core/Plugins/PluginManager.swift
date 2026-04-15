@@ -4,8 +4,12 @@ import os
 /// Central registry for all inspector, exporter, and protocol handler plugins.
 /// Thread-safe via per-collection `NSLock` guards — plugins can be registered
 /// from any thread, and queries happen on the main thread during UI layout.
-/// Built-in plugins are registered at startup via `loadPlugins()`.
-final class PluginManager: Sendable {
+///
+/// Startup readiness is served by `ensureLoadedOnce()`, which is called from
+/// `AppDelegate.applicationDidFinishLaunching(_:)` and awaited before
+/// `ProxyServer.init` on the capture-start path. Both call sites are safe to
+/// invoke concurrently — the second caller observes the same single load.
+final class PluginManager: @unchecked Sendable {
     // MARK: Internal
 
     static let shared = PluginManager()
@@ -37,10 +41,21 @@ final class PluginManager: Sendable {
 
     // MARK: - Loading
 
+    /// Authoritative startup entry point. Registers built-in inspector/exporter
+    /// plugins exactly once and awaits the script manager's one-shot script load.
+    /// Safe to call from multiple sites (AppDelegate, capture-start coordinator).
+    func ensureLoadedOnce() async {
+        registerBuiltInsIfNeeded()
+        await scriptManager.ensureLoadedOnce()
+    }
+
+    /// Fire-and-forget shim for legacy synchronous call sites. Registers built-in
+    /// inspectors/exporters synchronously (so callers that `allExporters()` right
+    /// afterwards see them) and dispatches the async script load to a background
+    /// Task. Prefer `ensureLoadedOnce()` in new code.
     func loadPlugins() {
-        registerBuiltIns()
-        Task { await scriptManager.loadAllPlugins() }
-        Self.logger.info("Plugin loading complete")
+        registerBuiltInsIfNeeded()
+        Task { await scriptManager.ensureLoadedOnce() }
     }
 
     // MARK: - Queries
@@ -81,9 +96,19 @@ final class PluginManager: Sendable {
     private let _handlerLock: NSLock = .init()
     nonisolated(unsafe) private var _handlers: [any ProtocolHandler] = []
 
+    private let _builtInsLock: NSLock = .init()
+    nonisolated(unsafe) private var _didRegisterBuiltIns: Bool = false
+
     // MARK: - Built-in Registration
 
-    private func registerBuiltIns() {
+    private func registerBuiltInsIfNeeded() {
+        _builtInsLock.lock()
+        if _didRegisterBuiltIns {
+            _builtInsLock.unlock()
+            return
+        }
+        _didRegisterBuiltIns = true
+        _builtInsLock.unlock()
         register(inspector: JSONInspector())
         register(exporter: HARExporter())
     }

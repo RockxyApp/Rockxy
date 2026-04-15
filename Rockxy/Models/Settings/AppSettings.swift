@@ -13,6 +13,18 @@ struct AppSettings {
     var listenIPv6: Bool = false
     var autoSelectPort: Bool = true
 
+    /// Master toggle for the Scripting List window. When false, scripts are loaded
+    /// but not executed in the proxy pipeline. Default true for backward compat.
+    var scriptingToolEnabled: Bool = true
+
+    /// Allows scripts to read the host system's environment variables via
+    /// `$rockxy.env.system(key)`. Default false; user must opt in via Advance menu.
+    var allowSystemEnvVars: Bool = false
+
+    /// When true, all matching scripts run in id-sorted order on the same request.
+    /// When false (default), only the first matching script runs.
+    var allowMultipleScriptsPerRequest: Bool = false
+
     /// The effective listen address derived from `onlyListenOnLocalhost`.
     var effectiveListenAddress: String {
         onlyListenOnLocalhost ? "127.0.0.1" : "0.0.0.0"

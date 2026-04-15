@@ -1,11 +1,11 @@
 ---
 title: "JavaScript Scripting"
-description: "Create JavaScript scripts to inspect, modify, or filter traffic passing through the proxy."
+description: "Create JavaScript scripts to inspect, modify, mock, or filter traffic passing through the proxy."
 ---
 
 # JavaScript Scripting
 
-Rockxy includes a JavaScript scripting engine (JavaScriptCore) that lets you write scripts to inspect, modify, or filter traffic. Scripts run against matched requests in the proxy pipeline with a 5-second execution timeout.
+Rockxy includes a JavaScript scripting engine (JavaScriptCore) that lets you write scripts to inspect, modify, mock, or filter traffic. Scripts run against matched requests in the proxy pipeline with a 5-second execution timeout. Enabled scripts are loaded at app launch and run automatically — you do not need to keep the Scripting window open.
 
 ## Entry Points
 
@@ -13,51 +13,175 @@ Rockxy includes a JavaScript scripting engine (JavaScriptCore) that lets you wri
 |--------|---------------|
 | Open Script List | **Scripting > Script List...** (`Cmd+Opt+I`) |
 | Create New Script | Click **+** in the Script List window, or use the empty-state "Create Your First Script" button |
+| Edit per-script behavior | **Settings > Plugins**, select a script-type plugin |
 
-## Script List
+## Public JavaScript API
 
-The Script List window shows all scripts with their status:
+Scripts may use either the **multi-arg** API (recommended) or the legacy **single-arg** API. Rockxy detects which by inspecting the JS function's `length` at load time, so both work side-by-side.
 
-- **Enabled/Disabled** toggle per script.
-- **Error state** — scripts that failed to load or threw exceptions show the error message inline in red.
-- **Loading state** — scripts being initialized show a "Loading..." label.
+### Multi-arg API (recommended)
 
-Select a script to view and edit its source code in the built-in editor.
+```javascript
+async function onRequest(context, url, request) {
+  request.headers["X-Custom"] = "value";
+  request.queries["debug"] = "1";
+  return request;
+}
 
-## Creating a Script
+async function onResponse(context, url, request, response) {
+  response.statusCode = 418;
+  response.headers["Content-Type"] = "application/json";
+  response.body = JSON.stringify({ teapot: true });
+  // Or map a local file as the body (sandboxed to your home directory):
+  // response.bodyFilePath = "~/Desktop/myfile.json";
+  return response;
+}
+```
 
-1. Open the Script List (`Cmd+Opt+I`).
-2. Click **+** to create a new script.
-3. Choose a template or start from a blank script.
-4. Write your JavaScript using the `$rockxy` bridge API.
-5. Click **Save** to persist and **Test** to validate against sample traffic.
-6. Enable the script to activate it in the proxy pipeline.
+`request.headers` and `request.queries` are plain JS dictionaries — assign directly. `response.statusCode` accepts any integer in `[100, 599]`. `response.bodyFilePath` accepts a path under `~`; the file is loaded with the same size cap as captured response bodies.
 
-## What Scripts Can Do
+### Single-arg API (legacy)
 
-- Inspect request and response headers, body, URL, and method.
-- Modify headers (add, remove, replace) on requests or responses.
-- Block requests by returning a custom response.
-- Log output to the scripting console for debugging.
-- Filter or tag traffic based on custom logic.
+Scripts define one or both of these functions, exported either as direct globals or via CommonJS `module.exports`:
 
-## Error Feedback
+```javascript
+function onRequest(ctx) {
+  ctx.setHeader("X-Custom", "value");
+  return ctx;
+}
 
-Rockxy surfaces script errors inline in the Script List and the scripting console:
+function onResponse(ctx) {
+  ctx.setStatus(418);
+  ctx.setHeader("Content-Type", "application/json");
+  ctx.setBody('{"hello":"world"}');
+  return ctx;
+}
 
-- **Timeout** — scripts that exceed the 5-second limit are terminated with a timeout error and a hint to check for infinite loops.
-- **JavaScript exceptions** — runtime errors show the exception message and stack trace.
-- **Load failures** — scripts that fail during initial load emit an error entry to the console automatically.
+module.exports = { onRequest, onResponse };
+```
+
+Both styles are supported in the same script.
+
+### Request hook
+
+`onRequest(ctx)` receives a request context. You may mutate it via `ctx.setHeader(name, value)`, `ctx.setURL(newURL)`, or `ctx.setBody(newBody)`, then return the context. Returning `null` blocks the request locally with HTTP `403`.
+
+Allowed mutations propagate to upstream: **method, path, query, headers, body**. Attempts to change **host, port, or scheme** are dropped (with a one-time warning per plugin) — use the **Map Remote** rule action for cross-host rewrites.
+
+### Response hook
+
+`onResponse(ctx)` receives the buffered upstream response. Use `ctx.setStatus(code)`, `ctx.setHeader(name, value)`, or `ctx.setBody(newBody)` to mutate the response, then return the context. Mutations are reflected in both the bytes the client receives and the persisted transaction record.
+
+### Mock responses
+
+When a script's manifest sets `runAsMock: true`, the value returned from `onRequest(ctx)` is interpreted as the mock response object. The request never goes upstream:
+
+```javascript
+function onRequest(ctx) {
+  return {
+    statusCode: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mock: true })
+  };
+}
+
+module.exports = { onRequest };
+```
+
+Mock responses must include a numeric `statusCode` in `[100, 599]`. Invalid mock output fails locally with HTTP `502`; the request is never forwarded upstream.
+
+### `$rockxy` bridge
+
+The `$rockxy` global exposes utilities to scripts:
+
+| API | Purpose |
+|-----|---------|
+| `$rockxy.log.{info,warn,error,debug}(msg)` | Send a log line to the per-plugin OSLog category. |
+| `$rockxy.crypto.{sha256,md5}(input)` | Hash a string. |
+| `$rockxy.encoding.{base64Encode,base64Decode,urlEncode,urlDecode}(input)` | Convenience encoders. |
+| `$rockxy.storage.{get,set,delete}(key)` | Per-plugin persistent storage (UserDefaults). |
+| `$rockxy.env.get(key)` | Read a per-plugin configuration value. |
+| `console.log(msg)` | Routed to the per-plugin OSLog category. |
+
+## Per-Script Behavior (`scriptBehavior` manifest block)
+
+Each script-type plugin's `plugin.json` may include an optional `scriptBehavior` block:
+
+```json
+{
+  "id": "com.example.add-header",
+  "name": "Add Header",
+  "version": "1.0.0",
+  "author": { "name": "User" },
+  "description": "",
+  "types": ["script"],
+  "entryPoints": { "script": "index.js" },
+  "capabilities": ["modifyRequest"],
+  "scriptBehavior": {
+    "matchCondition": { "urlPattern": "https://api.example.com/.*", "method": "GET" },
+    "runOnRequest": true,
+    "runOnResponse": false,
+    "runAsMock": false
+  }
+}
+```
+
+| Field | Meaning | Default if missing |
+|-------|---------|--------------------|
+| `matchCondition` | Reuses the rule-engine match condition (URL regex, method, optional header). | `null` (match every request) |
+| `runOnRequest` | Whether `onRequest(ctx)` runs for matching traffic. | `true` |
+| `runOnResponse` | Whether `onResponse(ctx)` runs for matching traffic. | `true` |
+| `runAsMock` | Treat the request-hook return value as a mock response; never go upstream. | `false` |
+
+Scripts execute in deterministic, id-sorted order. By default, the first matching request-side script wins. If you enable **Allow Running Multiple Scripts for one Request** from the **Advance** menu, Rockxy chains matching request-side scripts in that same deterministic order. This toggle maps to the `allowMultipleScriptsPerRequest` setting used by the scripting runtime.
+
+## Pipeline order
+
+For each captured request:
+
+1. Rules engine evaluates the rule list. If a rule action consumes the request (block, map, breakpoint, throttle, etc.), scripts are skipped on the request side.
+2. Request-side scripts run on the (possibly rule-mutated) request. Outcome:
+   - `forward` → the mutated request is sent upstream.
+   - `null` return → local `403`.
+   - mock return (when `runAsMock=true`) → local response, never upstream.
+3. Response header rules run on the upstream response.
+4. Response-side scripts run on the buffered response.
+5. Response breakpoint (if armed) operates on the script-mutated response.
+6. The response is relayed to the client and persisted in the transaction.
+
+## Bounded response bodies
+
+Rockxy already caps captured response bodies at `100 MB`. When a response exceeds that cap, response-side scripting is **skipped** for that request and the existing full streaming behavior is preserved. This guarantees scripting can never silently truncate the bytes the client receives.
+
+## Community limit
+
+Rockxy Community allows up to **10 enabled scripts** at a time. Attempting to enable an 11th surfaces a quota error. The total number of installed (disabled + enabled) scripts is not capped.
+
+## Error feedback
+
+Rockxy surfaces script errors inline:
+
+- **Timeout** — scripts that exceed the 5-second limit are terminated with a timeout error.
+- **JavaScript exceptions** — runtime errors show the exception message in the per-plugin OSLog category.
+- **Load failures** — scripts that fail during initial load show the error in **Settings > Plugins** for that plugin.
 
 ## Templates
 
-Rockxy includes templates for common scripting patterns to help you get started quickly. Templates are available when creating a new script.
+Rockxy ships a small set of templates to help you get started:
+
+- **Modify Headers** — add a header to every request.
+- **Log Requests** — `console.log` the request URL.
+- **Block Pattern** — return `null` for URLs matching a substring.
+- **Custom Response** — mock template; `runAsMock=true` is set automatically when the script is created.
+- **Rewrite URL** — modify the path of matching requests.
+- **Conditional Mock JSON** — return mock JSON for matching URLs; `runAsMock=true` is set automatically.
 
 ## Limitations
 
 - Scripts run in a JavaScriptCore sandbox with no direct filesystem or network access.
-- Each script execution has a 5-second timeout. Long-running computations are terminated.
-- Scripts cannot access other scripts' state or Rockxy's internal APIs beyond the `$rockxy` bridge.
+- Each script execution has a 5-second timeout.
+- Scripts cannot change a request's host, port, or scheme. Use **Map Remote** for cross-host rewrites.
+- Response scripting is skipped when the upstream body exceeds Rockxy's capture cap.
 
 ## Next Steps
 

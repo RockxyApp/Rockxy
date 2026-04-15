@@ -148,6 +148,7 @@ enum ScriptBridge {
         let env = JSValue(newObjectIn: context)
         let prefix = RockxyIdentity.current.pluginConfigPrefix(pluginID: pluginID)
 
+        // env.get(key) — per-plugin configuration (always available, isolated by prefix).
         let getFn: @convention(block) (String) -> Any? = { key in
             guard PluginValidator.isValidKey(key) else {
                 bridgeLogger.debug("env.get rejected invalid key '\(key)' for \(pluginID)")
@@ -155,8 +156,23 @@ enum ScriptBridge {
             }
             return defaults.object(forKey: prefix + key)
         }
-
         env?.setObject(getFn, forKeyedSubscript: "get" as NSString)
+
+        // env.system(key) — host system environment variable. Gated on
+        // `AppSettings.allowSystemEnvVars` (Advance menu toggle). When off, returns null.
+        let systemFn: @convention(block) (String) -> Any? = { key in
+            let allowed = AppSettingsStorage.load().allowSystemEnvVars
+            guard allowed else {
+                bridgeLogger.debug("env.system blocked for \(pluginID) — allowSystemEnvVars is off")
+                return nil
+            }
+            guard PluginValidator.isValidKey(key) else {
+                bridgeLogger.debug("env.system rejected invalid key '\(key)' for \(pluginID)")
+                return nil
+            }
+            return ProcessInfo.processInfo.environment[key]
+        }
+        env?.setObject(systemFn, forKeyedSubscript: "system" as NSString)
 
         rockxy?.setObject(env, forKeyedSubscript: "env" as NSString)
     }

@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Self.logger.error("Failed to initialize root CA: \(error.localizedDescription)")
             }
             await HelperManager.shared.checkStatus()
+            await PluginManager.shared.ensureLoadedOnce()
         }
     }
 

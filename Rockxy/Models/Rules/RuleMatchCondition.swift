@@ -2,7 +2,7 @@ import Foundation
 
 /// Defines the criteria a request must satisfy for a `ProxyRule` to fire.
 /// All non-nil fields must match (AND logic). URL patterns use regex matching.
-struct RuleMatchCondition: Codable {
+struct RuleMatchCondition: Codable, Equatable {
     var urlPattern: String?
     var method: String?
     var headerName: String?

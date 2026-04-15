@@ -89,6 +89,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .openBreakpointRulesWindow)) { _ in
             openWindow(id: "breakpointRules")
         }
+        .modifier(ScriptingWindowOpeners(openWindow: openWindow))
         .alert(
             String(localized: "Proxy Error"),
             isPresented: Binding(

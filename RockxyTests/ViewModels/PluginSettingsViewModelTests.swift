@@ -204,7 +204,7 @@ struct PluginSettingsViewModelTests {
     func sharedManagerState() {
         let manager = ScriptPluginManager()
         let settings = PluginSettingsViewModel(pluginManager: manager)
-        let scripting = ScriptingViewModel(pluginManager: manager)
+        let scripting = ScriptingListViewModel(pluginManager: manager)
 
         // Without loading from disk, both start with the same empty state
         #expect(settings.plugins.isEmpty)

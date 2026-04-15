@@ -35,6 +35,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
         sourcePort: UInt16? = nil,
         breakpointPhase: BreakpointRulePhase? = nil,
         headerResponseOperations: [HeaderOperation]? = nil,
+        scriptPluginManager: ScriptPluginManager? = nil,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
@@ -50,9 +51,16 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
         self.sourcePort = sourcePort
         self.breakpointPhase = breakpointPhase
         self.headerResponseOperations = headerResponseOperations
+        self.scriptPluginManager = scriptPluginManager
         self.onBreakpointHit = onBreakpointHit
         self.onTransactionComplete = onTransactionComplete
         self.onChannelClosed = onChannelClosed
+        if let scriptPluginManager {
+            self.hasResponseScript = scriptPluginManager.hasResponseHookForSnapshot(request: requestData)
+        } else {
+            self.hasResponseScript = false
+        }
+        self.deferRelayForScript = self.hasResponseScript
     }
 
     // MARK: Internal
@@ -198,7 +206,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
                 return
             }
 
-            if !shouldBreakOnResponse {
+            if !shouldBreakOnResponse, !deferRelayForScript {
                 relayResponseHead(modifiedHead)
             }
 
@@ -212,11 +220,40 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
                     upstreamLogger.info(
                         "Response body exceeds capture limit for \(self.requestData.url, privacy: .private), truncating capture buffer"
                     )
+                    let decision = ProxyHandlerShared.oversizeRelayDecision(
+                        deferRelayForScript: deferRelayForScript,
+                        shouldBreakOnResponse: shouldBreakOnResponse
+                    )
+                    switch decision {
+                    case .keepBufferingForBreakpoint:
+                        // Response breakpoint is armed — the breakpoint still owns the
+                        // relay decision in `.end`. Drop scripting deferral so we don't
+                        // run the script on the truncated body, but keep buffering for
+                        // the breakpoint UI to act on.
+                        deferRelayForScript = false
+                        upstreamLogger.warning(
+                            "Response exceeded capture cap; skipping script mutation but preserving breakpoint for \(self.requestData.url, privacy: .private)"
+                        )
+                    case .flushBufferedAndResumeStreaming:
+                        // No breakpoint in play; abandon deferral, flush prefix, resume streaming.
+                        deferRelayForScript = false
+                        if let head = responseHead {
+                            relayResponseHead(head)
+                        }
+                        if let buffered = responseBody, buffered.readableBytes > 0 {
+                            relayResponseBody(buffered)
+                        }
+                        upstreamLogger.warning(
+                            "Response exceeded capture cap; skipping script mutation for \(self.requestData.url, privacy: .private)"
+                        )
+                    case .alreadyStreaming:
+                        break
+                    }
                 } else {
                     responseBody?.writeImmutableBuffer(buffer)
                 }
             }
-            if !shouldBreakOnResponse {
+            if !shouldBreakOnResponse, !deferRelayForScript {
                 relayResponseBody(buffer)
             }
 
@@ -228,7 +265,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
             readTimeoutTask?.cancel()
             readTimeoutTask = nil
 
-            if shouldBreakOnResponse, let onBreakpointHit, let head = responseHead {
+            if deferRelayForScript {
+                runResponseScriptThenContinue(context: context)
+            } else if shouldBreakOnResponse, let onBreakpointHit, let head = responseHead {
                 handleResponseBreakpoint(context: context, head: head, onBreakpointHit: onBreakpointHit)
             } else {
                 relayResponseEnd()
@@ -268,6 +307,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
     private let sourcePort: UInt16?
     private let breakpointPhase: BreakpointRulePhase?
     private let headerResponseOperations: [HeaderOperation]?
+    private let scriptPluginManager: ScriptPluginManager?
+    private let hasResponseScript: Bool
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
         BreakpointDecision,
         BreakpointRequestData
@@ -282,6 +323,12 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
     private var firstByteTime: DispatchTime?
     private var completed = false
     private var readTimeoutTask: Scheduled<Void>?
+
+    /// True while we are buffering the response before relaying, because a
+    /// matching response-side script is expected to mutate it. Flipped to false
+    /// if the body exceeds the capture cap (in which case we flush what we have
+    /// and resume streaming — see Truncated-Response Policy).
+    private var deferRelayForScript: Bool = false
 
     private var shouldBreakOnResponse: Bool {
         guard let phase = breakpointPhase else {
@@ -330,6 +377,81 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
             NIOAny(HTTPServerResponsePart.end(nil)),
             promise: nil
         )
+    }
+
+    // MARK: - Response Script
+
+    nonisolated private func runResponseScriptThenContinue(context: ChannelHandlerContext) {
+        guard let head = responseHead, let scriptPluginManager else {
+            relayResponseEnd()
+            buildAndCompleteTransaction()
+            context.close(promise: nil)
+            return
+        }
+
+        let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
+        let bodyData: Data? = if let buf = responseBody, buf.readableBytes > 0,
+                                 let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
+        {
+            Data(bytes)
+        } else {
+            nil
+        }
+        let contentType = ContentTypeDetector.detect(headers: headers, body: bodyData)
+        let originalResponse = HTTPResponseData(
+            statusCode: Int(head.status.code),
+            statusMessage: head.status.reasonPhrase,
+            headers: headers,
+            body: bodyData,
+            bodyTruncated: false,
+            contentType: contentType
+        )
+
+        let request = requestData
+        let eventLoop = context.eventLoop
+
+        eventLoop.makeFutureWithTask {
+            await scriptPluginManager.runResponseHook(request: request, response: originalResponse)
+        }.whenComplete { [weak self] result in
+            guard let self else {
+                return
+            }
+            let mutated: HTTPResponseData = (try? result.get()) ?? originalResponse
+            self.applyMutatedResponseAndRelay(mutated: mutated, context: context)
+        }
+    }
+
+    nonisolated private func applyMutatedResponseAndRelay(
+        mutated: HTTPResponseData,
+        context: ChannelHandlerContext
+    ) {
+        let mutatedHead = ProxyHandlerShared.buildRelayResponseHead(
+            from: mutated,
+            originalHead: responseHead
+        )
+        responseHead = mutatedHead
+        if let body = mutated.body {
+            var buffer = clientContext.channel.allocator.buffer(capacity: body.count)
+            buffer.writeBytes(body)
+            responseBody = buffer
+        } else {
+            responseBody = nil
+        }
+
+        // Hand off to the breakpoint path if one is armed — it now operates on the
+        // script-mutated buffers.
+        if shouldBreakOnResponse, let onBreakpointHit {
+            handleResponseBreakpoint(context: context, head: mutatedHead, onBreakpointHit: onBreakpointHit)
+            return
+        }
+
+        relayResponseHead(mutatedHead)
+        if let buf = responseBody, buf.readableBytes > 0 {
+            relayResponseBody(buf)
+        }
+        relayResponseEnd()
+        buildAndCompleteTransaction()
+        context.close(promise: nil)
     }
 
     // MARK: - Response Breakpoint

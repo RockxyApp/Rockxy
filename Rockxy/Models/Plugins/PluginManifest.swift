@@ -20,6 +20,10 @@ struct PluginManifest: Codable {
     var minRockxyVersion: String?
     var homepage: String?
     var license: String?
+    /// Optional block describing per-script matching + request/response/mock gating.
+    /// Only consulted when `types` contains `.script`. Absence means defaults — see
+    /// `ScriptBehavior.defaults()`.
+    var scriptBehavior: ScriptBehavior?
 }
 
 // MARK: - PluginAuthor

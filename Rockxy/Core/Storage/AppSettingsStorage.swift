@@ -20,6 +20,10 @@ enum AppSettingsStorage {
         settings.listenIPv6 = defaults.bool(forKey: listenIPv6Key)
         settings.autoSelectPort = defaults.object(forKey: autoSelectPortKey) != nil
             ? defaults.bool(forKey: autoSelectPortKey) : true
+        settings.scriptingToolEnabled = defaults.object(forKey: scriptingToolEnabledKey) != nil
+            ? defaults.bool(forKey: scriptingToolEnabledKey) : true
+        settings.allowSystemEnvVars = defaults.bool(forKey: allowSystemEnvVarsKey)
+        settings.allowMultipleScriptsPerRequest = defaults.bool(forKey: allowMultipleScriptsPerRequestKey)
         return settings
     }
 
@@ -31,6 +35,9 @@ enum AppSettingsStorage {
         defaults.set(settings.onlyListenOnLocalhost, forKey: onlyListenOnLocalhostKey)
         defaults.set(settings.listenIPv6, forKey: listenIPv6Key)
         defaults.set(settings.autoSelectPort, forKey: autoSelectPortKey)
+        defaults.set(settings.scriptingToolEnabled, forKey: scriptingToolEnabledKey)
+        defaults.set(settings.allowSystemEnvVars, forKey: allowSystemEnvVarsKey)
+        defaults.set(settings.allowMultipleScriptsPerRequest, forKey: allowMultipleScriptsPerRequestKey)
         logger.info("Settings saved")
     }
 
@@ -44,4 +51,8 @@ enum AppSettingsStorage {
     private static let onlyListenOnLocalhostKey = RockxyIdentity.current.defaultsKey("onlyListenOnLocalhost")
     private static let listenIPv6Key = RockxyIdentity.current.defaultsKey("listenIPv6")
     private static let autoSelectPortKey = RockxyIdentity.current.defaultsKey("autoSelectPort")
+    private static let scriptingToolEnabledKey = RockxyIdentity.current.defaultsKey("scripting.toolEnabled")
+    private static let allowSystemEnvVarsKey = RockxyIdentity.current.defaultsKey("scripting.allowSystemEnvVars")
+    private static let allowMultipleScriptsPerRequestKey = RockxyIdentity.current
+        .defaultsKey("scripting.allowMultipleScriptsPerRequest")
 }

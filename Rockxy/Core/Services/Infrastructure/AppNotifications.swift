@@ -30,4 +30,6 @@ extension Notification.Name {
     static let openMapRemoteWindow = identity.notificationName("openMapRemoteWindow")
     static let openNetworkConditionsWindow = identity.notificationName("openNetworkConditionsWindow")
     static let openBreakpointRulesWindow = identity.notificationName("openBreakpointRulesWindow")
+    static let openScriptingListWindow = identity.notificationName("openScriptingListWindow")
+    static let openScriptEditorWindow = identity.notificationName("openScriptEditorWindow")
 }

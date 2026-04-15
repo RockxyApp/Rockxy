@@ -189,19 +189,43 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
             if let scriptPluginManager = self.scriptPluginManager {
                 let eventLoop = context.eventLoop
                 eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHooks(on: requestData)
-                }.whenSuccess { [weak self] modifiedRequest in
+                    await scriptPluginManager.runRequestHook(on: requestData)
+                }.whenSuccess { [weak self] outcome in
                     guard let self else {
                         return
                     }
-                    self.connectToUpstream(
-                        context: context,
-                        head: head,
-                        requestData: modifiedRequest,
-                        graphQLInfo: graphQLInfo,
-                        startTime: startTime,
-                        callback: callback
-                    )
+                    switch outcome {
+                    case let .forward(modifiedRequest):
+                        self.connectToUpstream(
+                            context: context,
+                            head: head,
+                            requestData: modifiedRequest,
+                            graphQLInfo: graphQLInfo,
+                            startTime: startTime,
+                            callback: callback
+                        )
+                    case .blockLocally:
+                        self.sendBlockResponse(
+                            context: context,
+                            status: 403,
+                            requestData: requestData,
+                            callback: callback
+                        )
+                    case let .mock(mockResponse):
+                        self.sendMappedResponse(
+                            context: context,
+                            responseData: mockResponse,
+                            requestData: requestData,
+                            callback: callback
+                        )
+                    case .mockFailure:
+                        self.sendBlockResponse(
+                            context: context,
+                            status: 502,
+                            requestData: requestData,
+                            callback: callback
+                        )
+                    }
                 }
             } else {
                 self.connectToUpstream(
@@ -308,6 +332,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
                 sourcePort: self.clientSourcePort,
                 breakpointPhase: self.pendingBreakpointPhase,
                 headerResponseOperations: responseHeaderOperations,
+                scriptPluginManager: self.scriptPluginManager,
                 onBreakpointHit: self.onBreakpointHit,
                 onTransactionComplete: callback,
                 onChannelClosed: { limiter.release(host: upstreamHost, port: upstreamPort) }
@@ -316,7 +341,11 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
             clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
                 switch result {
                 case .success:
-                    clientChannel.write(NIOAny(HTTPClientRequestPart.head(head)), promise: nil)
+                    let forwardHead = ProxyHandlerShared.buildForwardHead(
+                        from: requestData,
+                        originalHead: head
+                    )
+                    clientChannel.write(NIOAny(HTTPClientRequestPart.head(forwardHead)), promise: nil)
                     if let bodyData = requestData.body, !bodyData.isEmpty {
                         var bodyBuffer = clientChannel.allocator.buffer(capacity: bodyData.count)
                         bodyBuffer.writeBytes(bodyData)

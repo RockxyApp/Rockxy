@@ -201,17 +201,41 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             if let scriptPluginManager = self.scriptPluginManager {
                 let eventLoop = context.eventLoop
                 eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHooks(on: requestData)
-                }.whenSuccess { [weak self] modifiedRequest in
+                    await scriptPluginManager.runRequestHook(on: requestData)
+                }.whenSuccess { [weak self] outcome in
                     guard let self else {
                         return
                     }
-                    self.forwardRequest(
-                        context: context,
-                        head: head,
-                        requestData: modifiedRequest,
-                        callback: self.onTransactionComplete
-                    )
+                    switch outcome {
+                    case let .forward(modifiedRequest):
+                        self.forwardRequest(
+                            context: context,
+                            head: head,
+                            requestData: modifiedRequest,
+                            callback: self.onTransactionComplete
+                        )
+                    case .blockLocally:
+                        self.sendErrorResponse(
+                            context: context,
+                            status: 403,
+                            requestData: requestData,
+                            callback: self.onTransactionComplete
+                        )
+                    case let .mock(mockResponse):
+                        self.sendResponse(
+                            context: context,
+                            responseData: mockResponse,
+                            requestData: requestData,
+                            callback: self.onTransactionComplete
+                        )
+                    case .mockFailure:
+                        self.sendErrorResponse(
+                            context: context,
+                            status: 502,
+                            requestData: requestData,
+                            callback: self.onTransactionComplete
+                        )
+                    }
                 }
             } else {
                 self.forwardRequest(
@@ -709,6 +733,7 @@ extension HTTPProxyHandler {
             sourcePort: clientSourcePort,
             breakpointPhase: pendingBreakpointPhase,
             headerResponseOperations: responseHeaderOperations,
+            scriptPluginManager: scriptPluginManager,
             onBreakpointHit: onBreakpointHit,
             onTransactionComplete: callback,
             onChannelClosed: onUpstreamClosed
@@ -718,15 +743,15 @@ extension HTTPProxyHandler {
         clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
             switch result {
             case .success:
-                var modifiedHead = head
-                // Proxy requests use absolute URIs (http://host/path); upstream servers
-                // expect origin-form (just /path), so strip the scheme+host
-                if !head.uri.hasPrefix("/") {
-                    if let components = URLComponents(string: head.uri) {
-                        modifiedHead.uri = components.path + (components.query.map { "?\($0)" } ?? "")
-                    }
-                }
-                clientChannel.write(NIOAny(HTTPClientRequestPart.head(modifiedHead)), promise: nil)
+                // Rebuild the outbound head from (possibly script-mutated) requestData so
+                // allowed mutations (method, path/query, headers, body-derived Content-Length)
+                // actually reach upstream. Host/port/scheme mutations are dropped earlier in
+                // ScriptRequestContext.apply(to:pluginID:).
+                let forwardHead = ProxyHandlerShared.buildForwardHead(
+                    from: requestData,
+                    originalHead: head
+                )
+                clientChannel.write(NIOAny(HTTPClientRequestPart.head(forwardHead)), promise: nil)
                 if let bodyData = requestData.body, !bodyData.isEmpty {
                     var bodyBuffer = clientChannel.allocator.buffer(capacity: bodyData.count)
                     bodyBuffer.writeBytes(bodyData)

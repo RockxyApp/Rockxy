@@ -132,10 +132,10 @@ struct ScriptQuotaTests {
 
         let manager = env.manager
         let settings = PluginSettingsViewModel(pluginManager: manager)
-        let scripting = ScriptingViewModel(pluginManager: manager)
+        let scripting = ScriptingListViewModel(pluginManager: manager)
 
         await settings.loadPlugins()
-        scripting.plugins = await manager.plugins
+        await scripting.refresh()
 
         #expect(settings.plugins.contains { $0.id == id })
         #expect(scripting.plugins.contains { $0.id == id })
@@ -146,7 +146,7 @@ struct ScriptQuotaTests {
 
         // Both VMs refresh from the same manager and see the change
         settings.plugins = await manager.plugins
-        scripting.plugins = await manager.plugins
+        await scripting.refresh()
         #expect(settings.plugins.first { $0.id == id }?.isEnabled == true)
         #expect(scripting.plugins.first { $0.id == id }?.isEnabled == true)
     }
@@ -214,7 +214,7 @@ struct ScriptQuotaTests {
     @MainActor
     func defaultInitVMsShareManager() {
         let settings = PluginSettingsViewModel()
-        let scripting = ScriptingViewModel()
+        let scripting = ScriptingListViewModel()
 
         let expected = PluginManager.shared.scriptManager.identity
         #expect(settings.pluginManagerIdentity == expected)
@@ -225,7 +225,7 @@ struct ScriptQuotaTests {
     @MainActor
     func defaultInitVMsLoadConsistentState() async {
         let settings = PluginSettingsViewModel()
-        let scripting = ScriptingViewModel()
+        let scripting = ScriptingListViewModel()
 
         // Both VMs load through their real default init — PluginManager.shared.scriptManager.
         // Whatever plugins exist in the real directory, both must discover the same set.
@@ -260,7 +260,7 @@ struct ScriptQuotaTests {
         defer { TestFixtures.cleanupTempPlugin(id: id, bundlePath: pluginDir) }
 
         let settings = PluginSettingsViewModel()
-        let scripting = ScriptingViewModel()
+        let scripting = ScriptingListViewModel()
 
         await settings.loadPlugins()
         #expect(settings.plugins.contains { $0.id == id })
@@ -291,7 +291,7 @@ struct ScriptQuotaTests {
         // Identity is already proven by defaultInitVMsShareManager;
         // this test proves a real state transition propagates through the shared runtime.
         let settings = PluginSettingsViewModel(pluginManager: env.manager)
-        let scripting = ScriptingViewModel(pluginManager: env.manager)
+        let scripting = ScriptingListViewModel(pluginManager: env.manager)
 
         await settings.loadPlugins()
         #expect(settings.plugins.first { $0.id == id }?.isEnabled == false)
@@ -301,7 +301,7 @@ struct ScriptQuotaTests {
         #expect(settings.plugins.first { $0.id == id }?.isEnabled == true)
 
         // Scripting VM refreshes from the same manager and observes the transition
-        scripting.plugins = await env.manager.plugins
+        await scripting.refresh()
         #expect(scripting.plugins.first { $0.id == id }?.isEnabled == true)
     }
 
@@ -315,7 +315,7 @@ struct ScriptQuotaTests {
         _ = try TestFixtures.createTempPlugin(id: id, enabled: false, in: env.pluginsDir, defaults: env.defaults)
 
         let settings = PluginSettingsViewModel(pluginManager: env.manager)
-        let scripting = ScriptingViewModel(pluginManager: env.manager)
+        let scripting = ScriptingListViewModel(pluginManager: env.manager)
 
         await settings.loadPlugins()
         await scripting.loadPlugins()

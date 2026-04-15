@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Scripting: dedicated **Scripting List** window (sidebar idiom matching Allow List / Block List / SSL Proxying List) with three-column table (Name / Method / Matching Rule), folder grouping with rename-in-place, slide-up filter bar, bottom bar with `+` `−` `New Folder` `?` / Filter / Advance / More.
+- Scripting: dedicated **Script Editor** window with Matching Rule header (Name, URL, method picker, Wildcard/Regex picker, "Test your Rule", "Include all subpaths"), Run-on row (Request / Response / Run as Mock + saved-and-active dot), code editor with line-number ruler + the multi-arg default template, right-side console panel with eye-icon log-level filter (Errors / Warnings / User Logs / System), footer (More / Beautify ⌘B / Snippet Code / Save & Activate ⌘S / console eye toggle).
+- Scripting: multi-arg JS API support — `onRequest(context, url, request)` and `onResponse(context, url, request, response)` with `request.headers` / `request.queries` / `request.body` / `response.statusCode` / `response.headers` / `response.body` / `response.bodyFilePath`. Single-arg `onRequest(ctx)` / `onResponse(ctx)` continues to work; the runtime dispatches by JS function `length`.
+- Scripting: `response.bodyFilePath` — load a local file (sandboxed to user home, capped at `ProxyLimits.maxResponseBodySize`) as the response body.
+- Scripting: Advance menu — "Allow Scripts to read System Environment Variables" exposes `$rockxy.env.system(key)`; "Allow Running Multiple Scripts for one Request" enables id-sorted chained execution. Both persisted in `AppSettings`.
+- Scripting: "Enable Scripting Tool" toggle in the Scripting List title row, persisted as `AppSettings.scriptingToolEnabled`.
+- Scripting: folder grouping persisted as a single JSON blob in UserDefaults; `ScriptFolderStore` reconciles the index against live plugin ids on every refresh.
+- Scripting: enabled scripts now run on live HTTP and HTTPS traffic without the Scripting or Settings window needing to be open. `PluginManager.ensureLoadedOnce()` is awaited on the capture-start path and called at app launch.
+- Scripting: optional `scriptBehavior` block on `PluginManifest` (`matchCondition`, `runOnRequest`, `runOnResponse`, `runAsMock`) — opt-in per-script matching and mode gating.
+- Scripting: response-side hook now actually mutates what the client receives and what Rockxy persists. `ScriptResponseContext` is mutable with `setStatus`, `setHeader`, `setBody` JS helpers and a Swift apply-back to `HTTPResponseData`.
+- Scripting: inline mock responses via `runAsMock=true`. `onRequest(ctx)` returns a `{ statusCode, headers?, body? }` object; the request never goes upstream. Invalid mock output fails locally with HTTP `502`.
+- Scripting: CommonJS `module.exports = { onRequest, onResponse }` compatibility added alongside the existing direct-global pattern.
+
+### Changed
+
+- Scripting: forwarded request head is now rebuilt from the (possibly script-mutated) `HTTPRequestData` via `ProxyHandlerShared.buildForwardHead(from:originalHead:)`. Method, path, query, headers, and body-derived `Content-Length` reach upstream as expected. Host, port, and scheme mutations from scripts are dropped (with a one-time warning per plugin); use the **Map Remote** rule action for cross-host rewrites.
+- Scripting: deterministic id-sorted plugin execution order; first-match wins on both request and response side.
+- Scripting: response hook runs between response-header rule operations and breakpoint dispatch. When the upstream body exceeds `ProxyLimits.maxResponseBodySize`, response-side scripting is skipped for that request and the existing full streaming behavior is preserved.
+
+### Fixed
+
+- Scripting: legacy `onResponse(ctx)` scripts can once again mutate top-level `ctx.statusCode`, `ctx.responseHeaders`, and `ctx.body` directly.
+- Scripting: legacy `ctx.setBody("plain text")` now actually replaces the outgoing request body instead of silently falling back to the original bytes.
+- Scripting: `Save & Activate` truthfully enables a script on save; the UI no longer reports an inactive script as active. Quota-reached and load-error paths surface explicit status messages.
+- Scripting: request and response framing headers (`Content-Length` / `Transfer-Encoding`) are recomputed after any script body mutation so downstream receivers stay in sync.
+- Scripting: oversize responses no longer flush early when a response breakpoint is armed — breakpoint semantics take precedence over the scripting fast-path.
+- Scripting: request and response hooks no-op when the `Enable Scripting Tool` toggle is off, even for already-enabled scripts.
+- Scripting: legacy `openWindow(id: "scripting")` call sites updated to the new `scriptingList` window id.
+
 ## [0.7.1] - 2026-04-15
 
 ### Fixed
