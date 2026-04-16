@@ -6,6 +6,40 @@ rss: true
 
 # Changelog
 
+<Update label="April 2026" description="v0.8.0">
+  ### Added
+
+  - Scripting: dedicated **Scripting List** window (sidebar idiom matching Allow List / Block List / SSL Proxying List) with three-column table (Name / Method / Matching Rule), folder grouping with rename-in-place, slide-up filter bar, bottom bar with `+` `−` `New Folder` `?` / Filter / Advance / More.
+  - Scripting: dedicated **Script Editor** window with Matching Rule header (Name, URL, method picker, Wildcard/Regex picker, "Test your Rule", "Include all subpaths"), Run-on row (Request / Response / Run as Mock + saved-and-active dot), code editor with line-number ruler + the multi-arg default template, right-side console panel with eye-icon log-level filter (Errors / Warnings / User Logs / System), footer (More / Beautify ⌘B / Snippet Code / Save & Activate ⌘S / console eye toggle).
+  - Scripting: multi-arg JS API support — `onRequest(context, url, request)` and `onResponse(context, url, request, response)` with `request.headers` / `request.queries` / `request.body` / `response.statusCode` / `response.headers` / `response.body` / `response.bodyFilePath`. Single-arg `onRequest(ctx)` / `onResponse(ctx)` continues to work; the runtime dispatches by JS function `length`.
+  - Scripting: `response.bodyFilePath` — load a local file (sandboxed to user home, capped at `ProxyLimits.maxResponseBodySize`) as the response body.
+  - Scripting: Advance menu — "Allow Scripts to read System Environment Variables" exposes `$rockxy.env.system(key)`; "Allow Running Multiple Scripts for one Request" enables id-sorted chained execution. Both persisted in `AppSettings`.
+  - Scripting: "Enable Scripting Tool" toggle in the Scripting List title row, persisted as `AppSettings.scriptingToolEnabled`.
+  - Scripting: folder grouping persisted as a single JSON blob in UserDefaults; `ScriptFolderStore` reconciles the index against live plugin ids on every refresh.
+  - Scripting: enabled scripts now run on live HTTP and HTTPS traffic without the Scripting or Settings window needing to be open. `PluginManager.ensureLoadedOnce()` is awaited on the capture-start path and called at app launch.
+  - Scripting: optional `scriptBehavior` block on `PluginManifest` (`matchCondition`, `runOnRequest`, `runOnResponse`, `runAsMock`) — opt-in per-script matching and mode gating.
+  - Scripting: response-side hook now actually mutates what the client receives and what Rockxy persists. `ScriptResponseContext` is mutable with `setStatus`, `setHeader`, `setBody` JS helpers and a Swift apply-back to `HTTPResponseData`.
+  - Scripting: inline mock responses via `runAsMock=true`. `onRequest(ctx)` returns a `{ statusCode, headers?, body? }` object; the request never goes upstream. Invalid mock output fails locally with HTTP `502`.
+  - Scripting: CommonJS `module.exports = { onRequest, onResponse }` compatibility added alongside the existing direct-global pattern.
+
+  ### Fixed
+
+  - Scripting: legacy `onResponse(ctx)` scripts can once again mutate top-level `ctx.statusCode`, `ctx.responseHeaders`, and `ctx.body` directly.
+  - Scripting: legacy `ctx.setBody("plain text")` now actually replaces the outgoing request body instead of silently falling back to the original bytes.
+  - Scripting: `Save & Activate` truthfully enables a script on save; the UI no longer reports an inactive script as active. Quota-reached and load-error paths surface explicit status messages.
+  - Scripting: request and response framing headers (`Content-Length` / `Transfer-Encoding`) are recomputed after any script body mutation so downstream receivers stay in sync.
+  - Scripting: oversize responses no longer flush early when a response breakpoint is armed — breakpoint semantics take precedence over the scripting fast-path.
+  - Scripting: request and response hooks no-op when the `Enable Scripting Tool` toggle is off, even for already-enabled scripts.
+  - Scripting: legacy `openWindow(id: "scripting")` call sites updated to the new `scriptingList` window id.
+
+  ### Changed
+
+  - Scripting: forwarded request head is now rebuilt from the (possibly script-mutated) `HTTPRequestData` via `ProxyHandlerShared.buildForwardHead(from:originalHead:)`. Method, path, query, headers, and body-derived `Content-Length` reach upstream as expected. Host, port, and scheme mutations from scripts are dropped (with a one-time warning per plugin); use the **Map Remote** rule action for cross-host rewrites.
+  - Scripting: deterministic id-sorted plugin execution order; first-match wins on both request and response side.
+  - Scripting: response hook runs between response-header rule operations and breakpoint dispatch. When the upstream body exceeds `ProxyLimits.maxResponseBodySize`, response-side scripting is skipped for that request and the existing full streaming behavior is preserved.
+
+</Update>
+
 <Update label="April 2026" description="v0.7.1">
   ### Fixed
 
@@ -67,6 +101,7 @@ rss: true
   - Inject workspace capacity via init
   - Remove edition leakage and introduce AppPolicy
   - Split family config from product identity
+
 </Update>
 
 <Update label="April 2026" description="v0.7.0">
@@ -93,6 +128,7 @@ rss: true
   - Assert only newly added slice in addRulesAddsMultipleDomains
   - Harden SSL importer normalization, domain validation, snapshot dedupe, and test isolation
   - Add coordinator-entrypoint regression tests for sidebar SSL toggle
+
 </Update>
 
 <Update label="April 2026" description="v0.6.0">
@@ -107,6 +143,7 @@ rss: true
   - Trim Allow List rule name before persisting
   - Noun-phrase inflection for paused header, trim and regex-safe Allow List save
   - Allow List and Breakpoint cleanup pass — normalize method, tighten logs, localize headers, tighten tests
+
 </Update>
 
 <Update label="April 2026" description="v0.5.0">
@@ -122,6 +159,7 @@ rss: true
   ### Changed
 
   - Sync changelog release surfaces
+
 </Update>
 
 <Update label="April 2026" description="v0.4.0">
@@ -142,6 +180,7 @@ rss: true
   - Merge remote-tracking branch 'origin/main'
   - Add multilingual README translations
   - Add localized readmes
+
 </Update>
 
 <Update label="April 2026" description="v0.3.0">
@@ -163,6 +202,7 @@ rss: true
   - Clean public repo language and harden release script guards
   - Remove placeholder surfaces and dead settings code
   - Apply swiftformat across codebase
+
 </Update>
 
 <Update label="April 2026" description="v0.2.0">
@@ -190,6 +230,7 @@ rss: true
   - Adopt community identity and harden macOS setup
   - Harden universal release validation
   - Fix changelog entries for v0.1.1 release
+
 </Update>
 
 <Update label="March 2026" description="v0.1.1">
@@ -214,17 +255,13 @@ rss: true
   - Fix Modify Headers window empty state layout
   - Update menu links and About dialog to correct URLs
   - Update README with current architecture, security documentation, and feature comparison table
+
 </Update>
 
 <Update label="March 2026" description="v0.1.0">
   ### Added
 
   - Initial open-source release of Rockxy
-</Update>
-
-<Update label="March 2026" description="2026-03-22">
-  ### Added
-
   - Diff integration: select exactly 2 transactions in the request list, right-click "Compare Selected" to open the diff window with both transactions loaded for side-by-side comparison of headers, body, and timing; also available via Diff > Compare Selected menu (Cmd+Option+D)
   - Session metadata dialog after opening a `.rockxysession` file: shows transaction count, log entry count, capture date range, and Rockxy version that saved the session
   - Scripting window empty state: explains what JavaScript scripting does, lists capabilities (modify headers, inspect responses, block patterns, mock responses), and provides a "Create Your First Script" button
@@ -255,19 +292,184 @@ rss: true
   - `MainContentCoordinator` rules snapshot kept in sync via `rulesDidChange` notification observer; views read `coordinator.rules` instead of crossing actor boundary
   - Breakpoint window two-section sidebar (`BreakpointSidebarView`) showing both breakpoint rules and paused items; `BreakpointWindowModel` tracks selection mode (rule vs paused item) with automatic fallback; `BreakpointEditorView` shows rule detail (pattern, phase, status) or paused-item editor depending on selection; adaptive action bar switches between rule enable/disable/remove and paused-item cancel/abort/execute controls
   - `breakpointRuleCreated` notification opens the breakpoints window automatically when a new breakpoint rule is created
-
-  ### Changed
-
-  - Import error dialogs now show specific titles and messages per failure type (size exceeded, invalid format, deserialization error) instead of a generic "Import Failed"
-  - README roadmap updated: `.rockxy format` corrected to `.rockxysession format`
-  - Removed iOS Simulator Certificate step from Welcome screen — Rockxy ships with 4 setup steps (Install Cert, Trust Cert, Install Helper, Enable Proxy)
-  - Removed Platform settings tab
-  - Removed "Restore previous proxy settings on quit" toggle from Advanced Settings — restore-on-quit is now mandatory and always-on via persistent backup
-  - `stopProxy()` no longer gates `disableSystemProxy()` behind `isSystemProxyConfigured` flag — the ownership-aware disable handles all cases internally
-  - Privacy Settings tab rewritten with honest disclosure: Data Storage locations (SQLite path, large bodies path), Exports & Sharing warning about sensitive content in exports, and Analytics & Telemetry section with "No Data Collected" badge confirming zero telemetry; removed fake analytics/crash report toggles
-  - Removed MCP Settings tab — MCP will be re-added when the backend implementation is functional
-  - Removed HTTP/2 placeholder row from General Settings
-  - Removed certificate inspector placeholder view
+  - Wire `showAlertOnQuit` setting — AppDelegate now reads `com.amunx.Rockxy.showAlertOnQuit` from UserDefaults and shows a confirmation alert before quitting when enabled
+  - Settings truth audit — every @AppStorage key across all 4 settings tabs annotated with wiring status (WIRED or DEFERRED) in both doc comments and inline comments
+  - Import size boundaries — `ImportSizePolicy` validates file sizes before loading HAR (100 MB limit) and session (200 MB limit) imports to prevent OOM/hangs from oversized files
+  - Map Local Directory support — serve files from an entire local directory instead of a single file, with automatic subpath resolution, index.html fallback, MIME type detection, and path traversal protection
+  - File/Directory segmented toggle in Map Local rule editor with path resolution preview
+  - `MapLocalDirectoryResolver` for secure directory-to-URL mapping with symlink resolution and 10 MB file size cap
+  - Test suite: MapLocalDirectoryResolverTests (12 tests) covering path resolution, index fallback, traversal prevention, MIME detection, symlinks, and size limits
+  - Allow List — capture-level filter that restricts recording to specific domains only; non-matching traffic is forwarded but not captured
+  - Allow List window (Tools > Allow List, Cmd+Opt+A) with master toggle, warning banner, domain table with per-entry enable/disable, add/remove/import/export
+  - "Add to Allow List" / "Remove from Allow List" in sidebar domain context menu
+  - "Allow List" accent-colored badge in status bar when active
+  - `AllowListManager` singleton with thread-safe `isHostAllowed(_:)` for NIO access, JSON persistence, import/export
+  - `AllowListEntry` model with wildcard and exact domain matching
+  - No Caching toggle — global switch (Tools menu + Settings) injects `Cache-Control: no-cache, no-store, must-revalidate` and `Pragma: no-cache` on all outbound requests, strips `If-Modified-Since` and `If-None-Match` conditional headers to force fresh responses from origin servers
+  - "No Cache" orange status bar badge when No Caching is active
+  - Breakpoint end-to-end wiring — `.breakpoint` rule action now pauses HTTP and HTTPS requests in the NIO pipeline, presents the breakpoint sheet for user editing, and forwards/aborts/cancels based on decision
+  - `BreakpointViewModel` moved to `MainContentCoordinator` so both the proxy callback and the sheet view share the same instance
+  - Multiple workspace tabs — open independent debugging workspaces in tabs (Cmd+T new tab, Cmd+W close, Cmd+1-9 switch)
+  - Each workspace tab has its own filter criteria, selection, sidebar scope, and inspector state
+  - "Open in New Tab" context menu on domain and app rows in sidebar
+  - Tab strip UI with close, duplicate, rename (double-click), and "Close Other Tabs" context menu
+  - Previous/Next tab navigation (Cmd+Shift+[/])
+  - "Copy as" submenu: Request Headers, Response Headers, Request Body, Response Body, Request Cookies, Response Cookies
+  - "Copy URL" in Edit menu (Cmd+C) for selected request
+  - `RequestCopyFormatter` — pure formatter layer for all copy-to-clipboard formats with proper shell escaping
+  - Custom Previewer Tabs — user-configurable body preview tabs in request/response inspector (JSON Treeview, HTML Preview, Hex, Raw, CSS, JavaScript, XML, Images, Form URL-Encoded)
+  - "+" button on inspector tab bars opens panel-scoped popover to toggle preview tabs
+  - Custom Previewer Tabs settings window (Tools menu) as secondary global defaults surface
+  - `PreviewRenderer` — pure rendering engine for all preview formats with hex dump, JSON tree, HTML/CSS/JS beautify
+  - Custom Header Columns settings window (Tools menu) — add request/response header columns to the flow table
+  - `RequestCopyFormatter.cellValue` resolves custom header column values via `HeaderColumnStore`
+  - Auto-discover headers from captured traffic — settings view shows discovered headers as unchecked items alongside stored columns
+  - Built-in column visibility toggles in column header right-click menu (Status, #, URL, Client, Method, Code, Time, Duration, Size, Query Name)
+  - Hidden built-in column state persisted to UserDefaults
+  - Discovered headers persisted to UserDefaults across app restarts
+  - "Manage Header Columns..." menu action opens Custom Columns settings window
+  - Settings window merges stored and discovered headers into a unified checkbox list
+  - Tests for header discovery persistence, built-in column visibility toggle, and persistence
+  - Quick search bar with field picker in traffic list toolbar — search by URL, host, path, method, status code, headers, query string, comment, or color
+  - Active filter summary strip showing current filter state with removable chips and "Clear All" button
+  - Filter fields: statusCode, requestHeader, responseHeader, queryString, comment, color for advanced filter rules
+  - Filter operators: "Is Not" (notEqual) and "Regex" for advanced filter rules
+  - Protocol filter pills: Form (application/x-www-form-urlencoded, multipart/form-data) and Font (woff, woff2, ttf, otf) content type filters
+  - Filter count badge on status bar Filter button when filters are active
+  - Test suites: FilterOperatorTests (20 tests), FilteringTests (22 integration tests), ProtocolFilterTests (13 tests)
+  - Native `.rockxysession` format — save and open full debug sessions with all metadata, timing, WebSocket frames, GraphQL info, and log entries
+  - HAR import (File → Import HAR…) — load HAR 1.2 archives from Chrome DevTools, Firefox, or other proxy tools into Rockxy
+  - Test suites: SessionSerializerTests (10 tests), HARImporterTests (9 tests) covering serialization round-trips and HAR parsing
+  - TLS rejection UI warning — after 3+ unique hosts reject proxy certificate, show banner suggesting browser restart or trust check
+  - Clear stale auto-passthrough hosts when root CA trust is freshly established
+  - Lazy helper status check in `enableSystemProxy()` — resolves race condition where proxy start could miss the helper if `AppDelegate.checkStatus()` hadn't finished yet
+  - Targeted warning banner when helper tool needs re-approval in System Settings after version update
+  - Sidebar right-click context menu on domain and app rows — Pin, Enable/Disable SSL Proxying, Sort by Alphabet, Tools (Map Local/Remote, Block, Breakpoint), Export (Copy Domain, Export Transactions as HAR), Delete
+  - SSL proxying status indicator (lock shield badge) on sidebar domain rows
+  - Bypass Proxy List — dedicated window (Tools → Bypass Proxy List… / Cmd+Opt+B) to manage domains excluded from proxying at the macOS system level
+  - System proxy bypass integration via `networksetup -setproxybypassdomains` on all enabled network services
+  - Helper tool `setBypassDomains` XPC method for privileged bypass domain management
+  - Crash recovery backup/restore for original system bypass domains
+  - Live bypass list updates — editing the bypass list while proxy is running applies changes immediately
+  - Sidebar context menu: Add to / Remove from Bypass Proxy List
+  - Remove dead `excludedHosts` field from AppSettings and ProxyConfiguration (replaced by BypassProxyManager)
+  - Helper tool certificate trust management — `installRootCertificate`, `removeRootCertificate`, `verifyRootCertificateTrusted`, `cleanupStaleCertificates` XPC methods with SHA-256 fingerprint-based identity
+  - Map Local rules now support a configurable status code (defaults to 200 for backward compatibility)
+  - Rule import/export to JSON files via `RuleStore.exportRules(to:)` and `importRules(from:)`
+  - Breakpoint phase selection (request vs response) via `BreakpointPhase` enum on `BreakpointRequestData`
+  - Right-click context menu on request list — Copy URL/cURL/cell value/JSON/HAR/raw, Repeat, Pin, Highlight (6 colors), Tools (Map Local/Remote, Block, Breakpoint, SSL Proxying), Export body, Add Comment, Delete — with SF Symbol icons and keyboard shortcuts matching the menu bar
+  - Transaction highlight colors (red/orange/yellow/green/blue/purple) with tinted row background
+  - Transaction pinning (isPinned property on HTTPTransaction)
+  - User-Agent app identification — extract app names (Chrome, Safari, Firefox, Edge, curl, Slack, etc.) from HTTP User-Agent headers at capture time, providing instant app identification without waiting for lsof process resolution
+  - TLS failure suppression — duplicate TLS handshake failures for cert-pinned hosts (e.g., `gateway.icloud.com`) are suppressed within a 30-second window, showing only the first failure per host
+  - Column auto-sizing — double-click column dividers to fit content; URL and Client columns auto-size on first data load
+  - Process identification via `lsof` — resolve which macOS app (Safari, Chrome, `trustd`, `cloudd`, etc.) made each proxy connection by mapping TCP source ports to PIDs, with 2-second batch caching
+  - Real macOS app icons in sidebar — resolve app icons via `NSWorkspace` bundle ID lookup with gradient monogram fallback
+  - Real macOS app icons in client column — resolve app icons via `NSWorkspace` bundle ID lookup with fallback to colored initials for unknown apps
+  - Status dot column in request list — colored dots (green/yellow/orange/red/gray) before row number indicate transaction state at a glance
+  - Welcome/Getting Started window with live setup checklist (cert, helper, proxy status detection)
+  - Map Local window for serving local files in place of matched requests
+  - Map Remote window for redirecting requests to different servers
+  - Block List window for blocking requests by URL pattern (wildcard/regex)
+  - SSL Proxying List window for managing HTTPS interception domains
+  - Diff window with side-by-side comparison of two transactions (headers, body, timing)
+  - Scripting window with code editor, plugin sidebar, and console output
+  - Breakpoint sheet for intercepting and editing requests mid-flight (edit URL, headers, body, status)
+  - Engine status pills in toolbar showing Proxy/Logs/Plugins state
+  - Enhanced status bar with request count, session duration timer, error count, selected request info
+  - All menu items now functional: SSL Proxying, Map Local, Map Remote, Block List, Diff, Scripting, Getting Started
+  - Rule Hub: grid layout with toggle/name/pattern/action/priority columns, search field, action type filter, presets menu (Block Ads, Block Analytics, Map API Local, Throttle API, Breakpoint All), import/export buttons
+  - Block List: info bar explaining block behavior, icon-style match type badges (wildcard `*` blue, regex `R` purple, exact `=` green) with "auto" detection tag
+  - Map Local: info bar, inline browse button for file selection, orange status code text for non-200 codes
+  - Map Remote: info bar, purple destination URLs, collapsible detail panel showing URL breakdown (protocol/host/port/path/query)
+  - Breakpoint: elapsed timer in orange alert banner (MM:SS format), response tab for viewing/editing response bodies, inline status code picker, segmented tab bar (Headers/Body/Query/Response)
+  - Scripting: yellow "JavaScript" language badge, Templates dropdown menu with 4 preset scripts (Modify Headers, Log Requests, Block Pattern, Custom Response), color-coded console timestamps (blue=info, orange=warning, red=error, green=output)
+  - Plugin Manager: category filter tabs (All/Inspector/Exporter/Script), search field, Reinstall button for non-built-in plugins
+  - System proxy warning banner with Retry button when proxy runs but system proxy fails to configure
+  - 10-second XPC timeout for all helper tool calls to prevent hung continuations
+  - Test suites: RuleActionTests (11 tests), CertificateTests (9 tests), StorageTests (8 tests) using Swift Testing framework
+  - Inspector Comments tab with TextEditor for per-transaction notes
+  - Sidebar Favorites persistence via UserDefaults (survives app restart)
+  - Certificate menu items wired: "Install on This Mac…" calls CertificateManager, "Export Root Certificate…" opens NSSavePanel to export PEM
+  - Stub Settings tabs (GitHub Integration, Platform Detection) replaced with "Coming Soon" placeholders
+  - `comment` property on HTTPTransaction for inspector comments
+  - `Codable` conformance on SidebarItem and AnalyticsSection for JSON persistence
+  - JavaScript plugin ecosystem (Phase 1): runtime script plugins with JavaScriptCore, plugin manifest parsing (`plugin.json`), filesystem discovery from `~/Library/Application Support/Rockxy/Plugins/`
+  - `$rockxy` bridge API for JS plugins: logging (OSLog), crypto (SHA256/MD5), encoding (base64/URL), scoped storage (UserDefaults), environment config
+  - Plugin request hooks in proxy pipeline — enabled plugins can inspect and modify HTTP/HTTPS requests before forwarding
+  - Read-only response hooks for plugins to observe completed responses
+  - Plugin Settings tab with searchable plugin list, detail panel (icon, badges, config form, actions), install/uninstall/reload controls
+  - Plugin type badges (Script green, Inspector blue, Exporter orange, Detector purple) and status indicators in Settings UI
+  - Auto-generated configuration forms from plugin manifest (text fields, secure fields, toggles, number inputs)
+  - 5-second timeout for plugin script execution to prevent hung scripts from blocking the proxy
+  - Test suites: PluginManifestTests, ScriptBridgeTests, ScriptRuntimeTests using Swift Testing framework
+  - Test suites: WelcomeViewModelTests (15 tests), SystemProxyManagerTests (20 tests) covering setup flow, error descriptions, and networksetup output parsing
+  - Test suite: HelperConnectionErrorTests (6 tests) covering XPC error descriptions including timeout
+  - Privileged Helper Tool (RockxyHelperTool): SMAppService-based launch daemon for instant system proxy changes without password prompts, with XPC caller verification and crash recovery
+  - Helper tool build/verify/uninstall scripts for development and release workflows
+  - Dual-mode system proxy: fast XPC path via helper daemon, fallback to networksetup CLI
+  - Helper Tool management UI in Advanced Proxy Settings with install/uninstall/update controls
+  - SSL Proxying List: per-domain control over which HTTPS connections get intercepted and decrypted; domains not in the list pass through as raw tunnels
+  - Welcome screen auto-shows on first launch when no trusted root CA is detected
+  - RockxyHelperTool Xcode target with hardened runtime, entitlements, and SMAuthorizedClients/SMPrivilegedExecutables
+  - Build-time Team ID injection via xcconfig (never hardcoded in source)
+  - Developer setup script (`scripts/setup-developer.sh`) for first-run contributor onboarding
+  - Notarization script (`scripts/notarize-app.sh`) reading credentials from environment only
+  - Code signing script (`scripts/sign-helper.sh`) for distribution helper builds
+  - Full app reset script (`scripts/rockxy-reset.sh`) to return to first-run state
+  - NSTableView-backed request list (RequestTableView) for 100k+ row virtual scrolling performance
+  - Status bar showing row count and selection state
+  - CenterContentView combining request table, inspector panel, and status bar in a VSplitView
+  - Protocol filter models (ProtocolFilter, FilterField, RequestInspectorTab, ResponseInspectorTab, ResponseFormat)
+  - JSON tree view with collapsible nodes, syntax-colored values (strings, numbers, booleans, null), and disclosure triangles
+  - Theme constants for table, JSON syntax, filter pills, status bar, and inspector styling
+  - `clientApp` property on HTTPTransaction for tracking originating application
+  - Proxyman-style app-centric sidebar with Favorites (Pinned, Saved), All (Apps grouped by client app with nested domains, Domains tree), and Analytics sections
+  - Sidebar bottom bar with add and filter shortcut buttons
+  - Toolbar status indicator showing proxy connection state (green dot + listening address) in center toolbar
+  - Protocol filter bar with pill buttons for content types (HTTP, HTTPS, WebSocket, JSON, XML, JS, CSS, GraphQL, Document, Media, Other) and status codes (1xx-5xx)
+  - FilterPillButton reusable component with Theme.FilterPill styling
+  - SearchFilterBar component with field selector dropdown, text search, and enable/disable toggle
+  - Full macOS menu bar with File, Edit, View, Flow, Tools, and Certificate menus with keyboard shortcuts
+  - Help menu with Getting Started, Homepage, Github, Technical Documents, Report Bug, and Copy Debug Info
+  - Diff and Scripting menus (placeholder) between Tools and Certificate menus
+  - Check for Updates and Change Logs entries in app menu
+  - Professional source code documentation across all 146 Swift files for open-source readiness
+  - Initial project structure and architecture
+  - SwiftNIO-based proxy engine foundation
+  - SwiftUI + AppKit hybrid app shell with 3-column NavigationSplitView
+  - Certificate management module for HTTPS interception
+  - Rule engine for traffic modification
+  - Log capture engine for application log intelligence
+  - [Planned] Analytics engine for error analysis and performance insights
+  - SQLite-based session persistence
+  - Mintlify documentation for network debugging features (Traffic Capture, HTTPS Interception, WebSocket Inspection, GraphQL Support)
+  - Mintlify documentation for intelligence features (Traffic Rules, Request Replay, Log Intelligence, Error Analysis, Performance Insights)
+  - Mintlify documentation for customization (Settings, Keyboard Shortcuts) and development (Architecture, Code Style, Building)
+  - X.509 certificate generation via swift-certificates (P256 keys, root CA, per-host certs with SAN extensions, LRU cache for 1,000 hosts)
+  - macOS Keychain integration for root CA private key storage
+  - PEM-based certificate persistence in Application Support
+  - SQLite session store with 3 tables (transactions, log_entries, websocket_frames), body >1MB offloaded to disk
+  - Compression framework body decoder (gzip, deflate, brotli) with growing buffer strategy
+  - [Planned] Analytics: error grouping by normalized URL pattern + status code, P50/P95/P99 latency per endpoint, timeline dependency detection, trend tracking vs baseline sessions
+  - OSLog stream capture with 500ms polling, process stdout/stderr capture via Process + Pipe
+  - System proxy management via networksetup CLI (auto-detect active network service)
+  - SwiftNIO proxy server with HTTP/HTTPS/WebSocket support (ServerBootstrap, ChannelInboundHandler pipeline)
+  - HTTPS CONNECT tunnel with per-host TLS interception (NIOSSLServerHandler + NIOSSLClientHandler)
+  - WebSocket frame capture and bidirectional forwarding
+  - Settings view with General/Proxy/SSL tabs and AppStorage bindings
+  - Rule management view with add/edit/delete/toggle and swipe-to-delete
+  - Request timeline waterfall view with colored timing segments (DNS, TCP, TLS, TTFB, Transfer)
+  - Certificate setup view with generate/install/export/reset actions
+  - Data flow wiring: ProxyServer → TrafficSessionManager (100ms batch timer) → MainContentCoordinator → SwiftUI views
+  - Log engine wiring with LogCorrelator for request-log correlation
+  - [Planned] Auto-triggered analytics at every 100-transaction milestone
+  - Buffer eviction: oldest 10% moved to SQLite when exceeding 50k capacity
+  - Plugin system with InspectorPlugin, ExporterPlugin, and ProtocolHandler protocols
+  - HAR 1.2 exporter with full spec compliance (ISO8601 timestamps, timing breakdown, base64 binary bodies)
+  - Debug-only sample data generator with realistic HTTP transactions, log entries, error groups, performance metrics, session trends, and domain tree
+  - Debug menu commands and toolbar button to load/clear sample data
+  - Launch argument `-RockxySampleData` for auto-loading sample data on startup
 
   ### Fixed
 
@@ -295,77 +497,7 @@ rss: true
   - HTTP breakpoint scheme-change mismatch — user could type `https://` in the breakpoint URL field for a plain HTTP request, causing the builder to emit a URL whose scheme did not match the cleartext transport; builder now forces the original scheme when `isHTTPS == false`, and the sheet locks the scheme prefix as non-editable for HTTP requests too
   - XPC caller validation hardened with two-layer defense-in-depth: existing certificate chain comparison (Pearcleaner pattern) plus new `SecRequirement`-based bundle identity check that pins `com.amunx.Rockxy` identifier with Apple anchor, using audit token for PID-race-resistant caller identification
   - Removed dead disabled menu items from Diff menu (Add to Pool, Left Side, Right Side) and Scripting menu (Beautify, Save and Activate) that had no implementation
-</Update>
-
-<Update label="March 2026" description="2026-03-20">
-  ### Added
-
-  - Wire `showAlertOnQuit` setting — AppDelegate now reads `com.amunx.Rockxy.showAlertOnQuit` from UserDefaults and shows a confirmation alert before quitting when enabled
-  - Settings truth audit — every @AppStorage key across all 4 settings tabs annotated with wiring status (WIRED or DEFERRED) in both doc comments and inline comments
-  - Import size boundaries — `ImportSizePolicy` validates file sizes before loading HAR (100 MB limit) and session (200 MB limit) imports to prevent OOM/hangs from oversized files
-  - Map Local Directory support — serve files from an entire local directory instead of a single file, with automatic subpath resolution, index.html fallback, MIME type detection, and path traversal protection
-  - File/Directory segmented toggle in Map Local rule editor with path resolution preview
-  - `MapLocalDirectoryResolver` for secure directory-to-URL mapping with symlink resolution and 10 MB file size cap
-  - Test suite: MapLocalDirectoryResolverTests (12 tests) covering path resolution, index fallback, traversal prevention, MIME detection, symlinks, and size limits
-  - Allow List — capture-level filter that restricts recording to specific domains only; non-matching traffic is forwarded but not captured
-  - Allow List window (Tools > Allow List, Cmd+Opt+A) with master toggle, warning banner, domain table with per-entry enable/disable, add/remove/import/export
-  - "Add to Allow List" / "Remove from Allow List" in sidebar domain context menu
-  - "Allow List" accent-colored badge in status bar when active
-  - `AllowListManager` singleton with thread-safe `isHostAllowed(_:)` for NIO access, JSON persistence, import/export
-  - `AllowListEntry` model with wildcard and exact domain matching
-  - No Caching toggle — global switch (Tools menu + Settings) injects `Cache-Control: no-cache, no-store, must-revalidate` and `Pragma: no-cache` on all outbound requests, strips `If-Modified-Since` and `If-None-Match` conditional headers to force fresh responses from origin servers
-  - "No Cache" orange status bar badge when No Caching is active
-  - Breakpoint end-to-end wiring — `.breakpoint` rule action now pauses HTTP and HTTPS requests in the NIO pipeline, presents the breakpoint sheet for user editing, and forwards/aborts/cancels based on decision
-  - `BreakpointViewModel` moved to `MainContentCoordinator` so both the proxy callback and the sheet view share the same instance
-
-  ### Changed
-
-  - Root CA private key storage is now Keychain-primary with automatic migration from disk PEM; existing disk keys are migrated to Keychain on first load and the PEM file renamed to `.bak` as recovery-only fallback
-  - Remove zombie certificate buttons (More, Preview, Advanced) in General Settings and replace with functional "Install & Trust" and "Export Certificate" actions
-  - Wire "Full Changelogs" button in Advanced Settings to GitHub releases page
-  - Wire "Privacy Policy" button in Privacy Settings to GitHub wiki page
-  - Replace dead "External Proxy Settings" and "SOCKS Proxy Settings" buttons with a "Planned for Future Release" GroupBox explaining the feature purpose
-  - Add "Preview" banner to MCP Settings tab indicating the server backend is under development
-  - Replace generic "Coming Soon" placeholders in GitHub, Platform, and Workspace settings tabs with purposeful descriptions of planned functionality
-  - Add tooltip to disabled "Check for Updates" menu item
-
-  ### Fixed
-
   - Fix blank main window visible behind welcome screen on first launch — welcome is now a `.sheet` on the main `ContentView` instead of a separate window, eliminating the `Color.clear` placeholder and preventing duplicate windows
-</Update>
-
-<Update label="March 2026" description="2026-03-19">
-  ### Added
-
-  - Multiple workspace tabs — open independent debugging workspaces in tabs (Cmd+T new tab, Cmd+W close, Cmd+1-9 switch)
-  - Each workspace tab has its own filter criteria, selection, sidebar scope, and inspector state
-  - "Open in New Tab" context menu on domain and app rows in sidebar
-  - Tab strip UI with close, duplicate, rename (double-click), and "Close Other Tabs" context menu
-  - Previous/Next tab navigation (Cmd+Shift+[/])
-  - "Copy as" submenu: Request Headers, Response Headers, Request Body, Response Body, Request Cookies, Response Cookies
-  - "Copy URL" in Edit menu (Cmd+C) for selected request
-  - `RequestCopyFormatter` — pure formatter layer for all copy-to-clipboard formats with proper shell escaping
-  - Custom Previewer Tabs — user-configurable body preview tabs in request/response inspector (JSON Treeview, HTML Preview, Hex, Raw, CSS, JavaScript, XML, Images, Form URL-Encoded)
-  - "+" button on inspector tab bars opens panel-scoped popover to toggle preview tabs
-  - Custom Previewer Tabs settings window (Tools menu) as secondary global defaults surface
-  - `PreviewRenderer` — pure rendering engine for all preview formats with hex dump, JSON tree, HTML/CSS/JS beautify
-  - Custom Header Columns settings window (Tools menu) — add request/response header columns to the flow table
-  - `RequestCopyFormatter.cellValue` resolves custom header column values via `HeaderColumnStore`
-  - Auto-discover headers from captured traffic — settings view shows discovered headers as unchecked items alongside stored columns
-  - Built-in column visibility toggles in column header right-click menu (Status, #, URL, Client, Method, Code, Time, Duration, Size, Query Name)
-  - Hidden built-in column state persisted to UserDefaults
-  - Discovered headers persisted to UserDefaults across app restarts
-  - "Manage Header Columns..." menu action opens Custom Columns settings window
-  - Settings window merges stored and discovered headers into a unified checkbox list
-  - Tests for header discovery persistence, built-in column visibility toggle, and persistence
-
-  ### Changed
-
-  - Cmd+T now opens a new workspace tab (was "New Session", moved to Cmd+Shift+N)
-  - Cmd+1-9 now switch workspace tabs (MainTab shortcuts moved to Ctrl+1-5)
-
-  ### Fixed
-
   - Discovered headers lost on app restart — now saved to UserDefaults
   - Header discovery only ran every 100 transactions — now runs on every batch
   - "Manage Header Columns..." notification had no listener — ContentView now opens the settings window
@@ -417,124 +549,6 @@ rss: true
   - Make keychain private key save non-fatal — disk storage is primary, keychain is backup recovery path
   - Stop treating all pre-handshake TLS errors as permanent host-level MITM rejection — classify BoringSSL errors, only persist auto-passthrough for confirmed certificate-trust rejections (not timeouts, resets, or protocol errors)
   - Fix misleading certificate chain diagnostic — add `validateSystemTrust()` that tests generated certs against real macOS trust store without injecting root CA as explicit anchor
-</Update>
-
-<Update label="March 2026" description="2026-03-18">
-  ### Added
-
-  - Quick search bar with field picker in traffic list toolbar — search by URL, host, path, method, status code, headers, query string, comment, or color
-  - Active filter summary strip showing current filter state with removable chips and "Clear All" button
-  - Filter fields: statusCode, requestHeader, responseHeader, queryString, comment, color for advanced filter rules
-  - Filter operators: "Is Not" (notEqual) and "Regex" for advanced filter rules
-  - Protocol filter pills: Form (application/x-www-form-urlencoded, multipart/form-data) and Font (woff, woff2, ttf, otf) content type filters
-  - Filter count badge on status bar Filter button when filters are active
-  - Test suites: FilterOperatorTests (20 tests), FilteringTests (22 integration tests), ProtocolFilterTests (13 tests)
-  - Native `.rockxysession` format — save and open full debug sessions with all metadata, timing, WebSocket frames, GraphQL info, and log entries
-  - HAR import (File → Import HAR…) — load HAR 1.2 archives from Chrome DevTools, Firefox, or other proxy tools into Rockxy
-  - Test suites: SessionSerializerTests (10 tests), HARImporterTests (9 tests) covering serialization round-trips and HAR parsing
-  - TLS rejection UI warning — after 3+ unique hosts reject proxy certificate, show banner suggesting browser restart or trust check
-  - Clear stale auto-passthrough hosts when root CA trust is freshly established
-  - Lazy helper status check in `enableSystemProxy()` — resolves race condition where proxy start could miss the helper if `AppDelegate.checkStatus()` hadn't finished yet
-  - Targeted warning banner when helper tool needs re-approval in System Settings after version update
-  - Sidebar right-click context menu on domain and app rows — Pin, Enable/Disable SSL Proxying, Sort by Alphabet, Tools (Map Local/Remote, Block, Breakpoint), Export (Copy Domain, Export Transactions as HAR), Delete
-  - SSL proxying status indicator (lock shield badge) on sidebar domain rows
-  - Bypass Proxy List — dedicated window (Tools → Bypass Proxy List… / Cmd+Opt+B) to manage domains excluded from proxying at the macOS system level
-  - System proxy bypass integration via `networksetup -setproxybypassdomains` on all enabled network services
-  - Helper tool `setBypassDomains` XPC method for privileged bypass domain management
-  - Crash recovery backup/restore for original system bypass domains
-  - Live bypass list updates — editing the bypass list while proxy is running applies changes immediately
-  - Sidebar context menu: Add to / Remove from Bypass Proxy List
-  - Remove dead `excludedHosts` field from AppSettings and ProxyConfiguration (replaced by BypassProxyManager)
-  - Helper tool certificate trust management — `installRootCertificate`, `removeRootCertificate`, `verifyRootCertificateTrusted`, `cleanupStaleCertificates` XPC methods with SHA-256 fingerprint-based identity
-  - Map Local rules now support a configurable status code (defaults to 200 for backward compatibility)
-  - Rule import/export to JSON files via `RuleStore.exportRules(to:)` and `importRules(from:)`
-  - Breakpoint phase selection (request vs response) via `BreakpointPhase` enum on `BreakpointRequestData`
-  - Right-click context menu on request list — Copy URL/cURL/cell value/JSON/HAR/raw, Repeat, Pin, Highlight (6 colors), Tools (Map Local/Remote, Block, Breakpoint, SSL Proxying), Export body, Add Comment, Delete — with SF Symbol icons and keyboard shortcuts matching the menu bar
-  - Transaction highlight colors (red/orange/yellow/green/blue/purple) with tinted row background
-  - Transaction pinning (isPinned property on HTTPTransaction)
-</Update>
-
-<Update label="March 2026" description="2026-03-17">
-  ### Added
-
-  - User-Agent app identification — extract app names (Chrome, Safari, Firefox, Edge, curl, Slack, etc.) from HTTP User-Agent headers at capture time, providing instant app identification without waiting for lsof process resolution
-  - TLS failure suppression — duplicate TLS handshake failures for cert-pinned hosts (e.g., `gateway.icloud.com`) are suppressed within a 30-second window, showing only the first failure per host
-  - Column auto-sizing — double-click column dividers to fit content; URL and Client columns auto-size on first data load
-  - Process identification via `lsof` — resolve which macOS app (Safari, Chrome, `trustd`, `cloudd`, etc.) made each proxy connection by mapping TCP source ports to PIDs, with 2-second batch caching
-  - Real macOS app icons in sidebar — resolve app icons via `NSWorkspace` bundle ID lookup with gradient monogram fallback
-  - Real macOS app icons in client column — resolve app icons via `NSWorkspace` bundle ID lookup with fallback to colored initials for unknown apps
-  - Status dot column in request list — colored dots (green/yellow/orange/red/gray) before row number indicate transaction state at a glance
-  - Welcome/Getting Started window with live setup checklist (cert, helper, proxy status detection)
-  - Map Local window for serving local files in place of matched requests
-  - Map Remote window for redirecting requests to different servers
-  - Block List window for blocking requests by URL pattern (wildcard/regex)
-  - SSL Proxying List window for managing HTTPS interception domains
-  - Diff window with side-by-side comparison of two transactions (headers, body, timing)
-  - Scripting window with code editor, plugin sidebar, and console output
-  - Breakpoint sheet for intercepting and editing requests mid-flight (edit URL, headers, body, status)
-  - Engine status pills in toolbar showing Proxy/Logs/Plugins state
-  - Enhanced status bar with request count, session duration timer, error count, selected request info
-  - All menu items now functional: SSL Proxying, Map Local, Map Remote, Block List, Diff, Scripting, Getting Started
-  - Rule Hub: grid layout with toggle/name/pattern/action/priority columns, search field, action type filter, presets menu (Block Ads, Block Analytics, Map API Local, Throttle API, Breakpoint All), import/export buttons
-  - Block List: info bar explaining block behavior, icon-style match type badges (wildcard `*` blue, regex `R` purple, exact `=` green) with "auto" detection tag
-  - Map Local: info bar, inline browse button for file selection, orange status code text for non-200 codes
-  - Map Remote: info bar, purple destination URLs, collapsible detail panel showing URL breakdown (protocol/host/port/path/query)
-  - Breakpoint: elapsed timer in orange alert banner (MM:SS format), response tab for viewing/editing response bodies, inline status code picker, segmented tab bar (Headers/Body/Query/Response)
-  - Scripting: yellow "JavaScript" language badge, Templates dropdown menu with 4 preset scripts (Modify Headers, Log Requests, Block Pattern, Custom Response), color-coded console timestamps (blue=info, orange=warning, red=error, green=output)
-  - Plugin Manager: category filter tabs (All/Inspector/Exporter/Script), search field, Reinstall button for non-built-in plugins
-  - System proxy warning banner with Retry button when proxy runs but system proxy fails to configure
-  - 10-second XPC timeout for all helper tool calls to prevent hung continuations
-
-  ### Changed
-
-  - `filteredTransactions` converted from computed property to cached stored property — eliminates O(n) re-filtering on every SwiftUI view evaluation (was running twice per batch delivery)
-  - Batch timer interval increased from 100ms to 250ms — reduces UI update frequency from 10/sec to 4/sec, producing larger batches instead of 1-2 transaction micro-batches
-  - Text cells in request list now vertically centered using container NSView pattern (same as status dot and client icon) — fixes NSTableView overriding direct cell view frames
-  - Batch delivery decoupled from lsof — process resolution now runs asynchronously after batch is delivered, eliminating 50-200ms blocking per cache miss
-  - Double GraphQL detection removed — JSON parsing now runs once per request (in HTTPProxyHandler) instead of twice
-  - Auto-analysis throttled to every 10 seconds with 500-transaction threshold (was 2s/100) — reduces MainActor contention during high traffic
-  - Incremental `appendFilteredTransactions()` fast path — when no user filters are active, new transactions are appended directly instead of re-scanning all transactions O(n)
-  - Column auto-sizing deferred via `DispatchQueue.main.async` to avoid blocking `updateNSView` hot path
-  - Process resolution moved off main thread — `lsof` calls now run in `TrafficSessionManager` actor with async dispatch, eliminating 50-200ms main thread blocking per cache miss
-  - Process resolution cache TTL increased from 2s to 5s — TCP ports reuse slowly, reducing lsof invocations
-  - Request list row height increased from 22pt to 28pt — better vertical centering and visual breathing room
-  - NSTableView cell reuse for status dot and client cells — eliminates per-row view allocation during scrolling
-  - TLS failure transactions hidden from traffic list by default — reduces noise from cert-pinned hosts
-  - Helper tool auto-updates on version mismatch — `HelperManager.checkStatus()` detects outdated helper and triggers uninstall/reinstall cycle automatically instead of requiring manual update
-  - System proxy now configures all enabled network services instead of a single detected service, matching Charles/Proxyman behavior
-  - Detect primary network interface via routing table (`route -n get 0.0.0.0`) for accurate diagnostics
-  - Add TCP connection logging to proxy server NIO pipeline for connection-level diagnostics
-  - Upgrade helper tool status logging from debug to info level for Xcode console visibility
-  - Re-check helper tool status before each proxy start to pick up installs done during welcome flow
-  - Welcome window now opens as a separate window (Xcode-style) instead of replacing main window content
-  - Helper tool binary moved to `Contents/MacOS/` with embedded Info.plist, matching SMAppService reference pattern
-  - Helper tool XPC validation uses certificate chain comparison instead of team-ID-from-plist, removing build configuration dependency
-  - Certificate install button now updates immediately after successful install (optimistic state update)
-  - Wire PluginSettingsViewModel to ScriptPluginManager for real plugin loading, reload, and uninstall
-  - Cookie inspector now shows full request/response cookie details (name, value, domain, path, secure, expiry)
-  - App termination now properly cleans up system proxy settings before exiting
-  - Proxy start/stop now triggers log capture lifecycle automatically
-  - Rules are now persisted to disk after every add/remove/toggle mutation
-  - ContentView initializes favorites and auto-starts proxy on launch when configured
-  - Sidebar section headers now use colored text (amber for Favorites, gray for All/Analytics) with increased header prominence
-  - App icons in sidebar replaced with colored gradient rounded squares showing the app's first letter
-  - Sidebar SF Symbol icons updated to filled variants matching Proxyman (pin.fill, tray.full.fill, square.stack.3d.up.fill, exclamationmark.triangle.fill)
-  - Added Theme.Sidebar color definitions for section headers and app icon gradients
-  - Incremental `NSTableView` updates — use `insertRows(at:)` for append-only batches instead of full `reloadData()`, eliminating UI jank on high-traffic sessions
-  - O(1) domain tree lookup — dictionary-backed index replaces O(n) `firstIndex(where:)` scan per transaction
-  - Cached sidebar `appNodes` — incrementally updated in `processBatch()` instead of recomputing from all transactions on every render
-  - Move GraphQL detection to `TrafficSessionManager` actor — runs on background thread instead of blocking main thread during batch processing
-  - Time-throttled auto-analytics — max once per 2 seconds instead of every 100 transactions
-  - Proxy server now runs independently of system proxy — matches Proxyman behavior where system proxy is best-effort
-  - Proxy toolbar pill shows orange when system proxy is not configured
-  - `stopProxy()` now guards against re-entry to prevent race conditions with double cleanup
-
-  ### Security
-
-  - Helper tool ConnectionValidator now compares code signing certificate chains instead of relying on build-time team ID injection — self-referencing, zero-configuration, immune to Info.plist tampering
-
-  ### Fixed
-
   - TLS failure transactions now hidden even when no user filters are active — previously the `isTLSFailure` check was inside the filter block that only ran when filters were set
   - Fix proxy blocking all internet traffic — add 5-second connection timeouts to all upstream `ClientBootstrap` calls, 30-second read timeout to `UpstreamResponseHandler`, and 120-second max connection lifetime to prevent hung connections from exhausting resources
   - Fix leaked connections on failed TLS handshakes — `PostHandshakeHandler.errorCaught` now closes the channel after recording the failed transaction (was leaving it open with `autoRead = false`, leaking one connection per cert-pinned host)
@@ -584,75 +598,76 @@ rss: true
   - HTTPS proxy relay now evaluates rules (block, mapLocal, mapRemote, throttle, modifyHeader) — previously HTTPS requests bypassed all rules
   - TLS handshake timing no longer hardcoded to 0; HTTPS connections now report approximate TCP/TLS split
   - WebSocket upgrade detection now wired into UpstreamResponseHandler — 101 Switching Protocols triggers pipeline reconfiguration
-</Update>
-
-<Update label="March 2026" description="2026-03-15">
-  ### Added
-
-  - Test suites: RuleActionTests (11 tests), CertificateTests (9 tests), StorageTests (8 tests) using Swift Testing framework
-  - Inspector Comments tab with TextEditor for per-transaction notes
-  - Sidebar Favorites persistence via UserDefaults (survives app restart)
-  - Certificate menu items wired: "Install on This Mac…" calls CertificateManager, "Export Root Certificate…" opens NSSavePanel to export PEM
-  - Stub Settings tabs (GitHub Integration, Platform Detection) replaced with "Coming Soon" placeholders
-  - `comment` property on HTTPTransaction for inspector comments
-  - `Codable` conformance on SidebarItem and AnalyticsSection for JSON persistence
-  - JavaScript plugin ecosystem (Phase 1): runtime script plugins with JavaScriptCore, plugin manifest parsing (`plugin.json`), filesystem discovery from `~/Library/Application Support/Rockxy/Plugins/`
-  - `$rockxy` bridge API for JS plugins: logging (OSLog), crypto (SHA256/MD5), encoding (base64/URL), scoped storage (UserDefaults), environment config
-  - Plugin request hooks in proxy pipeline — enabled plugins can inspect and modify HTTP/HTTPS requests before forwarding
-  - Read-only response hooks for plugins to observe completed responses
-  - Plugin Settings tab with searchable plugin list, detail panel (icon, badges, config form, actions), install/uninstall/reload controls
-  - Plugin type badges (Script green, Inspector blue, Exporter orange, Detector purple) and status indicators in Settings UI
-  - Auto-generated configuration forms from plugin manifest (text fields, secure fields, toggles, number inputs)
-  - 5-second timeout for plugin script execution to prevent hung scripts from blocking the proxy
-  - Test suites: PluginManifestTests, ScriptBridgeTests, ScriptRuntimeTests using Swift Testing framework
-  - Test suites: WelcomeViewModelTests (15 tests), SystemProxyManagerTests (20 tests) covering setup flow, error descriptions, and networksetup output parsing
-  - Test suite: HelperConnectionErrorTests (6 tests) covering XPC error descriptions including timeout
-</Update>
-
-<Update label="March 2026" description="2026-03-14">
-  ### Added
-
-  - Privileged Helper Tool (RockxyHelperTool): SMAppService-based launch daemon for instant system proxy changes without password prompts, with XPC caller verification and crash recovery
-  - Helper tool build/verify/uninstall scripts for development and release workflows
-  - Dual-mode system proxy: fast XPC path via helper daemon, fallback to networksetup CLI
-  - Helper Tool management UI in Advanced Proxy Settings with install/uninstall/update controls
-  - SSL Proxying List: per-domain control over which HTTPS connections get intercepted and decrypted; domains not in the list pass through as raw tunnels
-  - Welcome screen auto-shows on first launch when no trusted root CA is detected
-  - RockxyHelperTool Xcode target with hardened runtime, entitlements, and SMAuthorizedClients/SMPrivilegedExecutables
-  - Build-time Team ID injection via xcconfig (never hardcoded in source)
-  - Developer setup script (`scripts/setup-developer.sh`) for first-run contributor onboarding
-  - Notarization script (`scripts/notarize-app.sh`) reading credentials from environment only
-  - Code signing script (`scripts/sign-helper.sh`) for distribution helper builds
-  - Full app reset script (`scripts/rockxy-reset.sh`) to return to first-run state
-  - NSTableView-backed request list (RequestTableView) for 100k+ row virtual scrolling performance
-  - Status bar showing row count and selection state
-  - CenterContentView combining request table, inspector panel, and status bar in a VSplitView
-  - Protocol filter models (ProtocolFilter, FilterField, RequestInspectorTab, ResponseInspectorTab, ResponseFormat)
-  - JSON tree view with collapsible nodes, syntax-colored values (strings, numbers, booleans, null), and disclosure triangles
-  - Theme constants for table, JSON syntax, filter pills, status bar, and inspector styling
-  - `clientApp` property on HTTPTransaction for tracking originating application
-  - Proxyman-style app-centric sidebar with Favorites (Pinned, Saved), All (Apps grouped by client app with nested domains, Domains tree), and Analytics sections
-  - Sidebar bottom bar with add and filter shortcut buttons
-  - Toolbar status indicator showing proxy connection state (green dot + listening address) in center toolbar
-  - Protocol filter bar with pill buttons for content types (HTTP, HTTPS, WebSocket, JSON, XML, JS, CSS, GraphQL, Document, Media, Other) and status codes (1xx-5xx)
-  - FilterPillButton reusable component with Theme.FilterPill styling
-  - SearchFilterBar component with field selector dropdown, text search, and enable/disable toggle
-  - Full macOS menu bar with File, Edit, View, Flow, Tools, and Certificate menus with keyboard shortcuts
-  - Help menu with Getting Started, Homepage, Github, Technical Documents, Report Bug, and Copy Debug Info
-  - Diff and Scripting menus (placeholder) between Tools and Certificate menus
-  - Check for Updates and Change Logs entries in app menu
-  - Professional source code documentation across all 146 Swift files for open-source readiness
 
   ### Changed
 
+  - Import error dialogs now show specific titles and messages per failure type (size exceeded, invalid format, deserialization error) instead of a generic "Import Failed"
+  - README roadmap updated: `.rockxy format` corrected to `.rockxysession format`
+  - Removed iOS Simulator Certificate step from Welcome screen — Rockxy ships with 4 setup steps (Install Cert, Trust Cert, Install Helper, Enable Proxy)
+  - Removed Platform settings tab
+  - Removed "Restore previous proxy settings on quit" toggle from Advanced Settings — restore-on-quit is now mandatory and always-on via persistent backup
+  - `stopProxy()` no longer gates `disableSystemProxy()` behind `isSystemProxyConfigured` flag — the ownership-aware disable handles all cases internally
+  - Privacy Settings tab rewritten with honest disclosure: Data Storage locations (SQLite path, large bodies path), Exports & Sharing warning about sensitive content in exports, and Analytics & Telemetry section with "No Data Collected" badge confirming zero telemetry; removed fake analytics/crash report toggles
+  - Removed MCP Settings tab — MCP will be re-added when the backend implementation is functional
+  - Removed HTTP/2 placeholder row from General Settings
+  - Removed certificate inspector placeholder view
+  - Root CA private key storage is now Keychain-primary with automatic migration from disk PEM; existing disk keys are migrated to Keychain on first load and the PEM file renamed to `.bak` as recovery-only fallback
+  - Remove zombie certificate buttons (More, Preview, Advanced) in General Settings and replace with functional "Install & Trust" and "Export Certificate" actions
+  - Wire "Full Changelogs" button in Advanced Settings to GitHub releases page
+  - Wire "Privacy Policy" button in Privacy Settings to GitHub wiki page
+  - Replace dead "External Proxy Settings" and "SOCKS Proxy Settings" buttons with a "Planned for Future Release" GroupBox explaining the feature purpose
+  - Add "Preview" banner to MCP Settings tab indicating the server backend is under development
+  - Replace generic "Coming Soon" placeholders in GitHub, Platform, and Workspace settings tabs with purposeful descriptions of planned functionality
+  - Add tooltip to disabled "Check for Updates" menu item
+  - Cmd+T now opens a new workspace tab (was "New Session", moved to Cmd+Shift+N)
+  - Cmd+1-9 now switch workspace tabs (MainTab shortcuts moved to Ctrl+1-5)
+  - `filteredTransactions` converted from computed property to cached stored property — eliminates O(n) re-filtering on every SwiftUI view evaluation (was running twice per batch delivery)
+  - Batch timer interval increased from 100ms to 250ms — reduces UI update frequency from 10/sec to 4/sec, producing larger batches instead of 1-2 transaction micro-batches
+  - Text cells in request list now vertically centered using container NSView pattern (same as status dot and client icon) — fixes NSTableView overriding direct cell view frames
+  - Batch delivery decoupled from lsof — process resolution now runs asynchronously after batch is delivered, eliminating 50-200ms blocking per cache miss
+  - Double GraphQL detection removed — JSON parsing now runs once per request (in HTTPProxyHandler) instead of twice
+  - Auto-analysis throttled to every 10 seconds with 500-transaction threshold (was 2s/100) — reduces MainActor contention during high traffic
+  - Incremental `appendFilteredTransactions()` fast path — when no user filters are active, new transactions are appended directly instead of re-scanning all transactions O(n)
+  - Column auto-sizing deferred via `DispatchQueue.main.async` to avoid blocking `updateNSView` hot path
+  - Process resolution moved off main thread — `lsof` calls now run in `TrafficSessionManager` actor with async dispatch, eliminating 50-200ms main thread blocking per cache miss
+  - Process resolution cache TTL increased from 2s to 5s — TCP ports reuse slowly, reducing lsof invocations
+  - Request list row height increased from 22pt to 28pt — better vertical centering and visual breathing room
+  - NSTableView cell reuse for status dot and client cells — eliminates per-row view allocation during scrolling
+  - TLS failure transactions hidden from traffic list by default — reduces noise from cert-pinned hosts
+  - Helper tool auto-updates on version mismatch — `HelperManager.checkStatus()` detects outdated helper and triggers uninstall/reinstall cycle automatically instead of requiring manual update
+  - System proxy now configures all enabled network services instead of a single detected service, matching Charles/Proxyman behavior
+  - Detect primary network interface via routing table (`route -n get 0.0.0.0`) for accurate diagnostics
+  - Add TCP connection logging to proxy server NIO pipeline for connection-level diagnostics
+  - Upgrade helper tool status logging from debug to info level for Xcode console visibility
+  - Re-check helper tool status before each proxy start to pick up installs done during welcome flow
+  - Welcome window now opens as a separate window (Xcode-style) instead of replacing main window content
+  - Helper tool binary moved to `Contents/MacOS/` with embedded Info.plist, matching SMAppService reference pattern
+  - Helper tool XPC validation uses certificate chain comparison instead of team-ID-from-plist, removing build configuration dependency
+  - Certificate install button now updates immediately after successful install (optimistic state update)
+  - Wire PluginSettingsViewModel to ScriptPluginManager for real plugin loading, reload, and uninstall
+  - Cookie inspector now shows full request/response cookie details (name, value, domain, path, secure, expiry)
+  - App termination now properly cleans up system proxy settings before exiting
+  - Proxy start/stop now triggers log capture lifecycle automatically
+  - Rules are now persisted to disk after every add/remove/toggle mutation
+  - ContentView initializes favorites and auto-starts proxy on launch when configured
+  - Sidebar section headers now use colored text (amber for Favorites, gray for All/Analytics) with increased header prominence
+  - App icons in sidebar replaced with colored gradient rounded squares showing the app's first letter
+  - Sidebar SF Symbol icons updated to filled variants matching Proxyman (pin.fill, tray.full.fill, square.stack.3d.up.fill, exclamationmark.triangle.fill)
+  - Added Theme.Sidebar color definitions for section headers and app icon gradients
+  - Incremental `NSTableView` updates — use `insertRows(at:)` for append-only batches instead of full `reloadData()`, eliminating UI jank on high-traffic sessions
+  - O(1) domain tree lookup — dictionary-backed index replaces O(n) `firstIndex(where:)` scan per transaction
+  - Cached sidebar `appNodes` — incrementally updated in `processBatch()` instead of recomputing from all transactions on every render
+  - Move GraphQL detection to `TrafficSessionManager` actor — runs on background thread instead of blocking main thread during batch processing
+  - Time-throttled auto-analytics — max once per 2 seconds instead of every 100 transactions
+  - Proxy server now runs independently of system proxy — matches Proxyman behavior where system proxy is best-effort
+  - Proxy toolbar pill shows orange when system proxy is not configured
+  - `stopProxy()` now guards against re-entry to prevent race conditions with double cleanup
+  - Helper tool ConnectionValidator now compares code signing certificate chains instead of relying on build-time team ID injection — self-referencing, zero-configuration, immune to Info.plist tampering
   - Redesigned app layout from 3-column NavigationSplitView to 2-column with VSplitView center (table + inspector)
   - Redesigned inspector panel with Proxyman-style HSplitView layout: URL bar on top, request tabs (left) and response tabs (right)
   - Split inspector into dedicated request/response views with independent tab bars
   - Added new inspector sub-views: QueryInspectorView, SetCookieInspectorView, AuthInspectorView, SynopsisInspectorView
   - Filtering engine now supports protocol and status code filters
-
-  ### Security
-
   - Add port validation (1024–65535) to HelperService proxy override XPC call
   - Add rate limiting (2s cooldown) on proxy change XPC calls
   - Fix TOCTOU vulnerability in CrashRecovery by replacing fileExists checks with try/catch
@@ -673,44 +688,5 @@ rss: true
   - SSL Proxying List UI with domain table, wildcard support, enable/disable toggles, import/export, and common API presets
   - Certificate Setup Wizard: guided 5-step first-run flow (Welcome → Generate → Install & Trust → Verify → Complete) shown automatically when no trusted root CA exists
   - Certificate Setup Wizard accessible from Help menu
-</Update>
 
-<Update label="March 2026" description="2026-03-11">
-  ### Added
-
-  - Initial project structure and architecture
-  - SwiftNIO-based proxy engine foundation
-  - SwiftUI + AppKit hybrid app shell with 3-column NavigationSplitView
-  - Certificate management module for HTTPS interception
-  - Rule engine for traffic modification
-  - Log capture engine for application log intelligence
-  - [Planned] Analytics engine for error analysis and performance insights
-  - SQLite-based session persistence
-  - Mintlify documentation for network debugging features (Traffic Capture, HTTPS Interception, WebSocket Inspection, GraphQL Support)
-  - Mintlify documentation for intelligence features (Traffic Rules, Request Replay, Log Intelligence, Error Analysis, Performance Insights)
-  - Mintlify documentation for customization (Settings, Keyboard Shortcuts) and development (Architecture, Code Style, Building)
-  - X.509 certificate generation via swift-certificates (P256 keys, root CA, per-host certs with SAN extensions, LRU cache for 1,000 hosts)
-  - macOS Keychain integration for root CA private key storage
-  - PEM-based certificate persistence in Application Support
-  - SQLite session store with 3 tables (transactions, log_entries, websocket_frames), body >1MB offloaded to disk
-  - Compression framework body decoder (gzip, deflate, brotli) with growing buffer strategy
-  - [Planned] Analytics: error grouping by normalized URL pattern + status code, P50/P95/P99 latency per endpoint, timeline dependency detection, trend tracking vs baseline sessions
-  - OSLog stream capture with 500ms polling, process stdout/stderr capture via Process + Pipe
-  - System proxy management via networksetup CLI (auto-detect active network service)
-  - SwiftNIO proxy server with HTTP/HTTPS/WebSocket support (ServerBootstrap, ChannelInboundHandler pipeline)
-  - HTTPS CONNECT tunnel with per-host TLS interception (NIOSSLServerHandler + NIOSSLClientHandler)
-  - WebSocket frame capture and bidirectional forwarding
-  - Settings view with General/Proxy/SSL tabs and AppStorage bindings
-  - Rule management view with add/edit/delete/toggle and swipe-to-delete
-  - Request timeline waterfall view with colored timing segments (DNS, TCP, TLS, TTFB, Transfer)
-  - Certificate setup view with generate/install/export/reset actions
-  - Data flow wiring: ProxyServer → TrafficSessionManager (100ms batch timer) → MainContentCoordinator → SwiftUI views
-  - Log engine wiring with LogCorrelator for request-log correlation
-  - [Planned] Auto-triggered analytics at every 100-transaction milestone
-  - Buffer eviction: oldest 10% moved to SQLite when exceeding 50k capacity
-  - Plugin system with InspectorPlugin, ExporterPlugin, and ProtocolHandler protocols
-  - HAR 1.2 exporter with full spec compliance (ISO8601 timestamps, timing breakdown, base64 binary bodies)
-  - Debug-only sample data generator with realistic HTTP transactions, log entries, error groups, performance metrics, session trends, and domain tree
-  - Debug menu commands and toolbar button to load/clear sample data
-  - Launch argument `-RockxySampleData` for auto-loading sample data on startup
 </Update>

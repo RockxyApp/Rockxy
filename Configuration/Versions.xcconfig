@@ -7,8 +7,8 @@
 // Do NOT duplicate these values in Swift constants. All runtime code reads
 // from Bundle.main.infoDictionary.
 
-ROCKXY_APP_VERSION = 0.7.1
-ROCKXY_APP_BUILD = 10
+ROCKXY_APP_VERSION = 0.8.0
+ROCKXY_APP_BUILD = 11
 
 ROCKXY_HELPER_VERSION = 0.7.1
 ROCKXY_HELPER_BUILD = 7
