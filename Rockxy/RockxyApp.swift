@@ -23,7 +23,10 @@ struct RockxyApp: App {
 
     var body: some Scene {
         Window(RockxyIdentity.current.displayName, id: "main") {
-            MainWindowContent(lifecycleState: lifecycleState)
+            MainWindowContent(
+                lifecycleState: lifecycleState,
+                coordinator: mainCoordinator
+            )
         }
         .commands {
             RockxyMenuCommands(lifecycleState: lifecycleState)
@@ -158,6 +161,8 @@ struct RockxyApp: App {
 
     private static let identity = RockxyIdentity.current
 
+    @State private var mainCoordinator = MainContentCoordinator()
+
     @State private var lifecycleState = AppLifecycleState()
 
     private var composeWindow: some Scene {
@@ -200,9 +205,10 @@ private struct MainWindowContent: View {
     // MARK: Internal
 
     let lifecycleState: AppLifecycleState
+    let coordinator: MainContentCoordinator
 
     var body: some View {
-        ContentView()
+        ContentView(coordinator: coordinator)
             .sheet(isPresented: Binding(
                 get: { lifecycleState.showWelcome },
                 set: { lifecycleState.showWelcome = $0 }

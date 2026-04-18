@@ -144,6 +144,110 @@ struct InspectorRoutingTests {
         #expect(protocolTab == .websocket)
     }
 
+    @Test("CONNECT tunnel shows domain and app SSL prompt actions")
+    func connectTunnelShowsSSLPromptActions() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+        transaction.clientApp = "Brave Browser Helper"
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: false,
+            appName: transaction.clientApp,
+            appDomains: ["api.example.com", "cdn.example.com"]
+        )
+
+        #expect(prompt?.title == "HTTPS Response")
+        #expect(prompt?.primaryTitle == "Enable only this domain")
+        #expect(prompt?.primaryAction == .enableDomain("api.example.com"))
+        #expect(prompt?.secondaryTitle == "Enable all domains from \"Brave Browser Helper\"")
+        #expect(prompt?.secondaryAction == .enableApp("Brave Browser Helper"))
+    }
+
+    @Test("CONNECT tunnel prefers certificate guidance when HTTPS interception is unavailable")
+    func connectTunnelShowsCertificateGuidance() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: false,
+            domainRuleEnabled: false,
+            appName: nil,
+            appDomains: []
+        )
+
+        #expect(prompt?.primaryAction == .installCertificate)
+        #expect(prompt?.secondaryAction == nil)
+    }
+
+    @Test("CONNECT tunnel with existing SSL rule shows retry guidance")
+    func connectTunnelWithExistingRuleShowsRetryGuidance() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: true,
+            appName: nil,
+            appDomains: []
+        )
+
+        #expect(prompt?.primaryAction == .openSSLProxyingList)
+        #expect(prompt?.secondaryAction == nil)
+    }
+
+    @Test("CONNECT tunnel shows alternate message when SSL proxying is globally off")
+    func connectTunnelShowsSSLDisabledMessage() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+        transaction.clientApp = "Brave Browser Helper"
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: false,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: false,
+            appName: transaction.clientApp,
+            appDomains: ["api.example.com"]
+        )
+
+        #expect(prompt?.message == "SSL Proxying is off. Enable it to see the encrypted content.")
+    }
+
+    @Test("Plain HTTP response does not show HTTPS prompt")
+    func plainHTTPDoesNotShowHTTPSPrompt() {
+        let transaction = TestFixtures.makeTransaction()
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: false,
+            appName: nil,
+            appDomains: []
+        )
+
+        #expect(prompt == nil)
+    }
+
     // MARK: - Frame Version
 
     @Test("webSocketFrameVersion starts at zero")

@@ -46,6 +46,89 @@ extension MainContentCoordinator {
         }
     }
 
+    func observedDomainsForApp(named appName: String) -> [String] {
+        if let liveDomains = appNodes.first(where: { $0.name == appName })?.domains,
+           !liveDomains.isEmpty
+        {
+            return liveDomains
+        }
+        return TrafficDomainSnapshot.shared.domains(forApp: appName)
+    }
+
+    func enableSSLProxyingFromInspector(for domain: String) {
+        guard !domain.isEmpty else {
+            return
+        }
+
+        if !SSLProxyingManager.shared.isEnabled {
+            SSLProxyingManager.shared.setEnabled(true)
+        }
+
+        let alreadyEnabled = isSSLProxyingEnabled(for: domain)
+        if !alreadyEnabled {
+            enableSSLProxyingForDomain(domain)
+        }
+
+        activeToast = ToastMessage(
+            style: .success,
+            text: alreadyEnabled ?
+                String(
+                    localized: "SSL Proxying is already enabled for \(domain). Make the request again to inspect it."
+                ) :
+                String(localized: "Enabled SSL Proxying for \(domain). Make the request again to inspect it.")
+        )
+    }
+
+    func enableSSLProxyingFromInspector(forAppNamed appName: String) {
+        guard !appName.isEmpty else {
+            return
+        }
+
+        let domains = observedDomainsForApp(named: appName)
+        guard !domains.isEmpty else {
+            return
+        }
+
+        if !SSLProxyingManager.shared.isEnabled {
+            SSLProxyingManager.shared.setEnabled(true)
+        }
+
+        enableSSLProxyingForApp(
+            AppInfo(
+                name: appName,
+                domains: domains,
+                requestCount: domains.count
+            )
+        )
+
+        activeToast = ToastMessage(
+            style: .success,
+            text: String(
+                localized: "Enabled SSL Proxying for domains from \(appName). Make the request again to inspect them."
+            )
+        )
+    }
+
+    func installAndTrustCertificateFromInspector() {
+        Task { @MainActor in
+            do {
+                try await certificateManager.installAndTrust()
+                await readiness.deepRefresh()
+                activeToast = ToastMessage(
+                    style: .success,
+                    text: String(
+                        localized: "Certificate installed and trusted. Make the request again to inspect HTTPS content."
+                    )
+                )
+            } catch {
+                activeToast = ToastMessage(
+                    style: .error,
+                    text: String(localized: "Failed to install certificate — \(error.localizedDescription)")
+                )
+            }
+        }
+    }
+
     // MARK: - Bypass Proxy List
 
     func isInBypassList(_ domain: String) -> Bool {

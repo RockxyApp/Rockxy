@@ -18,6 +18,7 @@ struct InspectorPanelView: View {
                     .frame(minWidth: 250)
                     ResponseInspectorView(
                         transaction: transaction,
+                        coordinator: coordinator,
                         previewTabStore: coordinator.previewTabStore
                     )
                     .frame(minWidth: 250)

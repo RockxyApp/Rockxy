@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- MCP Server: embedded Model Context Protocol (MCP 2025-11-25) backend — exposes proxy traffic, rules, and status via JSON-RPC 2.0 over a local HTTP server with token-based authentication.
+- MCP Server: 10 read-only tools — `get_version`, `get_proxy_status`, `get_certificate_status`, `get_recent_flows`, `get_flow_detail`, `search_flows`, `filter_flows`, `export_flow_curl`, `list_rules`, `get_ssl_proxying_list`.
+- MCP Server: `rockxy-mcp` stdio CLI binary bundled in the app for standard MCP stdio transport with automatic session tracking.
+- MCP Server: privacy-first redaction — sensitive headers, URL query parameters, and body fields (JSON, form-encoded, XML, plain-text Bearer tokens) redacted by default. Live toggle without server restart.
+- MCP Server: Settings > MCP tab with enable/disable toggle, running status indicator, copyable connection config, and redaction privacy controls.
+- MCP Server: auto-starts on app launch when previously enabled; survives Settings window close; falls back to SessionStore when main window is closed.
+
+### Changed
+
+- MCP Server: initialize requests now negotiate compatible MCP protocol versions, recycle stale per-connection sessions, and harden transport/session validation.
+- MCP Server: handshake writes now create restricted `0o600` files up front; flow-query fallback filtering, URL/cURL redaction, and port/config validation are stricter and more deterministic.
+- MCP Server: recent-flow SessionStore fallback no longer under-filters when callers request a small limit with host/method/status filters.
+- MCP Server: transport/tool error payloads now stay valid JSON even when messages contain quotes, backslashes, or control characters.
 - Scripting: dedicated **Scripting List** window (sidebar idiom matching Allow List / Block List / SSL Proxying List) with three-column table (Name / Method / Matching Rule), folder grouping with rename-in-place, slide-up filter bar, bottom bar with `+` `−` `New Folder` `?` / Filter / Advance / More.
 - Scripting: dedicated **Script Editor** window with Matching Rule header (Name, URL, method picker, Wildcard/Regex picker, "Test your Rule", "Include all subpaths"), Run-on row (Request / Response / Run as Mock + saved-and-active dot), code editor with line-number ruler + the multi-arg default template, right-side console panel with eye-icon log-level filter (Errors / Warnings / User Logs / System), footer (More / Beautify ⌘B / Snippet Code / Save & Activate ⌘S / console eye toggle).
 - Scripting: multi-arg JS API support — `onRequest(context, url, request)` and `onResponse(context, url, request, response)` with `request.headers` / `request.queries` / `request.body` / `response.statusCode` / `response.headers` / `response.body` / `response.bodyFilePath`. Single-arg `onRequest(ctx)` / `onResponse(ctx)` continues to work; the runtime dispatches by JS function `length`.
@@ -20,9 +33,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Scripting: response-side hook now actually mutates what the client receives and what Rockxy persists. `ScriptResponseContext` is mutable with `setStatus`, `setHeader`, `setBody` JS helpers and a Swift apply-back to `HTTPResponseData`.
 - Scripting: inline mock responses via `runAsMock=true`. `onRequest(ctx)` returns a `{ statusCode, headers?, body? }` object; the request never goes upstream. Invalid mock output fails locally with HTTP `502`.
 - Scripting: CommonJS `module.exports = { onRequest, onResponse }` compatibility added alongside the existing direct-global pattern.
-
-### Changed
-
 - Scripting: forwarded request head is now rebuilt from the (possibly script-mutated) `HTTPRequestData` via `ProxyHandlerShared.buildForwardHead(from:originalHead:)`. Method, path, query, headers, and body-derived `Content-Length` reach upstream as expected. Host, port, and scheme mutations from scripts are dropped (with a one-time warning per plugin); use the **Map Remote** rule action for cross-host rewrites.
 - Scripting: deterministic id-sorted plugin execution order; first-match wins on both request and response side.
 - Scripting: response hook runs between response-header rule operations and breakpoint dispatch. When the upstream body exceeds `ProxyLimits.maxResponseBodySize`, response-side scripting is skipped for that request and the existing full streaming behavior is preserved.

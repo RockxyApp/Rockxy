@@ -13,6 +13,7 @@ struct ResponseInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    let coordinator: MainContentCoordinator
     var previewTabStore: PreviewTabStore
 
     var body: some View {
@@ -39,9 +40,30 @@ struct ResponseInspectorView: View {
     @State private var protocolTab: ProtocolTabKind?
 
     @State private var showPreviewPopover = false
+    @Environment(\.openWindow) private var openWindow
 
     private var hasProtocolTab: Bool {
         transaction.webSocketConnection != nil || transaction.graphQLInfo != nil
+    }
+
+    private var httpsPromptModel: HTTPSInspectionPromptModel? {
+        HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: SSLProxyingManager.shared.isEnabled,
+            canInterceptHTTPS: coordinator.readiness.canInterceptHTTPS,
+            domainRuleEnabled: coordinator.isSSLProxyingEnabled(for: transaction.request.host),
+            appName: normalizedClientAppName,
+            appDomains: normalizedClientAppName.map { coordinator.observedDomainsForApp(named: $0) } ?? []
+        )
+    }
+
+    private var normalizedClientAppName: String? {
+        guard let clientApp = transaction.clientApp?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !clientApp.isEmpty else
+        {
+            return nil
+        }
+        return clientApp
     }
 
     private var inspectorTabBar: some View {
@@ -100,6 +122,8 @@ struct ResponseInspectorView: View {
             }
 
             previewTabMenuButton
+
+            Spacer()
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 4)
@@ -144,7 +168,9 @@ struct ResponseInspectorView: View {
     }
 
     @ViewBuilder private var nativeTabContent: some View {
-        if let response = transaction.response {
+        if let prompt = httpsPromptModel, selectedTab != .timeline {
+            encryptedHTTPSPrompt(prompt)
+        } else if let response = transaction.response {
             switch selectedTab {
             case .headers:
                 responseHeadersView(response: response)
@@ -218,11 +244,174 @@ struct ResponseInspectorView: View {
         }
     }
 
+    private func encryptedHTTPSPrompt(_ prompt: HTTPSInspectionPromptModel) -> some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 18) {
+                HStack(spacing: 10) {
+                    Image(systemName: "lock")
+                        .font(.system(size: 28, weight: .regular))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+
+                    Text(prompt.title)
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                }
+
+                Text(prompt.message)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 320)
+
+                Button {
+                    handleHTTPSPromptAction(prompt.primaryAction)
+                } label: {
+                    Text(prompt.primaryTitle)
+                        .frame(minWidth: 220)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                if let secondaryTitle = prompt.secondaryTitle,
+                   let secondaryAction = prompt.secondaryAction
+                {
+                    Text(String(localized: "or"))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
+
+                    Button {
+                        handleHTTPSPromptAction(secondaryAction)
+                    } label: {
+                        Text(secondaryTitle)
+                            .multilineTextAlignment(.center)
+                            .frame(minWidth: 220)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+            }
+            .padding(.horizontal, 24)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private func handleHTTPSPromptAction(_ action: HTTPSInspectionPromptAction) {
+        switch action {
+        case .installCertificate:
+            coordinator.installAndTrustCertificateFromInspector()
+        case let .enableDomain(domain):
+            coordinator.enableSSLProxyingFromInspector(for: domain)
+        case let .enableApp(appName):
+            coordinator.enableSSLProxyingFromInspector(forAppNamed: appName)
+        case .openSSLProxyingList:
+            openWindow(id: "sslProxyingList")
+        }
+    }
+
     private func autoSelectProtocolTab() {
         protocolTab = ProtocolTabKind.defaultFor(transaction)
         if protocolTab != nil {
             selectedPreviewTab = nil
         }
+    }
+}
+
+// MARK: - HTTPSInspectionPromptAction
+
+enum HTTPSInspectionPromptAction: Equatable {
+    case installCertificate
+    case enableDomain(String)
+    case enableApp(String)
+    case openSSLProxyingList
+}
+
+// MARK: - HTTPSInspectionPromptModel
+
+struct HTTPSInspectionPromptModel: Equatable {
+    let title: String
+    let message: String
+    let primaryTitle: String
+    let primaryAction: HTTPSInspectionPromptAction
+    let secondaryTitle: String?
+    let secondaryAction: HTTPSInspectionPromptAction?
+
+    static func make(
+        transaction: HTTPTransaction,
+        sslProxyingEnabled: Bool,
+        canInterceptHTTPS: Bool,
+        domainRuleEnabled: Bool,
+        appName: String?,
+        appDomains: [String]
+    )
+        -> HTTPSInspectionPromptModel?
+    {
+        guard transaction.request.method == "CONNECT",
+              let response = transaction.response,
+              response.statusCode == 200,
+              !transaction.isTLSFailure else
+        {
+            return nil
+        }
+
+        let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            return nil
+        }
+
+        let sanitizedAppDomains = Array(Set(appDomains.filter { !$0.isEmpty })).sorted()
+
+        if !canInterceptHTTPS {
+            return HTTPSInspectionPromptModel(
+                title: String(localized: "HTTPS Response"),
+                message: String(
+                    localized: "This HTTPS response is encrypted. Install and trust the certificate to see the content."
+                ),
+                primaryTitle: String(localized: "Install & Trust Certificate"),
+                primaryAction: .installCertificate,
+                secondaryTitle: nil,
+                secondaryAction: nil
+            )
+        }
+
+        if domainRuleEnabled {
+            return HTTPSInspectionPromptModel(
+                title: String(localized: "HTTPS Response"),
+                message: String(
+                    localized: "SSL Proxying is already enabled for this target. Make the request again to see the content."
+                ),
+                primaryTitle: String(localized: "Open SSL Proxying List"),
+                primaryAction: .openSSLProxyingList,
+                secondaryTitle: nil,
+                secondaryAction: nil
+            )
+        }
+
+        let message = sslProxyingEnabled ?
+            String(localized: "This HTTPS response is encrypted. Enable SSL Proxying to see the content.") :
+            String(localized: "SSL Proxying is off. Enable it to see the encrypted content.")
+
+        let appAction: (String?, HTTPSInspectionPromptAction?) = if let appName, !sanitizedAppDomains.isEmpty {
+            (
+                String(localized: "Enable all domains from \"\(appName)\""),
+                .enableApp(appName)
+            )
+        } else {
+            (nil, nil)
+        }
+
+        return HTTPSInspectionPromptModel(
+            title: String(localized: "HTTPS Response"),
+            message: message,
+            primaryTitle: String(localized: "Enable only this domain"),
+            primaryAction: .enableDomain(host),
+            secondaryTitle: appAction.0,
+            secondaryAction: appAction.1
+        )
     }
 }
 

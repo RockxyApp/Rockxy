@@ -32,6 +32,25 @@ final class AppSettingsManager {
         save()
     }
 
+    func updateMCPServerEnabled(_ enabled: Bool) {
+        settings.mcpServerEnabled = enabled
+        save()
+    }
+
+    func updateMCPServerPort(_ port: Int) {
+        let clampedPort = min(max(port, 1), 65_535)
+        if clampedPort != port {
+            Self.logger.warning("Clamped invalid MCP server port \(port) to \(clampedPort)")
+        }
+        settings.mcpServerPort = clampedPort
+        save()
+    }
+
+    func updateMCPRedactSensitiveData(_ redact: Bool) {
+        settings.mcpRedactSensitiveData = redact
+        save()
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AppSettingsManager")

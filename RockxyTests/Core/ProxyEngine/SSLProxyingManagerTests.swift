@@ -159,6 +159,44 @@ struct SSLProxyingManagerTests {
         manager.forceGlobalPassthrough = false
     }
 
+    @Test("adding include rule clears matching auto passthrough host")
+    func addIncludeClearsMatchingAutoPassthrough() {
+        let manager = makeManager()
+        manager.markHostForPassthrough("api.example.com")
+        manager.markHostForPassthrough("other.com")
+
+        manager.addRule(SSLProxyingRule(domain: "*.example.com", listType: .include))
+
+        #expect(!manager.isAutoPassthrough("api.example.com"))
+        #expect(manager.isAutoPassthrough("other.com"))
+    }
+
+    @Test("enabling SSL tool clears matching auto passthrough for active rules")
+    func enablingClearsMatchingAutoPassthrough() {
+        let manager = makeManager()
+        manager.setEnabled(false)
+        manager.addRule(SSLProxyingRule(domain: "api.example.com", listType: .include))
+        manager.markHostForPassthrough("api.example.com")
+        manager.markHostForPassthrough("other.com")
+
+        manager.setEnabled(true)
+
+        #expect(!manager.isAutoPassthrough("api.example.com"))
+        #expect(manager.isAutoPassthrough("other.com"))
+    }
+
+    @Test("wildcard include clears all auto passthrough hosts")
+    func wildcardIncludeClearsAllAutoPassthrough() {
+        let manager = makeManager()
+        manager.markHostForPassthrough("api.example.com")
+        manager.markHostForPassthrough("other.com")
+
+        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+
+        #expect(!manager.isAutoPassthrough("api.example.com"))
+        #expect(!manager.isAutoPassthrough("other.com"))
+    }
+
     // MARK: - Bypass Domains
 
     @Test("shouldIntercept returns false for bypass domain")
@@ -210,7 +248,7 @@ struct SSLProxyingManagerTests {
 
     @Test("save and load roundtrip preserves rules and settings")
     func persistenceRoundtrip() {
-        let url = makeTempURL()
+        let url = makeTempURL(prefix: "rockxy-ssl-persistence")
         let manager1 = SSLProxyingManager(storageURL: url)
         manager1.addRule(SSLProxyingRule(domain: "persisted.com", listType: .include))
         manager1.addRule(SSLProxyingRule(domain: "excluded.com", listType: .exclude))
@@ -227,7 +265,7 @@ struct SSLProxyingManagerTests {
 
     @Test("load migrates legacy v1 format")
     func legacyMigration() throws {
-        let url = makeTempURL()
+        let url = makeTempURL(prefix: "rockxy-ssl-legacy")
         let legacyRules = [
             SSLProxyingRule(domain: "legacy1.com"),
             SSLProxyingRule(domain: "legacy2.com"),
@@ -237,7 +275,7 @@ struct SSLProxyingManagerTests {
 
         let manager = SSLProxyingManager(storageURL: url)
         #expect(manager.rules.count == 2)
-        #expect(manager.rules.allSatisfy { $0.listType == .include })
+        #expect(manager.rules.allSatisfy { $0.listType == SSLProxyingListType.include })
         #expect(manager.isEnabled == true)
         #expect(manager.bypassDomains == SSLProxyingManager.defaultBypassDomains)
     }
@@ -300,7 +338,7 @@ struct SSLProxyingManagerTests {
 
     @Test("persisted isEnabled=false is reflected in shouldIntercept after reload")
     func persistedDisabledState() {
-        let url = makeTempURL()
+        let url = makeTempURL(prefix: "rockxy-ssl-disabled")
         let manager1 = SSLProxyingManager(storageURL: url)
         manager1.addRule(SSLProxyingRule(domain: "test.com", listType: .include))
         manager1.setEnabled(false)
@@ -368,11 +406,14 @@ struct SSLProxyingManagerTests {
     // MARK: Private
 
     private func makeManager() -> SSLProxyingManager {
-        SSLProxyingManager(storageURL: makeTempURL())
+        SSLProxyingManager(
+            storageURL: makeTempURL(prefix: "rockxy-ssl-test"),
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-passthrough-test")
+        )
     }
 
-    private func makeTempURL() -> URL {
+    private func makeTempURL(prefix: String) -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("rockxy-ssl-test-\(UUID().uuidString).json")
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString).json")
     }
 }

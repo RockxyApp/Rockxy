@@ -151,6 +151,18 @@ struct SSLProxyingListViewModelTests {
         #expect(vm.selectedRuleID == nil)
     }
 
+    @Test("selectRule updates current selection")
+    func selectRule() {
+        let (vm, tempURL) = makeViewModel()
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        vm.addRules(["one.com", "two.com"])
+        let firstID = vm.manager.rules[0].id
+
+        vm.selectRule(id: firstID)
+
+        #expect(vm.selectedRuleID == firstID)
+    }
+
     @Test("removeSelected does nothing without selection")
     func removeSelectedNoSelection() {
         let (vm, tempURL) = makeViewModel()

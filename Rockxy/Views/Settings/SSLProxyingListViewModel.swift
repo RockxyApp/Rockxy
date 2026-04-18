@@ -102,8 +102,16 @@ final class SSLProxyingListViewModel {
         selectedRuleID = nil
     }
 
+    func selectRule(id: UUID) {
+        selectedRuleID = id
+    }
+
     func toggleRule(id: UUID) {
         manager.toggleRule(id: id)
+    }
+
+    func setRuleEnabled(id: UUID, enabled: Bool) {
+        manager.setRuleEnabled(id: id, enabled: enabled)
     }
 
     func reconcileSelectionAfterRulesChange() {

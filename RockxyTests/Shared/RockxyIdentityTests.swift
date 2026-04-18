@@ -122,6 +122,20 @@ struct RockxyIdentityTests {
         #expect(!RockxyIdentity.current.appBundleIdentifier.isEmpty)
     }
 
+    @Test("Live test-host appSupportDirectory uses temporary storage")
+    func liveTestHostAppSupportDirectoryUsesTemporaryStorage() {
+        let path = RockxyIdentity.current.appSupportDirectory()
+        #expect(path.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        #expect(path.lastPathComponent == RockxyIdentity.current.appSupportDirectoryName)
+    }
+
+    @Test("Live test-host sharedSupportDirectory uses temporary storage")
+    func liveTestHostSharedSupportDirectoryUsesTemporaryStorage() {
+        let path = RockxyIdentity.current.sharedSupportDirectory()
+        #expect(path.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+        #expect(path.lastPathComponent == RockxyIdentity.current.sharedSupportDirectoryName)
+    }
+
     // MARK: - Derived Properties
 
     @Test("defaultsKey prefixes correctly")

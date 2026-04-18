@@ -33,6 +33,11 @@ struct SettingsView: View {
                     Label(String(localized: "Plugins"), systemImage: "puzzlepiece.extension")
                 }
 
+            MCPSettingsTab()
+                .tabItem {
+                    Label(String(localized: "MCP"), systemImage: "network")
+                }
+
             AdvancedSettingsTab()
                 .tabItem {
                     Label(String(localized: "Advanced"), systemImage: "ellipsis.circle")

@@ -2,6 +2,29 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - BoolBox
+
+private final class BoolBox: @unchecked Sendable {
+    // MARK: Internal
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _value
+    }
+
+    func setTrue() {
+        lock.lock()
+        _value = true
+        lock.unlock()
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var _value = false
+}
+
 // MARK: - HistoryRetentionTests
 
 @Suite(.serialized)
@@ -121,7 +144,9 @@ struct HistoryRetentionTests {
                 return
             }
             let count = notification.userInfo?["count"] as? Int ?? 0
-            coordinator.evictOldestTransactions(count: count)
+            Task { @MainActor in
+                coordinator.evictOldestTransactions(count: count)
+            }
         }
         defer { NotificationCenter.default.removeObserver(evictionObserver) }
 
@@ -172,8 +197,8 @@ struct HistoryRetentionTests {
         let manager = TrafficSessionManager()
         await manager.setMaxBufferSize(20)
 
-        var batchDelivered = false
-        await manager.setOnBatchReady { _, _ in batchDelivered = true }
+        let batchDelivered = BoolBox()
+        await manager.setOnBatchReady { _, _ in batchDelivered.setTrue() }
 
         // Add 50 transactions — flushAndDeliver fires, delivering the batch
         for i in 0 ..< 50 {
@@ -184,7 +209,7 @@ struct HistoryRetentionTests {
 
         // Batch was delivered to callback but no reportAcceptedCount was called
         // (simulating isRecording == false in processBatch which would drop the batch)
-        #expect(batchDelivered)
+        #expect(batchDelivered.value)
 
         // No eviction should have fired because totalBuffered was never incremented
         var evictionFired = false
@@ -282,6 +307,52 @@ struct HistoryRetentionTests {
         #expect(!evictionFired) // 5 < 100, no eviction
     }
 
+    @Test("Successful CONNECT passthrough survives batching into live session")
+    @MainActor
+    func successfulConnectPassthroughSurvivesBatching() async {
+        let coordinator = MainContentCoordinator(policy: SmallHistoryPolicy())
+        coordinator.isRecording = true
+
+        await coordinator.sessionManager.setOnBatchReady { [weak coordinator] batch, generation in
+            guard let coordinator else {
+                return
+            }
+            Task { @MainActor in
+                coordinator.processBatch(batch, generation: generation)
+            }
+        }
+        await coordinator.sessionManager.startBatchTimer()
+        defer {
+            Task {
+                await coordinator.sessionManager.stopBatchTimer()
+            }
+        }
+
+        let connect = TLSInterceptHandler.makeTunnelTransaction(
+            host: "example.com",
+            port: 443,
+            statusCode: 200,
+            statusMessage: "Connection Established",
+            state: .completed,
+            sourcePort: 54_321
+        )
+
+        await coordinator.sessionManager.addTransaction(connect)
+
+        for _ in 0 ..< 50 {
+            if coordinator.transactions.count == 1 {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(coordinator.transactions.count == 1)
+        #expect(coordinator.transactions.first?.request.method == "CONNECT")
+        #expect(coordinator.transactions.first?.isTLSFailure == false)
+        #expect(coordinator.filteredTransactions.count == 1)
+        #expect(coordinator.filteredTransactions.first?.request.method == "CONNECT")
+    }
+
     @Test("Coordinator clearSession aligns generations after awaited reset")
     @MainActor
     func coordinatorClearSessionGeneration() async {
@@ -337,7 +408,9 @@ struct HistoryRetentionTests {
                 return
             }
             let count = notification.userInfo?["count"] as? Int ?? 0
-            coordinator.evictOldestTransactions(count: count)
+            Task { @MainActor in
+                coordinator.evictOldestTransactions(count: count)
+            }
         }
         defer { NotificationCenter.default.removeObserver(evictionObserver) }
 

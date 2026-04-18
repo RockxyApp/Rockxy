@@ -30,6 +30,35 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions[0].id == normal.id)
     }
 
+    @Test("successful CONNECT passthrough remains visible")
+    func successfulConnectPassthroughVisible() {
+        let coordinator = MainContentCoordinator()
+        let connect = TLSInterceptHandler.makeTunnelTransaction(
+            host: "example.com",
+            port: 443,
+            statusCode: 200,
+            statusMessage: "Connection Established",
+            state: .completed,
+            sourcePort: 54_321
+        )
+        let tlsFail = TLSInterceptHandler.makeTunnelTransaction(
+            host: "bad.example.com",
+            port: 443,
+            statusCode: 0,
+            statusMessage: "TLS Handshake Failed",
+            state: .failed,
+            sourcePort: 54_322,
+            isTLSFailure: true
+        )
+
+        coordinator.transactions = [connect, tlsFail]
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.count == 1)
+        #expect(coordinator.filteredTransactions[0].request.method == "CONNECT")
+        #expect(coordinator.filteredTransactions[0].isTLSFailure == false)
+    }
+
     // MARK: - Search by Field
 
     @Test("Search by URL field matches URL substring")

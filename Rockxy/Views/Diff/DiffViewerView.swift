@@ -83,8 +83,6 @@ struct DiffViewerView: View {
                 Text(String(localized: "Click the L column on a candidate to finish this basic compare."))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-            } else {
-                EmptyView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -117,6 +117,95 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
 
+    nonisolated static func makeTunnelTransaction(
+        host: String,
+        port: Int,
+        statusCode: Int,
+        statusMessage: String,
+        state: TransactionState,
+        sourcePort: UInt16?,
+        isTLSFailure: Bool = false
+    )
+        -> HTTPTransaction
+    {
+        let hostPart: String = if host.contains(":"), !host.hasPrefix("["), !host.hasSuffix("]") {
+            "[\(host)]"
+        } else {
+            host
+        }
+
+        guard let tunnelURL = URL(string: "https://\(hostPart):\(port)") else {
+            tlsLogger.warning("Failed to build CONNECT tunnel URL for host \(host, privacy: .public):\(port)")
+            var fallbackComponents = URLComponents()
+            fallbackComponents.scheme = "https"
+            fallbackComponents.host = "invalid-tunnel.local"
+            fallbackComponents.port = 443
+            let fallbackURL = fallbackComponents.url ?? URL(fileURLWithPath: "/")
+            return makeTunnelTransaction(
+                host: fallbackURL.host ?? "invalid-tunnel.local",
+                port: fallbackURL.port ?? 443,
+                statusCode: statusCode,
+                statusMessage: statusMessage,
+                state: state,
+                sourcePort: sourcePort,
+                isTLSFailure: isTLSFailure
+            )
+        }
+        let requestData = HTTPRequestData(
+            method: "CONNECT",
+            url: tunnelURL,
+            httpVersion: "1.1",
+            headers: [],
+            body: nil,
+            contentType: nil
+        )
+        let transaction = HTTPTransaction(
+            request: requestData,
+            response: HTTPResponseData(
+                statusCode: statusCode,
+                statusMessage: statusMessage,
+                headers: []
+            ),
+            state: state
+        )
+        transaction.sourcePort = sourcePort
+        transaction.isTLSFailure = isTLSFailure
+        return transaction
+    }
+
+    /// Central raw-tunnel wiring helper. Successful passthrough capture depends on this
+    /// path completing and invoking `onSuccess`, so keep all raw CONNECT success setup in
+    /// one place instead of reimplementing the relay chain in multiple handlers.
+    nonisolated static func completeRawTunnelSetup(
+        serverChannel: Channel,
+        clientChannel: Channel,
+        prepareClientChannel: EventLoopFuture<Void>,
+        enableClientAutoRead: Bool = false,
+        onSuccess: @escaping @Sendable () -> Void,
+        onFailure: @escaping @Sendable (Error) -> Void
+    ) {
+        let toClient = RawTunnelHandler(peerChannel: clientChannel)
+        let toServer = RawTunnelHandler(peerChannel: serverChannel)
+
+        serverChannel.pipeline.addHandler(toClient).flatMap {
+            prepareClientChannel
+        }.flatMap {
+            clientChannel.pipeline.addHandler(toServer)
+        }.flatMap {
+            if enableClientAutoRead {
+                return clientChannel.setOption(ChannelOptions.autoRead, value: true)
+            }
+            return clientChannel.eventLoop.makeSucceededVoidFuture()
+        }.whenComplete { result in
+            switch result {
+            case .success:
+                onSuccess()
+            case let .failure(error):
+                onFailure(error)
+            }
+        }
+    }
+
     nonisolated func handlerAdded(context: ChannelHandlerContext) {
         setupTLSPipeline(context: context)
     }
@@ -335,25 +424,26 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     serverChannel.closeFuture.whenComplete { _ in
                         limiter.release(host: host, port: port)
                     }
-                    let relay = RawTunnelHandler(
-                        peerChannel: context.channel
-                    )
-                    let reverseRelay = RawTunnelHandler(
-                        peerChannel: serverChannel
-                    )
-                    serverChannel.pipeline.addHandler(relay).whenFailure { error in
-                        tlsLogger.error("Raw tunnel setup failed: \(error.localizedDescription)")
-                        serverChannel.close(promise: nil)
-                        context.close(promise: nil)
-                    }
                     let clientChannel = context.channel
-                    context.pipeline.removeHandler(context: context).flatMap {
-                        clientChannel.pipeline.addHandler(reverseRelay)
-                    }.flatMap {
-                        clientChannel.setOption(ChannelOptions.autoRead, value: true)
-                    }.whenFailure { error in
+                    Self.completeRawTunnelSetup(
+                        serverChannel: serverChannel,
+                        clientChannel: clientChannel,
+                        prepareClientChannel: context.pipeline.removeHandler(context: context),
+                        enableClientAutoRead: true
+                    ) {
+                        self.onTransactionComplete(
+                            Self.makeTunnelTransaction(
+                                host: host,
+                                port: port,
+                                statusCode: 200,
+                                statusMessage: "Connection Established",
+                                state: .completed,
+                                sourcePort: self.clientSourcePort
+                            )
+                        )
+                    } onFailure: { error in
                         tlsLogger.error(
-                            "Reverse tunnel setup failed: \(error.localizedDescription)"
+                            "Raw tunnel setup failed: \(error.localizedDescription)"
                         )
                         serverChannel.close(promise: nil)
                         context.channel.close(promise: nil)
@@ -475,30 +565,34 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             )
         }
 
-        // swiftlint:disable:next force_unwrapping
-        let fallbackURL = URL(string: "https://\(host):\(port)")!
-        let requestData = HTTPRequestData(
-            method: "CONNECT",
-            url: fallbackURL,
-            httpVersion: "1.1",
-            headers: [],
-            body: nil,
-            contentType: nil
-        )
-        let transaction = HTTPTransaction(
-            request: requestData,
-            response: HTTPResponseData(
+        onTransactionComplete(
+            TLSInterceptHandler.makeTunnelTransaction(
+                host: host,
+                port: port,
                 statusCode: 0,
                 statusMessage: "TLS Handshake Failed",
-                headers: []
-            ),
-            state: .failed
+                state: .failed,
+                sourcePort: clientSourcePort,
+                isTLSFailure: true
+            )
         )
-        transaction.sourcePort = clientSourcePort
-        transaction.isTLSFailure = true
-        onTransactionComplete(transaction)
 
         tearDownAndPassthrough(context: context)
+    }
+
+    nonisolated func makeSuccessfulTunnelTransaction() -> HTTPTransaction {
+        TLSInterceptHandler.makeTunnelTransaction(
+            host: host,
+            port: port,
+            statusCode: 200,
+            statusMessage: "Connection Established",
+            state: .completed,
+            sourcePort: clientSourcePort
+        )
+    }
+
+    nonisolated func recordSuccessfulTunnel() {
+        onTransactionComplete(makeSuccessfulTunnelTransaction())
     }
 
     // MARK: Private
@@ -575,21 +669,15 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                 serverChannel.closeFuture.whenComplete { _ in
                     limiter.release(host: host, port: port)
                 }
-                let toServer = RawTunnelHandler(peerChannel: serverChannel)
-                let toClient = RawTunnelHandler(peerChannel: channel)
-
-                serverChannel.pipeline.addHandler(toClient).whenFailure { _ in
+                TLSInterceptHandler.completeRawTunnelSetup(
+                    serverChannel: serverChannel,
+                    clientChannel: channel,
+                    prepareClientChannel: channel.eventLoop.makeSucceededVoidFuture()
+                ) {
+                    tlsLogger.info("Current-connection passthrough established for \(host)")
+                } onFailure: { _ in
                     serverChannel.close(promise: nil)
                     channel.close(promise: nil)
-                }
-                channel.pipeline.addHandler(toServer).whenComplete { innerResult in
-                    switch innerResult {
-                    case .success:
-                        tlsLogger.info("Current-connection passthrough established for \(host)")
-                    case .failure:
-                        serverChannel.close(promise: nil)
-                        channel.close(promise: nil)
-                    }
                 }
             case let .failure(error):
                 limiter.release(host: host, port: port)
@@ -718,24 +806,18 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                 serverChannel.closeFuture.whenComplete { _ in
                     limiter.release(host: host, port: port)
                 }
-                let toServer = RawTunnelHandler(peerChannel: serverChannel)
-                let toClient = RawTunnelHandler(peerChannel: channel)
-
-                serverChannel.pipeline.addHandler(toClient).whenFailure { _ in
+                TLSInterceptHandler.completeRawTunnelSetup(
+                    serverChannel: serverChannel,
+                    clientChannel: channel,
+                    prepareClientChannel: channel.eventLoop.makeSucceededVoidFuture()
+                ) {
+                    self.postHandshake.recordSuccessfulTunnel()
+                    // Forward the first non-TLS data to the upstream once the raw tunnel is live.
+                    channel.pipeline.fireChannelRead(firstData)
+                    channel.pipeline.fireChannelReadComplete()
+                } onFailure: { _ in
                     serverChannel.close(promise: nil)
                     channel.close(promise: nil)
-                }
-
-                channel.pipeline.addHandler(toServer).whenComplete { innerResult in
-                    switch innerResult {
-                    case .success:
-                        // Forward the first non-TLS data to the upstream
-                        channel.pipeline.fireChannelRead(firstData)
-                        channel.pipeline.fireChannelReadComplete()
-                    case .failure:
-                        serverChannel.close(promise: nil)
-                        channel.close(promise: nil)
-                    }
                 }
             case let .failure(error):
                 limiter.release(host: host, port: port)

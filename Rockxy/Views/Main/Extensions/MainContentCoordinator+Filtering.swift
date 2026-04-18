@@ -6,7 +6,8 @@ import Foundation
 
 /// Coordinator extension for transaction filtering. Provides both a full recompute
 /// and an incremental append path for batch delivery without user filters active.
-/// Every path that changes `filteredTransactions` ends with `deriveFilteredRows()`.
+/// Incremental paths intentionally append visible rows via `appendDerivedRows(_:to:)`
+/// and may skip bumping `refreshToken` when a batch contributes no non-TLS-failure rows.
 extension MainContentCoordinator {
     // MARK: - Row Derivation (single path for table-facing refresh)
 
@@ -27,6 +28,19 @@ extension MainContentCoordinator {
         workspace.refreshToken += 1
     }
 
+    private func appendDerivedRows(_ batch: [HTTPTransaction], to workspace: WorkspaceState) {
+        let appendedRows = batch
+            .filter { !$0.isTLSFailure }
+            .map(RequestListRow.init(from:))
+
+        guard !appendedRows.isEmpty else {
+            return
+        }
+
+        workspace.filteredRows.append(contentsOf: appendedRows)
+        workspace.refreshToken += 1
+    }
+
     // MARK: - Filtered Transactions
 
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {
@@ -36,11 +50,11 @@ extension MainContentCoordinator {
         {
             filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
             activeWorkspace.lastDeriveWasAppendOnly = true
+            appendDerivedRows(batch, to: activeWorkspace)
         } else {
             recomputeFilteredTransactions()
             return
         }
-        deriveFilteredRows()
     }
 
     func recomputeFilteredTransactions() {
@@ -150,11 +164,11 @@ extension MainContentCoordinator {
         {
             workspace.filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
             workspace.lastDeriveWasAppendOnly = true
+            appendDerivedRows(batch, to: workspace)
         } else {
             recomputeFilteredTransactions(for: workspace)
             return
         }
-        deriveFilteredRows(for: workspace)
     }
 
     func recomputeFilteredTransactions(for workspace: WorkspaceState) {

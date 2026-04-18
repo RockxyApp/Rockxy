@@ -25,6 +25,15 @@ struct AppSettings {
     /// When false (default), only the first matching script runs.
     var allowMultipleScriptsPerRequest: Bool = false
 
+    /// Master toggle for the MCP server. Disabled by default for security.
+    var mcpServerEnabled: Bool = false
+
+    /// TCP port for the MCP HTTP server. Defaults to 9710.
+    var mcpServerPort: Int = 9_710
+
+    /// When true, sensitive headers and body fields are redacted in MCP responses.
+    var mcpRedactSensitiveData: Bool = true
+
     /// The effective listen address derived from `onlyListenOnLocalhost`.
     var effectiveListenAddress: String {
         onlyListenOnLocalhost ? "127.0.0.1" : "0.0.0.0"

@@ -5,8 +5,14 @@ import SwiftUI
 
 /// Root view of the main window. Sets up a two-column `NavigationSplitView` with
 /// `SidebarView` on the left and `CenterContentView` as the detail area.
-/// Owns the `MainContentCoordinator` that drives all data flow to child views.
+/// Uses the app-owned `MainContentCoordinator` that drives all data flow to child views.
 struct ContentView: View {
+    // MARK: Lifecycle
+
+    init(coordinator: MainContentCoordinator) {
+        _coordinator = Bindable(coordinator)
+    }
+
     // MARK: Internal
 
     var body: some View {
@@ -52,6 +58,7 @@ struct ContentView: View {
             }
             coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
+            coordinator.attachToMCPServer(MCPServerCoordinator.shared)
         }
         .task {
             // Skip startup tasks when running as a test host to avoid actor
@@ -140,7 +147,7 @@ struct ContentView: View {
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
-    @State private var coordinator = MainContentCoordinator()
+    @Bindable private var coordinator: MainContentCoordinator
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private func handleSystemProxyWarningAction(_ action: SystemProxyWarning.Action?) {

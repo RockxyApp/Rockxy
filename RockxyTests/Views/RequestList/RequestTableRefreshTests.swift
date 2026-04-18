@@ -59,6 +59,23 @@ struct RequestTableRefreshTests {
         #expect(coordinator.refreshToken > tokenBefore)
     }
 
+    @Test("Append with no sort preserves existing row order and appends only new rows")
+    func appendNoSortPreservesExistingRows() {
+        let coordinator = MainContentCoordinator()
+        let first = TestFixtures.makeTransaction(url: "https://alpha.example.com/1")
+        let second = TestFixtures.makeTransaction(url: "https://beta.example.com/2")
+        coordinator.transactions = [first, second]
+        coordinator.recomputeFilteredTransactions()
+
+        let previousIDs = coordinator.filteredRows.map(\.id)
+
+        let appended = TestFixtures.makeTransaction(url: "https://gamma.example.com/3")
+        coordinator.transactions.append(appended)
+        coordinator.appendFilteredTransactions([appended])
+
+        #expect(coordinator.filteredRows.map(\.id) == previousIDs + [appended.id])
+    }
+
     @Test("Sort active + append: token changes")
     func sortActiveAppend() {
         let coordinator = MainContentCoordinator()
@@ -340,6 +357,24 @@ struct RequestTableRefreshTests {
 
         // Sort was active, so append path falls through to recompute
         #expect(coordinator.activeWorkspace.lastDeriveWasAppendOnly == false)
+    }
+
+    @Test("TLS failure batch does not append visible rows in append-only path")
+    func tlsFailureBatchDoesNotAppendVisibleRows() {
+        let coordinator = MainContentCoordinator()
+        coordinator.transactions = [TestFixtures.makeTransaction()]
+        coordinator.recomputeFilteredTransactions()
+
+        let beforeRows = coordinator.filteredRows.map(\.id)
+        let beforeToken = coordinator.refreshToken
+
+        let tlsFailure = TestFixtures.makeTransaction(statusCode: nil)
+        tlsFailure.isTLSFailure = true
+        coordinator.transactions.append(tlsFailure)
+        coordinator.appendFilteredTransactions([tlsFailure])
+
+        #expect(coordinator.filteredRows.map(\.id) == beforeRows)
+        #expect(coordinator.refreshToken == beforeToken)
     }
 
     // MARK: - Sort State Sync

@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		153B47CC5D4EFF2518913882 /* TrafficDomainSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FAF90356407D961D63110B1 /* TrafficDomainSnapshot.swift */; };
 		1652E0F894D1AAEF58FF5197 /* SSLProxyingRuleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4AB602A25240F8F700239D0 /* SSLProxyingRuleTests.swift */; };
+		2673EF6A0F2BB09676528926 /* rockxy-mcp in Embed MCP Tool */ = {isa = PBXBuildFile; fileRef = B37A2B67F293C7AC2E9A4F08 /* rockxy-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		367616A431CBEF0267406816 /* SSLProxyingManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EBEB3946795881C025CFF6F /* SSLProxyingManagerTests.swift */; };
 		54693F1BBE4DAE550D67ABB1 /* SSLImporterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94D100EF398E433CBF214BB5 /* SSLImporterTests.swift */; };
 		69DD8D8F306B4AEE24A4234C /* SSLProxyingListViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C99BCD60A0C621D6F0C3A84 /* SSLProxyingListViewModelTests.swift */; };
@@ -29,6 +30,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		218EF7DDE4AD43DCADA913B6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DCA99FB32F61ADC9005B1552 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 79E830F8FF3FFD7C7F3C7EFA;
+			remoteInfo = RockxyMCP;
+		};
 		DCA99FCB2F61ADCC005B1552 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DCA99FB32F61ADC9005B1552 /* Project object */;
@@ -53,6 +61,17 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		861B86028DECFA198C672853 /* Embed MCP Tool */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 6;
+			files = (
+				2673EF6A0F2BB09676528926 /* rockxy-mcp in Embed MCP Tool */,
+			);
+			name = "Embed MCP Tool";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DCA9D0092F700000005B1552 /* Embed Helper Tool */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -83,6 +102,7 @@
 		2C99BCD60A0C621D6F0C3A84 /* SSLProxyingListViewModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SSLProxyingListViewModelTests.swift; path = RockxyTests/Views/Settings/SSLProxyingListViewModelTests.swift; sourceTree = "<group>"; };
 		4FAF90356407D961D63110B1 /* TrafficDomainSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TrafficDomainSnapshot.swift; path = Rockxy/Core/Services/TrafficDomainSnapshot.swift; sourceTree = "<group>"; };
 		94D100EF398E433CBF214BB5 /* SSLImporterTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SSLImporterTests.swift; path = RockxyTests/Core/ProxyEngine/SSLImporterTests.swift; sourceTree = "<group>"; };
+		B37A2B67F293C7AC2E9A4F08 /* rockxy-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "rockxy-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B4AB602A25240F8F700239D0 /* SSLProxyingRuleTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = SSLProxyingRuleTests.swift; path = RockxyTests/Models/Settings/SSLProxyingRuleTests.swift; sourceTree = "<group>"; };
 		C3468A7E29A7BB264F6895FA /* TrafficDomainSnapshotTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = TrafficDomainSnapshotTests.swift; path = RockxyTests/Core/Services/TrafficDomainSnapshotTests.swift; sourceTree = "<group>"; };
 		DCA99FBB2F61ADC9005B1552 /* Rockxy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rockxy.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -119,9 +139,21 @@
 			path = Shared;
 			sourceTree = "<group>";
 		};
+		ECE12E3CA05C76B2AAC2AAAC /* RockxyMCP */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = RockxyMCP;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		8AE4316E99877F9B1A179640 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DCA99FB82F61ADC9005B1552 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -333,6 +365,7 @@
 				ECBA3EE42792B0D2030227EA /* RockxyTests */,
 				F26CCF05C76D8861A13E37CF /* Rockxy */,
 				90338F7AFD024C2F4A4567EF /* RockxyTests */,
+				ECE12E3CA05C76B2AAC2AAAC /* RockxyMCP */,
 			);
 			sourceTree = "<group>";
 		};
@@ -343,6 +376,7 @@
 				DCA9D0012F700000005B1552 /* RockxyHelperTool */,
 				DCA99FCA2F61ADCC005B1552 /* RockxyTests.xctest */,
 				DCA99FD42F61ADCC005B1552 /* RockxyUITests.xctest */,
+				B37A2B67F293C7AC2E9A4F08 /* rockxy-mcp */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -374,6 +408,25 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		79E830F8FF3FFD7C7F3C7EFA /* RockxyMCP */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 06DD414D2D69A44599808535 /* Build configuration list for PBXNativeTarget "RockxyMCP" */;
+			buildPhases = (
+				4C6BC5E76A425FA868874B4F /* Sources */,
+				8AE4316E99877F9B1A179640 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				ECE12E3CA05C76B2AAC2AAAC /* RockxyMCP */,
+			);
+			name = RockxyMCP;
+			productName = "rockxy-mcp";
+			productReference = B37A2B67F293C7AC2E9A4F08 /* rockxy-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 		DCA99FBA2F61ADC9005B1552 /* Rockxy */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = DCA99FDE2F61ADCC005B1552 /* Build configuration list for PBXNativeTarget "Rockxy" */;
@@ -384,11 +437,13 @@
 				DCA9D0092F700000005B1552 /* Embed Helper Tool */,
 				DCA9D0102F700001005B1552 /* Copy LaunchDaemon Plist */,
 				DCA9D0212F700100005B1552 /* Generate Helper LaunchDaemon Plist */,
+				861B86028DECFA198C672853 /* Embed MCP Tool */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				DCA9D0082F700000005B1552 /* PBXTargetDependency */,
+				D24DD7E0DCEA043CA554E531 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DCA99FBD2F61ADC9005B1552 /* Rockxy */,
@@ -483,6 +538,9 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					79E830F8FF3FFD7C7F3C7EFA = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					DCA99FBA2F61ADC9005B1552 = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -523,6 +581,7 @@
 				DCA9D0052F700000005B1552 /* RockxyHelperTool */,
 				DCA99FC92F61ADCC005B1552 /* RockxyTests */,
 				DCA99FD32F61ADCC005B1552 /* RockxyUITests */,
+				79E830F8FF3FFD7C7F3C7EFA /* RockxyMCP */,
 			);
 		};
 /* End PBXProject section */
@@ -570,6 +629,13 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		4C6BC5E76A425FA868874B4F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		DCA99FB72F61ADC9005B1552 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -608,6 +674,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		D24DD7E0DCEA043CA554E531 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 79E830F8FF3FFD7C7F3C7EFA /* RockxyMCP */;
+			targetProxy = 218EF7DDE4AD43DCADA913B6 /* PBXContainerItemProxy */;
+		};
 		DCA99FCC2F61ADCC005B1552 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = DCA99FBA2F61ADC9005B1552 /* Rockxy */;
@@ -626,6 +697,46 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		3169E47216D097F04A573F39 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(ROCKXY_TEAM_ID)";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ROCKXY_FAMILY_NAMESPACE).mcp";
+				PRODUCT_NAME = "rockxy-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		594A64567DDDCE31D52DF536 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = DCA9D0202F700100005B1552 /* Configuration/Developer.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "$(ROCKXY_TEAM_ID)";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(ROCKXY_FAMILY_NAMESPACE).mcp";
+				PRODUCT_NAME = "rockxy-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
 		DCA99FDC2F61ADCC005B1552 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -933,6 +1044,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		06DD414D2D69A44599808535 /* Build configuration list for PBXNativeTarget "RockxyMCP" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				594A64567DDDCE31D52DF536 /* Debug */,
+				3169E47216D097F04A573F39 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		DCA99FB62F61ADC9005B1552 /* Build configuration list for PBXProject "Rockxy" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

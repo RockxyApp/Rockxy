@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await HelperManager.shared.checkStatus()
             await PluginManager.shared.ensureLoadedOnce()
+            guard !ProcessInfo.processInfo.isTestHost else {
+                return
+            }
+            await MCPServerCoordinator.shared.startIfEnabled()
         }
     }
 
@@ -77,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 Self.logger.error("Quit: proxy restore failed — \(error.localizedDescription)")
             }
+            await MCPServerCoordinator.shared.stop()
+            MCPHandshakeStore.delete()
             NSApplication.shared.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -87,6 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         SystemProxyManager.shared.performEmergencyTerminationCleanup(
             reason: "applicationWillTerminate"
         )
+        MCPHandshakeStore.delete()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

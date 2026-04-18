@@ -131,6 +131,20 @@ actor SessionStore {
         return results
     }
 
+    // MARK: - Load Single Transaction
+
+    func loadTransaction(byID id: UUID) throws -> HTTPTransaction? {
+        let query = Self.transactions
+            .filter(Self.txId == id.uuidString)
+            .limit(1)
+
+        let rows = try db.prepareRowIterator(query)
+        if let row = try rows.failableNext() {
+            return try deserializeTransaction(from: row)
+        }
+        return nil
+    }
+
     // MARK: - Load Pinned & Saved
 
     func loadPinnedAndSavedTransactions() throws -> [HTTPTransaction] {

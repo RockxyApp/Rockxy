@@ -13,14 +13,17 @@ final class SSLProxyingManager {
     // MARK: Lifecycle
 
     private init() {
+        customStorageURL = nil
+        customPassthroughStorageURL = nil
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
     }
 
     /// Test-only initializer with injectable storage path.
-    init(storageURL: URL) {
+    init(storageURL: URL, passthroughStorageURL: URL? = nil) {
         customStorageURL = storageURL
+        customPassthroughStorageURL = passthroughStorageURL
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
@@ -67,8 +70,12 @@ final class SSLProxyingManager {
     }
 
     func setEnabled(_ enabled: Bool) {
+        let wasEnabled = isEnabled
         isEnabled = enabled
         rebuildCache()
+        if enabled, !wasEnabled {
+            clearAutoPassthroughForActiveIncludeRules()
+        }
         save()
         Self.logger.info("SSL proxying tool \(enabled ? "enabled" : "disabled")")
     }
@@ -87,11 +94,13 @@ final class SSLProxyingManager {
 
     func addRule(_ rule: SSLProxyingRule) {
         rules.append(rule)
+        clearAutoPassthroughIfNeeded(for: [rule])
         save()
     }
 
     func addRules(_ newRules: [SSLProxyingRule]) {
         rules.append(contentsOf: newRules)
+        clearAutoPassthroughIfNeeded(for: newRules)
         save()
     }
 
@@ -109,7 +118,22 @@ final class SSLProxyingManager {
         guard let index = rules.firstIndex(where: { $0.id == id }) else {
             return
         }
+        let previous = rules[index]
         rules[index].isEnabled.toggle()
+        clearAutoPassthroughIfNeeded(for: [rules[index]], previousRules: [previous])
+        save()
+    }
+
+    func setRuleEnabled(id: UUID, enabled: Bool) {
+        guard let index = rules.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        guard rules[index].isEnabled != enabled else {
+            return
+        }
+        let previous = rules[index]
+        rules[index].isEnabled = enabled
+        clearAutoPassthroughIfNeeded(for: [rules[index]], previousRules: [previous])
         save()
     }
 
@@ -117,12 +141,15 @@ final class SSLProxyingManager {
         guard let index = rules.firstIndex(where: { $0.id == rule.id }) else {
             return
         }
+        let previous = rules[index]
         rules[index] = rule
+        clearAutoPassthroughIfNeeded(for: [rule], previousRules: [previous])
         save()
     }
 
     func replaceAllRules(_ newRules: [SSLProxyingRule]) {
         rules = newRules
+        clearAutoPassthroughForActiveIncludeRules()
         save()
         Self.logger.info("Replaced all SSL proxying rules (\(newRules.count) rules)")
     }
@@ -288,14 +315,18 @@ final class SSLProxyingManager {
         ]
         let existingDomains = Set(rules.map { $0.domain.lowercased() })
         var added = 0
+        var addedRules: [SSLProxyingRule] = []
         for domain in presetDomains {
             guard !existingDomains.contains(domain.lowercased()) else {
                 continue
             }
-            rules.append(SSLProxyingRule(domain: domain))
+            let rule = SSLProxyingRule(domain: domain)
+            addedRules.append(rule)
             added += 1
         }
         if added > 0 {
+            rules.append(contentsOf: addedRules)
+            clearAutoPassthroughIfNeeded(for: addedRules)
             save()
             Self.logger.info("Added \(added) preset SSL proxying rules")
         }
@@ -320,7 +351,8 @@ final class SSLProxyingManager {
             .appendingPathComponent("auto-passthrough-hosts.json")
     }
 
-    private var customStorageURL: URL?
+    private let customStorageURL: URL?
+    private let customPassthroughStorageURL: URL?
 
     private let lock = NSLock()
     nonisolated(unsafe) private var cachedEnabledIncludeRules: [SSLProxyingRule]
@@ -334,6 +366,10 @@ final class SSLProxyingManager {
 
     private var resolvedStorageURL: URL {
         customStorageURL ?? Self.defaultStorageURL
+    }
+
+    nonisolated private var resolvedPassthroughStorageURL: URL {
+        customPassthroughStorageURL ?? Self.passthroughStorageURL
     }
 
     private func rebuildCache() {
@@ -373,8 +409,68 @@ final class SSLProxyingManager {
         return false
     }
 
+    private func clearAutoPassthroughIfNeeded(
+        for rules: [SSLProxyingRule],
+        previousRules: [SSLProxyingRule] = []
+    ) {
+        guard isEnabled else {
+            return
+        }
+
+        let previousByID = Dictionary(uniqueKeysWithValues: previousRules.map { ($0.id, $0) })
+        let rulesToRetry = rules.filter { rule in
+            guard rule.listType == .include, rule.isEnabled else {
+                return false
+            }
+            guard let previous = previousByID[rule.id] else {
+                return true
+            }
+            if previous.listType != .include || !previous.isEnabled {
+                return true
+            }
+            return previous.domain.caseInsensitiveCompare(rule.domain) != .orderedSame
+        }
+
+        clearAutoPassthrough(matching: rulesToRetry)
+    }
+
+    private func clearAutoPassthroughForActiveIncludeRules() {
+        clearAutoPassthrough(matching: rules.filter { $0.listType == .include && $0.isEnabled })
+    }
+
+    private func clearAutoPassthrough(matching rules: [SSLProxyingRule]) {
+        guard !rules.isEmpty else {
+            return
+        }
+
+        passthroughLock.lock()
+        let removedCount: Int
+
+        if rules.contains(where: { $0.domain == "*" }) {
+            removedCount = autoPassthroughHosts.count
+            autoPassthroughHosts.removeAll()
+        } else {
+            let hostsToRemove = autoPassthroughHosts.keys.filter { host in
+                rules.contains { $0.matches(host) }
+            }
+            removedCount = hostsToRemove.count
+            for host in hostsToRemove {
+                autoPassthroughHosts.removeValue(forKey: host)
+            }
+        }
+
+        passthroughLock.unlock()
+
+        guard removedCount > 0 else {
+            return
+        }
+
+        persistPassthroughHosts()
+        Self.logger.info("Cleared \(removedCount) auto-passthrough host(s) after SSL intercept scope change")
+    }
+
     private func loadPassthroughHosts() {
-        let url = Self.passthroughStorageURL
+        let url = resolvedPassthroughStorageURL
         guard FileManager.default.fileExists(atPath: url.path) else {
             return
         }
@@ -398,7 +494,7 @@ final class SSLProxyingManager {
     }
 
     nonisolated private func persistPassthroughHosts() {
-        let url = Self.passthroughStorageURL
+        let url = resolvedPassthroughStorageURL
         passthroughLock.lock()
         let snapshot = autoPassthroughHosts
         passthroughLock.unlock()
