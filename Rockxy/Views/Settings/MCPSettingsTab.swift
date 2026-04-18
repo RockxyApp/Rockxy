@@ -53,17 +53,23 @@ struct MCPSettingsTab: View {
     // MARK: - Helpers
 
     private var configJSON: String {
-        let config: [String: Any] = [
-            "mcpServers": [
-                "rockxy": [
-                    "command": binaryPath,
-                    "args": [],
-                    "env": [:],
-                ],
-            ],
-        ]
+        struct ServerEntry: Encodable {
+            let command: String
+            let args: [String]
+            let env: [String: String]
+        }
+        struct Config: Encodable {
+            let mcpServers: [String: ServerEntry]
+        }
 
-        guard let data = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]),
+        let config = Config(mcpServers: [
+            "rockxy": ServerEntry(command: binaryPath, args: [], env: [:]),
+        ])
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+
+        guard let data = try? encoder.encode(config),
               let text = String(data: data, encoding: .utf8) else
         {
             return "{\"mcpServers\":{\"rockxy\":{\"command\":\"rockxy-mcp\",\"args\":[],\"env\":{}}}}"

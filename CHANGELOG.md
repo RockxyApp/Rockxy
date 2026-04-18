@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- MCP Settings: config JSON no longer shows escaped forward slashes (`\/`) in the `command` path — output now matches what users paste into `claude_desktop_config.json`.
+
 ### Changed
 
 ## [0.9.0] - 2026-04-18
