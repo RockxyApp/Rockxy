@@ -96,10 +96,7 @@ struct MCPToolRegistry {
 
         default:
             mcpToolRegistryLogger.warning("Unknown tool called: \(params.name, privacy: .public)")
-            return MCPToolCallResult(
-                content: [.text("{\"error\": \"Unknown tool: \(params.name)\"}")],
-                isError: true
-            )
+            return unknownToolResult(name: params.name)
         }
     }
 
@@ -151,8 +148,25 @@ struct MCPToolRegistry {
 
     private func invalidParamResult(_ paramName: String, message: String) -> MCPToolCallResult {
         MCPToolCallResult(
-            content: [.text("{\"error\":\"\(message)\",\"param\":\"\(paramName)\"}")],
+            content: [.text(encodeErrorJSON(["error": message, "param": paramName]))],
             isError: true
         )
+    }
+
+    private func unknownToolResult(name: String) -> MCPToolCallResult {
+        MCPToolCallResult(
+            content: [.text(encodeErrorJSON(["error": "Unknown tool: \(name)"]))],
+            isError: true
+        )
+    }
+
+    private func encodeErrorJSON(_ payload: [String: String]) -> String {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+            return String(data: data, encoding: .utf8) ?? #"{"error":"Internal encoding error"}"#
+        } catch {
+            mcpToolRegistryLogger.warning("Failed to encode error JSON: \(error.localizedDescription)")
+            return #"{"error":"Internal encoding error"}"#
+        }
     }
 }

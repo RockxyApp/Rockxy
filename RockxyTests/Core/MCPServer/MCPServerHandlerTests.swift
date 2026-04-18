@@ -25,9 +25,9 @@ struct MCPServerHandlerTests {
         #expect(!MCPHandshakeStore.validateToken("short", against: "much-longer-token"))
     }
 
-    @Test("MCPHandshakeStore accepts empty tokens when both are empty")
+    @Test("MCPHandshakeStore rejects validation when both tokens are empty")
     func tokenValidationBothEmpty() {
-        #expect(MCPHandshakeStore.validateToken("", against: ""))
+        #expect(!MCPHandshakeStore.validateToken("", against: ""))
     }
 
     @Test("MCPHandshakeStore rejects when candidate is empty but stored is not")

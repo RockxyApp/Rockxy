@@ -53,10 +53,10 @@ enum MCPHandshakeStore {
             }
 
             if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
+                _ = try FileManager.default.replaceItemAt(fileURL, withItemAt: tempURL)
+            } else {
+                try FileManager.default.moveItem(at: tempURL, to: fileURL)
             }
-
-            try FileManager.default.moveItem(at: tempURL, to: fileURL)
             try FileManager.default.setAttributes(
                 [.posixPermissions: 0o600],
                 ofItemAtPath: fileURL.path
@@ -96,7 +96,12 @@ enum MCPHandshakeStore {
     }
 
     /// Constant-time comparison to prevent timing side-channel attacks.
+    /// Empty candidate or stored values are always rejected, so an unset
+    /// handshake cannot match any client input.
     static func validateToken(_ candidate: String, against stored: String) -> Bool {
+        guard !candidate.isEmpty, !stored.isEmpty else {
+            return false
+        }
         let candidateBytes = Array(candidate.utf8)
         let storedBytes = Array(stored.utf8)
         guard candidateBytes.count == storedBytes.count else {

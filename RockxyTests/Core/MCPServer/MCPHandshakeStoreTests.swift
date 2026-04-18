@@ -71,9 +71,9 @@ struct MCPHandshakeStoreTests {
         #expect(data.count == 32)
     }
 
-    @Test("Validate token with empty strings")
+    @Test("Validate token rejects empty strings on either side")
     func validateEmptyStrings() {
-        #expect(MCPHandshakeStore.validateToken("", against: ""))
+        #expect(!MCPHandshakeStore.validateToken("", against: ""))
         #expect(!MCPHandshakeStore.validateToken("", against: "notempty"))
         #expect(!MCPHandshakeStore.validateToken("notempty", against: ""))
     }

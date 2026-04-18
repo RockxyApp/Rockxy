@@ -64,6 +64,7 @@ final class MCPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     status: .payloadTooLarge,
                     body: errorBodyData(message: "Request body too large")
                 )
+                context.close(promise: nil)
                 return
             }
             bodyBuffer?.writeImmutableBuffer(buffer)
@@ -426,18 +427,19 @@ private extension MCPServerHandler {
         }
 
         let requestID = request.id
+        let channel = context.channel
         context.eventLoop.makeFutureWithTask { [toolRegistry] in
             await toolRegistry.callTool(params: callParams)
         }.whenComplete { [weak self] result in
-            guard let self else {
+            guard let self, channel.isActive else {
                 return
             }
             switch result {
             case let .success(toolResult):
-                sendJsonRpcResult(context: context, id: requestID, result: toolResult)
+                sendJsonRpcResult(channel: channel, id: requestID, result: toolResult)
             case let .failure(error):
                 sendJsonRpcError(
-                    context: context,
+                    channel: channel,
                     id: requestID,
                     code: .internalError,
                     message: "Tool execution failed: \(error.localizedDescription)"
@@ -553,6 +555,94 @@ private extension MCPServerHandler {
         }
 
         context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+    }
+
+    func sendJsonRpcResult(
+        channel: Channel,
+        id: JsonRpcId?,
+        result: some Encodable,
+        extraHeaders: [(String, String)] = []
+    ) {
+        guard channel.isActive else {
+            return
+        }
+        do {
+            let resultData = try jsonEncoder.encode(result)
+            let resultValue = try jsonDecoder.decode(MCPJSONValue.self, from: resultData)
+            let response = JsonRpcResponse(id: id, result: resultValue)
+            let responseData = try jsonEncoder.encode(response)
+            sendResponse(
+                channel: channel,
+                status: .ok,
+                body: responseData,
+                extraHeaders: extraHeaders
+            )
+        } catch {
+            mcpHandlerLogger.error("Failed to encode JSON-RPC result: \(error.localizedDescription)")
+            sendJsonRpcError(
+                channel: channel,
+                id: id,
+                code: .internalError,
+                message: "Internal encoding error"
+            )
+        }
+    }
+
+    func sendJsonRpcError(
+        channel: Channel,
+        id: JsonRpcId?,
+        code: JsonRpcErrorCode,
+        message: String
+    ) {
+        guard channel.isActive else {
+            return
+        }
+        let response = JsonRpcResponse(
+            id: id,
+            error: JsonRpcError(code: code, message: message)
+        )
+        do {
+            let responseData = try jsonEncoder.encode(response)
+            sendResponse(channel: channel, status: .ok, body: responseData)
+        } catch {
+            mcpHandlerLogger.error("Failed to encode JSON-RPC error: \(error.localizedDescription)")
+            sendResponse(
+                channel: channel,
+                status: .internalServerError,
+                body: errorBodyData(message: "Internal server error")
+            )
+        }
+    }
+
+    func sendResponse(
+        channel: Channel,
+        status: HTTPResponseStatus,
+        body: Data?,
+        extraHeaders: [(String, String)] = []
+    ) {
+        guard channel.isActive else {
+            return
+        }
+        var headers = HTTPHeaders()
+        headers.add(name: "Content-Type", value: "application/json")
+
+        let bodyLength = body?.count ?? 0
+        headers.add(name: "Content-Length", value: "\(bodyLength)")
+
+        for (name, value) in extraHeaders {
+            headers.add(name: name, value: value)
+        }
+
+        let head = HTTPResponseHead(version: .http1_1, status: status, headers: headers)
+        channel.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
+
+        if let body, !body.isEmpty {
+            var buffer = channel.allocator.buffer(capacity: body.count)
+            buffer.writeBytes(body)
+            channel.write(NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))), promise: nil)
+        }
+
+        channel.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil)), promise: nil)
     }
 
     func errorBodyData(message: String) -> Data {

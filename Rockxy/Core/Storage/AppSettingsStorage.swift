@@ -26,7 +26,12 @@ enum AppSettingsStorage {
         settings.allowMultipleScriptsPerRequest = defaults.bool(forKey: allowMultipleScriptsPerRequestKey)
         settings.mcpServerEnabled = defaults.bool(forKey: mcpServerEnabledKey)
         if defaults.object(forKey: mcpServerPortKey) != nil {
-            settings.mcpServerPort = defaults.integer(forKey: mcpServerPortKey)
+            let stored = defaults.integer(forKey: mcpServerPortKey)
+            let clamped = min(max(stored, 1), 65_535)
+            if clamped != stored {
+                logger.warning("Clamped out-of-range stored MCP port \(stored) to \(clamped)")
+            }
+            settings.mcpServerPort = clamped
         }
         settings.mcpRedactSensitiveData = defaults.object(forKey: mcpRedactSensitiveDataKey) != nil
             ? defaults.bool(forKey: mcpRedactSensitiveDataKey) : true

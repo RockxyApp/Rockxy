@@ -67,7 +67,7 @@ struct MCPFlowQueryService {
     {
         let transactions = await fetchTransactions(limit: MCPLimits.maxFlowResults)
 
-        let capped = min(limit, MCPLimits.maxFlowResults)
+        let capped = max(1, min(limit, MCPLimits.maxFlowResults))
         var filtered = transactions
 
         if let query, !query.isEmpty {
