@@ -60,6 +60,12 @@ struct ContentView: View {
             coordinator.loadPersistedFavorites()
             coordinator.attachToMCPServer(MCPServerCoordinator.shared)
         }
+        .onDisappear {
+            guard !ProcessInfo.processInfo.isTestHost else {
+                return
+            }
+            coordinator.detachFromMCPServer(MCPServerCoordinator.shared)
+        }
         .task {
             // Skip startup tasks when running as a test host to avoid actor
             // contention between the app's loadInitialRules and test suites.

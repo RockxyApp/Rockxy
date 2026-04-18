@@ -64,8 +64,11 @@ extension MainContentCoordinator {
             SSLProxyingManager.shared.setEnabled(true)
         }
 
-        let alreadyEnabled = isSSLProxyingEnabled(for: domain)
-        if !alreadyEnabled {
+        let existing = SSLProxyingManager.shared.includeRules.first { $0.matches(domain) }
+        let alreadyEnabled = existing?.isEnabled == true
+        if let existing, !existing.isEnabled {
+            SSLProxyingManager.shared.setRuleEnabled(id: existing.id, enabled: true)
+        } else if existing == nil {
             enableSSLProxyingForDomain(domain)
         }
 
