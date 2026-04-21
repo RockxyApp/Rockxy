@@ -209,24 +209,34 @@ struct RequestTableRefreshTests {
         let manager = SSLProxyingManager.shared
         let originalRules = manager.rules
         let originalEnabled = manager.isEnabled
+        let originalBypassDomains = manager.bypassDomains
+        let originalForceGlobalPassthrough = manager.forceGlobalPassthrough
+        let host = "ssl-refresh.test.rockxy.local"
         defer {
             manager.replaceAllRules(originalRules)
             manager.setEnabled(originalEnabled)
+            manager.setBypassDomains(originalBypassDomains)
+            manager.forceGlobalPassthrough = originalForceGlobalPassthrough
+            manager.clearAutoPassthrough()
         }
 
+        manager.clearAutoPassthrough()
         manager.replaceAllRules([])
         manager.setEnabled(true)
+        manager.setBypassDomains("")
+        manager.forceGlobalPassthrough = false
         coordinator.setupSSLProxyingObserver()
 
-        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/users")
+        let transaction = TestFixtures.makeTransaction(url: "https://\(host)/users")
         coordinator.transactions = [transaction]
         coordinator.recomputeFilteredTransactions()
 
         #expect(coordinator.filteredRows.first?.sslState == .secureTunneled)
 
-        coordinator.enableSSLProxyingFromInspector(for: "api.example.com")
+        coordinator.enableSSLProxyingFromInspector(for: host)
         await Task.yield()
 
+        #expect(manager.shouldIntercept(host))
         #expect(coordinator.filteredRows.first?.sslState == .secureIntercepted)
     }
 

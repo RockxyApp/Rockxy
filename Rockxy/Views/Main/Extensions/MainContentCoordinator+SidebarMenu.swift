@@ -17,29 +17,41 @@ extension MainContentCoordinator {
         SSLProxyingManager.shared.includeRules.contains { $0.isEnabled && $0.matches(domain) }
     }
 
-    func enableSSLProxyingForDomain(_ domain: String) {
+    @discardableResult
+    func enableSSLProxyingForDomain(_ domain: String, refreshPresentation: Bool = true) -> Bool {
         guard !domain.isEmpty else {
-            return
+            return false
         }
+
+        var didChange = false
 
         if !SSLProxyingManager.shared.isEnabled {
             SSLProxyingManager.shared.setEnabled(true)
+            didChange = true
         }
 
         if let existing = SSLProxyingManager.shared.includeRules.first(where: { $0.matches(domain) }) {
             if !existing.isEnabled {
                 SSLProxyingManager.shared.setRuleEnabled(id: existing.id, enabled: true)
+                didChange = true
             }
         } else {
             let rule = SSLProxyingRule(domain: domain, listType: .include)
             SSLProxyingManager.shared.addRule(rule)
+            didChange = true
+        }
+
+        if didChange, refreshPresentation {
+            refreshSSLProxyingPresentation()
         }
         Self.logger.info("Enabled SSL proxying for domain: \(domain)")
+        return didChange
     }
 
-    func disableSSLProxyingForDomain(_ domain: String) {
+    @discardableResult
+    func disableSSLProxyingForDomain(_ domain: String, refreshPresentation: Bool = true) -> Bool {
         guard !domain.isEmpty else {
-            return
+            return false
         }
         let matchingIncludeIDs = SSLProxyingManager.shared.includeRules
             .filter { $0.matches(domain) }
@@ -47,20 +59,37 @@ extension MainContentCoordinator {
         let idSet = Set(matchingIncludeIDs)
         if !idSet.isEmpty {
             SSLProxyingManager.shared.removeRules(ids: idSet)
+            if refreshPresentation {
+                refreshSSLProxyingPresentation()
+            }
             Self.logger.info("Disabled SSL proxying for domain: \(domain)")
+            return true
         }
+        return false
     }
 
-    func enableSSLProxyingForApp(_ app: AppInfo) {
+    @discardableResult
+    func enableSSLProxyingForApp(_ app: AppInfo, refreshPresentation: Bool = true) -> Bool {
+        var didChange = false
         for domain in app.domains where !isSSLProxyingEnabled(for: domain) {
-            enableSSLProxyingForDomain(domain)
+            didChange = enableSSLProxyingForDomain(domain, refreshPresentation: false) || didChange
         }
+        if didChange, refreshPresentation {
+            refreshSSLProxyingPresentation()
+        }
+        return didChange
     }
 
-    func disableSSLProxyingForApp(_ app: AppInfo) {
+    @discardableResult
+    func disableSSLProxyingForApp(_ app: AppInfo, refreshPresentation: Bool = true) -> Bool {
+        var didChange = false
         for domain in app.domains where isSSLProxyingEnabled(for: domain) {
-            disableSSLProxyingForDomain(domain)
+            didChange = disableSSLProxyingForDomain(domain, refreshPresentation: false) || didChange
         }
+        if didChange, refreshPresentation {
+            refreshSSLProxyingPresentation()
+        }
+        return didChange
     }
 
     func refreshSSLProxyingPresentation() {
