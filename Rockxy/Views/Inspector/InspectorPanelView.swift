@@ -15,13 +15,13 @@ struct InspectorPanelView: View {
                         transaction: transaction,
                         previewTabStore: coordinator.previewTabStore
                     )
-                    .frame(minWidth: 250)
+                    .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     ResponseInspectorView(
                         transaction: transaction,
                         coordinator: coordinator,
                         previewTabStore: coordinator.previewTabStore
                     )
-                    .frame(minWidth: 250)
+                    .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             } else {
                 ContentUnavailableView(

@@ -40,7 +40,8 @@
           "features/log-intelligence",
           "features/diff",
           "features/scripting",
-          "features/sessions"
+          "features/sessions",
+          "features/developer-setup-hub"
         ]
       },
       {

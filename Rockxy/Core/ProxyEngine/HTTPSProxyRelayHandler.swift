@@ -512,6 +512,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
                 response: nil,
                 state: .blocked
             )
+            transaction.measuredDuration = requestElapsedDuration()
             transaction.sourcePort = clientSourcePort
             callback(transaction)
             return
@@ -534,6 +535,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
             ),
             state: status == 403 ? .blocked : .failed
         )
+        transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort
         callback(transaction)
     }
@@ -760,6 +762,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
             response: responseData,
             state: .completed
         )
+        transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort
         callback(transaction)
     }
@@ -778,6 +781,14 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
         context.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { _ in
             context.close(promise: nil)
         }
+    }
+
+    nonisolated private func requestElapsedDuration() -> TimeInterval? {
+        guard let requestStartTime else {
+            return nil
+        }
+        let elapsedNanos = DispatchTime.now().uptimeNanoseconds - requestStartTime.uptimeNanoseconds
+        return TimeInterval(elapsedNanos) / 1_000_000_000.0
     }
 
     /// Pauses the HTTPS request and presents the breakpoint UI for user decision. Bridges

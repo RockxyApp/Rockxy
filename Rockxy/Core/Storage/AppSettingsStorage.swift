@@ -35,6 +35,7 @@ enum AppSettingsStorage {
         }
         settings.mcpRedactSensitiveData = defaults.object(forKey: mcpRedactSensitiveDataKey) != nil
             ? defaults.bool(forKey: mcpRedactSensitiveDataKey) : true
+        settings.lastExportedRootCAPath = defaults.string(forKey: lastExportedRootCAPathKey)
         return settings
     }
 
@@ -52,6 +53,7 @@ enum AppSettingsStorage {
         defaults.set(settings.mcpServerEnabled, forKey: mcpServerEnabledKey)
         defaults.set(settings.mcpServerPort, forKey: mcpServerPortKey)
         defaults.set(settings.mcpRedactSensitiveData, forKey: mcpRedactSensitiveDataKey)
+        defaults.set(settings.lastExportedRootCAPath, forKey: lastExportedRootCAPathKey)
         logger.info("Settings saved")
     }
 
@@ -72,4 +74,5 @@ enum AppSettingsStorage {
     private static let mcpServerEnabledKey = RockxyIdentity.current.defaultsKey("mcp.serverEnabled")
     private static let mcpServerPortKey = RockxyIdentity.current.defaultsKey("mcp.serverPort")
     private static let mcpRedactSensitiveDataKey = RockxyIdentity.current.defaultsKey("mcp.redactSensitiveData")
+    private static let lastExportedRootCAPathKey = RockxyIdentity.current.defaultsKey("certificate.lastExportedRootCAPath")
 }

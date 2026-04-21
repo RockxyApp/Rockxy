@@ -176,15 +176,18 @@ struct RequestTableView: NSViewRepresentable {
 
     private static func makeColumns() -> [NSTableColumn] {
         let specs: [ColumnSpec] = [
-            ColumnSpec(id: "status", title: "", width: 20, minWidth: 20),
-            ColumnSpec(id: "row", title: "#", width: 40, minWidth: 30),
+            ColumnSpec(id: "status", title: "", width: 22, minWidth: 22),
+            ColumnSpec(id: "row", title: String(localized: "ID"), width: 46, minWidth: 36),
             ColumnSpec(id: "url", title: String(localized: "URL"), width: 300, minWidth: 200),
             ColumnSpec(id: "client", title: String(localized: "Client"), width: 120, minWidth: 60),
             ColumnSpec(id: "method", title: String(localized: "Method"), width: 70, minWidth: 55),
-            ColumnSpec(id: "code", title: String(localized: "Code"), width: 50, minWidth: 40),
+            ColumnSpec(id: "state", title: String(localized: "Status"), width: 90, minWidth: 70),
+            ColumnSpec(id: "code", title: String(localized: "Code"), width: 52, minWidth: 44),
             ColumnSpec(id: "time", title: String(localized: "Time"), width: 80, minWidth: 60),
             ColumnSpec(id: "duration", title: String(localized: "Duration"), width: 70, minWidth: 50),
-            ColumnSpec(id: "size", title: String(localized: "Size"), width: 70, minWidth: 50),
+            ColumnSpec(id: "requestSize", title: String(localized: "Request"), width: 78, minWidth: 60),
+            ColumnSpec(id: "responseSize", title: String(localized: "Response"), width: 78, minWidth: 60),
+            ColumnSpec(id: "ssl", title: String(localized: "SSL"), width: 38, minWidth: 32),
             ColumnSpec(id: "queryName", title: String(localized: "Query Name"), width: 100, minWidth: 60),
         ]
 
@@ -201,7 +204,9 @@ struct RequestTableView: NSViewRepresentable {
 
             if spec.id == "status" {
                 column.resizingMask = []
-                column.maxWidth = 20
+                column.maxWidth = 22
+            } else if spec.id == "ssl" {
+                column.maxWidth = 42
             } else {
                 column.sortDescriptorPrototype = NSSortDescriptor(
                     key: spec.id,
@@ -297,6 +302,10 @@ extension RequestTableView {
                 return makeStatusDotView(row: rowData, in: tableView)
             }
 
+            if columnID == "ssl" {
+                return makeSSLView(row: rowData, in: tableView)
+            }
+
             if columnID == "client" {
                 let clientCellID = NSUserInterfaceItemIdentifier("Cell_client")
                 let appName = rowData.clientApp ?? ""
@@ -357,8 +366,9 @@ extension RequestTableView {
             let columnID = tableColumn.identifier.rawValue
 
             switch columnID {
-            case "status": return 20
-            case "row": return 40
+            case "status": return 22
+            case "row": return 46
+            case "ssl": return 38
             default: break
             }
 
@@ -382,6 +392,9 @@ extension RequestTableView {
                 case "method":
                     text = rowData.method
                     font = .systemFont(ofSize: 12, weight: .semibold)
+                case "state":
+                    text = rowData.displayStatus
+                    font = .systemFont(ofSize: 12, weight: .medium)
                 case "code":
                     text = rowData.statusCode.map { "\($0)" } ?? ""
                     font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
@@ -393,8 +406,11 @@ extension RequestTableView {
                         DurationFormatter.format(seconds: $0)
                     } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-                case "size":
-                    text = rowData.responseBodySize.map { SizeFormatter.format(bytes: $0) } ?? "—"
+                case "requestSize":
+                    text = rowData.requestSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
+                    font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                case "responseSize":
+                    text = rowData.responseSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 case "queryName":
                     // Unified display: WS rows show frame count, others show GraphQL op name
@@ -1149,10 +1165,13 @@ extension RequestTableView {
                 ("url", String(localized: "URL")),
                 ("client", String(localized: "Client")),
                 ("method", String(localized: "Method")),
+                ("state", String(localized: "Status")),
                 ("code", String(localized: "Code")),
                 ("time", String(localized: "Time")),
                 ("duration", String(localized: "Duration")),
-                ("size", String(localized: "Size")),
+                ("requestSize", String(localized: "Request")),
+                ("responseSize", String(localized: "Response")),
+                ("ssl", String(localized: "SSL")),
                 ("queryName", String(localized: "Query Name")),
             ]
 
@@ -1322,7 +1341,7 @@ extension RequestTableView {
             -> NSView
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_status")
-            let dotSize: CGFloat = 8
+            let dotSize: CGFloat = 9
             let rowHeight: CGFloat = 28
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
@@ -1336,7 +1355,7 @@ extension RequestTableView {
             container.identifier = cellID
 
             let imageView = NSImageView(frame: NSRect(
-                x: (20 - dotSize) / 2,
+                x: (22 - dotSize) / 2,
                 y: (rowHeight - dotSize) / 2,
                 width: dotSize,
                 height: dotSize
@@ -1346,6 +1365,38 @@ extension RequestTableView {
                 imageView.image = image
             }
             imageView.contentTintColor = statusDotColor(for: row)
+            container.addSubview(imageView)
+            return container
+        }
+
+        private func makeSSLView(
+            row: RequestListRow,
+            in tableView: NSTableView
+        )
+            -> NSView
+        {
+            let cellID = NSUserInterfaceItemIdentifier("Cell_ssl")
+            let iconSize: CGFloat = 12
+            let rowHeight: CGFloat = 28
+
+            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
+               let imageView = existing.subviews.first as? NSImageView
+            {
+                configureSSLImageView(imageView, row: row)
+                return existing
+            }
+
+            let container = NSView()
+            container.identifier = cellID
+
+            let imageView = NSImageView(frame: NSRect(
+                x: (38 - iconSize) / 2,
+                y: (rowHeight - iconSize) / 2,
+                width: iconSize,
+                height: iconSize
+            ))
+            imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+            configureSSLImageView(imageView, row: row)
             container.addSubview(imageView)
             return container
         }
@@ -1371,6 +1422,26 @@ extension RequestTableView {
             case .blocked:
                 return .systemGray
             }
+        }
+
+        private func configureSSLImageView(_ imageView: NSImageView, row: RequestListRow) {
+            let symbolName: String
+            let tintColor: NSColor
+
+            switch row.sslState {
+            case .insecure:
+                symbolName = "lock.open"
+                tintColor = .tertiaryLabelColor
+            case .secureTunneled:
+                symbolName = "lock.fill"
+                tintColor = .secondaryLabelColor
+            case .secureIntercepted:
+                symbolName = "lock.open.fill"
+                tintColor = .systemGreen
+            }
+
+            imageView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+            imageView.contentTintColor = tintColor
         }
 
         private func appIcon(for appName: String) -> NSImage? {
@@ -1560,6 +1631,12 @@ extension RequestTableView {
                     ]
                 )
 
+            case "state":
+                cell.alignment = .left
+                cell.stringValue = rowData.displayStatus
+                cell.textColor = statusTextColor(for: rowData.state)
+                cell.font = .systemFont(ofSize: 12, weight: .medium)
+
             case "code":
                 cell.alignment = .center
                 if let code = rowData.statusCode {
@@ -1592,10 +1669,20 @@ extension RequestTableView {
                 cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
-            case "size":
+            case "requestSize":
                 cell.alignment = .right
-                if let bodySize = rowData.responseBodySize {
-                    cell.stringValue = SizeFormatter.format(bytes: bodySize)
+                if let requestSize = rowData.requestSize {
+                    cell.stringValue = SizeFormatter.format(bytes: requestSize)
+                } else {
+                    cell.stringValue = "—"
+                }
+                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.textColor = .secondaryLabelColor
+
+            case "responseSize":
+                cell.alignment = .right
+                if let responseSize = rowData.responseSize {
+                    cell.stringValue = SizeFormatter.format(bytes: responseSize)
                 } else {
                     cell.stringValue = "—"
                 }
@@ -1641,6 +1728,19 @@ extension RequestTableView {
             case 400 ..< 500: .systemOrange
             case 500 ..< 600: .systemRed
             default: .labelColor
+            }
+        }
+
+        private func statusTextColor(for state: TransactionState) -> NSColor {
+            switch state {
+            case .pending, .active:
+                .systemOrange
+            case .completed:
+                .secondaryLabelColor
+            case .failed:
+                .systemRed
+            case .blocked:
+                .tertiaryLabelColor
             }
         }
 

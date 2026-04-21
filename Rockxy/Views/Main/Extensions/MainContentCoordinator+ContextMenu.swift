@@ -202,11 +202,8 @@ extension MainContentCoordinator {
         guard !host.isEmpty else {
             return
         }
-        let rule = SSLProxyingRule(domain: host)
-        Task {
-            await SSLProxyingManager.shared.addRule(rule)
-            Self.logger.info("Enabled SSL proxying for \(host)")
-        }
+        enableSSLProxyingForDomain(host)
+        Self.logger.info("Enabled SSL proxying for \(host)")
     }
 
     // MARK: - Export Body

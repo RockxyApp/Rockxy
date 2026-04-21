@@ -124,6 +124,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         statusMessage: String,
         state: TransactionState,
         sourcePort: UInt16?,
+        measuredDuration: TimeInterval? = nil,
         isTLSFailure: Bool = false
     )
         -> HTTPTransaction
@@ -148,6 +149,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 statusMessage: statusMessage,
                 state: state,
                 sourcePort: sourcePort,
+                measuredDuration: measuredDuration,
                 isTLSFailure: isTLSFailure
             )
         }
@@ -168,6 +170,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             ),
             state: state
         )
+        transaction.measuredDuration = measuredDuration
         transaction.sourcePort = sourcePort
         transaction.isTLSFailure = isTLSFailure
         return transaction
@@ -235,6 +238,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         BreakpointRequestData
     ))?
     private var bufferedData: [NIOAny] = []
+    private let tunnelStartedAt = DispatchTime.now()
 
     /// Asynchronously fetches a per-host cert then rewires the pipeline on the event loop.
     /// The async cert generation (actor-isolated) is bridged to NIO via `makeFutureWithTask`.
@@ -438,7 +442,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                                 statusCode: 200,
                                 statusMessage: "Connection Established",
                                 state: .completed,
-                                sourcePort: self.clientSourcePort
+                                sourcePort: self.clientSourcePort,
+                                measuredDuration: self.tunnelElapsedDuration()
                             )
                         )
                     } onFailure: { error in
@@ -456,6 +461,11 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     context.close(promise: nil)
                 }
             }
+    }
+
+    nonisolated private func tunnelElapsedDuration() -> TimeInterval {
+        let elapsedNanos = DispatchTime.now().uptimeNanoseconds - tunnelStartedAt.uptimeNanoseconds
+        return TimeInterval(elapsedNanos) / 1_000_000_000.0
     }
 }
 
@@ -573,6 +583,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                 statusMessage: "TLS Handshake Failed",
                 state: .failed,
                 sourcePort: clientSourcePort,
+                measuredDuration: tunnelElapsedDuration(),
                 isTLSFailure: true
             )
         )
@@ -587,7 +598,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             statusCode: 200,
             statusMessage: "Connection Established",
             state: .completed,
-            sourcePort: clientSourcePort
+            sourcePort: clientSourcePort,
+            measuredDuration: tunnelElapsedDuration()
         )
     }
 
@@ -612,6 +624,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         BreakpointRequestData
     ))?
     private var handshakeResolved = false
+    private let tunnelStartedAt = DispatchTime.now()
 
     /// Returns true if the error indicates the client rejected our generated certificate.
     /// BoringSSL errors are opaque strings, so we match against known alert patterns.
@@ -626,6 +639,11 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             "certificate_verify_failed",
         ]
         return certRejectionPatterns.contains { desc.contains($0) }
+    }
+
+    nonisolated private func tunnelElapsedDuration() -> TimeInterval {
+        let elapsedNanos = DispatchTime.now().uptimeNanoseconds - tunnelStartedAt.uptimeNanoseconds
+        return TimeInterval(elapsedNanos) / 1_000_000_000.0
     }
 
     /// Tear down failed TLS pipeline and attempt raw passthrough to the upstream server.

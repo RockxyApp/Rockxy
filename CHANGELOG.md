@@ -8,11 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Developer Setup Hub: dedicated rows for `Postman`, `Insomnia`, and `Paw` under **Browsers & Clients**, each with its own proxy + certificate workflow.
+- Developer Setup Hub: `tvOS / watchOS` and `Vision Pro` rows under **Devices**, documented as iOS-class guide-only targets with honest limitations.
+- Developer Setup Hub: guide content for `iOS Device`, `iOS Simulator`, `Android Device`, `Android Emulator`, `Flutter`, and `React Native` — bind/listen, certificate trust, and platform-specific caveats (Android network-security-config, iOS simulator trust, Metro restarts).
+- Developer Setup Hub: validated manual snippets + httpbin validation watcher for eight additional targets — `Java VMs` (keytool import + HttpClient sample), `Firefox` (Network Settings + authority-store import + cURL verification), `Postman`, `Insomnia`, and `Paw` (proxy + CA settings snippet + cURL verification), `Docker` (throwaway `docker run` probe mounting the CA via `host.docker.internal`), `ElectronJS` (`--proxy-server` CLI flag and `session.setProxy` main-process snippet, both with `NODE_EXTRA_CA_CERTS`), and `Next.js` (App Router route handler with `NODE_EXTRA_CA_CERTS` + `HTTPS_PROXY` for `next dev`).
+
 ### Fixed
 
-- MCP Settings: config JSON no longer shows escaped forward slashes (`\/`) in the `command` path — output now matches what users paste into `claude_desktop_config.json`.
+- MCP Settings: config JSON no longer shows escaped forward slashes (`\/`) in the `command` path — output now matches standard local JSON configuration files.
 
 ### Changed
+
+- Developer Setup Hub: removed the combined `HTTP Clients` row in favor of individual client targets; the neutrality test now allows `Vision Pro` as a proper noun while still rejecting standalone packaging terms.
+- Developer Setup Hub: promoted `Java VMs`, `Firefox`, `Postman`, `Insomnia`, `Paw`, `Docker`, `ElectronJS`, and `Next.js` from `guideOnly` to `availableNow` — each now ships a real snippet path with the in-app validation watcher instead of just guide tips.
 
 ## [0.9.0] - 2026-04-18
 

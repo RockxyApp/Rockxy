@@ -1,0 +1,112 @@
+---
+title: "Developer Setup Hub"
+description: "A single place in Rockxy for runtime snippets, device guides, and honest support notes per target — what Rockxy actually ships vs what you still do by hand."
+---
+
+# Developer Setup Hub
+
+The Developer Setup Hub is a dedicated window that collects everything you need to point a specific runtime, client, device, or framework at Rockxy's local proxy. Open it from the Rockxy menu or the main window toolbar.
+
+Layout:
+
+- **Source list** (left): searchable, grouped by category.
+- **Detail tabs** (center): Overview, Setup, Snippets, Validate, Troubleshooting.
+- **Status inspector** (right): proxy, certificate, and validation state for the active target.
+
+## What manual support means
+
+Every target in the hub has a **manual** path. Manual support means:
+
+- the app surfaces Rockxy's current listen address, port, and root certificate state;
+- the hub ships the concrete command, config block, or code snippet you paste into the runtime, client, container, or framework;
+- Rockxy never launches a shell, configures a third-party app, modifies macOS trust, or changes a device's network settings for you.
+
+Many non-mobile targets additionally ship an **in-app validation watcher**. The Snippets tab keeps the general-purpose sample request, while the Validate tab swaps in a target-specific probe URL such as `GET https://httpbin.org/anything/rockxy/python` before you press **Run Test**. This is still a generic capture check, not process attribution for the selected target. Guide-only targets are limited to targets where Rockxy cannot ship a first-party snippet (typically physical devices, simulators, or frameworks that depend on the underlying platform).
+
+## Support matrix
+
+### Core runtimes proven end-to-end on a developer machine with local toolchains
+
+These targets now have runtime integration tests that start a local upstream probe server, run the real language/tool through Rockxy's proxy, and confirm Rockxy captures the request:
+
+| Target  | Proof lane |
+| ------- | ---------- |
+| Python  | `python3` stdlib HTTP request through Rockxy |
+| Node.js | `node` built-in `http` request through Rockxy |
+| Ruby    | `ruby` `Net::HTTP::Proxy` request through Rockxy |
+| Golang  | `go run` `net/http` request through Rockxy |
+| Rust    | `rustc` probe binary talking HTTP through Rockxy |
+| cURL    | `curl --proxy ...` through Rockxy |
+| Java    | local JDK `HttpClient` request through Rockxy |
+
+### Additional manual-support targets proven end-to-end when the local app/tool is present
+
+These targets still rely on manual setup inside the real third-party app, but the repo now also carries end-to-end proof lanes that drive the real local prerequisite through Rockxy:
+
+| Target  | Proof lane |
+| ------- | ---------- |
+| Firefox | headless Firefox profile with proxy prefs forcing the probe through Rockxy |
+| Docker  | Docker Desktop container using `curl --proxy ...` through Rockxy to a host IPv4 probe |
+| Next.js | temporary App Router route handler under `next dev` with `NODE_USE_ENV_PROXY=1` + proxy envs |
+
+### Available now — manual snippets + generic capture check
+
+| Target     | Snippet variants                                                             |
+| ---------- | ---------------------------------------------------------------------------- |
+| Python     | `requests`, `httpx`, `aiohttp`, `urllib3`                                    |
+| Node.js    | `axios`, `https`, `got`                                                      |
+| Ruby       | `net/http`, `http`, `Faraday`                                                |
+| Golang     | `net/http`, `Resty`                                                          |
+| Rust       | `reqwest`                                                                    |
+| cURL       | command form, environment-variable form                                      |
+| Java VMs   | `keytool` import, `HttpClient` sample, requires a local JDK/JRE              |
+| Firefox    | Network Settings + authority-store import + localhost probe fallback         |
+| Postman    | Proxy settings + CA certificate + cURL preflight                             |
+| Insomnia   | Proxy preferences + CA certificate + cURL preflight                          |
+| Paw        | macOS system-proxy block + keychain trust + cURL preflight                   |
+| Docker     | `docker run` probe with host IPv4 + mounted CA                               |
+| ElectronJS | `--proxy-server` CLI flag, `session.setProxy` main-process call              |
+| Next.js    | App Router route handler + `NODE_USE_ENV_PROXY` + `HTTP_PROXY` / `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` |
+
+Each snippet is generated against Rockxy's active proxy port and the exported root certificate. The **Validate** tab rewrites the sample request to a target-specific `GET https://httpbin.org/anything/rockxy/<target>` probe and then runs a short watcher for that exact request after you press **Run Test**. That confirms Rockxy saw the probe, but it does not prove which app, browser, or process emitted it. The watcher cancels automatically if the session is cleared, recording is paused, or the proxy stops.
+
+If the preflight sees a problem (proxy stopped, recording paused, certificate not trusted, or certificate not exportable) it surfaces the first blocking issue with a direct action you can take before rerunning.
+
+### Guide only — concrete manual steps, no in-app snippet generator
+
+These targets depend on behavior Rockxy does not drive from macOS (physical-device pairing, simulator automation, framework-specific bundlers), so the hub ships honest guide copy rather than a generated snippet:
+
+**Devices**
+
+- `iOS Device` — manual Wi-Fi proxy + install the certificate as a profile + enable full trust under Certificate Trust Settings.
+- `iOS Simulator` — loopback is reachable from the simulator; drag the PEM onto the simulator and enable full trust, then cold-launch the target app.
+- `Android Device` — manual Wi-Fi proxy + install as a user CA + debug build with a network-security-config that trusts user CAs.
+- `Android Emulator` — Mac is reachable at `10.0.2.2`; set the emulator proxy to `10.0.2.2` plus Rockxy's port and install as user CA.
+- `tvOS / watchOS` — reuse the iOS Device and iOS Simulator paths; there is no dedicated pairing workflow.
+- `Vision Pro` — follows the iOS Device path on the device itself; there is no dedicated Vision Pro pairing workflow.
+
+**Frameworks**
+
+- `Flutter` — use a proxy-aware HTTP client (e.g. `HttpClient`, `dio`); the real setup lives on the iOS or Android page that runs the app.
+- `React Native` — `fetch` runs through the iOS or Android network stack, so fix the underlying platform first, then restart Metro and the app.
+
+### What guide-only does NOT do
+
+- It does not pair with devices or simulators.
+- It does not install, trust, or import certificates into third-party apps.
+- It does not run AppleScript or launch Terminal for you.
+- It does not rewrite `network-security-config`, `simctl`, browser profiles, or system proxy settings.
+
+If a page ever implies an automatic flow, treat it as a bug. File an issue.
+
+## Source list and search
+
+The filter at the top of the source list matches on target name, category name, summary text, and automation-support label. Searching for `postman`, `emulator`, `vision`, or `browsers & clients` narrows the list without losing category grouping.
+
+## Scope and honesty rules
+
+- Rockxy ships the full manual path described here.
+- Guide-only pages carry concrete prerequisites and limitations rather than "coming soon" copy.
+- Every target's Overview tab states exactly what Rockxy does today for that target and what is still manual.
+
+If you run into a target where the copy does not match reality, the catalog lives at `Rockxy/Models/UI/DeveloperSetupCatalog.swift`, the workflow + snippet generators at `Rockxy/Models/UI/DeveloperSetupWorkflow.swift`, and the remaining device/framework guide tips at `Rockxy/Models/UI/DeveloperSetupGuideCatalog.swift`.

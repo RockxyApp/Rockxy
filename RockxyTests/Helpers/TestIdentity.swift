@@ -22,6 +22,7 @@ enum TestIdentity {
         "onlyListenOnLocalhost",
         "listenIPv6",
         "autoSelectPort",
+        "certificate.lastExportedRootCAPath",
     ].map { "\(defaultsPrefix).\($0)" }
 
     static let previewTabStorageKey = "\(defaultsPrefix).previewTabs"

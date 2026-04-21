@@ -8,37 +8,42 @@ struct QueryInspectorView: View {
         let components = URLComponents(url: transaction.request.url, resolvingAgainstBaseURL: false)
         let queryItems = components?.queryItems ?? []
 
-        if queryItems.isEmpty {
-            ContentUnavailableView(
-                String(localized: "No Query Parameters"),
-                systemImage: "questionmark.circle"
-            )
-        } else {
-            ScrollView {
-                LazyVGrid(columns: [
-                    GridItem(.flexible(minimum: 100, maximum: 200), alignment: .topLeading),
-                    GridItem(.flexible(), alignment: .topLeading),
-                ], spacing: 4) {
-                    Text(String(localized: "Name"))
-                        .font(.system(.caption, design: .monospaced))
-                        .fontWeight(.bold)
-                        .foregroundStyle(.secondary)
-                    Text(String(localized: "Value"))
-                        .font(.system(.caption, design: .monospaced))
-                        .fontWeight(.bold)
-                        .foregroundStyle(.secondary)
+        Group {
+            if queryItems.isEmpty {
+                ContentUnavailableView(
+                    String(localized: "No Query Parameters"),
+                    systemImage: "questionmark.circle"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .padding(.top, 24)
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(minimum: 100, maximum: 200), alignment: .topLeading),
+                        GridItem(.flexible(), alignment: .topLeading),
+                    ], spacing: 4) {
+                        Text(String(localized: "Name"))
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.bold)
+                            .foregroundStyle(.secondary)
+                        Text(String(localized: "Value"))
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.bold)
+                            .foregroundStyle(.secondary)
 
-                    ForEach(Array(queryItems.enumerated()), id: \.offset) { _, item in
-                        Text(item.name)
-                            .font(.system(.caption, design: .monospaced))
-                            .fontWeight(.semibold)
-                        Text(item.value ?? "")
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
+                        ForEach(Array(queryItems.enumerated()), id: \.offset) { _, item in
+                            Text(item.name)
+                                .font(.system(.caption, design: .monospaced))
+                                .fontWeight(.semibold)
+                            Text(item.value ?? "")
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                        }
                     }
+                    .padding()
                 }
-                .padding()
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

@@ -51,6 +51,11 @@ final class AppSettingsManager {
         save()
     }
 
+    func updateLastExportedRootCAPath(_ path: String?) {
+        settings.lastExportedRootCAPath = path
+        save()
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AppSettingsManager")

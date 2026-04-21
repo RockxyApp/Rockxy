@@ -159,14 +159,37 @@ struct InspectorRoutingTests {
             canInterceptHTTPS: true,
             domainRuleEnabled: false,
             appName: transaction.clientApp,
-            appDomains: ["api.example.com", "cdn.example.com"]
+            appRuleEnabled: false
         )
 
         #expect(prompt?.title == "HTTPS Response")
         #expect(prompt?.primaryTitle == "Enable only this domain")
         #expect(prompt?.primaryAction == .enableDomain("api.example.com"))
         #expect(prompt?.secondaryTitle == "Enable all domains from \"Brave Browser Helper\"")
-        #expect(prompt?.secondaryAction == .enableApp("Brave Browser Helper"))
+        #expect(prompt?.secondaryAction == .enableApp("Brave Browser Helper", fallbackDomain: "api.example.com"))
+    }
+
+    @Test("CONNECT tunnel still shows app SSL action when app cache is empty")
+    func connectTunnelShowsAppActionWithoutObservedDomains() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+        transaction.clientApp = "Google Chrome"
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: false,
+            appName: transaction.clientApp,
+            appRuleEnabled: false
+        )
+
+        #expect(prompt?.primaryAction == .enableDomain("api.example.com"))
+        #expect(prompt?.secondaryTitle == "Enable all domains from \"Google Chrome\"")
+        #expect(prompt?.secondaryAction == .enableApp("Google Chrome", fallbackDomain: "api.example.com"))
     }
 
     @Test("CONNECT tunnel prefers certificate guidance when HTTPS interception is unavailable")
@@ -183,15 +206,15 @@ struct InspectorRoutingTests {
             canInterceptHTTPS: false,
             domainRuleEnabled: false,
             appName: nil,
-            appDomains: []
+            appRuleEnabled: false
         )
 
         #expect(prompt?.primaryAction == .installCertificate)
         #expect(prompt?.secondaryAction == nil)
     }
 
-    @Test("CONNECT tunnel with existing SSL rule shows retry guidance")
-    func connectTunnelWithExistingRuleShowsRetryGuidance() {
+    @Test("CONNECT tunnel with existing SSL rule shows disable guidance")
+    func connectTunnelWithExistingRuleShowsDisableGuidance() {
         let transaction = TestFixtures.makeTransaction(
             method: "CONNECT",
             url: "https://api.example.com:443",
@@ -204,11 +227,37 @@ struct InspectorRoutingTests {
             canInterceptHTTPS: true,
             domainRuleEnabled: true,
             appName: nil,
-            appDomains: []
+            appRuleEnabled: false
         )
 
-        #expect(prompt?.primaryAction == .openSSLProxyingList)
+        #expect(prompt?.message == "SSL Proxying is enabled for this HTTPS target. You can adjust the scope below.")
+        #expect(prompt?.primaryTitle == "Disable only this domain")
+        #expect(prompt?.primaryAction == .disableDomain("api.example.com"))
         #expect(prompt?.secondaryAction == nil)
+    }
+
+    @Test("CONNECT tunnel with app-wide SSL rule shows disable-all guidance")
+    func connectTunnelWithExistingAppRuleShowsDisableGuidance() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+        transaction.clientApp = "Google Chrome"
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            sslProxyingEnabled: true,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: false,
+            appName: transaction.clientApp,
+            appRuleEnabled: true
+        )
+
+        #expect(prompt?.primaryTitle == "Enable only this domain")
+        #expect(prompt?.primaryAction == .enableDomain("api.example.com"))
+        #expect(prompt?.secondaryTitle == "Disable all domains from \"Google Chrome\"")
+        #expect(prompt?.secondaryAction == .disableApp("Google Chrome", fallbackDomain: "api.example.com"))
     }
 
     @Test("CONNECT tunnel shows alternate message when SSL proxying is globally off")
@@ -226,7 +275,7 @@ struct InspectorRoutingTests {
             canInterceptHTTPS: true,
             domainRuleEnabled: false,
             appName: transaction.clientApp,
-            appDomains: ["api.example.com"]
+            appRuleEnabled: false
         )
 
         #expect(prompt?.message == "SSL Proxying is off. Enable it to see the encrypted content.")
@@ -242,7 +291,7 @@ struct InspectorRoutingTests {
             canInterceptHTTPS: true,
             domainRuleEnabled: false,
             appName: nil,
-            appDomains: []
+            appRuleEnabled: false
         )
 
         #expect(prompt == nil)

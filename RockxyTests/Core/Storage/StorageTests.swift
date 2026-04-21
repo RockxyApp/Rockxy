@@ -108,6 +108,7 @@ struct AppSettingsStorageTests {
         settings.onlyListenOnLocalhost = false
         settings.listenIPv6 = true
         settings.autoSelectPort = true
+        settings.lastExportedRootCAPath = "/tmp/RockxyRootCA.pem"
 
         AppSettingsStorage.save(settings)
         let loaded = AppSettingsStorage.load()
@@ -118,6 +119,7 @@ struct AppSettingsStorageTests {
         #expect(loaded.onlyListenOnLocalhost == false)
         #expect(loaded.listenIPv6 == true)
         #expect(loaded.autoSelectPort == true)
+        #expect(loaded.lastExportedRootCAPath == "/tmp/RockxyRootCA.pem")
     }
 
     @Test("default values match AppSettings initializer")
@@ -129,6 +131,7 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.autoStartProxy == false)
         #expect(defaultSettings.listenIPv6 == false)
         #expect(defaultSettings.autoSelectPort == true)
+        #expect(defaultSettings.lastExportedRootCAPath == nil)
     }
 
     // MARK: Private

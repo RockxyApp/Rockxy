@@ -203,6 +203,33 @@ struct RequestTableRefreshTests {
         #expect(coordinator.filteredRows.first?.host == "aaa.example.com")
     }
 
+    @Test("SSL proxying changes refresh request rows from tunneled to intercepted")
+    func sslProxyingRefreshesRows() async {
+        let coordinator = MainContentCoordinator()
+        let manager = SSLProxyingManager.shared
+        let originalRules = manager.rules
+        let originalEnabled = manager.isEnabled
+        defer {
+            manager.replaceAllRules(originalRules)
+            manager.setEnabled(originalEnabled)
+        }
+
+        manager.replaceAllRules([])
+        manager.setEnabled(true)
+        coordinator.setupSSLProxyingObserver()
+
+        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/users")
+        coordinator.transactions = [transaction]
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredRows.first?.sslState == .secureTunneled)
+
+        coordinator.enableSSLProxyingFromInspector(for: "api.example.com")
+        await Task.yield()
+
+        #expect(coordinator.filteredRows.first?.sslState == .secureIntercepted)
+    }
+
     @Test("Export preserves capture order unaffected by sort")
     func exportPreservesCaptureOrder() {
         let coordinator = MainContentCoordinator()

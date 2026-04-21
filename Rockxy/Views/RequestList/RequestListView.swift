@@ -14,18 +14,18 @@ struct RequestListView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Tab bar
-            Picker("View", selection: Binding(
-                get: { coordinator.activeMainTab },
-                set: { coordinator.activeMainTab = $0 }
-            )) {
-                ForEach(MainTab.allCases, id: \.self) { tab in
-                    Label(tab.displayName, systemImage: tab.systemImage)
-                        .tag(tab)
+            UtilitySegmentedHeader(width: 320) {
+                Picker("View", selection: Binding(
+                    get: { coordinator.activeMainTab },
+                    set: { coordinator.activeMainTab = $0 }
+                )) {
+                    ForEach(MainTab.allCases, id: \.self) { tab in
+                        Label(tab.displayName, systemImage: tab.systemImage)
+                            .tag(tab)
+                    }
                 }
+                .pickerStyle(.segmented)
             }
-            .pickerStyle(.segmented)
-            .padding(8)
 
             Divider()
 

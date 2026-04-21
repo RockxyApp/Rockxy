@@ -10,11 +10,13 @@ struct WorkspaceTabStrip: View {
     let coordinator: MainContentCoordinator
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 8) {
             tabsRow
             addButton
         }
-        .frame(height: 28)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(height: 32)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) {
             Divider()
@@ -29,7 +31,7 @@ struct WorkspaceTabStrip: View {
 
     private var tabsRow: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 0) {
+            HStack(spacing: 6) {
                 ForEach(store.workspaces) { workspace in
                     WorkspaceTabItem(
                         workspace: workspace,
@@ -42,6 +44,7 @@ struct WorkspaceTabStrip: View {
                     )
                 }
             }
+            .padding(.trailing, 4)
         }
     }
 
@@ -54,7 +57,11 @@ struct WorkspaceTabStrip: View {
             Image(systemName: "plus")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-                .frame(width: 28, height: 28)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                )
         }
         .buttonStyle(.plain)
         .disabled(store.workspaces.count >= store.maxWorkspaces)
@@ -80,7 +87,7 @@ private struct WorkspaceTabItem: View {
             if !workspace.filterCriteria.isEmpty {
                 Image(systemName: "line.3.horizontal.decrease.circle.fill")
                     .font(.system(size: 9))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
 
             if isEditing {
@@ -91,11 +98,11 @@ private struct WorkspaceTabItem: View {
                     isEditing = false
                 })
                 .textFieldStyle(.plain)
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .frame(minWidth: 60)
             } else {
                 Text(workspace.title)
-                    .font(.system(size: 11, weight: isActive ? .medium : .regular))
+                    .font(.system(size: 12, weight: isActive ? .semibold : .regular))
                     .lineLimit(1)
             }
 
@@ -108,26 +115,18 @@ private struct WorkspaceTabItem: View {
                         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 }
                 .buttonStyle(.plain)
-                .opacity(isActive ? 1 : 0)
+                .opacity(isActive || isHovering ? 1 : 0)
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 28)
         .background(
-            isActive
-                ? Color(nsColor: .controlBackgroundColor)
-                : Color.clear
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tabBackground)
         )
-        .overlay(alignment: .bottom) {
-            if isActive {
-                Rectangle()
-                    .fill(Color.accentColor)
-                    .frame(height: 2)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            Divider()
-                .frame(height: 14)
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(tabBorder, lineWidth: isActive ? 1 : 0.5)
         }
         .contentShape(Rectangle())
         .onTapGesture { onSelect() }
@@ -152,10 +151,32 @@ private struct WorkspaceTabItem: View {
                 }
             }
         }
+        .onHover { isHovering = $0 }
     }
 
     // MARK: Private
 
     @State private var isEditing = false
     @State private var editingTitle = ""
+    @State private var isHovering = false
+
+    private var tabBackground: Color {
+        if isActive {
+            return Color(nsColor: .controlBackgroundColor)
+        }
+        if isHovering {
+            return Color(nsColor: .controlBackgroundColor).opacity(0.45)
+        }
+        return Color(nsColor: .windowBackgroundColor)
+    }
+
+    private var tabBorder: Color {
+        if isActive {
+            return Color(nsColor: .separatorColor).opacity(0.8)
+        }
+        if isHovering {
+            return Color(nsColor: .separatorColor).opacity(0.35)
+        }
+        return Color.clear
+    }
 }

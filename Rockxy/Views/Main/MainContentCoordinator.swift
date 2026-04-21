@@ -114,6 +114,7 @@ final class MainContentCoordinator {
     var exportScopeContext: ExportScopeContext?
     var sessionProvenance: SessionProvenance?
     var activeToast: ToastMessage?
+    var sslProxyingRefreshToken: Int = 0
 
     private(set) var ruleLoadTask: Task<Void, Never>?
 
@@ -341,6 +342,7 @@ final class MainContentCoordinator {
     // MARK: Private
 
     private var rulesObserver: NSObjectProtocol?
+    var sslProxyingObserver: NSObjectProtocol?
 }
 
 // MARK: - SystemProxyWarning

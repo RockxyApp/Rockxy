@@ -42,6 +42,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var response: HTTPResponseData?
     var state: TransactionState
     var timingInfo: TimingInfo?
+    var measuredDuration: TimeInterval?
     var webSocketConnection: WebSocketConnection?
     var graphQLInfo: GraphQLInfo?
     var sourcePort: UInt16?

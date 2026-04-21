@@ -198,11 +198,11 @@ struct HeaderColumnStoreTests {
     func hiddenBuiltInPersist() {
         let store = makeCleanStore()
         store.toggleBuiltInColumn("method")
-        store.toggleBuiltInColumn("size")
+        store.toggleBuiltInColumn("responseSize")
 
         let store2 = HeaderColumnStore()
         #expect(!store2.isBuiltInColumnVisible("method"))
-        #expect(!store2.isBuiltInColumnVisible("size"))
+        #expect(!store2.isBuiltInColumnVisible("responseSize"))
         #expect(store2.isBuiltInColumnVisible("url"))
     }
 

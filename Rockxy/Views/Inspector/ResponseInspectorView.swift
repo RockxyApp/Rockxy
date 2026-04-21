@@ -28,6 +28,8 @@ struct ResponseInspectorView: View {
             Divider()
             tabContent
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Color.clear.opacity(Double(coordinator.sslProxyingRefreshToken) * 0))
         .task(id: transaction.id) {
             autoSelectProtocolTab()
         }
@@ -53,7 +55,9 @@ struct ResponseInspectorView: View {
             canInterceptHTTPS: coordinator.readiness.canInterceptHTTPS,
             domainRuleEnabled: coordinator.isSSLProxyingEnabled(for: transaction.request.host),
             appName: normalizedClientAppName,
-            appDomains: normalizedClientAppName.map { coordinator.observedDomainsForApp(named: $0) } ?? []
+            appRuleEnabled: normalizedClientAppName.map {
+                coordinator.isSSLProxyingFullyEnabled(forAppNamed: $0, fallbackDomain: transaction.request.host)
+            } ?? false
         )
     }
 
@@ -67,7 +71,7 @@ struct ResponseInspectorView: View {
     }
 
     private var inspectorTabBar: some View {
-        HStack(spacing: 0) {
+        InspectorTabStrip {
             ForEach(ResponseInspectorTab.allCases, id: \.self) { tab in
                 InspectorTabButton(
                     title: tab.displayName,
@@ -120,13 +124,9 @@ struct ResponseInspectorView: View {
                     }
                 }
             }
-
+        } trailingContent: {
             previewTabMenuButton
-
-            Spacer()
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 4)
     }
 
     private var previewTabMenuButton: some View {
@@ -147,24 +147,27 @@ struct ResponseInspectorView: View {
     }
 
     @ViewBuilder private var tabContent: some View {
-        if let proto = protocolTab {
-            switch proto {
-            case .websocket:
-                WebSocketInspectorView(transaction: transaction)
-            case .graphql:
-                GraphQLInspectorView(transaction: transaction)
+        Group {
+            if let proto = protocolTab {
+                switch proto {
+                case .websocket:
+                    WebSocketInspectorView(transaction: transaction)
+                case .graphql:
+                    GraphQLInspectorView(transaction: transaction)
+                }
+            } else if let previewTab = selectedPreviewTab,
+                      previewTabStore.responseTabs.contains(where: { $0.id == previewTab.id })
+            {
+                PreviewTabContentView(
+                    tab: previewTab,
+                    transaction: transaction,
+                    beautify: previewTabStore.autoBeautify
+                )
+            } else {
+                nativeTabContent
             }
-        } else if let previewTab = selectedPreviewTab,
-                  previewTabStore.responseTabs.contains(where: { $0.id == previewTab.id })
-        {
-            PreviewTabContentView(
-                tab: previewTab,
-                transaction: transaction,
-                beautify: previewTabStore.autoBeautify
-            )
-        } else {
-            nativeTabContent
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder private var nativeTabContent: some View {
@@ -306,8 +309,12 @@ struct ResponseInspectorView: View {
             coordinator.installAndTrustCertificateFromInspector()
         case let .enableDomain(domain):
             coordinator.enableSSLProxyingFromInspector(for: domain)
-        case let .enableApp(appName):
-            coordinator.enableSSLProxyingFromInspector(forAppNamed: appName)
+        case let .disableDomain(domain):
+            coordinator.disableSSLProxyingFromInspector(for: domain)
+        case let .enableApp(appName, fallbackDomain):
+            coordinator.enableSSLProxyingFromInspector(forAppNamed: appName, fallbackDomain: fallbackDomain)
+        case let .disableApp(appName, fallbackDomain):
+            coordinator.disableSSLProxyingFromInspector(forAppNamed: appName, fallbackDomain: fallbackDomain)
         case .openSSLProxyingList:
             openWindow(id: "sslProxyingList")
         }
@@ -326,7 +333,9 @@ struct ResponseInspectorView: View {
 enum HTTPSInspectionPromptAction: Equatable {
     case installCertificate
     case enableDomain(String)
-    case enableApp(String)
+    case disableDomain(String)
+    case enableApp(String, fallbackDomain: String?)
+    case disableApp(String, fallbackDomain: String?)
     case openSSLProxyingList
 }
 
@@ -346,7 +355,7 @@ struct HTTPSInspectionPromptModel: Equatable {
         canInterceptHTTPS: Bool,
         domainRuleEnabled: Bool,
         appName: String?,
-        appDomains: [String]
+        appRuleEnabled: Bool
     )
         -> HTTPSInspectionPromptModel?
     {
@@ -363,8 +372,6 @@ struct HTTPSInspectionPromptModel: Equatable {
             return nil
         }
 
-        let sanitizedAppDomains = Array(Set(appDomains.filter { !$0.isEmpty })).sorted()
-
         if !canInterceptHTTPS {
             return HTTPSInspectionPromptModel(
                 title: String(localized: "HTTPS Response"),
@@ -378,27 +385,32 @@ struct HTTPSInspectionPromptModel: Equatable {
             )
         }
 
-        if domainRuleEnabled {
-            return HTTPSInspectionPromptModel(
-                title: String(localized: "HTTPS Response"),
-                message: String(
-                    localized: "SSL Proxying is already enabled for this target. Make the request again to see the content."
-                ),
-                primaryTitle: String(localized: "Open SSL Proxying List"),
-                primaryAction: .openSSLProxyingList,
-                secondaryTitle: nil,
-                secondaryAction: nil
+        let domainTitle = domainRuleEnabled ?
+            String(localized: "Disable only this domain") :
+            String(localized: "Enable only this domain")
+        let domainAction: HTTPSInspectionPromptAction = domainRuleEnabled ?
+            .disableDomain(host) :
+            .enableDomain(host)
+
+        let message: String
+        if domainRuleEnabled || appRuleEnabled {
+            message = String(
+                localized: "SSL Proxying is enabled for this HTTPS target. You can adjust the scope below."
             )
+        } else if sslProxyingEnabled {
+            message = String(localized: "This HTTPS response is encrypted. Enable SSL Proxying to see the content.")
+        } else {
+            message = String(localized: "SSL Proxying is off. Enable it to see the encrypted content.")
         }
 
-        let message = sslProxyingEnabled ?
-            String(localized: "This HTTPS response is encrypted. Enable SSL Proxying to see the content.") :
-            String(localized: "SSL Proxying is off. Enable it to see the encrypted content.")
-
-        let appAction: (String?, HTTPSInspectionPromptAction?) = if let appName, !sanitizedAppDomains.isEmpty {
+        let appAction: (String?, HTTPSInspectionPromptAction?) = if let appName {
             (
-                String(localized: "Enable all domains from \"\(appName)\""),
-                .enableApp(appName)
+                appRuleEnabled ?
+                    String(localized: "Disable all domains from \"\(appName)\"") :
+                    String(localized: "Enable all domains from \"\(appName)\""),
+                appRuleEnabled ?
+                    .disableApp(appName, fallbackDomain: host) :
+                    .enableApp(appName, fallbackDomain: host)
             )
         } else {
             (nil, nil)
@@ -407,8 +419,8 @@ struct HTTPSInspectionPromptModel: Equatable {
         return HTTPSInspectionPromptModel(
             title: String(localized: "HTTPS Response"),
             message: message,
-            primaryTitle: String(localized: "Enable only this domain"),
-            primaryAction: .enableDomain(host),
+            primaryTitle: domainTitle,
+            primaryAction: domainAction,
             secondaryTitle: appAction.0,
             secondaryAction: appAction.1
         )

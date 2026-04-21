@@ -21,8 +21,19 @@ extension MainContentCoordinator {
         guard !domain.isEmpty else {
             return
         }
-        let rule = SSLProxyingRule(domain: domain, listType: .include)
-        SSLProxyingManager.shared.addRule(rule)
+
+        if !SSLProxyingManager.shared.isEnabled {
+            SSLProxyingManager.shared.setEnabled(true)
+        }
+
+        if let existing = SSLProxyingManager.shared.includeRules.first(where: { $0.matches(domain) }) {
+            if !existing.isEnabled {
+                SSLProxyingManager.shared.setRuleEnabled(id: existing.id, enabled: true)
+            }
+        } else {
+            let rule = SSLProxyingRule(domain: domain, listType: .include)
+            SSLProxyingManager.shared.addRule(rule)
+        }
         Self.logger.info("Enabled SSL proxying for domain: \(domain)")
     }
 
@@ -46,13 +57,58 @@ extension MainContentCoordinator {
         }
     }
 
-    func observedDomainsForApp(named appName: String) -> [String] {
-        if let liveDomains = appNodes.first(where: { $0.name == appName })?.domains,
-           !liveDomains.isEmpty
-        {
-            return liveDomains
+    func disableSSLProxyingForApp(_ app: AppInfo) {
+        for domain in app.domains where isSSLProxyingEnabled(for: domain) {
+            disableSSLProxyingForDomain(domain)
         }
-        return TrafficDomainSnapshot.shared.domains(forApp: appName)
+    }
+
+    func refreshSSLProxyingPresentation() {
+        sslProxyingRefreshToken += 1
+        for workspace in workspaceStore.workspaces {
+            workspace.lastDeriveWasAppendOnly = false
+            deriveFilteredRows(for: workspace)
+        }
+    }
+
+    func observedDomainsForApp(named appName: String, fallbackDomain: String? = nil) -> [String] {
+        var orderedDomains: [String] = []
+        var seen = Set<String>()
+
+        func appendDomains(_ candidates: [String]) {
+            for candidate in candidates {
+                let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, seen.insert(trimmed).inserted else {
+                    continue
+                }
+                orderedDomains.append(trimmed)
+            }
+        }
+
+        if let liveDomains = appNodes.first(where: { $0.name == appName })?.domains {
+            appendDomains(liveDomains)
+        }
+
+        appendDomains(TrafficDomainSnapshot.shared.domains(forApp: appName))
+
+        let transactionDomains = transactions
+            .filter { $0.clientApp == appName }
+            .map(\.request.host)
+        appendDomains(transactionDomains)
+
+        if let fallbackDomain {
+            appendDomains([fallbackDomain])
+        }
+
+        return orderedDomains.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func isSSLProxyingFullyEnabled(forAppNamed appName: String, fallbackDomain: String? = nil) -> Bool {
+        let domains = observedDomainsForApp(named: appName, fallbackDomain: fallbackDomain)
+        guard !domains.isEmpty else {
+            return false
+        }
+        return domains.allSatisfy { isSSLProxyingEnabled(for: $0) }
     }
 
     func enableSSLProxyingFromInspector(for domain: String) {
@@ -82,12 +138,27 @@ extension MainContentCoordinator {
         )
     }
 
-    func enableSSLProxyingFromInspector(forAppNamed appName: String) {
+    func disableSSLProxyingFromInspector(for domain: String) {
+        guard !domain.isEmpty else {
+            return
+        }
+
+        disableSSLProxyingForDomain(domain)
+
+        activeToast = ToastMessage(
+            style: .success,
+            text: String(
+                localized: "Disabled SSL Proxying for \(domain). Requests to it will stay tunneled."
+            )
+        )
+    }
+
+    func enableSSLProxyingFromInspector(forAppNamed appName: String, fallbackDomain: String? = nil) {
         guard !appName.isEmpty else {
             return
         }
 
-        let domains = observedDomainsForApp(named: appName)
+        let domains = observedDomainsForApp(named: appName, fallbackDomain: fallbackDomain)
         guard !domains.isEmpty else {
             return
         }
@@ -110,6 +181,45 @@ extension MainContentCoordinator {
                 localized: "Enabled SSL Proxying for domains from \(appName). Make the request again to inspect them."
             )
         )
+    }
+
+    func disableSSLProxyingFromInspector(forAppNamed appName: String, fallbackDomain: String? = nil) {
+        guard !appName.isEmpty else {
+            return
+        }
+
+        let domains = observedDomainsForApp(named: appName, fallbackDomain: fallbackDomain)
+        guard !domains.isEmpty else {
+            return
+        }
+
+        disableSSLProxyingForApp(
+            AppInfo(
+                name: appName,
+                domains: domains,
+                requestCount: domains.count
+            )
+        )
+
+        activeToast = ToastMessage(
+            style: .success,
+            text: String(
+                localized: "Disabled SSL Proxying for domains from \(appName). Requests from it will stay tunneled."
+            )
+        )
+    }
+
+    func setupSSLProxyingObserver() {
+        guard sslProxyingObserver == nil else {
+            return
+        }
+        sslProxyingObserver = NotificationCenter.default.addObserver(
+            forName: .sslProxyingStateDidChange, object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshSSLProxyingPresentation()
+            }
+        }
     }
 
     func installAndTrustCertificateFromInspector() {

@@ -9,6 +9,7 @@ struct SettingsWiringTests {
     @Test("showAlertOnQuit runtime value matches UI default after toggle cycle")
     func showAlertOnQuitRegisteredDefault() {
         let key = TestIdentity.showAlertOnQuitKey
+        let cleanup = installUserDefaultsGuard(keys: [key])
         let original = UserDefaults.standard.object(forKey: key)
         defer {
             if let original {
@@ -16,6 +17,7 @@ struct SettingsWiringTests {
             } else {
                 UserDefaults.standard.removeObject(forKey: key)
             }
+            cleanup()
         }
 
         // Setting true explicitly must read back as true
@@ -30,7 +32,9 @@ struct SettingsWiringTests {
     @Test("showAlertOnQuit respects explicit toggle to false")
     func showAlertOnQuitExplicitFalse() {
         let key = TestIdentity.showAlertOnQuitKey
+        let cleanup = installUserDefaultsGuard(keys: [key])
         let original = UserDefaults.standard.object(forKey: key)
+        defer { cleanup() }
 
         UserDefaults.standard.set(false, forKey: key)
         #expect(UserDefaults.standard.bool(forKey: key) == false)
@@ -46,7 +50,9 @@ struct SettingsWiringTests {
     @Test("NoCacheHeaderMutator reads isEnabled from UserDefaults")
     func noCachingIsEnabled() {
         let key = NoCacheHeaderMutator.userDefaultsKey
+        let cleanup = installUserDefaultsGuard(keys: [key])
         let original = UserDefaults.standard.object(forKey: key)
+        defer { cleanup() }
 
         UserDefaults.standard.set(true, forKey: key)
         #expect(NoCacheHeaderMutator.isEnabled == true)

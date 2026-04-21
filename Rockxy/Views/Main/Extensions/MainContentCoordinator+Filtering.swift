@@ -16,7 +16,9 @@ extension MainContentCoordinator {
     }
 
     func deriveFilteredRows(for workspace: WorkspaceState) {
-        var rows = workspace.filteredTransactions.map { RequestListRow(from: $0) }
+        var rows = workspace.filteredTransactions.map { transaction in
+            RequestListRow(from: transaction, sslState: sslState(for: transaction))
+        }
         if !workspace.activeSortDescriptors.isEmpty {
             rows.sort { lhs, rhs in
                 RequestListRow.compare(lhs, rhs, using: workspace.activeSortDescriptors)
@@ -31,7 +33,7 @@ extension MainContentCoordinator {
     private func appendDerivedRows(_ batch: [HTTPTransaction], to workspace: WorkspaceState) {
         let appendedRows = batch
             .filter { !$0.isTLSFailure }
-            .map(RequestListRow.init(from:))
+            .map { RequestListRow(from: $0, sslState: sslState(for: $0)) }
 
         guard !appendedRows.isEmpty else {
             return
@@ -39,6 +41,21 @@ extension MainContentCoordinator {
 
         workspace.filteredRows.append(contentsOf: appendedRows)
         workspace.refreshToken += 1
+    }
+
+    func sslState(for transaction: HTTPTransaction) -> RequestListRow.SSLState {
+        guard let scheme = transaction.request.url.scheme?.lowercased(),
+              scheme == "https" || scheme == "wss" else
+        {
+            return .insecure
+        }
+
+        let host = transaction.request.host
+        guard !host.isEmpty else {
+            return .secureTunneled
+        }
+
+        return SSLProxyingManager.shared.shouldIntercept(host) ? .secureIntercepted : .secureTunneled
     }
 
     // MARK: - Filtered Transactions

@@ -50,7 +50,7 @@ struct RequestListRowTests {
 
         #expect(row.statusCode == nil)
         #expect(row.statusMessage == nil)
-        #expect(row.responseBodySize == nil)
+        #expect(row.responseSize == nil)
         #expect(row.responseContentType == nil)
         #expect(row.responseHeaders == nil)
     }
@@ -106,8 +106,8 @@ struct RequestListRowTests {
         )
         let row = RequestListRow(from: transaction)
 
-        #expect(row.responseBodySize != nil)
-        #expect(row.responseBodySize ?? 0 > 0)
+        #expect(row.responseSize != nil)
+        #expect(row.responseSize ?? 0 > 0)
     }
 
     // MARK: - Sorting
@@ -132,6 +132,16 @@ struct RequestListRowTests {
         #expect(RequestListRow.compare(ok, error, using: descriptors) == true)
         #expect(RequestListRow.compare(ok, pending, using: descriptors) == true)
         #expect(RequestListRow.compare(pending, ok, using: descriptors) == false)
+    }
+
+    @Test("Sort by status text")
+    func sortByStatusText() {
+        let active = makeRow(state: .active)
+        let completed = makeRow(state: .completed)
+        let descriptors = [NSSortDescriptor(key: "state", ascending: true)]
+
+        #expect(RequestListRow.compare(active, completed, using: descriptors) == true)
+        #expect(RequestListRow.compare(completed, active, using: descriptors) == false)
     }
 
     @Test("Sort by sequence number (row column)")
@@ -162,6 +172,86 @@ struct RequestListRowTests {
 
         #expect(RequestListRow.compare(a, b, using: descriptors) == false)
         #expect(RequestListRow.compare(b, a, using: descriptors) == false)
+    }
+
+    @Test("Sort by request size uses request body bytes")
+    func sortByRequestSize() {
+        let small = makeRow(requestBodySize: 12)
+        let large = makeRow(requestBodySize: 120)
+        let descriptors = [NSSortDescriptor(key: "requestSize", ascending: true)]
+
+        #expect(RequestListRow.compare(small, large, using: descriptors) == true)
+        #expect(RequestListRow.compare(large, small, using: descriptors) == false)
+    }
+
+    @Test("Sort by response size uses response body bytes")
+    func sortByResponseSize() {
+        let small = makeRow(responseBodySize: 24)
+        let large = makeRow(responseBodySize: 240)
+        let descriptors = [NSSortDescriptor(key: "responseSize", ascending: true)]
+
+        #expect(RequestListRow.compare(small, large, using: descriptors) == true)
+        #expect(RequestListRow.compare(large, small, using: descriptors) == false)
+    }
+
+    @Test("Sort by ssl groups insecure before secure")
+    func sortBySSL() {
+        let http = makeRow(scheme: "http")
+        let https = makeRow(scheme: "https")
+        let descriptors = [NSSortDescriptor(key: "ssl", ascending: true)]
+
+        #expect(RequestListRow.compare(http, https, using: descriptors) == true)
+        #expect(RequestListRow.compare(https, http, using: descriptors) == false)
+    }
+
+    @Test("SSL state can represent intercepted HTTPS separately from tunneled HTTPS")
+    func interceptedSSLState() {
+        let tunneled = makeRow(scheme: "https")
+        let intercepted = makeRow(scheme: "https", sslState: .secureIntercepted)
+        let descriptors = [NSSortDescriptor(key: "ssl", ascending: true)]
+
+        #expect(RequestListRow.compare(tunneled, intercepted, using: descriptors) == true)
+        #expect(intercepted.sslState == .secureIntercepted)
+    }
+
+    @Test("Request size includes start line and headers even without body")
+    func requestSizeIncludesHeaders() {
+        let row = makeRow(
+            requestHeaders: [HTTPHeader(name: "Host", value: "example.com")]
+        )
+
+        #expect((row.requestSize ?? 0) > 0)
+    }
+
+    @Test("Duration falls back to measured runtime when timing breakdown is missing")
+    func durationFallsBackToMeasuredRuntime() {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.timingInfo = nil
+        transaction.measuredDuration = 0.245
+
+        let row = RequestListRow(from: transaction)
+
+        #expect(row.totalDuration == 0.245)
+    }
+
+    @Test("CONNECT tunnel rows do not expose synthetic byte sizes")
+    func connectTunnelHidesSyntheticByteSizes() {
+        let transaction = TLSInterceptHandler.makeTunnelTransaction(
+            host: "example.com",
+            port: 443,
+            statusCode: 200,
+            statusMessage: "Connection Established",
+            state: .completed,
+            sourcePort: 54_321,
+            measuredDuration: 0.120
+        )
+
+        let row = RequestListRow(from: transaction)
+
+        #expect(row.isConnectTunnel == true)
+        #expect(row.requestSize == nil)
+        #expect(row.responseSize == nil)
+        #expect(row.totalDuration == 0.120)
     }
 
     @Test("Custom header column sort resolved from row headers")
@@ -227,26 +317,46 @@ struct RequestListRowTests {
         host: String = "example.com",
         path: String = "/test",
         statusCode: Int? = 200,
+        state: TransactionState = .completed,
+        scheme: String = "https",
+        sslState: RequestListRow.SSLState? = nil,
         sequenceNumber: Int = 0,
+        requestBodySize: Int? = nil,
+        responseBodySize: Int? = nil,
         requestHeaders: [HTTPHeader] = [],
         responseHeaders: [HTTPHeader]? = nil
     )
         -> RequestListRow
     {
-        let url = "https://\(host)\(path)"
+        let url = "\(scheme)://\(host)\(path)"
         let transaction = TestFixtures.makeTransaction(
             url: url,
             statusCode: statusCode
         )
+        transaction.state = state
         transaction.sequenceNumber = sequenceNumber
         if !requestHeaders.isEmpty {
+            guard let requestURL = URL(string: url) else {
+                Issue.record("Expected test URL to be valid: \(url)")
+                return RequestListRow(from: transaction)
+            }
             transaction.request = HTTPRequestData(
                 method: "GET",
-                url: URL(string: url)!,
+                url: requestURL,
                 httpVersion: "HTTP/1.1",
                 headers: requestHeaders,
                 body: nil,
                 contentType: nil
+            )
+        }
+        if let requestBodySize {
+            transaction.request = HTTPRequestData(
+                method: transaction.request.method,
+                url: transaction.request.url,
+                httpVersion: transaction.request.httpVersion,
+                headers: transaction.request.headers,
+                body: Data(repeating: 0x61, count: requestBodySize),
+                contentType: transaction.request.contentType
             )
         }
         if let resHeaders = responseHeaders, let response = transaction.response {
@@ -258,7 +368,16 @@ struct RequestListRowTests {
                 contentType: response.contentType
             )
         }
-        return RequestListRow(from: transaction)
+        if let responseBodySize, let response = transaction.response {
+            transaction.response = HTTPResponseData(
+                statusCode: response.statusCode,
+                statusMessage: response.statusMessage,
+                headers: response.headers,
+                body: Data(repeating: 0x62, count: responseBodySize),
+                contentType: response.contentType
+            )
+        }
+        return RequestListRow(from: transaction, sslState: sslState)
     }
 
     private func makeWebSocketRow(frameCount: Int) -> RequestListRow {

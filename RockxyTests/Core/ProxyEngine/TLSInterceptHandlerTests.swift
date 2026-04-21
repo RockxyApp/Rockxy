@@ -84,7 +84,8 @@ struct TLSInterceptHandlerTests {
             statusCode: 200,
             statusMessage: "Connection Established",
             state: .completed,
-            sourcePort: 54_321
+            sourcePort: 54_321,
+            measuredDuration: 0.125
         )
 
         #expect(transaction.request.method == "CONNECT")
@@ -93,6 +94,7 @@ struct TLSInterceptHandlerTests {
         #expect(transaction.response?.statusMessage == "Connection Established")
         #expect(transaction.state == .completed)
         #expect(transaction.sourcePort == 54_321)
+        #expect(transaction.measuredDuration == 0.125)
         #expect(transaction.isTLSFailure == false)
     }
 

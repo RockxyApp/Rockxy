@@ -165,8 +165,7 @@ struct SSLProxyingListView: View {
     // MARK: - Tab Picker
 
     private var tabPicker: some View {
-        HStack {
-            Spacer()
+        UtilitySegmentedHeader(width: 260) {
             Picker("", selection: Binding(
                 get: { viewModel.selectedTab },
                 set: { viewModel.switchTab(to: $0) }
@@ -175,11 +174,7 @@ struct SSLProxyingListView: View {
                 Text(String(localized: "Exclude List")).tag(SSLProxyingListType.exclude)
             }
             .pickerStyle(.segmented)
-            .frame(width: 260)
-            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     private var tabDescription: some View {
@@ -190,7 +185,7 @@ struct SSLProxyingListView: View {
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.bottom, 6)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Content

@@ -21,6 +21,7 @@ struct RequestInspectorView: View {
             Divider()
             tabContent
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: Private
@@ -31,7 +32,7 @@ struct RequestInspectorView: View {
     @State private var showPreviewPopover = false
 
     private var inspectorTabBar: some View {
-        HStack(spacing: 0) {
+        InspectorTabStrip {
             ForEach(RequestInspectorTab.allCases, id: \.self) { tab in
                 InspectorTabButton(
                     title: tab.displayName,
@@ -56,13 +57,9 @@ struct RequestInspectorView: View {
                     }
                 }
             }
-
+        } trailingContent: {
             previewTabMenuButton
-
-            Spacer()
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 4)
     }
 
     private var previewTabMenuButton: some View {
@@ -83,17 +80,20 @@ struct RequestInspectorView: View {
     }
 
     @ViewBuilder private var tabContent: some View {
-        if let previewTab = selectedPreviewTab,
-           previewTabStore.requestTabs.contains(where: { $0.id == previewTab.id })
-        {
-            PreviewTabContentView(
-                tab: previewTab,
-                transaction: transaction,
-                beautify: previewTabStore.autoBeautify
-            )
-        } else {
-            nativeTabContent
+        Group {
+            if let previewTab = selectedPreviewTab,
+               previewTabStore.requestTabs.contains(where: { $0.id == previewTab.id })
+            {
+                PreviewTabContentView(
+                    tab: previewTab,
+                    transaction: transaction,
+                    beautify: previewTabStore.autoBeautify
+                )
+            } else {
+                nativeTabContent
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder private var nativeTabContent: some View {

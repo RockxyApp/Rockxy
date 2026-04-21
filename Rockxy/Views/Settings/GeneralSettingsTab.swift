@@ -198,6 +198,9 @@ struct GeneralSettingsTab: View {
                     let response = await panel.beginSheetModal(for: NSApp.keyWindow ?? NSWindow())
                     if response == .OK, let url = panel.url {
                         try pem.write(to: url, atomically: true, encoding: .utf8)
+                        await MainActor.run {
+                            AppSettingsManager.shared.updateLastExportedRootCAPath(url.path)
+                        }
                         certificateStatus = .success(String(localized: "Root CA exported successfully."))
                         Self.logger.info("Root CA exported to \(url.path)")
                     }
@@ -226,6 +229,9 @@ struct GeneralSettingsTab: View {
             defer { certLoading = false }
             do {
                 try await CertificateManager.shared.reset()
+                await MainActor.run {
+                    AppSettingsManager.shared.updateLastExportedRootCAPath(nil)
+                }
                 certificateStatus = .success(String(localized: "All certificates have been reset."))
                 await checkCAStatus()
                 Self.logger.info("Certificates reset")

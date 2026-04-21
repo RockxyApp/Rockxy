@@ -804,6 +804,7 @@ extension HTTPProxyHandler {
                 response: nil,
                 state: .blocked
             )
+            transaction.measuredDuration = requestElapsedDuration()
             transaction.sourcePort = clientSourcePort
             callback(transaction)
             return
@@ -829,6 +830,7 @@ extension HTTPProxyHandler {
             ),
             state: status == 403 ? .blocked : .failed
         )
+        transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort
         callback(transaction)
     }
@@ -857,6 +859,7 @@ extension HTTPProxyHandler {
             response: responseData,
             state: .completed
         )
+        transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort
         callback(transaction)
     }
@@ -868,7 +871,16 @@ extension HTTPProxyHandler {
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         let transaction = HTTPTransaction(request: requestData, state: state)
+        transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort
         callback(transaction)
+    }
+
+    nonisolated private func requestElapsedDuration() -> TimeInterval? {
+        guard let requestStartTime else {
+            return nil
+        }
+        let elapsedNanos = DispatchTime.now().uptimeNanoseconds - requestStartTime.uptimeNanoseconds
+        return TimeInterval(elapsedNanos) / 1_000_000_000.0
     }
 }

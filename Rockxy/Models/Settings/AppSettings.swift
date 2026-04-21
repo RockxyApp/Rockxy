@@ -34,6 +34,12 @@ struct AppSettings {
     /// When true, sensitive headers and body fields are redacted in MCP responses.
     var mcpRedactSensitiveData: Bool = true
 
+    /// The last filesystem path the user explicitly chose when exporting the
+    /// Rockxy root CA certificate. This is only a UI convenience hint for
+    /// snippet generation and can be nil if the certificate has never been
+    /// exported or the export location is unknown.
+    var lastExportedRootCAPath: String?
+
     /// The effective listen address derived from `onlyListenOnLocalhost`.
     var effectiveListenAddress: String {
         onlyListenOnLocalhost ? "127.0.0.1" : "0.0.0.0"

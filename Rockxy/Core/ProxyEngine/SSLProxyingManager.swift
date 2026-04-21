@@ -66,6 +66,7 @@ final class SSLProxyingManager {
             _forceGlobalPassthrough = newValue
             passthroughLock.unlock()
             Self.logger.info("Global TLS passthrough \(newValue ? "enabled" : "disabled")")
+            NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
         }
     }
 
@@ -268,6 +269,7 @@ final class SSLProxyingManager {
             )
             let data = try JSONEncoder().encode(storage)
             try data.write(to: url, options: .atomic)
+            NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
             Self.logger.debug("Saved \(self.rules.count) SSL proxying rules")
         } catch {
             Self.logger.error("Failed to save SSL proxying rules: \(error.localizedDescription)")

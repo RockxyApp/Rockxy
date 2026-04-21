@@ -38,6 +38,14 @@ struct RockxyApp: App {
         .commandsRemoved()
         .windowResizability(.contentSize)
 
+        Window(String(localized: "Developer Setup Hub"), id: "developerSetupHub") {
+            DeveloperSetupWindowView(coordinator: mainCoordinator)
+        }
+        .commandsRemoved()
+        .defaultSize(width: 1_180, height: 760)
+        .defaultPosition(.center)
+        .windowToolbarStyle(.unifiedCompact)
+
         Window(String(localized: "Map Local"), id: "mapLocal") {
             MapLocalWindowView()
         }
@@ -500,6 +508,12 @@ struct RockxyMenuCommands: Commands {
 
             Divider()
 
+            Button(String(localized: "Debug My App…")) {
+                openWindow(id: "developerSetupHub")
+            }
+
+            Divider()
+
             Toggle(String(localized: "No Caching"), isOn: $isNoCachingEnabled)
 
             Divider()
@@ -640,6 +654,10 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Getting Started…")) {
                 openWindow(id: "main")
                 lifecycleState.showWelcome = true
+            }
+
+            Button(String(localized: "Debug My App…")) {
+                openWindow(id: "developerSetupHub")
             }
 
             Divider()

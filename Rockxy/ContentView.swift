@@ -74,6 +74,7 @@ struct ContentView: View {
             }
             coordinator.readiness.startObserving()
             coordinator.setupRulesObserver()
+            coordinator.setupSSLProxyingObserver()
             coordinator.loadInitialRules()
         }
         .onReceive(NotificationCenter.default.publisher(

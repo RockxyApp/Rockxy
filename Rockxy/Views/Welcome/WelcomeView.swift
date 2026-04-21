@@ -233,6 +233,20 @@ struct WelcomeView: View {
 
                 Spacer()
 
+                if viewModel.canGetStarted {
+                    Button(String(localized: "Debug My App…")) {
+                        onboardingCompletedOnce = true
+                        openWindow(id: "developerSetupHub")
+                        if let onComplete {
+                            onComplete()
+                        } else {
+                            dismiss()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+
                 Button(String(localized: "Get Started")) {
                     onboardingCompletedOnce = true
                     if let onComplete {
