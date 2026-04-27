@@ -204,6 +204,16 @@ Rockxy is built and maintained by independent developers. Sponsorships fund cont
 
 [GNU Affero General Public License v3.0](LICENSE) — Copyright 2024–2026 Rockxy Contributors.
 
+## Star History
+
+<a href="https://www.star-history.com/?repos=RockxyApp%2FRockxy&type=date&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=RockxyApp/Rockxy&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=RockxyApp/Rockxy&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=RockxyApp/Rockxy&type=date&legend=top-left" />
+ </picture>
+</a>
+
 ---
 
 <p align="center">
