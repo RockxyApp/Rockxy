@@ -90,7 +90,7 @@ actor RootCADownloadServer {
 
         await stop()
 
-        guard let host = Self.lanIPv4Addresses().first else {
+        guard let host = Self.rankedLANIPv4AddressCandidates().first?.address else {
             throw RootCADownloadError.noReachableLANAddress
         }
 
@@ -156,10 +156,14 @@ actor RootCADownloadServer {
     }
 
     nonisolated static func lanIPv4Addresses() -> [String] {
-        var addresses: [String] = []
+        rankedLANIPv4AddressCandidates().map(\.address)
+    }
+
+    nonisolated static func rankedLANIPv4AddressCandidates() -> [LANIPv4AddressCandidate] {
+        var candidates: [(interfaceName: String, address: String)] = []
         var interfaces: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaces) == 0, let firstInterface = interfaces else {
-            return addresses
+            return []
         }
         defer { freeifaddrs(interfaces) }
 
@@ -195,18 +199,93 @@ actor RootCADownloadServer {
             }
 
             let candidate = String(cString: hostname)
-            if !candidate.isEmpty, candidate != "0.0.0.0", !addresses.contains(candidate) {
-                addresses.append(candidate)
+            let interfaceName = String(cString: interface.ifa_name)
+            if !candidate.isEmpty, candidate != "0.0.0.0" {
+                candidates.append((interfaceName: interfaceName, address: candidate))
             }
         }
 
-        return addresses
+        return rankedLANIPv4AddressCandidates(from: candidates)
+    }
+
+    nonisolated static func rankedLANIPv4AddressCandidates(
+        from candidates: [(interfaceName: String, address: String)]
+    ) -> [LANIPv4AddressCandidate] {
+        var seenAddresses = Set<String>()
+        return candidates
+            .compactMap { candidate -> LANIPv4AddressCandidate? in
+                guard let rank = interfaceRank(candidate.interfaceName) else {
+                    return nil
+                }
+                return LANIPv4AddressCandidate(
+                    interfaceName: candidate.interfaceName,
+                    address: candidate.address,
+                    rank: rank
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.rank != rhs.rank {
+                    return lhs.rank < rhs.rank
+                }
+                if lhs.interfaceName != rhs.interfaceName {
+                    return lhs.interfaceName.localizedStandardCompare(rhs.interfaceName) == .orderedAscending
+                }
+                return lhs.address.localizedStandardCompare(rhs.address) == .orderedAscending
+            }
+            .filter { candidate in
+                seenAddresses.insert(candidate.address).inserted
+            }
     }
 
     // MARK: Private
 
     private var eventLoopGroup: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
+
+    nonisolated private static func interfaceRank(_ name: String) -> Int? {
+        let lowercasedName = name.lowercased()
+        guard !lowercasedName.hasPrefix("lo") else {
+            return nil
+        }
+
+        switch lowercasedName {
+        case "en0":
+            return 0
+        case "en1":
+            return 1
+        case "pdp_ip0":
+            return 5
+        default:
+            if lowercasedName.hasPrefix("en") {
+                return 10
+            }
+            if Self.virtualInterfacePrefixes.contains(where: { lowercasedName.hasPrefix($0) }) {
+                return 90
+            }
+            return 50
+        }
+    }
+
+    nonisolated private static let virtualInterfacePrefixes = [
+        "utun",
+        "bridge",
+        "vmnet",
+        "vboxnet",
+        "awdl",
+        "gif",
+        "ppp",
+        "p2p",
+        "llw",
+        "stf",
+    ]
+}
+
+// MARK: - LANIPv4AddressCandidate
+
+struct LANIPv4AddressCandidate: Equatable, Sendable {
+    let interfaceName: String
+    let address: String
+    let rank: Int
 }
 
 // MARK: - RootCADownloadHandler

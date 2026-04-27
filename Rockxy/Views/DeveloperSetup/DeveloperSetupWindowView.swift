@@ -48,20 +48,20 @@ struct DeveloperSetupWindowView: View {
             }
         }
         .sheet(isPresented: Binding(
-            get: { shareSession != nil },
+            get: { caShareController.currentSession != nil },
             set: { isPresented in
                 if !isPresented {
-                    Task { await stopRootCASharing(clearSession: true) }
+                    Task { await caShareController.stopSharing(clearSession: true) }
                 }
             }
         )) {
-            if let shareSession {
+            if let shareSession = caShareController.currentSession {
                 RootCAShareSheet(
                     session: shareSession,
-                    fingerprint: certificateShareFingerprint,
+                    fingerprint: caShareController.currentFingerprint,
                     onCopyURL: { copyRootCAShareURL(shareSession.publicURL) },
                     onStop: {
-                        Task { await stopRootCASharing(clearSession: true) }
+                        Task { await caShareController.stopSharing(clearSession: true) }
                     }
                 )
             }
@@ -78,7 +78,7 @@ struct DeveloperSetupWindowView: View {
         .onChange(of: ReadinessCoordinator.shared.activeWarning) { _, _ in refreshSnapshot() }
         .onDisappear {
             viewModel.cancelValidation(markCancelled: true)
-            Task { await stopRootCASharing(clearSession: true) }
+            Task { await caShareController.stopSharing(clearSession: true) }
         }
     }
 
@@ -87,9 +87,7 @@ struct DeveloperSetupWindowView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @State private var viewModel: DeveloperSetupViewModel
-    @State private var shareServer = RootCADownloadServer()
-    @State private var shareSession: RootCADownloadSession?
-    @State private var certificateShareFingerprint: String?
+    @StateObject private var caShareController = CAShareController()
     @State private var certificateShareStatusMessage: String?
 
     private var toolbar: some View {
@@ -835,36 +833,32 @@ struct DeveloperSetupWindowView: View {
         Task { @MainActor in
             do {
                 certificateShareStatusMessage = String(localized: "Preparing certificate sharing link...")
-                try await CertificateManager.shared.ensureRootCA()
-                guard let pem = try await CertificateManager.shared.getRootCAPEM() else {
-                    throw RootCADownloadError.noRootCA
-                }
-                let certificateSnapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: false)
-                let session = try await shareServer.start(certificatePEM: pem)
-                shareSession = session
-                certificateShareFingerprint = certificateSnapshot.fingerprintSHA256
+                _ = try await caShareController.startSharing()
                 certificateShareStatusMessage = String(localized: "Certificate sharing link started for \(viewModel.selectedTarget.title).")
                 await viewModel.refreshSnapshot()
             } catch {
-                certificateShareStatusMessage = error.localizedDescription
+                certificateShareStatusMessage = certificateShareFailureMessage(for: error)
             }
         }
     }
 
     private func copyRootCAShareURL(_ url: URL) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-        certificateShareStatusMessage = String(localized: "Certificate sharing URL copied.")
+        do {
+            try caShareController.copyShareURL(sessionURL: url)
+            certificateShareStatusMessage = String(localized: "Certificate sharing URL copied.")
+        } catch {
+            certificateShareStatusMessage = certificateShareFailureMessage(for: error)
+        }
     }
 
-    private func stopRootCASharing(clearSession: Bool) async {
-        await shareServer.stop()
-        if clearSession {
-            await MainActor.run {
-                shareSession = nil
-                certificateShareFingerprint = nil
-                certificateShareStatusMessage = nil
-            }
+    private func certificateShareFailureMessage(for error: Error) -> String {
+        switch error {
+        case let error as RootCADownloadError:
+            CAShareController.userFacingMessage(for: error)
+        case let error as RootCAShareValidationError:
+            error.localizedDescription
+        default:
+            String(localized: "Certificate sharing could not be started for \(viewModel.selectedTarget.title). Check your network and try again.")
         }
     }
 

@@ -250,49 +250,6 @@ struct DeveloperSetupViewModelTests {
         #expect(nextWorkflow.validation?.host == "httpbin.org")
     }
 
-    @Test("Guide catalog covers every guide-backed device and framework target")
-    func guideCatalogForGuideBackedTargets() {
-        let guideTargets: [SetupTarget.ID] = [
-            .iosDevice,
-            .iosSimulator,
-            .androidDevice,
-            .androidEmulator,
-            .tvOSWatchOS,
-            .visionPro,
-            .flutter,
-            .reactNative,
-        ]
-
-        for targetID in guideTargets {
-            let guide = DeveloperSetupGuideCatalog.content(for: targetID)
-            #expect(guide != nil)
-            #expect(guide?.setupTips.isEmpty == false)
-            #expect(guide?.validationTips.isEmpty == false)
-            #expect(guide?.troubleshootingTips.isEmpty == false)
-        }
-    }
-
-    @Test("Guide-backed Dev Hub targets advertise available manual support")
-    func guideBackedDevHubTargetsAdvertiseAvailableManualSupport() {
-        let guideBackedTargets: [SetupTarget] = [
-            .iosDevice,
-            .iosSimulator,
-            .androidDevice,
-            .androidEmulator,
-            .tvOSWatchOS,
-            .visionPro,
-            .flutter,
-            .reactNative,
-        ]
-
-        for target in guideBackedTargets {
-            #expect(
-                target.manualSupport == .availableNow,
-                "\(target.id.rawValue) should show Available now in the Dev Hub sidebar"
-            )
-        }
-    }
-
     @Test("Manual-snippet targets no longer return guide-only content")
     func promotedTargetsSkipGuideCatalog() {
         let promoted: [SetupTarget.ID] = [

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Sparkle
 
@@ -84,6 +85,22 @@ final class RockxyUpdateUserDriver: NSObject, SPUUserDriver {
     }
 
     func showUpdateInstalledAndRelaunched(_ relaunched: Bool, acknowledgement: @escaping () -> Void) {
+        if relaunched {
+            acknowledgement()
+            controller.dismiss()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Update Installed")
+        alert.informativeText = String(
+            localized: "The update was installed, but Rockxy did not relaunch automatically. Quit and reopen Rockxy to finish using the updated version."
+        )
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.alertStyle = .informational
+        alert.icon = AppIconProvider.appIcon
+        alert.runModal()
+
         acknowledgement()
         controller.dismiss()
     }

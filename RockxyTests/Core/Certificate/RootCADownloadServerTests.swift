@@ -26,6 +26,66 @@ struct RootCADownloadSessionTests {
     }
 }
 
+// MARK: - RootCAFingerprintVerifierTests
+
+struct RootCAFingerprintVerifierTests {
+    @Test("PEM fingerprint validation requires matching fingerprint")
+    func pemFingerprintValidation() throws {
+        let derData = Data([0x30, 0x03, 0x02, 0x01, 0x05])
+        let pem = """
+        -----BEGIN CERTIFICATE-----
+        \(derData.base64EncodedString())
+        -----END CERTIFICATE-----
+        """
+        let fingerprint = KeychainHelper.computeFingerprintSHA256(derData)
+
+        #expect(try RootCAFingerprintVerifier.verifiedFingerprint(
+            certificatePEM: pem,
+            expectedFingerprint: fingerprint
+        ) == fingerprint)
+        do {
+            _ = try RootCAFingerprintVerifier.verifiedFingerprint(
+                certificatePEM: pem,
+                expectedFingerprint: KeychainHelper.computeFingerprintSHA256(Data([0x01, 0x02, 0x03]))
+            )
+            Issue.record("Expected fingerprint mismatch to throw")
+        } catch RootCAShareValidationError.fingerprintMismatch {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+}
+
+// MARK: - RootCADownloadServerAddressTests
+
+struct RootCADownloadServerAddressTests {
+    @Test("LAN address ranking prefers physical interfaces over virtual interfaces")
+    func lanAddressRankingPrefersPhysicalInterfaces() {
+        let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+            (interfaceName: "lo0", address: "127.0.0.1"),
+            (interfaceName: "utun4", address: "100.64.0.2"),
+            (interfaceName: "bridge100", address: "192.168.64.1"),
+            (interfaceName: "en1", address: "192.168.1.20"),
+            (interfaceName: "en0", address: "192.168.1.10"),
+            (interfaceName: "vmnet8", address: "172.16.0.1"),
+        ])
+
+        #expect(candidates.map(\.interfaceName) == ["en0", "en1", "bridge100", "utun4", "vmnet8"])
+        #expect(candidates.first?.address == "192.168.1.10")
+    }
+
+    @Test("LAN address ranking keeps fallback interfaces when no physical interface is available")
+    func lanAddressRankingKeepsFallbackInterfaces() {
+        let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+            (interfaceName: "utun4", address: "100.64.0.2"),
+            (interfaceName: "bridge100", address: "192.168.64.1"),
+        ])
+
+        #expect(candidates.map(\.address) == ["192.168.64.1", "100.64.0.2"])
+    }
+}
+
 // MARK: - RootCADownloadResponderTests
 
 struct RootCADownloadResponderTests {

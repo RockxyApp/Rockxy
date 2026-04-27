@@ -64,7 +64,7 @@ enum SoftwareUpdateReleaseNotesContent: Equatable {
             }
         }
 
-        for encoding in [String.Encoding.utf8, .utf16, .unicode, .ascii] {
+        for encoding in [String.Encoding.utf8, .utf16, .ascii] {
             if let decoded = String(data: data, encoding: encoding) {
                 return decoded
             }

@@ -64,6 +64,7 @@ struct RockxyUpdateConfiguration {
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "RockxyUpdateConfiguration"
     )
+    private static let iso8601Formatter = ISO8601DateFormatter()
 
     private static func string(named key: String, in info: [String: Any]) -> String {
         (info[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -110,6 +111,6 @@ struct RockxyUpdateConfiguration {
         guard let raw = normalizedValue(string(named: key, in: info)) else {
             return nil
         }
-        return ISO8601DateFormatter().date(from: raw)
+        return iso8601Formatter.date(from: raw)
     }
 }

@@ -43,28 +43,26 @@ struct RootCAShareSheet: View {
                     TimelineView(.periodic(from: Date(), by: 1)) { context in
                         infoRow(title: String(localized: "Expires"), value: expiryText(at: context.date))
                     }
-                    infoRow(title: String(localized: "Fingerprint"), value: fingerprint ?? String(localized: "Unavailable"))
+                    fingerprintInfoRow
 
-                    Text(
-                        String(
-                            localized: """
-                            On the device, open this link in Safari, install the downloaded profile, then \
-                            enable Full Trust in Settings > General > About > Certificate Trust Settings.
-                            """
-                        )
-                    )
+                    Text(instructionText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(fingerprint == nil ? Color.red : Color.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             HStack {
                 Button {
+                    guard fingerprint != nil else {
+                        NSSound.beep()
+                        return
+                    }
                     onCopyURL()
                 } label: {
                     Label(String(localized: "Copy URL"), systemImage: "doc.on.doc")
                 }
+                .disabled(fingerprint == nil || session.isExpired)
 
                 Spacer()
 
@@ -85,8 +83,46 @@ struct RootCAShareSheet: View {
         return String(localized: "\(minutes)m \(seconds)s remaining")
     }
 
+    @ViewBuilder private var fingerprintInfoRow: some View {
+        if let fingerprint {
+            infoRow(title: String(localized: "Fingerprint"), value: fingerprint)
+                .padding(8)
+                .background(Color.accentColor.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            Label(String(localized: "Fingerprint unavailable — do not install"), systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var instructionText: String {
+        if fingerprint == nil {
+            return String(
+                localized: "Do not open, install, or trust this certificate until Rockxy can show a fingerprint for verification."
+            )
+        }
+
+        return String(
+            localized: """
+            Before installing, compare the certificate fingerprint shown on the device with the value above. \
+            Install and enable Full Trust only when both fingerprints match exactly.
+            """
+        )
+    }
+
     @ViewBuilder private var qrCode: some View {
-        if let image = Self.makeQRCode(from: session.publicURL.absoluteString) {
+        if fingerprint == nil {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .frame(width: 176, height: 176)
+                .overlay {
+                    Text(String(localized: "Verification required"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+        } else if let image = Self.makeQRCode(from: session.publicURL.absoluteString) {
             Image(nsImage: image)
                 .interpolation(.none)
                 .resizable()

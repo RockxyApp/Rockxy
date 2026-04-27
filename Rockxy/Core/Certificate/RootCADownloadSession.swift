@@ -105,3 +105,64 @@ enum RootCADownloadError: LocalizedError {
         }
     }
 }
+
+// MARK: - RootCAShareValidationError
+
+enum RootCAShareValidationError: LocalizedError {
+    case missingFingerprint
+    case certificateFingerprintUnavailable
+    case fingerprintMismatch
+
+    var errorDescription: String? {
+        switch self {
+        case .missingFingerprint:
+            String(localized: "The Root CA fingerprint is unavailable. Stop sharing and regenerate the Root CA before installing it on another device.")
+        case .certificateFingerprintUnavailable:
+            String(localized: "Rockxy could not compute the Root CA fingerprint. Stop sharing and regenerate the Root CA before installing it on another device.")
+        case .fingerprintMismatch:
+            String(localized: "The Root CA fingerprint changed before sharing. Stop sharing and try again.")
+        }
+    }
+}
+
+// MARK: - RootCAFingerprintVerifier
+
+enum RootCAFingerprintVerifier {
+    static func verifiedFingerprint(certificatePEM: String, expectedFingerprint: String?) throws -> String {
+        guard let expectedFingerprint, !expectedFingerprint.isEmpty else {
+            throw RootCAShareValidationError.missingFingerprint
+        }
+
+        guard let computedFingerprint = fingerprint(certificatePEM: certificatePEM) else {
+            throw RootCAShareValidationError.certificateFingerprintUnavailable
+        }
+
+        guard normalized(computedFingerprint) == normalized(expectedFingerprint) else {
+            throw RootCAShareValidationError.fingerprintMismatch
+        }
+
+        return expectedFingerprint
+    }
+
+    static func fingerprint(certificatePEM: String) -> String? {
+        let base64 = certificatePEM
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { !$0.hasPrefix("-----BEGIN") && !$0.hasPrefix("-----END") }
+            .joined()
+
+        guard let derData = Data(base64Encoded: base64) else {
+            return nil
+        }
+
+        return KeychainHelper.computeFingerprintSHA256(derData)
+    }
+
+    private static func normalized(_ fingerprint: String) -> String {
+        fingerprint
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+    }
+}

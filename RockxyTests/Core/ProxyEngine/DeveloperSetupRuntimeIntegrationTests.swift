@@ -290,6 +290,7 @@ struct DeveloperSetupRuntimeIntegrationTests {
         try await assertRuntimeProbe(
             runtimeName: "Firefox",
             requestPath: "/developer-setup/firefox",
+            captureTimeout: .seconds(30),
             buildInvocation: { proxyPort, upstreamPort, workingDirectory in
                 let profileDirectory = workingDirectory.appendingPathComponent("FirefoxProfile", isDirectory: true)
                 try FileManager.default.createDirectory(at: profileDirectory, withIntermediateDirectories: true)
@@ -449,6 +450,7 @@ struct DeveloperSetupRuntimeIntegrationTests {
             expectedCapturedHost: nextHostAddress,
             expectedCapturedMethod: "CONNECT",
             allowAnyCapturedPath: true,
+            captureTimeout: .seconds(30),
             buildInvocation: { proxyPort, upstreamPort, workingDirectory in
                 let appPort = try findFreePort()
                 let packageJSON = workingDirectory.appendingPathComponent("package.json")
@@ -551,6 +553,7 @@ struct DeveloperSetupRuntimeIntegrationTests {
         expectedCapturedMethod: String = "GET",
         expectedCapturedPath: String? = nil,
         allowAnyCapturedPath: Bool = false,
+        captureTimeout: Duration = .seconds(10),
         buildInvocation: @escaping @Sendable (_ proxyPort: Int, _ upstreamPort: Int, _ workingDirectory: URL) async throws -> ProcessInvocation
     ) async throws {
         let probeLock = try RuntimeProbeFileLock.acquire()
@@ -601,9 +604,13 @@ struct DeveloperSetupRuntimeIntegrationTests {
             let capturedTransaction = try await transactionRecorder.waitForTransaction(
                 host: expectedCapturedHost,
                 method: expectedCapturedMethod,
-                path: allowAnyCapturedPath ? nil : (expectedCapturedPath ?? requestPath)
+                path: allowAnyCapturedPath ? nil : (expectedCapturedPath ?? requestPath),
+                timeout: captureTimeout
             )
-            let upstreamRequest = try await upstreamRecorder.waitForRequest(path: requestPath)
+            let upstreamRequest = try await upstreamRecorder.waitForRequest(
+                path: requestPath,
+                timeout: captureTimeout
+            )
 
             #expect(capturedTransaction.request.method == expectedCapturedMethod)
             #expect(capturedTransaction.request.host == expectedCapturedHost)
@@ -857,7 +864,7 @@ private final class TransactionRecorder: @unchecked Sendable {
         host: String,
         method: String,
         path: String?,
-        timeout: Duration = .seconds(30)
+        timeout: Duration = .seconds(10)
     ) async throws -> HTTPTransaction {
         let deadline = ContinuousClock().now + timeout
 
@@ -899,7 +906,7 @@ private final class UpstreamRequestRecorder: @unchecked Sendable {
         lock.unlock()
     }
 
-    func waitForRequest(path: String, timeout: Duration = .seconds(30)) async throws -> UpstreamRequest {
+    func waitForRequest(path: String, timeout: Duration = .seconds(10)) async throws -> UpstreamRequest {
         let deadline = ContinuousClock().now + timeout
 
         while ContinuousClock().now < deadline {

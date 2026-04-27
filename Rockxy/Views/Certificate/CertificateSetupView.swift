@@ -58,15 +58,15 @@ struct CertificateSetupView: View {
                 )
             )
         }
-        .sheet(item: $shareSession, onDismiss: {
-            Task { await stopRootCASharing(clearSession: false) }
+        .sheet(item: $caShareController.currentSession, onDismiss: {
+            Task { await caShareController.stopSharing(clearSession: true) }
         }) { session in
             RootCAShareSheet(
                 session: session,
-                fingerprint: certSnapshot?.fingerprintSHA256,
+                fingerprint: caShareController.currentFingerprint,
                 onCopyURL: { copyShareURL(session.publicURL) },
                 onStop: {
-                    Task { await stopRootCASharing(clearSession: true) }
+                    Task { await caShareController.stopSharing(clearSession: true) }
                 }
             )
         }
@@ -77,7 +77,7 @@ struct CertificateSetupView: View {
             Task { await checkCAStatus() }
         }
         .onDisappear {
-            Task { await stopRootCASharing(clearSession: true) }
+            Task { await caShareController.stopSharing(clearSession: true) }
         }
     }
 
@@ -89,8 +89,7 @@ struct CertificateSetupView: View {
     @State private var certLoading = false
     @State private var statusMessage = ""
     @State private var showResetConfirmation = false
-    @State private var shareServer = RootCADownloadServer()
-    @State private var shareSession: RootCADownloadSession?
+    @StateObject private var caShareController = CAShareController()
 
     private func checkCAStatus(performValidation: Bool = false) async {
         certSnapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: performValidation)
@@ -132,12 +131,7 @@ struct CertificateSetupView: View {
                     }
 
                 case .share:
-                    guard let pem = try await CertificateManager.shared.getRootCAPEM() else {
-                        statusMessage = String(localized: "No Root CA to share. Generate one first.")
-                        return
-                    }
-                    let session = try await shareServer.start(certificatePEM: pem)
-                    shareSession = session
+                    let session = try await caShareController.startSharing()
                     statusMessage = String(localized: "Certificate sharing link started.")
                     Self.logger.info("Root CA sharing started on \(session.host):\(session.port)")
 
@@ -164,7 +158,7 @@ struct CertificateSetupView: View {
         Task {
             defer { certLoading = false }
             do {
-                await stopRootCASharing(clearSession: true)
+                await caShareController.stopSharing(clearSession: true)
                 try await CertificateManager.shared.reset()
                 await MainActor.run {
                     AppSettingsManager.shared.updateLastExportedRootCAPath(nil)
@@ -180,15 +174,11 @@ struct CertificateSetupView: View {
     }
 
     private func copyShareURL(_ url: URL) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
-    }
-
-    @MainActor
-    private func stopRootCASharing(clearSession: Bool) async {
-        await shareServer.stop()
-        if clearSession {
-            shareSession = nil
+        do {
+            try caShareController.copyShareURL(sessionURL: url)
+            statusMessage = String(localized: "Certificate sharing URL copied.")
+        } catch {
+            statusMessage = CAShareController.userFacingMessage(for: error)
         }
     }
 }

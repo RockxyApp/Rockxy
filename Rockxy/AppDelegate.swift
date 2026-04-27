@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             await HelperManager.shared.checkStatus()
             await PluginManager.shared.ensureLoadedOnce()
-            guard !ProcessInfo.processInfo.isTestHost else {
+            guard !RockxyIdentity.isRunningTests else {
                 return
             }
             await MCPServerCoordinator.shared.startIfEnabled()
