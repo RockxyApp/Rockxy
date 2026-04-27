@@ -162,7 +162,15 @@ final class HelperManager {
             bundledHelperPlistRelativePath(plistName: identity.helperPlistName)
         )
 
-        guard fileManager.fileExists(atPath: helperBinaryURL.path) else {
+        let helperBinaryResourceValues = try? helperBinaryURL.resourceValues(forKeys: [
+            .isDirectoryKey,
+            .isRegularFileKey,
+        ])
+        guard helperBinaryResourceValues?.isRegularFile == true,
+              helperBinaryResourceValues?.isDirectory != true,
+              fileManager.isReadableFile(atPath: helperBinaryURL.path),
+              fileManager.isExecutableFile(atPath: helperBinaryURL.path)
+        else {
             throw HelperInstallPreflightError.missingBundledHelperBinary(path: helperBinaryURL.path)
         }
         guard fileManager.fileExists(atPath: helperPlistURL.path) else {
@@ -620,7 +628,7 @@ final class HelperManager {
         do {
             try Self.validateBundledHelperInstallResources()
         } catch let error as HelperInstallPreflightError {
-            Self.logger.error("Bundled helper install preflight failed: \(Self.helperPreflightFailureReason(error), privacy: .public)")
+            Self.logger.error("Bundled helper install preflight failed: \(Self.helperPreflightFailureReason(error), privacy: .private)")
             status = .notInstalled
             installedInfo = nil
             isReachable = false

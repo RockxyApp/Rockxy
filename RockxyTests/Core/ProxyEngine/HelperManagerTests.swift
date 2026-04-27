@@ -83,6 +83,44 @@ struct HelperManagerTests {
         )
     }
 
+    @Test("helper install resources require executable helper file")
+    func helperInstallResourcesRequireExecutableHelperFile() throws {
+        let fixture = try makeHelperInstallResourceFixture(helperKind: .regularFile(permissions: 0o755))
+        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+
+        try HelperManager.validateBundledHelperInstallResources(bundle: fixture.bundle)
+    }
+
+    @Test("helper install resources reject helper directory")
+    func helperInstallResourcesRejectHelperDirectory() throws {
+        let fixture = try makeHelperInstallResourceFixture(helperKind: .directory)
+        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+
+        do {
+            try HelperManager.validateBundledHelperInstallResources(bundle: fixture.bundle)
+            Issue.record("Expected helper install resource validation to reject a helper directory")
+        } catch let error as HelperManager.HelperInstallPreflightError {
+            #expect(error == .missingBundledHelperBinary(path: fixture.helperBinaryURL.path))
+        } catch {
+            Issue.record("Unexpected helper install preflight error: \(error)")
+        }
+    }
+
+    @Test("helper install resources reject non-executable helper file")
+    func helperInstallResourcesRejectNonExecutableHelperFile() throws {
+        let fixture = try makeHelperInstallResourceFixture(helperKind: .regularFile(permissions: 0o644))
+        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+
+        do {
+            try HelperManager.validateBundledHelperInstallResources(bundle: fixture.bundle)
+            Issue.record("Expected helper install resource validation to reject a non-executable helper file")
+        } catch let error as HelperManager.HelperInstallPreflightError {
+            #expect(error == .missingBundledHelperBinary(path: fixture.helperBinaryURL.path))
+        } catch {
+            Issue.record("Unexpected helper install preflight error: \(error)")
+        }
+    }
+
     @Test("missing Label fails helper plist validation")
     func missingLabelFailsValidation() throws {
         let data = try makeHelperLaunchdPlistData(label: nil)
@@ -330,6 +368,60 @@ struct HelperManagerTests {
 }
 
 private let expectedHelperBundleProgram = "Contents/Library/HelperTools/RockxyHelperTool"
+
+private enum HelperBinaryKind {
+    case regularFile(permissions: Int)
+    case directory
+}
+
+private struct HelperInstallResourceFixture {
+    let temporaryDirectory: URL
+    let helperBinaryURL: URL
+    let bundle: Bundle
+}
+
+private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) throws -> HelperInstallResourceFixture {
+    let temporaryDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("rockxy-helper-fixture-\(UUID().uuidString)", isDirectory: true)
+    let appBundleURL = temporaryDirectory.appendingPathComponent("Rockxy.app", isDirectory: true)
+    let contentsURL = appBundleURL.appendingPathComponent("Contents", isDirectory: true)
+    try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+
+    let info: [String: Any] = [
+        "CFBundleIdentifier": TestIdentity.communityBundleIdentifier,
+        "CFBundleName": "Rockxy",
+        "RockxyFamilyNamespace": TestIdentity.familyNamespace,
+        "RockxyHelperBundleIdentifier": TestIdentity.helperBundleIdentifier,
+        "RockxyHelperMachServiceName": TestIdentity.helperMachServiceName,
+        "RockxyHelperPlistName": TestIdentity.helperPlistName,
+    ]
+    let infoData = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+    try infoData.write(to: contentsURL.appendingPathComponent("Info.plist"))
+
+    let helperBinaryURL = appBundleURL.appendingPathComponent(expectedHelperBundleProgram)
+    try FileManager.default.createDirectory(at: helperBinaryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    switch helperKind {
+    case let .regularFile(permissions):
+        try Data("helper".utf8).write(to: helperBinaryURL)
+        try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: helperBinaryURL.path)
+    case .directory:
+        try FileManager.default.createDirectory(at: helperBinaryURL, withIntermediateDirectories: true)
+    }
+
+    let helperPlistURL = appBundleURL
+        .appendingPathComponent("Contents/Library/LaunchDaemons/\(TestIdentity.helperPlistName)")
+    try FileManager.default.createDirectory(at: helperPlistURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try makeHelperLaunchdPlistData().write(to: helperPlistURL)
+
+    guard let bundle = Bundle(url: appBundleURL) else {
+        throw CocoaError(.fileReadUnknown)
+    }
+    return HelperInstallResourceFixture(
+        temporaryDirectory: temporaryDirectory,
+        helperBinaryURL: helperBinaryURL,
+        bundle: bundle
+    )
+}
 
 private func makeHelperLaunchdPlistData(
     label: String? = TestIdentity.helperMachServiceName,

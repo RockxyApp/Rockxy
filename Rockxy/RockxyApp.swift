@@ -262,6 +262,17 @@ private struct MainWindowContent: View {
 
 // MARK: - RockxyMenuCommands
 
+private enum ProjectLinks {
+    static let homepage = "https://rockxy.io"
+    static let repository = "https://github.com/RockxyApp/Rockxy"
+    static let wiki = "\(repository)/wiki"
+    static let issues = "\(repository)/issues"
+
+    static var repositoryURL: URL? {
+        URL(string: repository)
+    }
+}
+
 /// Defines Rockxy's full menu bar structure: File (session/export), Edit (copy as cURL),
 /// View (layout/tabs), Flow (replay/clear), Tools (proxy control), Diff, Scripting,
 /// Certificate, and Help. Actions are dispatched via `MainContentCommandActions`
@@ -681,21 +692,21 @@ struct RockxyMenuCommands: Commands {
             Divider()
 
             Button(String(localized: "Homepage…")) {
-                openURL("https://rockxy.io")
+                openURL(ProjectLinks.homepage)
             }
 
             Button(String(localized: "Github…")) {
-                openURL("https://github.com/RockxyApp/Rockxy")
+                openURL(ProjectLinks.repository)
             }
 
             Button(String(localized: "Technical Documents…")) {
-                openURL("https://github.com/RockxyApp/Rockxy/wiki")
+                openURL(ProjectLinks.wiki)
             }
 
             Divider()
 
             Button(String(localized: "Report Bug…")) {
-                openURL("https://github.com/RockxyApp/Rockxy/issues")
+                openURL(ProjectLinks.issues)
             }
 
             Button(String(localized: "Copy Debug Info…")) {
@@ -714,7 +725,7 @@ struct RockxyMenuCommands: Commands {
     private func showAboutPanel() {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
-        let homepage = URL(string: "https://github.com/RockxyApp/Rockxy")
+        let homepage = ProjectLinks.repositoryURL
         let credits = NSMutableAttributedString(string: String(localized: "Open source HTTP debugging for macOS.\n"))
 
         if let homepage {

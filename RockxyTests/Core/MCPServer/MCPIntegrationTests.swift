@@ -525,6 +525,7 @@ struct MCPIntegrationTests {
     private static let suiteLockResult: Result<CrossProcessLock, Error> = Result {
         try acquireTestLock()
     }
+    private static let validPortRange = 1...65_535
 
     /// Derives a stable, process-scoped port range so parallel test workers do not collide.
     private static func testPort(offset: Int) -> Int {
@@ -552,6 +553,8 @@ struct MCPIntegrationTests {
     }
 
     private func saveMCPSettings(enabled: Bool, port: Int) -> SavedSettings {
+        precondition(Self.validPortRange.contains(port), "MCP test port must be between 1 and 65535")
+
         let original = AppSettingsManager.shared.settings
         var settings = original
         settings.mcpServerEnabled = enabled
