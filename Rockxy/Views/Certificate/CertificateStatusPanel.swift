@@ -7,6 +7,7 @@ enum CertificateAction {
     case generate
     case installAndTrust
     case export
+    case share
     case reset
     case recheck
 }
@@ -260,6 +261,10 @@ struct CertificateStatusPanel: View {
                     onAction(.installAndTrust)
                 }
                 .disabled(isLoading)
+                Button(String(localized: "Share Certificate\u{2026}")) {
+                    onAction(.share)
+                }
+                .disabled(isLoading)
                 Button(String(localized: "Generate New\u{2026}")) {
                     onAction(.generate)
                 }
@@ -268,6 +273,10 @@ struct CertificateStatusPanel: View {
             case .trustIncomplete:
                 Button(String(localized: "Install & Trust")) {
                     onAction(.installAndTrust)
+                }
+                .disabled(isLoading)
+                Button(String(localized: "Share Certificate\u{2026}")) {
+                    onAction(.share)
                 }
                 .disabled(isLoading)
                 Button(String(localized: "Reset Certificate"), role: .destructive) {
@@ -284,6 +293,10 @@ struct CertificateStatusPanel: View {
                     onAction(.installAndTrust)
                 }
                 .disabled(isLoading)
+                Button(String(localized: "Share Certificate\u{2026}")) {
+                    onAction(.share)
+                }
+                .disabled(isLoading)
                 Button(String(localized: "Reset Certificate"), role: .destructive) {
                     onAction(.reset)
                 }
@@ -296,6 +309,10 @@ struct CertificateStatusPanel: View {
             case .trusted:
                 Button(String(localized: "Export Certificate\u{2026}")) {
                     onAction(.export)
+                }
+                .disabled(isLoading)
+                Button(String(localized: "Share Certificate\u{2026}")) {
+                    onAction(.share)
                 }
                 .disabled(isLoading)
                 Button(String(localized: "Generate New\u{2026}")) {

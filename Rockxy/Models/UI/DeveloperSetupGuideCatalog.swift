@@ -74,15 +74,27 @@ enum DeveloperSetupGuideCatalog {
                 ),
                 tip(
                     "ios-device-cert",
-                    "Install and trust the Rockxy root certificate",
-                    "Email or AirDrop the PEM to the device, install it as a profile, then enable full trust under Settings > General > About > Certificate Trust Settings."
+                    "Scan the temporary certificate link",
+                    """
+                    In Developer Setup Hub, choose Share Certificate, scan the QR code in Safari, install \
+                    the downloaded profile, then enable full trust under Settings > General > About > \
+                    Certificate Trust Settings.
+                    """
+                ),
+                tip(
+                    "ios-device-cleanup",
+                    "Clean up when debugging ends",
+                    "Remove the manual Wi-Fi proxy and remove the Rockxy certificate profile from the device when you are done debugging."
                 ),
             ],
             validationTips: [
                 tip(
                     "ios-device-validate",
                     "Send a single HTTPS request to confirm",
-                    "Load an HTTPS page in Safari or run the target app's login flow once and confirm Rockxy captures the request."
+                    """
+                    Load an HTTPS page in Safari or run the target app's login flow once and confirm \
+                    Rockxy captures the request. A VPN may bypass the Wi-Fi proxy, so disable it while validating.
+                    """
                 ),
             ],
             troubleshootingTips: [
@@ -90,6 +102,14 @@ enum DeveloperSetupGuideCatalog {
                     "ios-device-no-traffic",
                     "No traffic usually means the proxy is not set on the active Wi-Fi",
                     "Re-check the manual proxy entry on the current Wi-Fi; iOS does not use the proxy on cellular or when a VPN bypasses it."
+                ),
+                tip(
+                    "ios-device-full-trust",
+                    "Installing the profile is not enough",
+                    """
+                    After installing the profile, iOS still requires Full Trust under Settings > General > \
+                    About > Certificate Trust Settings before HTTPS traffic can be decrypted.
+                    """
                 ),
                 tip(
                     "ios-device-pinning",
@@ -116,7 +136,15 @@ enum DeveloperSetupGuideCatalog {
                 tip(
                     "ios-sim-cert",
                     "Trust the root certificate inside the simulator",
-                    "Drag the Rockxy PEM onto the simulator window to install it, then enable full trust under Settings > General > About > Certificate Trust Settings."
+                    """
+                    Use Share Certificate in Developer Setup Hub or export the Rockxy PEM, install it in \
+                    the simulator, then enable full trust under Settings > General > About > Certificate Trust Settings.
+                    """
+                ),
+                tip(
+                    "ios-sim-simctl",
+                    "Command-line install remains manual",
+                    "If you prefer Terminal, export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> for a prepared simulator."
                 ),
             ],
             validationTips: [

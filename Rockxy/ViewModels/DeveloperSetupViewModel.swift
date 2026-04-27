@@ -31,6 +31,7 @@ final class DeveloperSetupViewModel {
             recordingEnabled: coordinator.isRecording,
             activePort: coordinator.activeProxyPort,
             effectiveListenAddress: settings.effectiveListenAddress,
+            reachableLANAddress: Self.reachableLANAddress(),
             certificateGenerated: false,
             certificateTrusted: false,
             certificateExportable: false,
@@ -94,6 +95,12 @@ final class DeveloperSetupViewModel {
         selectedTarget.supportStatus == .availableNow && currentWorkflow.supportsValidation
     }
 
+    var usesGuideSetupContent: Bool {
+        selectedTarget.supportStatus == .availableNow
+            && currentGuideContent != nil
+            && !currentWorkflow.supportsSnippets
+    }
+
     var supportsAutomation: Bool {
         selectedTarget.automationSupport.isAvailable
     }
@@ -125,9 +132,14 @@ final class DeveloperSetupViewModel {
     }
 
     var bottomStatusText: String {
-        let snippetTitle = selectedTarget.supportStatus == .availableNow
-            ? selectedSnippetTitle
-            : String(localized: "Guide only")
+        let snippetTitle: String
+        if selectedTarget.supportStatus != .availableNow {
+            snippetTitle = String(localized: "Guide only")
+        } else if currentWorkflow.supportsSnippets {
+            snippetTitle = selectedSnippetTitle
+        } else {
+            snippetTitle = String(localized: "Manual guide")
+        }
 
         let automationTitle = selectedTarget.automationSupport.isAvailable
             ? selectedTarget.automationSupport.badgeTitle
@@ -222,11 +234,15 @@ final class DeveloperSetupViewModel {
     }
 
     var troubleshootingIssues: [SetupIssue] {
-        guard supportsValidation else {
-            return [.targetIsGuideOnly]
+        var issues: [SetupIssue] = []
+        if let deviceProxyIssue = Self.deviceProxyIssue(for: selectedTarget, snapshot: snapshot) {
+            issues.append(deviceProxyIssue)
         }
 
-        var issues: [SetupIssue] = []
+        guard supportsValidation else {
+            issues.append(selectedTarget.supportStatus == .availableNow ? .manualValidationOnly : .targetIsGuideOnly)
+            return issues
+        }
 
         if !snapshot.proxyRunning {
             issues.append(.proxyStopped)
@@ -277,6 +293,7 @@ final class DeveloperSetupViewModel {
         snapshot.recordingEnabled = coordinator.isRecording
         snapshot.activePort = coordinator.isProxyRunning ? coordinator.activeProxyPort : settings.proxyPort
         snapshot.effectiveListenAddress = settings.effectiveListenAddress
+        snapshot.reachableLANAddress = Self.reachableLANAddress()
         snapshot.certificateGenerated = certificateSnapshot.hasGeneratedCertificate
         snapshot.certificateTrusted = certificateSnapshot.isSystemTrustValidated || readiness.canInterceptHTTPS
         snapshot.certificateExportable = pem != nil
@@ -296,17 +313,14 @@ final class DeveloperSetupViewModel {
             return
         }
 
+        let nextIssue = Self.validationIssue(for: target, snapshot: snapshot, workflow: workflow)
+        activeIssue = nextIssue
         if workflow.supportsValidation {
-            let nextIssue = Self.validationIssue(for: target, snapshot: snapshot, workflow: workflow)
-            activeIssue = nextIssue
             if priorVerificationState != .waitingForTraffic {
                 snapshot.verificationState = nextIssue == nil ? .readyToVerify : .readinessFailed
             }
-        } else {
-            activeIssue = .targetIsGuideOnly
-            if priorVerificationState != .waitingForTraffic {
-                snapshot.verificationState = .idle
-            }
+        } else if priorVerificationState != .waitingForTraffic {
+            snapshot.verificationState = .idle
         }
     }
 
@@ -412,7 +426,11 @@ final class DeveloperSetupViewModel {
             }
 
             guard let validation = self.currentValidationSpec else {
-                self.activeIssue = .targetIsGuideOnly
+                self.activeIssue = Self.validationIssue(
+                    for: self.selectedTarget,
+                    snapshot: self.snapshot,
+                    workflow: self.currentWorkflow
+                )
                 self.snapshot.verificationState = .readinessFailed
                 self.selectedTab = .validate
                 return
@@ -529,13 +547,23 @@ final class DeveloperSetupViewModel {
         isProxyRunning ? activePort : configuredPort
     }
 
+    static func reachableLANAddress() -> String? {
+        RootCADownloadServer.lanIPv4Addresses().first
+    }
+
     static func validationIssue(
         for target: SetupTarget,
         snapshot: SetupSnapshot,
         workflow: SetupWorkflow
     ) -> SetupIssue? {
-        guard target.supportStatus == .availableNow, workflow.supportsValidation else {
+        if let deviceProxyIssue = deviceProxyIssue(for: target, snapshot: snapshot) {
+            return deviceProxyIssue
+        }
+        guard target.supportStatus == .availableNow else {
             return .targetIsGuideOnly
+        }
+        guard workflow.supportsValidation else {
+            return .manualValidationOnly
         }
         if !snapshot.runtimeReady {
             return .runtimeNotInstalled
@@ -551,6 +579,20 @@ final class DeveloperSetupViewModel {
         }
         if !snapshot.certificateExportable || !snapshot.certificateFileReady {
             return .certificateExportUnavailable
+        }
+        return nil
+    }
+
+    static func deviceProxyIssue(for target: SetupTarget, snapshot: SetupSnapshot) -> SetupIssue? {
+        guard target.supportStatus == .availableNow,
+              target.requiresReachableLANProxy
+        else {
+            return nil
+        }
+        guard snapshot.effectiveListenAddress != "127.0.0.1",
+              snapshot.reachableLANAddress != nil
+        else {
+            return .deviceProxyUnreachable
         }
         return nil
     }

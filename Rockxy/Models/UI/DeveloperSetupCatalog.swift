@@ -189,14 +189,17 @@ extension SetupTarget {
         title: String(localized: "iOS Device"),
         category: .device,
         iconName: "iphone.gen3",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "Physical iOS devices remain guide-only."),
+        shortSummary: String(localized: "Physical iOS devices use a manual proxy and certificate trust flow."),
         manualSummary: String(
-            localized: "Set a manual HTTP proxy on the active Wi-Fi, install the Rockxy root certificate as a profile, and enable full trust under Certificate Trust Settings."
+            localized: """
+            Set a manual HTTP proxy on the active Wi-Fi, scan the temporary Rockxy certificate link, \
+            install the profile, and enable full trust under Certificate Trust Settings.
+            """
         ),
         currentSupportSummary: String(
-            localized: "Rockxy does not pair with iOS hardware or push a certificate to the device; everything on this page is a manual step on the device itself."
+            localized: "Rockxy can share this Mac's public Root CA over a temporary local link, while iOS still requires you to install and trust it manually on the device."
         )
     )
 
@@ -205,14 +208,17 @@ extension SetupTarget {
         title: String(localized: "iOS Simulator"),
         category: .device,
         iconName: "ipad",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "iOS Simulator remains guide-only."),
+        shortSummary: String(localized: "iOS Simulator uses the Mac network path with simulator-local certificate trust."),
         manualSummary: String(
-            localized: "The simulator shares the Mac's network stack, so loopback is reachable; drag the Rockxy PEM onto the simulator and enable full trust for it."
+            localized: """
+            The simulator shares the Mac's network stack, so loopback is reachable; export or share \
+            the Rockxy PEM, install it in the simulator, and enable full trust for it.
+            """
         ),
         currentSupportSummary: String(
-            localized: "Rockxy does not drive simctl or inject the certificate into a simulator for you; reinstall the target app after the certificate is trusted."
+            localized: "Rockxy does not drive simctl or inject the certificate into a simulator; reinstall or cold-launch the target app after the certificate is trusted."
         )
     )
 
@@ -221,14 +227,20 @@ extension SetupTarget {
         title: String(localized: "Android Device"),
         category: .device,
         iconName: "iphone.gen2.radiowaves.left.and.right",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "Physical Android devices are available as a guide-only target."),
+        shortSummary: String(localized: "Physical Android devices use a manual proxy, user CA, and debug app trust flow."),
         manualSummary: String(
-            localized: "Set a manual proxy on the active Wi-Fi, install the Rockxy PEM as a user CA, and rely on a debug build whose network-security-config trusts user CAs."
+            localized: """
+            Set a manual proxy on the active Wi-Fi, share or install the Rockxy PEM as a user CA, \
+            and rely on a debug build whose network-security-config trusts user CAs.
+            """
         ),
         currentSupportSummary: String(
-            localized: "Rockxy does not push certificates to Android or modify a network-security-config for you; release builds generally will not trust user CAs."
+            localized: """
+            Rockxy can share this Mac's public Root CA over a temporary local link, while Android \
+            still requires manual proxy, user CA, and debug trust configuration; release builds generally will not trust user CAs.
+            """
         )
     )
 
@@ -237,14 +249,17 @@ extension SetupTarget {
         title: String(localized: "Android Emulator"),
         category: .device,
         iconName: "ipad.landscape",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "Android Emulator remains guide-only."),
+        shortSummary: String(localized: "Android Emulator uses manual proxy and user CA setup."),
         manualSummary: String(
-            localized: "Inside the stock emulator the Mac is reachable at 10.0.2.2; set the emulator proxy to that address plus Rockxy's port, then install the PEM as a user CA."
+            localized: """
+            Inside the stock emulator the Mac is reachable at 10.0.2.2; set the emulator proxy to \
+            that address plus Rockxy's port, then share or install the PEM as a user CA.
+            """
         ),
         currentSupportSummary: String(
-            localized: "Rockxy does not drive the emulator or mutate its system trust; app-level TLS still depends on a debug network-security-config."
+            localized: "Rockxy provides the Dev Hub guide and temporary certificate share link; app-level TLS still depends on a debug network-security-config."
         )
     )
 
@@ -253,7 +268,7 @@ extension SetupTarget {
         title: String(localized: "tvOS / watchOS"),
         category: .device,
         iconName: "appletv",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
         shortSummary: String(localized: "tvOS and watchOS follow the iOS device and simulator paths."),
         manualSummary: String(
@@ -269,7 +284,7 @@ extension SetupTarget {
         title: String(localized: "Vision Pro"),
         category: .device,
         iconName: "visionpro",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
         shortSummary: String(localized: "Vision Pro follows the iOS device class of setup."),
         manualSummary: String(
@@ -285,9 +300,9 @@ extension SetupTarget {
         title: "Flutter",
         category: .framework,
         iconName: "square.stack.3d.forward.dottedline",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "Flutter is available as a framework-specific guide."),
+        shortSummary: String(localized: "Flutter is available through framework guidance plus the underlying device setup."),
         manualSummary: String(
             localized: "Use a proxy-aware HTTP client such as HttpClient or dio; Rockxy then captures traffic from whichever iOS or Android target runs the app."
         ),
@@ -301,9 +316,9 @@ extension SetupTarget {
         title: String(localized: "React Native"),
         category: .framework,
         iconName: "cube.transparent",
-        manualSupport: .guideOnly,
+        manualSupport: .availableNow,
         automationSupport: .none,
-        shortSummary: String(localized: "React Native is available as a framework-specific guide."),
+        shortSummary: String(localized: "React Native is available through framework guidance plus the underlying device setup."),
         manualSummary: String(
             localized: "fetch runs through the iOS or Android network stack, so fix the underlying device or emulator setup first, then restart Metro and the app."
         ),

@@ -85,11 +85,26 @@ struct GeneralSettingsTab: View {
                 )
             )
         }
+        .sheet(item: $shareSession, onDismiss: {
+            Task { await stopRootCASharing(clearSession: false) }
+        }) { session in
+            RootCAShareSheet(
+                session: session,
+                fingerprint: certSnapshot?.fingerprintSHA256,
+                onCopyURL: { copyShareURL(session.publicURL) },
+                onStop: {
+                    Task { await stopRootCASharing(clearSession: true) }
+                }
+            )
+        }
         .task {
             await checkCAStatus()
         }
         .onChange(of: ReadinessCoordinator.shared.certReadiness) {
             Task { await checkCAStatus() }
+        }
+        .onDisappear {
+            Task { await stopRootCASharing(clearSession: true) }
         }
     }
 
@@ -112,6 +127,8 @@ struct GeneralSettingsTab: View {
     @State private var certLoading = false
     @State private var showResetConfirmation = false
     @State private var certificateStatus: CertificateStatus = .idle
+    @State private var shareServer = RootCADownloadServer()
+    @State private var shareSession: RootCADownloadSession?
 
     private var sectionDivider: some View {
         Divider().padding(.horizontal, 0)
@@ -205,6 +222,18 @@ struct GeneralSettingsTab: View {
                         Self.logger.info("Root CA exported to \(url.path)")
                     }
 
+                case .share:
+                    guard let pem = try await CertificateManager.shared.getRootCAPEM() else {
+                        certificateStatus = .error(
+                            String(localized: "No Root CA certificate to share. Generate one first.")
+                        )
+                        return
+                    }
+                    let session = try await shareServer.start(certificatePEM: pem)
+                    shareSession = session
+                    certificateStatus = .success(String(localized: "Root CA sharing link started."))
+                    Self.logger.info("Root CA sharing started on \(session.host):\(session.port)")
+
                 case .reset:
                     showResetConfirmation = true
                     return
@@ -228,6 +257,7 @@ struct GeneralSettingsTab: View {
         Task {
             defer { certLoading = false }
             do {
+                await stopRootCASharing(clearSession: true)
                 try await CertificateManager.shared.reset()
                 await MainActor.run {
                     AppSettingsManager.shared.updateLastExportedRootCAPath(nil)
@@ -241,6 +271,19 @@ struct GeneralSettingsTab: View {
                 )
                 Self.logger.error("Certificate reset failed: \(error)")
             }
+        }
+    }
+
+    private func copyShareURL(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+
+    @MainActor
+    private func stopRootCASharing(clearSession: Bool) async {
+        await shareServer.stop()
+        if clearSession {
+            shareSession = nil
         }
     }
 }

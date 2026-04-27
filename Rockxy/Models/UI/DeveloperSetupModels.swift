@@ -185,8 +185,10 @@ enum SetupIssue: String, CaseIterable, Equatable, Identifiable {
     case recordingPaused
     case certificateNotTrusted
     case certificateExportUnavailable
+    case deviceProxyUnreachable
     case noTrafficDetected
     case wrongSnippetChosen
+    case manualValidationOnly
     case targetIsGuideOnly
 
     // MARK: Internal
@@ -207,10 +209,14 @@ enum SetupIssue: String, CaseIterable, Equatable, Identifiable {
             String(localized: "Certificate not trusted")
         case .certificateExportUnavailable:
             String(localized: "Certificate export/setup incomplete")
+        case .deviceProxyUnreachable:
+            String(localized: "Device proxy unreachable")
         case .noTrafficDetected:
             String(localized: "No traffic detected")
         case .wrongSnippetChosen:
             String(localized: "Wrong snippet chosen")
+        case .manualValidationOnly:
+            String(localized: "Manual validation only")
         case .targetIsGuideOnly:
             String(localized: "Guide-only target")
         }
@@ -228,10 +234,19 @@ enum SetupIssue: String, CaseIterable, Equatable, Identifiable {
             String(localized: "Install and trust the Rockxy root certificate before validating HTTPS traffic.")
         case .certificateExportUnavailable:
             String(localized: "Generate and export the Rockxy root certificate so the selected client can trust it.")
+        case .deviceProxyUnreachable:
+            String(
+                localized: """
+                Physical devices cannot reach Rockxy while the proxy only listens on localhost. \
+                Turn off Only Listen on localhost, restart the proxy, and use the Device Proxy host plus active port.
+                """
+            )
         case .noTrafficDetected:
             String(localized: "Run the test request again and make sure it points at the Rockxy proxy port.")
         case .wrongSnippetChosen:
             String(localized: "Switch to the snippet that matches the runtime, library, or tool you are using.")
+        case .manualValidationOnly:
+            String(localized: "Use the manual validation steps in this Dev Hub guide.")
         case .targetIsGuideOnly:
             String(localized: "This target currently ships as guidance only.")
         }
@@ -247,10 +262,14 @@ enum SetupIssue: String, CaseIterable, Equatable, Identifiable {
         case .certificateNotTrusted,
              .certificateExportUnavailable:
             String(localized: "Open Certificate")
+        case .deviceProxyUnreachable:
+            String(localized: "Open Proxy Settings")
         case .noTrafficDetected:
             String(localized: "Run Test Again")
         case .wrongSnippetChosen:
             String(localized: "View Snippets")
+        case .manualValidationOnly:
+            String(localized: "View Validation")
         case .targetIsGuideOnly:
             String(localized: "View Overview")
         }
@@ -312,6 +331,7 @@ struct SetupSnapshot: Equatable {
     var recordingEnabled: Bool
     var activePort: Int
     var effectiveListenAddress: String
+    var reachableLANAddress: String?
     var certificateGenerated: Bool
     var certificateTrusted: Bool
     var certificateExportable: Bool
@@ -333,6 +353,7 @@ struct SetupSnapshot: Equatable {
         recordingEnabled: Bool,
         activePort: Int,
         effectiveListenAddress: String,
+        reachableLANAddress: String? = nil,
         certificateGenerated: Bool,
         certificateTrusted: Bool,
         certificateExportable: Bool,
@@ -353,6 +374,7 @@ struct SetupSnapshot: Equatable {
         self.recordingEnabled = recordingEnabled
         self.activePort = activePort
         self.effectiveListenAddress = effectiveListenAddress
+        self.reachableLANAddress = reachableLANAddress
         self.certificateGenerated = certificateGenerated
         self.certificateTrusted = certificateTrusted
         self.certificateExportable = certificateExportable
@@ -432,5 +454,33 @@ struct SetupTarget: Identifiable, Hashable {
 
     var supportStatus: SetupSupportStatus {
         manualSupport
+    }
+
+    var supportsCertificateSharing: Bool {
+        switch id {
+        case .iosDevice,
+             .iosSimulator,
+             .androidDevice,
+             .androidEmulator,
+             .tvOSWatchOS,
+             .visionPro,
+             .flutter,
+             .reactNative:
+            true
+        default:
+            false
+        }
+    }
+
+    var requiresReachableLANProxy: Bool {
+        switch id {
+        case .iosDevice,
+             .androidDevice,
+             .tvOSWatchOS,
+             .visionPro:
+            true
+        default:
+            false
+        }
     }
 }

@@ -9,7 +9,7 @@ import Testing
 /// assertion fails, either the copy drifted into marketing-speak or the
 /// underlying platform guidance changed and the landmark needs to move with it.
 struct DeveloperSetupGuideCatalogTests {
-    // MARK: - Catalog landmarks for remaining guide-only targets
+    // MARK: - Catalog landmarks for guide-backed targets
 
     @Test("iOS Device copy names the Certificate Trust Settings step")
     func iosDeviceCatalogCopyIsSpecific() {
@@ -17,6 +17,63 @@ struct DeveloperSetupGuideCatalogTests {
 
         #expect(summary.contains("manual HTTP proxy"))
         #expect(summary.contains("Certificate Trust Settings"))
+    }
+
+    @Test("Device and app-stack targets expose certificate sharing in Dev Hub")
+    func deviceTargetsExposeCertificateSharing() {
+        let shareTargets: [SetupTarget] = [
+            .iosDevice,
+            .iosSimulator,
+            .androidDevice,
+            .androidEmulator,
+            .tvOSWatchOS,
+            .visionPro,
+            .flutter,
+            .reactNative,
+        ]
+
+        for target in shareTargets {
+            #expect(target.supportsCertificateSharing, "\(target.id.rawValue) should expose Dev Hub certificate sharing")
+        }
+
+        #expect(!SetupTarget.python.supportsCertificateSharing)
+        #expect(!SetupTarget.firefox.supportsCertificateSharing)
+    }
+
+    @Test("Guide-backed Dev Hub targets advertise available manual support")
+    func guideBackedDevHubTargetsAdvertiseAvailableManualSupport() {
+        let guideBackedTargets: [SetupTarget] = [
+            .iosDevice,
+            .iosSimulator,
+            .androidDevice,
+            .androidEmulator,
+            .tvOSWatchOS,
+            .visionPro,
+            .flutter,
+            .reactNative,
+        ]
+
+        for target in guideBackedTargets {
+            #expect(
+                target.manualSupport == .availableNow,
+                "\(target.id.rawValue) should show Available now in the Dev Hub sidebar"
+            )
+        }
+    }
+
+    @Test("Current Dev Hub catalog has no guide-only sidebar targets")
+    func currentDevHubCatalogHasNoGuideOnlySidebarTargets() {
+        let uniqueTargets = Dictionary(
+            SetupTarget.allSections.flatMap(\.targets).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        for target in uniqueTargets.values {
+            #expect(
+                target.manualSupport != .guideOnly,
+                "\(target.id.rawValue) should not show Guide only in the Dev Hub sidebar"
+            )
+        }
     }
 
     @Test("iOS Simulator copy mentions loopback reachability and PEM install")
@@ -135,9 +192,9 @@ struct DeveloperSetupGuideCatalogTests {
 
     // MARK: - Guide catalog coverage
 
-    @Test("Guide catalog covers only the remaining guide-only device + framework targets")
-    func guideCatalogCoversEveryGuideOnlyTarget() {
-        let guideOnly: [SetupTarget.ID] = [
+    @Test("Guide catalog covers every guide-backed device + framework target")
+    func guideCatalogCoversEveryGuideBackedTarget() {
+        let guideBacked: [SetupTarget.ID] = [
             .iosDevice,
             .iosSimulator,
             .androidDevice,
@@ -148,7 +205,7 @@ struct DeveloperSetupGuideCatalogTests {
             .reactNative,
         ]
 
-        for targetID in guideOnly {
+        for targetID in guideBacked {
             let guide = DeveloperSetupGuideCatalog.content(for: targetID)
             #expect(guide != nil, "\(targetID.rawValue) guide must not be nil")
             #expect(guide?.setupTips.isEmpty == false, "\(targetID.rawValue) needs setup tips")
@@ -202,6 +259,17 @@ struct DeveloperSetupGuideCatalogTests {
                 .contains("relaunch")
         }
         #expect(anyTipMentionsRelaunch, "Simulator guide must call out relaunch / cold-launch / reinstall")
+    }
+
+    @Test("iOS guides point certificate sharing at Developer Setup Hub")
+    func iosGuidesUseDeveloperSetupHubShareAction() throws {
+        let deviceGuide = try #require(DeveloperSetupGuideCatalog.content(for: .iosDevice))
+        let simulatorGuide = try #require(DeveloperSetupGuideCatalog.content(for: .iosSimulator))
+        let combinedTips = deviceGuide.setupTips + simulatorGuide.setupTips
+
+        #expect(combinedTips.contains(where: { $0.message.contains("Developer Setup Hub") }))
+        #expect(combinedTips.contains(where: { $0.message.contains("Share Certificate") }))
+        #expect(!combinedTips.contains(where: { $0.message.contains("certificate panel") }))
     }
 
     @Test("tvOS / watchOS + Vision Pro guides explicitly defer to the iOS paths")

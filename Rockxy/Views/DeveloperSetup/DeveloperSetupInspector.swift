@@ -10,9 +10,11 @@ struct DeveloperSetupInspector: View {
     let activeIssue: SetupIssue?
     let automationPreview: SetupAutomationPreview?
     let supportsValidation: Bool
+    let showsCertificateShareAction: Bool
     let validationInstruction: String
     let onRunTest: () -> Void
     let onOpenAutomation: () -> Void
+    let onShareCertificate: () -> Void
     let onOpenCertificate: () -> Void
     let onOpenTools: () -> Void
     let onRevealRequest: () -> Void
@@ -133,11 +135,20 @@ struct DeveloperSetupInspector: View {
                         .foregroundStyle(.secondary)
                 }
 
-                HStack(spacing: 8) {
-                    Button(String(localized: "Open Certificate")) {
-                        onOpenCertificate()
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        if showsCertificateShareAction {
+                            Button(String(localized: "Share Certificate")) {
+                                onShareCertificate()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+
+                        Button(String(localized: "Open Certificate")) {
+                            onOpenCertificate()
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
 
                     Button(String(localized: "Open in Tools")) {
                         onOpenTools()

@@ -47,6 +47,25 @@ struct DeveloperSetupWindowView: View {
                 )
             }
         }
+        .sheet(isPresented: Binding(
+            get: { shareSession != nil },
+            set: { isPresented in
+                if !isPresented {
+                    Task { await stopRootCASharing(clearSession: true) }
+                }
+            }
+        )) {
+            if let shareSession {
+                RootCAShareSheet(
+                    session: shareSession,
+                    fingerprint: certificateShareFingerprint,
+                    onCopyURL: { copyRootCAShareURL(shareSession.publicURL) },
+                    onStop: {
+                        Task { await stopRootCASharing(clearSession: true) }
+                    }
+                )
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .sessionCleared)) { _ in
             viewModel.handleSessionCleared()
         }
@@ -59,6 +78,7 @@ struct DeveloperSetupWindowView: View {
         .onChange(of: ReadinessCoordinator.shared.activeWarning) { _, _ in refreshSnapshot() }
         .onDisappear {
             viewModel.cancelValidation(markCancelled: true)
+            Task { await stopRootCASharing(clearSession: true) }
         }
     }
 
@@ -67,6 +87,10 @@ struct DeveloperSetupWindowView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
     @State private var viewModel: DeveloperSetupViewModel
+    @State private var shareServer = RootCADownloadServer()
+    @State private var shareSession: RootCADownloadSession?
+    @State private var certificateShareFingerprint: String?
+    @State private var certificateShareStatusMessage: String?
 
     private var toolbar: some View {
         HStack(spacing: 10) {
@@ -155,9 +179,11 @@ struct DeveloperSetupWindowView: View {
                 activeIssue: viewModel.activeIssue,
                 automationPreview: viewModel.currentAutomationPreview,
                 supportsValidation: viewModel.supportsValidation,
+                showsCertificateShareAction: viewModel.selectedTarget.supportsCertificateSharing,
                 validationInstruction: viewModel.validationInstruction,
                 onRunTest: { viewModel.startValidation() },
                 onOpenAutomation: { viewModel.openAutomationSheet() },
+                onShareCertificate: { shareRootCAForSelectedTarget() },
                 onOpenCertificate: { openSettings() },
                 onOpenTools: { openSelectedTool() },
                 onRevealRequest: { viewModel.revealMatchedTransaction() }
@@ -291,7 +317,12 @@ struct DeveloperSetupWindowView: View {
             statusCard(
                 title: String(localized: "Listen Address"),
                 value: viewModel.snapshot.effectiveListenAddress,
-                caption: String(localized: "Validated runtime snippets target the local loopback address.")
+                caption: String(localized: "This is the address Rockxy binds when the proxy starts.")
+            )
+            statusCard(
+                title: String(localized: "Device Proxy"),
+                value: deviceProxyHostText,
+                caption: deviceProxyCaption
             )
             statusCard(
                 title: String(localized: "Certificate"),
@@ -303,18 +334,42 @@ struct DeveloperSetupWindowView: View {
         }
     }
 
+    private var deviceProxyHostText: String {
+        viewModel.snapshot.reachableLANAddress ?? String(localized: "Unavailable")
+    }
+
+    private var deviceProxyCaption: String {
+        if viewModel.snapshot.effectiveListenAddress == "127.0.0.1" {
+            return String(
+                localized: "Physical devices cannot reach localhost-only mode. Turn off Only Listen on localhost, then restart the proxy."
+            )
+        }
+
+        guard viewModel.snapshot.reachableLANAddress != nil else {
+            return String(localized: "Connect this Mac to Wi-Fi or Ethernet to expose a LAN IP for physical devices.")
+        }
+
+        return String(localized: "Use this as the iPhone Wi-Fi proxy Server with port \(viewModel.snapshot.activePort).")
+    }
+
     private var setupContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if viewModel.selectedTarget.supportStatus == .availableNow {
-                ForEach(viewModel.currentSetupSteps) { step in
-                    stepRow(step)
-                }
-            } else if let guideContent = viewModel.currentGuideContent {
+            if let guideContent = viewModel.currentGuideContent,
+               viewModel.usesGuideSetupContent || viewModel.selectedTarget.supportStatus != .availableNow
+            {
                 guideTipSection(
                     title: String(localized: "Manual guide"),
                     systemImage: "list.bullet.rectangle",
                     tips: guideContent.setupTips
                 )
+
+                if viewModel.selectedTarget.supportsCertificateSharing {
+                    certificateShareCard
+                }
+            } else if viewModel.selectedTarget.supportStatus == .availableNow {
+                ForEach(viewModel.currentSetupSteps) { step in
+                    stepRow(step)
+                }
             } else {
                 guideOnlyContent(
                     title: String(localized: "Manual guide"),
@@ -360,7 +415,9 @@ struct DeveloperSetupWindowView: View {
                 }
             } else {
                 guideOnlyEmptyState(
-                    title: String(localized: "No first-party snippet in Rockxy for this target yet"),
+                    title: viewModel.usesGuideSetupContent
+                        ? String(localized: "No runtime snippet needed for this device flow")
+                        : String(localized: "No first-party snippet in Rockxy for this target yet"),
                     message: viewModel.selectedTarget.currentSupportSummary
                 )
             }
@@ -440,7 +497,16 @@ struct DeveloperSetupWindowView: View {
 
     private var troubleshootingContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if viewModel.selectedTarget.supportStatus == .availableNow {
+            if viewModel.usesGuideSetupContent,
+               let guideContent = viewModel.currentGuideContent,
+               !guideContent.troubleshootingTips.isEmpty
+            {
+                guideTipSection(
+                    title: String(localized: "Common issues"),
+                    systemImage: "wrench.and.screwdriver",
+                    tips: guideContent.troubleshootingTips
+                )
+            } else if viewModel.selectedTarget.supportStatus == .availableNow {
                 ForEach(viewModel.troubleshootingIssues) { issue in
                     detailCard(title: issue.title, systemImage: "exclamationmark.triangle") {
                         Text(issue.message)
@@ -471,7 +537,7 @@ struct DeveloperSetupWindowView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 8) {
-            Text(viewModel.bottomStatusText)
+            Text(certificateShareStatusMessage ?? viewModel.bottomStatusText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -487,6 +553,44 @@ struct DeveloperSetupWindowView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var certificateShareCard: some View {
+        detailCard(
+            title: String(localized: "Device certificate"),
+            systemImage: "qrcode"
+        ) {
+            Text(
+                String(
+                    localized: """
+                    Share the public Rockxy Root CA from this Mac as a temporary local QR code and link, \
+                    then finish the platform trust steps on the device or simulator.
+                    """
+                )
+            )
+            .font(.subheadline)
+            .foregroundStyle(.primary)
+
+            Text(
+                String(
+                    localized: "The link only serves the public PEM, expires automatically, and stops when this sheet closes."
+                )
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Share Certificate")) {
+                    shareRootCAForSelectedTarget()
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button(String(localized: "Open Certificate Settings")) {
+                    openSettings()
+                }
+                .buttonStyle(.bordered)
+            }
+        }
     }
 
     private var toolbarSearchField: some View {
@@ -673,7 +777,11 @@ struct DeveloperSetupWindowView: View {
         case .verifyProxy:
             refreshSnapshot()
         case .openCertificate:
-            openSettings()
+            if viewModel.selectedTarget.supportsCertificateSharing {
+                shareRootCAForSelectedTarget()
+            } else {
+                openSettings()
+            }
         case .copySnippet:
             copySnippetToPasteboard()
         case .runValidation:
@@ -688,14 +796,22 @@ struct DeveloperSetupWindowView: View {
         case .proxyStopped,
              .recordingPaused:
             refreshSnapshot()
+        case .deviceProxyUnreachable:
+            openWindow(id: "advancedProxySettings")
         case .certificateNotTrusted,
              .certificateExportUnavailable:
-            openSettings()
+            if viewModel.selectedTarget.supportsCertificateSharing {
+                shareRootCAForSelectedTarget()
+            } else {
+                openSettings()
+            }
         case .noTrafficDetected:
             viewModel.selectTab(.validate)
             viewModel.startValidation()
         case .wrongSnippetChosen:
             viewModel.selectTab(.snippets)
+        case .manualValidationOnly:
+            viewModel.selectTab(.validate)
         case .targetIsGuideOnly:
             viewModel.selectTab(.overview)
         }
@@ -705,10 +821,51 @@ struct DeveloperSetupWindowView: View {
         if let issue = viewModel.activeIssue,
            issue == .certificateNotTrusted || issue == .certificateExportUnavailable
         {
-            openSettings()
+            if viewModel.selectedTarget.supportsCertificateSharing {
+                shareRootCAForSelectedTarget()
+            } else {
+                openSettings()
+            }
             return
         }
         openWindow(id: "advancedProxySettings")
+    }
+
+    private func shareRootCAForSelectedTarget() {
+        Task { @MainActor in
+            do {
+                certificateShareStatusMessage = String(localized: "Preparing certificate sharing link...")
+                try await CertificateManager.shared.ensureRootCA()
+                guard let pem = try await CertificateManager.shared.getRootCAPEM() else {
+                    throw RootCADownloadError.noRootCA
+                }
+                let certificateSnapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: false)
+                let session = try await shareServer.start(certificatePEM: pem)
+                shareSession = session
+                certificateShareFingerprint = certificateSnapshot.fingerprintSHA256
+                certificateShareStatusMessage = String(localized: "Certificate sharing link started for \(viewModel.selectedTarget.title).")
+                await viewModel.refreshSnapshot()
+            } catch {
+                certificateShareStatusMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func copyRootCAShareURL(_ url: URL) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        certificateShareStatusMessage = String(localized: "Certificate sharing URL copied.")
+    }
+
+    private func stopRootCASharing(clearSession: Bool) async {
+        await shareServer.stop()
+        if clearSession {
+            await MainActor.run {
+                shareSession = nil
+                certificateShareFingerprint = nil
+                certificateShareStatusMessage = nil
+            }
+        }
     }
 
     private func refreshSnapshot() {
