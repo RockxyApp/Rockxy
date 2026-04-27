@@ -58,5 +58,17 @@
 	<string>$(ROCKXY_SHARED_CERTIFICATE_LABEL_PREFIX)</string>
 	<key>RockxySharedUTTypePrefix</key>
 	<string>$(ROCKXY_SHARED_UTTYPE_PREFIX)</string>
+	<key>RockxyBuildReleaseDate</key>
+	<string>$(ROCKXY_BUILD_RELEASE_DATE)</string>
+	<key>RockxyUpdatesEnabled</key>
+	<string>$(ROCKXY_UPDATES_ENABLED)</string>
+	<key>SUFeedURL</key>
+	<string>$(ROCKXY_SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(ROCKXY_SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
 </dict>
 </plist>

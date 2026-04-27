@@ -14,6 +14,11 @@
 // Deployment target
 MACOSX_DEPLOYMENT_TARGET = 14.0
 SWIFT_VERSION = 5.0
+ROCKXY_UPDATES_ENABLED = NO
+ROCKXY_SPARKLE_PUBLIC_ED_KEY = OhLtaWdjixrruIOymzcROteZVpMNtv7fLQVSxbn+1ok=
+ROCKXY_BUILD_RELEASE_DATE = 2026-04-25T00:00:00Z
+ROCKXY_URL_SLASH = /
+ROCKXY_PUBLIC_APPCAST_FEED_URL = https:$(ROCKXY_URL_SLASH)$(ROCKXY_URL_SLASH)raw.githubusercontent.com/RockxyApp/Rockxy/main/appcast.xml
 
 // Family namespace and shared identity
 ROCKXY_FAMILY_NAMESPACE = com.amunx.rockxy

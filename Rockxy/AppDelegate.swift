@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         Self.logger.info("Rockxy launched")
+        if !RockxyIdentity.isRunningTests {
+            AppUpdater.shared.startIfConfigured()
+        }
         Task {
             await SystemProxyManager.shared.recoverStaleProxyIfNeeded()
             do {

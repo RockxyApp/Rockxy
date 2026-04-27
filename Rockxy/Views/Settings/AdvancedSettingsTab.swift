@@ -190,15 +190,14 @@ struct AdvancedSettingsTab: View {
                     )
                 }
 
-                HStack {
-                    Color.clear.frame(width: 176)
-                    Button(String(localized: "Full Changelogs")) {
-                        if let url = URL(string: "https://github.com/LocNguyenHuu/Rockxy/blob/main/CHANGELOG.md") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                    .buttonStyle(.link)
-                }
+                Divider()
+
+                Text(String(localized: "UPDATES"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 176)
+
+                updatesSection
 
                 Divider()
 
@@ -225,6 +224,7 @@ struct AdvancedSettingsTab: View {
 
     @State private var helperManager = HelperManager.shared
     @State private var showUninstallConfirmation = false
+    @ObservedObject private var updater = AppUpdater.shared
 
     @AppStorage(RockxyIdentity.current.defaultsKey("showAlertOnQuit")) private var showAlertOnQuit =
         true // WIRED: AppDelegate.applicationShouldTerminate
@@ -360,6 +360,136 @@ struct AdvancedSettingsTab: View {
             Color.clear.frame(width: 176)
             Toggle(title, isOn: isOn)
                 .toggleStyle(.checkbox)
+        }
+    }
+
+    private var updatesSection: some View {
+        settingsRow(label: String(localized: "Software Update:")) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: updater.isConfigured ? "checkmark.shield.fill" : "icloud.slash")
+                            .font(.system(size: 16))
+                            .foregroundStyle(updater.isConfigured ? Color.accentColor : Color.secondary)
+                            .frame(width: 20)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(String(localized: "Update Controls"))
+                                .font(.system(size: 13, weight: .medium))
+                            Text(updater.updateAvailabilitySummary)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                        GridRow {
+                            Text(String(localized: "Current:"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text(updater.currentVersionSummary)
+                                .font(.system(size: 11, design: .monospaced))
+                        }
+                        GridRow {
+                            Text(String(localized: "Last Checked:"))
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                            Text(updater.lastCheckedDescription)
+                                .font(.system(size: 11))
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button(String(localized: "Check for Updates…")) {
+                        updater.checkForUpdates()
+                    }
+                    .disabled(!updater.isConfigured || !updater.canCheckForUpdates)
+
+                    Button(String(localized: "Change Logs…")) {
+                        updater.openFullChangelog()
+                    }
+
+                    if updater.sessionInProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+
+                Toggle(
+                    String(localized: "Automatically check for updates"),
+                    isOn: Binding(
+                        get: { updater.automaticallyChecksForUpdates },
+                        set: { updater.setAutomaticallyChecksForUpdates($0) }
+                    )
+                )
+                .toggleStyle(.checkbox)
+                .disabled(!updater.isConfigured)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(
+                        String(localized: "Automatically download updates in the background"),
+                        isOn: Binding(
+                            get: { updater.automaticallyDownloadsUpdates },
+                            set: { updater.setAutomaticallyDownloadsUpdates($0) }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(!updater.isConfigured || !updater.automaticallyChecksForUpdates || !updater.allowsAutomaticUpdates)
+
+                    Text(
+                        String(
+                            localized: "When enabled, Rockxy downloads signed updates ahead of time so install prompts are faster."
+                        )
+                    )
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                }
+
+                HStack(alignment: .top, spacing: 10) {
+                    Text(String(localized: "Check Frequency"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 120, alignment: .leading)
+
+                    Picker(
+                        String(localized: "Check Frequency"),
+                        selection: Binding(
+                            get: { UpdateCheckIntervalOption.closest(to: updater.updateCheckInterval) },
+                            set: { updater.setUpdateCheckInterval($0.rawValue) }
+                        )
+                    ) {
+                        ForEach(UpdateCheckIntervalOption.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(width: 180)
+                    .disabled(!updater.isConfigured || !updater.automaticallyChecksForUpdates)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(
+                        String(localized: "Send anonymous compatibility profile"),
+                        isOn: Binding(
+                            get: { updater.sendsSystemProfile },
+                            set: { updater.setSendsSystemProfile($0) }
+                        )
+                    )
+                    .toggleStyle(.checkbox)
+                    .disabled(!updater.isConfigured)
+
+                    Text(
+                        String(
+                            localized: """
+                            This shares basic macOS and hardware compatibility details with Sparkle so Rockxy can match the right update. It does not include captured traffic.
+                            """
+                        )
+                    )
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

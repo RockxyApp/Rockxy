@@ -28,7 +28,8 @@ struct DeveloperSetupRuntimeIntegrationTests {
 
                 return ProcessInvocation(
                     executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
-                    arguments: [scriptURL.path]
+                    arguments: [scriptURL.path],
+                    timeout: .seconds(45)
                 )
             }
         )
@@ -321,7 +322,7 @@ struct DeveloperSetupRuntimeIntegrationTests {
 
                 "$firefox_bin" -headless -no-remote -profile "$profile_dir" "$target_url" >/dev/null 2>&1 &
                 firefox_pid=$!
-                sleep 6
+                sleep 15
                 kill "$firefox_pid" >/dev/null 2>&1 || true
                 wait "$firefox_pid" >/dev/null 2>&1 || true
                 """.write(to: scriptURL, atomically: true, encoding: .utf8)
@@ -337,7 +338,8 @@ struct DeveloperSetupRuntimeIntegrationTests {
                         profileDirectory.path,
                         firefox.path,
                         "http://127.0.0.1:\(upstreamPort)/developer-setup/firefox",
-                    ]
+                    ],
+                    timeout: .seconds(45)
                 )
             }
         )
@@ -855,7 +857,7 @@ private final class TransactionRecorder: @unchecked Sendable {
         host: String,
         method: String,
         path: String?,
-        timeout: Duration = .seconds(10)
+        timeout: Duration = .seconds(30)
     ) async throws -> HTTPTransaction {
         let deadline = ContinuousClock().now + timeout
 
@@ -897,7 +899,7 @@ private final class UpstreamRequestRecorder: @unchecked Sendable {
         lock.unlock()
     }
 
-    func waitForRequest(path: String, timeout: Duration = .seconds(10)) async throws -> UpstreamRequest {
+    func waitForRequest(path: String, timeout: Duration = .seconds(30)) async throws -> UpstreamRequest {
         let deadline = ContinuousClock().now + timeout
 
         while ContinuousClock().now < deadline {

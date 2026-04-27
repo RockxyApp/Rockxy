@@ -288,6 +288,7 @@ struct RockxyMenuCommands: Commands {
 
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.commandActions) private var actions: MainContentCommandActions?
+    @ObservedObject private var updater = AppUpdater.shared
 
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
 
@@ -296,8 +297,15 @@ struct RockxyMenuCommands: Commands {
 
     private var appMenu: some Commands {
         CommandGroup(before: .appSettings) {
+            Button(String(localized: "Check for Updates…")) {
+                updater.checkForUpdates()
+            }
+            .disabled(!updater.isConfigured || !updater.canCheckForUpdates)
+
+            Divider()
+
             Button(String(localized: "Change Logs…")) {
-                openURL("https://github.com/LocNguyenHuu/Rockxy/blob/main/CHANGELOG.md")
+                updater.openFullChangelog()
             }
 
             Divider()

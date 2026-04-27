@@ -24,6 +24,7 @@
 		DCA9C5BA2F627204005B1552 /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6442F624B60005B1552 /* NIOPosix */; };
 		DCA9C5BB2F627204005B1552 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6452F624B60005B1552 /* NIOSSL */; };
 		DCA9C5BC2F627204005B1552 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6462F624B60005B1552 /* NIOWebSocket */; };
+		EA8D5B652FA1000100A4F001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = EA8D5B642FA1000100A4F001 /* Sparkle */; };
 		DCA9D00D2F700001005B1552 /* RockxyHelperTool in Embed Helper Tool */ = {isa = PBXBuildFile; fileRef = DCA9D0012F700000005B1552 /* RockxyHelperTool */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		DCA9D00F2F700001005B1552 /* com.amunx.rockxy.helper.plist in Copy LaunchDaemon Plist */ = {isa = PBXBuildFile; fileRef = DCA9D00E2F700001005B1552 /* com.amunx.rockxy.helper.plist */; };
 		E25EC1AF9EA69827D8EA666D /* SidebarSSLProxyingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BF2554950304269415B1F9D /* SidebarSSLProxyingTests.swift */; };
@@ -158,6 +159,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EA8D5B652FA1000100A4F001 /* Sparkle in Frameworks */,
 				DCA9C5BC2F627204005B1552 /* NIOWebSocket in Frameworks */,
 				DCA9C5BB2F627204005B1552 /* NIOSSL in Frameworks */,
 				DCA9C5BA2F627204005B1552 /* NIOPosix in Frameworks */,
@@ -461,6 +463,7 @@
 				DCA9A6442F624B60005B1552 /* NIOPosix */,
 				DCA9A6452F624B60005B1552 /* NIOSSL */,
 				DCA9A6462F624B60005B1552 /* NIOWebSocket */,
+				EA8D5B642FA1000100A4F001 /* Sparkle */,
 			);
 			productName = Rockxy;
 			productReference = DCA99FBB2F61ADC9005B1552 /* Rockxy.app */;
@@ -571,6 +574,7 @@
 				DCA9A63A2F624B04005B1552 /* XCRemoteSwiftPackageReference "swift-certificates" */,
 				DCA9A63B2F624B15005B1552 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 				DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite" */,
+				EA8D5B622FA1000100A4F001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = DCA99FBC2F61ADC9005B1552 /* Products */;
@@ -1143,6 +1147,14 @@
 				minimumVersion = 0.16.0;
 			};
 		};
+		EA8D5B622FA1000100A4F001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1195,6 +1207,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DCA9A6382F624A2C005B1552 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOWebSocket;
+		};
+		EA8D5B642FA1000100A4F001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA8D5B622FA1000100A4F001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
