@@ -59,6 +59,30 @@ final class HelperManager {
         case unexpectedBundleProgram(String)
         case missingMachServices
         case missingMachService(String)
+        case disabledMachService(String)
+        case unknown(Error)
+
+        static func == (lhs: HelperPlistValidationError, rhs: HelperPlistValidationError) -> Bool {
+            switch (lhs, rhs) {
+            case (.malformedPlist, .malformedPlist),
+                 (.missingLabel, .missingLabel),
+                 (.missingBundleProgram, .missingBundleProgram),
+                 (.missingMachServices, .missingMachServices):
+                return true
+            case let (.unexpectedLabel(lhsLabel), .unexpectedLabel(rhsLabel)):
+                return lhsLabel == rhsLabel
+            case let (.unexpectedBundleProgram(lhsProgram), .unexpectedBundleProgram(rhsProgram)):
+                return lhsProgram == rhsProgram
+            case let (.missingMachService(lhsService), .missingMachService(rhsService)):
+                return lhsService == rhsService
+            case let (.disabledMachService(lhsService), .disabledMachService(rhsService)):
+                return lhsService == rhsService
+            case let (.unknown(lhsError), .unknown(rhsError)):
+                return String(describing: lhsError) == String(describing: rhsError)
+            default:
+                return false
+            }
+        }
     }
 
     enum HelperInstallPreflightError: LocalizedError, Equatable {
@@ -146,8 +170,14 @@ final class HelperManager {
         guard let machServices = plist["MachServices"] as? [String: Any] else {
             throw HelperPlistValidationError.missingMachServices
         }
-        guard let machServiceEnabled = machServices[expectedMachServiceName] as? Bool, machServiceEnabled else {
+        guard let machServiceValue = machServices[expectedMachServiceName] else {
             throw HelperPlistValidationError.missingMachService(expectedMachServiceName)
+        }
+        guard let machServiceEnabled = machServiceValue as? Bool else {
+            throw HelperPlistValidationError.missingMachService(expectedMachServiceName)
+        }
+        guard machServiceEnabled else {
+            throw HelperPlistValidationError.disabledMachService(expectedMachServiceName)
         }
     }
 
@@ -193,6 +223,8 @@ final class HelperManager {
             )
         } catch let validationError as HelperPlistValidationError {
             throw HelperInstallPreflightError.invalidBundledLaunchdPlist(validationError)
+        } catch {
+            throw HelperInstallPreflightError.invalidBundledLaunchdPlist(.unknown(error))
         }
     }
 
@@ -601,6 +633,10 @@ final class HelperManager {
                 "Helper launchd plist is missing MachServices"
             case let .missingMachService(machServiceName):
                 "Helper launchd plist is missing MachServices.\(machServiceName) = true"
+            case let .disabledMachService(machServiceName):
+                "Helper launchd plist has disabled MachServices.\(machServiceName)"
+            case let .unknown(error):
+                "Helper launchd plist validation failed: \(String(describing: error))"
             }
         }
     }

@@ -16,7 +16,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 0)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -33,7 +33,7 @@ struct MCPIntegrationTests {
         try Self.ensureSuiteLock()
         await resetSharedCoordinator()
 
-        let saved = saveMCPSettings(
+        let saved = try saveMCPSettings(
             enabled: false,
             port: AppSettingsManager.shared.settings.mcpServerPort
         )
@@ -54,13 +54,25 @@ struct MCPIntegrationTests {
         MCPServerCoordinator.shared.detachProviders()
     }
 
+    @Test("MCP settings helper rejects invalid ports without aborting the suite")
+    func saveMCPSettingsRejectsInvalidPort() throws {
+        do {
+            _ = try saveMCPSettings(enabled: true, port: 0)
+            Issue.record("Expected MCP settings validation to reject port 0")
+        } catch let error as MCPSettingsValidationError {
+            #expect(error == .invalidPort(0))
+        } catch {
+            Issue.record("Unexpected MCP settings validation error: \(error)")
+        }
+    }
+
     @Test("Handshake file created on start, deleted on stop")
     func handshakeLifecycle() async throws {
         try Self.ensureSuiteLock()
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 1)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -104,7 +116,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 2)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -160,7 +172,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 8)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -187,7 +199,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 6)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         let mainCoordinator = MainContentCoordinator()
@@ -245,7 +257,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 5)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -323,7 +335,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 7)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -386,7 +398,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 9)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -451,7 +463,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 3)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -479,7 +491,7 @@ struct MCPIntegrationTests {
         await resetSharedCoordinator()
 
         let port = Self.testPort(offset: 4)
-        let saved = saveMCPSettings(enabled: true, port: port)
+        let saved = try saveMCPSettings(enabled: true, port: port)
         defer { restoreMCPSettings(saved) }
 
         await MCPServerCoordinator.shared.startIfEnabled()
@@ -522,6 +534,17 @@ struct MCPIntegrationTests {
         let settings: AppSettings
     }
 
+    private enum MCPSettingsValidationError: LocalizedError, Equatable {
+        case invalidPort(Int)
+
+        var errorDescription: String? {
+            switch self {
+            case let .invalidPort(port):
+                return "MCP test port must be between 1 and 65535; got \(port)"
+            }
+        }
+    }
+
     private static let suiteLockResult: Result<CrossProcessLock, Error> = Result {
         try acquireTestLock()
     }
@@ -552,8 +575,10 @@ struct MCPIntegrationTests {
         _ = try suiteLockResult.get()
     }
 
-    private func saveMCPSettings(enabled: Bool, port: Int) -> SavedSettings {
-        precondition(Self.validPortRange.contains(port), "MCP test port must be between 1 and 65535")
+    private func saveMCPSettings(enabled: Bool, port: Int) throws -> SavedSettings {
+        guard Self.validPortRange.contains(port) else {
+            throw MCPSettingsValidationError.invalidPort(port)
+        }
 
         let original = AppSettingsManager.shared.settings
         var settings = original

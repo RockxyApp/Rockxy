@@ -178,6 +178,27 @@ struct HelperManagerTests {
         }
     }
 
+    @Test("disabled MachServices entry fails helper plist validation")
+    func disabledMachServicesEntryFailsValidation() throws {
+        let data = try makeHelperLaunchdPlistData(
+            machServices: [TestIdentity.helperMachServiceName: false]
+        )
+
+        do {
+            try HelperManager.validateBundledHelperLaunchdPlistData(
+                data,
+                expectedLabel: TestIdentity.helperMachServiceName,
+                expectedBundleProgram: expectedHelperBundleProgram,
+                expectedMachServiceName: TestIdentity.helperMachServiceName
+            )
+            Issue.record("Expected helper plist validation to fail for disabled MachServices entry")
+        } catch let error as HelperManager.HelperPlistValidationError {
+            #expect(error == .disabledMachService(TestIdentity.helperMachServiceName))
+        } catch {
+            Issue.record("Unexpected helper plist validation error: \(error)")
+        }
+    }
+
     @Test("malformed helper plist data fails validation")
     func malformedHelperPlistDataFailsValidation() {
         let malformedData = Data("not-a-plist".utf8)
