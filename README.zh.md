@@ -41,12 +41,11 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.12.1** — 2026-04-28
+**v0.12.2** — 2026-04-28
 
 ### Fixed
 
-- Polish software update flow and helper validation
-- Align debug runtime contract for CI
+- Add helper registration reset to onboarding
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

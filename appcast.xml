@@ -6,22 +6,21 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.12.1 (build 18)</title>
+      <title>Version 0.12.2 (build 19)</title>
       <pubDate>Tue, 28 Apr 2026 00:00:00 +0000</pubDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.12.1/Rockxy-0.12.1-18.dmg"
-        sparkle:version="18"
-        sparkle:shortVersionString="0.12.1"
-        sparkle:edSignature="Feikl4ujgP/IdDLNkn+7Th2Irw+14Qr6EMYhoIuvqIwpTBhiVcBTyJprRDZd8tFEHsoP/015ChfEM51YgCc9Dg=="
-        length="20640898"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.12.2/Rockxy-0.12.2-19.dmg"
+        sparkle:version="19"
+        sparkle:shortVersionString="0.12.2"
+        sparkle:edSignature="w7w8DeZKeO4erqjfSsozsZP20EEYz976HnoEJYBIYRr+0ODuB05jwewMZt8scPCAyy6hFbPwD/UpK9Mv96VmAQ=="
+        length="20619704"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.12.1</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.12.2</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Fixed</h3>
 <ul>
-  <li>Polish software update flow and helper validation</li>
-  <li>Align debug runtime contract for CI</li>
+  <li>Add helper registration reset to onboarding</li>
 </ul>
       ]]></description>
     </item>

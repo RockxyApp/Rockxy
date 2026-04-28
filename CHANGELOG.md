@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Added a Star History chart to all README translations.
 
+## [0.12.2] - 2026-04-28
+
+### Fixed
+
+- Add helper registration reset to onboarding
+
 ## [0.12.1] - 2026-04-28
 
 ### Fixed
