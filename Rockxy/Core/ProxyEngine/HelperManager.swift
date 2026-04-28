@@ -719,6 +719,10 @@ final class HelperManager {
             return infoDictionary
         }
 
+        if let infoDictionary = sidecarInfoDictionary(at: helperBinaryURL) {
+            return infoDictionary
+        }
+
         if let bundle = Bundle(url: helperBinaryURL),
            let infoDictionary = bundle.infoDictionary
         {
@@ -732,6 +736,37 @@ final class HelperManager {
         }
 
         return nil
+    }
+
+    nonisolated private static func sidecarInfoDictionary(at helperBinaryURL: URL) -> [String: Any]? {
+        let sidecarCandidates = [
+            helperBinaryURL.appendingPathExtension("plist"),
+            helperBinaryURL.deletingLastPathComponent().appendingPathComponent("Info.plist"),
+        ]
+
+        for plistURL in sidecarCandidates {
+            if let infoDictionary = plistDictionary(at: plistURL) {
+                return infoDictionary
+            }
+        }
+
+        return nil
+    }
+
+    nonisolated private static func plistDictionary(at plistURL: URL) -> [String: Any]? {
+        guard let plistData = try? Data(contentsOf: plistURL) else {
+            return nil
+        }
+
+        guard let propertyList = try? PropertyListSerialization.propertyList(
+            from: plistData,
+            options: [],
+            format: nil
+        ) else {
+            return nil
+        }
+
+        return propertyList as? [String: Any]
     }
 
     nonisolated private static func signedExecutableInfoDictionary(at executableURL: URL) -> [String: Any]? {
@@ -793,7 +828,7 @@ final class HelperManager {
         case let .invalidBundledHelperMetadata(validationError):
             switch validationError {
             case .missingInfoDictionary:
-                "Bundled helper executable is missing embedded Info.plist metadata"
+                "Bundled helper executable is missing embedded or sidecar Info.plist metadata"
             case let .missingValue(key):
                 "Bundled helper metadata is missing \(key)"
             case let .unexpectedValue(key, value):

@@ -44,6 +44,20 @@ enum SigningDiagnostics {
         func helperCertificateChain() -> [Data]?
     }
 
+    nonisolated static func helperExecutableCandidates(
+        bundledHelperURL: URL = Bundle.main.bundleURL
+            .appendingPathComponent(HelperManager.bundledHelperBinaryRelativePath, isDirectory: false),
+        legacyInstalledHelperURL: URL = URL(
+            fileURLWithPath: "/Library/PrivilegedHelperTools/\(RockxyIdentity.current.helperBundleIdentifier)"
+        )
+    ) -> [URL] {
+        if bundledHelperURL == legacyInstalledHelperURL {
+            return [legacyInstalledHelperURL]
+        }
+
+        return [legacyInstalledHelperURL, bundledHelperURL]
+    }
+
     // MARK: - Live Environment
 
     struct LiveEnvironment: Environment {
@@ -107,17 +121,7 @@ enum SigningDiagnostics {
         }
 
         private var helperExecutableCandidates: [URL] {
-            let bundledHelperURL = Bundle.main.bundleURL
-                .appendingPathComponent(HelperManager.bundledHelperBinaryRelativePath, isDirectory: false)
-            let legacyInstalledHelperURL = URL(
-                fileURLWithPath: "/Library/PrivilegedHelperTools/\(RockxyIdentity.current.helperBundleIdentifier)"
-            )
-
-            if bundledHelperURL == legacyInstalledHelperURL {
-                return [bundledHelperURL]
-            }
-
-            return [bundledHelperURL, legacyInstalledHelperURL]
+            SigningDiagnostics.helperExecutableCandidates()
         }
 
         private func certificateChainForSelf() -> [Data]? {

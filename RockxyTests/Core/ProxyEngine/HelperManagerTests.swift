@@ -96,6 +96,20 @@ struct HelperManagerTests {
         )
     }
 
+    @Test("helper install resources read sidecar helper metadata for plain executables")
+    func helperInstallResourcesReadSidecarHelperMetadata() throws {
+        let fixture = try makeHelperInstallResourceFixture(
+            helperKind: .regularFile(permissions: 0o755),
+            writesSidecarInfoPlist: true
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+
+        try HelperManager.validateBundledHelperInstallResources(bundle: fixture.bundle)
+
+        let infoDictionary = try #require(HelperManager.bundledHelperInfoDictionary(at: fixture.helperBinaryURL))
+        #expect(infoDictionary["CFBundleIdentifier"] as? String == TestIdentity.helperBundleIdentifier)
+    }
+
     @Test(
         "embedded bundle metadata is readable from a signed executable path",
         .enabled(
@@ -515,6 +529,16 @@ private struct HelperInstallResourceFixture {
 }
 
 private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) throws -> HelperInstallResourceFixture {
+    try makeHelperInstallResourceFixture(
+        helperKind: helperKind,
+        writesSidecarInfoPlist: false
+    )
+}
+
+private func makeHelperInstallResourceFixture(
+    helperKind: HelperBinaryKind,
+    writesSidecarInfoPlist: Bool
+) throws -> HelperInstallResourceFixture {
     let temporaryDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("rockxy-helper-fixture-\(UUID().uuidString)", isDirectory: true)
     let appBundleURL = temporaryDirectory.appendingPathComponent("Rockxy.app", isDirectory: true)
@@ -541,6 +565,22 @@ private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) thro
         try FileManager.default.setAttributes([.posixPermissions: permissions], ofItemAtPath: helperBinaryURL.path)
     case .directory:
         try FileManager.default.createDirectory(at: helperBinaryURL, withIntermediateDirectories: true)
+    }
+
+    if writesSidecarInfoPlist {
+        let helperInfoData = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleIdentifier": TestIdentity.helperBundleIdentifier,
+                "RockxyFamilyNamespace": TestIdentity.familyNamespace,
+                "RockxyHelperBundleIdentifier": TestIdentity.helperBundleIdentifier,
+                "RockxyHelperMachServiceName": TestIdentity.helperMachServiceName,
+                "RockxyAllowedCallerIdentifiers": TestIdentity.expectedAllowedCallerIdentifiers.joined(separator: " "),
+            ],
+            format: .xml,
+            options: 0
+        )
+        let sidecarInfoURL = helperBinaryURL.deletingLastPathComponent().appendingPathComponent("Info.plist")
+        try helperInfoData.write(to: sidecarInfoURL)
     }
 
     let helperPlistURL = appBundleURL

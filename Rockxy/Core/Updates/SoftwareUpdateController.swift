@@ -72,57 +72,33 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         reply: @escaping (SPUUserUpdateChoice) -> Void
     ) {
         let context = makeUpdateContext(from: item, state: state)
+        showAvailable(context: context, reply: reply)
+    }
+
+    func showAvailable(
+        context: UpdateContext,
+        reply: @escaping (SPUUserUpdateChoice) -> Void
+    ) {
         resetCallbacks()
         activeChoiceReply = reply
         activeDismiss = { reply(.dismiss) }
+        activeUpdateContext = context
         phase = .available(context)
         showWindow()
     }
 
     func updateReleaseNotes(_ content: SoftwareUpdateReleaseNotesContent) {
-        switch phase {
-        case let .available(context):
-            phase = .available(context.replacingReleaseNotes(with: preferredReleaseNotes(
+        updatePhaseContext { context in
+            let newReleaseNotes = preferredReleaseNotes(
                 current: context.releaseNotes,
                 incoming: content
-            )))
-        case let .downloading(context, bytesReceived, expectedBytes):
-            phase = .downloading(
-                context.replacingReleaseNotes(with: preferredReleaseNotes(
-                    current: context.releaseNotes,
-                    incoming: content
-                )),
-                bytesReceived: bytesReceived,
-                expectedBytes: expectedBytes
             )
-        case let .extracting(context, progress):
-            phase = .extracting(
-                context.replacingReleaseNotes(with: preferredReleaseNotes(
-                    current: context.releaseNotes,
-                    incoming: content
-                )),
-                progress: progress
-            )
-        case let .readyToInstall(context):
-            phase = .readyToInstall(context.replacingReleaseNotes(with: preferredReleaseNotes(
-                current: context.releaseNotes,
-                incoming: content
-            )))
-        case let .installing(context, applicationTerminated):
-            phase = .installing(
-                context.replacingReleaseNotes(with: preferredReleaseNotes(
-                    current: context.releaseNotes,
-                    incoming: content
-                )),
-                applicationTerminated: applicationTerminated
-            )
-        default:
-            break
+            return context.replacingReleaseNotes(with: newReleaseNotes)
         }
     }
 
     func showDownloading(cancel: @escaping () -> Void) {
-        guard let context = activeUpdateContext else {
+        guard let context = refreshedUpdateContext(for: .notDownloaded) else {
             return
         }
 
@@ -156,7 +132,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
     }
 
     func showExtracting() {
-        guard let context = activeUpdateContext else {
+        guard let context = refreshedUpdateContext(for: .downloaded) else {
             return
         }
 
@@ -174,7 +150,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
     }
 
     func showReadyToInstall(reply: @escaping (SPUUserUpdateChoice) -> Void) {
-        guard let context = activeUpdateContext else {
+        guard let context = refreshedUpdateContext(for: .downloaded) else {
             return
         }
 
@@ -185,7 +161,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
     }
 
     func showInstalling(applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
-        guard let context = activeUpdateContext else {
+        guard let context = refreshedUpdateContext(for: .installing) else {
             return
         }
 
@@ -394,8 +370,44 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
             isInformationOnly: item.isInformationOnlyUpdate,
             downloadSize: item.contentLength > 0 ? Int64(item.contentLength) : nil
         )
-        activeUpdateContext = context
         return context
+    }
+
+    private func updatePhaseContext(_ transform: (UpdateContext) -> UpdateContext) {
+        switch phase {
+        case let .available(context):
+            let newContext = transform(context)
+            activeUpdateContext = newContext
+            phase = .available(newContext)
+        case let .downloading(context, bytesReceived, expectedBytes):
+            let newContext = transform(context)
+            activeUpdateContext = newContext
+            phase = .downloading(newContext, bytesReceived: bytesReceived, expectedBytes: expectedBytes)
+        case let .extracting(context, progress):
+            let newContext = transform(context)
+            activeUpdateContext = newContext
+            phase = .extracting(newContext, progress: progress)
+        case let .readyToInstall(context):
+            let newContext = transform(context)
+            activeUpdateContext = newContext
+            phase = .readyToInstall(newContext)
+        case let .installing(context, applicationTerminated):
+            let newContext = transform(context)
+            activeUpdateContext = newContext
+            phase = .installing(newContext, applicationTerminated: applicationTerminated)
+        default:
+            break
+        }
+    }
+
+    private func refreshedUpdateContext(for stage: SPUUserUpdateStage) -> UpdateContext? {
+        guard let context = activeUpdateContext else {
+            return nil
+        }
+
+        let newContext = context.replacingStageDescription(with: updateStageDescription(for: stage))
+        activeUpdateContext = newContext
+        return newContext
     }
 
     private func updateStageDescription(for stage: SPUUserUpdateStage) -> String {
@@ -423,6 +435,22 @@ private extension SoftwareUpdateController.UpdateContext {
             updateStageDescription: updateStageDescription,
             publishedDate: publishedDate,
             releaseNotes: notes,
+            detailURL: detailURL,
+            isInformationOnly: isInformationOnly,
+            downloadSize: downloadSize
+        )
+    }
+
+    func replacingStageDescription(with stageDescription: String) -> Self {
+        .init(
+            title: title,
+            summary: summary,
+            currentVersion: currentVersion,
+            latestVersion: latestVersion,
+            buildNumber: buildNumber,
+            updateStageDescription: stageDescription,
+            publishedDate: publishedDate,
+            releaseNotes: releaseNotes,
             detailURL: detailURL,
             isInformationOnly: isInformationOnly,
             downloadSize: downloadSize

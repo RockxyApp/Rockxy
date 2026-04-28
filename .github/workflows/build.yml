@@ -190,11 +190,11 @@ jobs:
           ARM_HELPER="$ARM_APP/$HELPER_BUNDLE_PROGRAM"
           X86_HELPER="$X86_APP/$HELPER_BUNDLE_PROGRAM"
           UNIVERSAL_APP="artifacts/$APP_NAME.app"
-          UNIVERSAL_HELPER_PLIST="$(helper_plist_path_from_app "$UNIVERSAL_APP")"
-          UNIVERSAL_HELPER="$UNIVERSAL_APP/$HELPER_BUNDLE_PROGRAM"
 
           mkdir -p artifacts
           cp -R "$ARM_APP" "$UNIVERSAL_APP"
+          UNIVERSAL_HELPER_PLIST="$(helper_plist_path_from_app "$UNIVERSAL_APP")"
+          UNIVERSAL_HELPER="$UNIVERSAL_APP/$HELPER_BUNDLE_PROGRAM"
 
           # Combine main executable into universal binary
           lipo -create \

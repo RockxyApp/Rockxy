@@ -68,6 +68,55 @@ struct SoftwareUpdateControllerTests {
         )
         #expect(context.detailURL == AppUpdater.fullChangelogURL)
     }
+
+    @Test("release note updates persist into later update phases")
+    func releaseNotesPersistAcrossPhaseTransitions() {
+        let controller = SoftwareUpdateController(configuration: makeConfiguration(
+            appVersion: "0.12.0",
+            buildNumber: "15"
+        ))
+
+        controller.showAvailable(context: makeAvailableContext(releaseNotes: .loading)) { _ in }
+        defer { controller.dismiss() }
+
+        controller.updateReleaseNotes(.plainText("Resolved release notes"))
+        controller.showDownloading(cancel: {})
+
+        guard case let .downloading(context, _, _) = controller.phase else {
+            Issue.record("Expected downloading phase after starting the download")
+            return
+        }
+
+        #expect(context.releaseNotes == .plainText("Resolved release notes"))
+    }
+
+    @Test("update stage descriptions refresh when the update phase advances")
+    func updateStageDescriptionsRefreshAcrossTransitions() {
+        let controller = SoftwareUpdateController(configuration: makeConfiguration(
+            appVersion: "0.12.0",
+            buildNumber: "15"
+        ))
+
+        controller.showAvailable(context: makeAvailableContext()) { _ in }
+        defer { controller.dismiss() }
+
+        controller.showReadyToInstall(reply: { _ in })
+
+        guard case let .readyToInstall(readyContext) = controller.phase else {
+            Issue.record("Expected ready-to-install phase")
+            return
+        }
+        #expect(readyContext.updateStageDescription == "Downloaded")
+
+        controller.showInstalling(applicationTerminated: false, retryTerminatingApplication: {})
+
+        guard case let .installing(installingContext, applicationTerminated) = controller.phase else {
+            Issue.record("Expected installing phase")
+            return
+        }
+        #expect(applicationTerminated == false)
+        #expect(installingContext.updateStageDescription == "Installing")
+    }
 }
 
 private func makeConfiguration(appVersion: String, buildNumber: String) -> RockxyUpdateConfiguration {
@@ -116,4 +165,23 @@ private func makeAppcastItem(
         )
     }
     return item
+}
+
+private func makeAvailableContext(
+    releaseNotes: SoftwareUpdateReleaseNotesContent = .loading,
+    stageDescription: String = "Not downloaded"
+) -> SoftwareUpdateController.UpdateContext {
+    SoftwareUpdateController.UpdateContext(
+        title: "Rockxy 0.12.0",
+        summary: "Rockxy 0.12.0 is now available.",
+        currentVersion: "0.11.0",
+        latestVersion: "0.12.0",
+        buildNumber: "15",
+        updateStageDescription: stageDescription,
+        publishedDate: nil,
+        releaseNotes: releaseNotes,
+        detailURL: URL(string: "https://example.com/releases/0.12.0"),
+        isInformationOnly: false,
+        downloadSize: 123
+    )
 }

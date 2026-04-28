@@ -546,6 +546,46 @@ struct DeveloperSetupRuntimeIntegrationTests {
         )
     }
 
+    @Test("process cancellation force-terminates runtimes that ignore SIGTERM")
+    func processCancellationForceTerminatesIgnoredSigterm() async throws {
+        let workingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DeveloperSetupCancellation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let scriptURL = workingDirectory.appendingPathComponent("ignore-term.py")
+        try """
+        import signal
+        import time
+
+        signal.signal(signal.SIGTERM, lambda signum, frame: None)
+
+        while True:
+            time.sleep(1)
+        """.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let task = Task {
+            try await runProcess(
+                executableURL: URL(fileURLWithPath: "/usr/bin/python3"),
+                arguments: [scriptURL.path],
+                workingDirectory: workingDirectory,
+                timeout: .seconds(30)
+            )
+        }
+
+        try await Task.sleep(for: .milliseconds(200))
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            Issue.record("Expected cancelling runProcess to throw CancellationError")
+        } catch is CancellationError {
+            // Expected
+        } catch {
+            Issue.record("Expected CancellationError, got \(error)")
+        }
+    }
+
     // MARK: Private
 
     private func assertRuntimeProbe(
@@ -804,6 +844,13 @@ struct DeveloperSetupRuntimeIntegrationTests {
         func terminateProcessForCancellation() {
             if process.isRunning {
                 process.terminate()
+                let gracePeriodDeadline = Date().addingTimeInterval(0.5)
+                while process.isRunning, Date() < gracePeriodDeadline {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                if process.isRunning {
+                    Darwin.kill(process.processIdentifier, SIGKILL)
+                }
                 process.waitUntilExit()
             }
             stdoutReader.cancel()

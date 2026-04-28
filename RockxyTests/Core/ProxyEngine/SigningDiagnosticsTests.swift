@@ -40,6 +40,31 @@ private struct MockSigningEnvironment: SigningDiagnostics.Environment {
 // MARK: - SigningDiagnosticsClassifyTests
 
 struct SigningDiagnosticsClassifyTests {
+    @Test("installed helper path is preferred over the bundled helper path")
+    func helperExecutableCandidatesPreferInstalledHelper() {
+        let bundledHelperURL = URL(fileURLWithPath: "/Applications/Rockxy.app/Contents/Library/HelperTools/RockxyHelperTool")
+        let installedHelperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/com.amunx.rockxy.helper")
+
+        let candidates = SigningDiagnostics.helperExecutableCandidates(
+            bundledHelperURL: bundledHelperURL,
+            legacyInstalledHelperURL: installedHelperURL
+        )
+
+        #expect(candidates == [installedHelperURL, bundledHelperURL])
+    }
+
+    @Test("helper candidate list de-duplicates identical bundled and installed paths")
+    func helperExecutableCandidatesDeduplicateIdenticalPaths() {
+        let helperURL = URL(fileURLWithPath: "/Library/PrivilegedHelperTools/com.amunx.rockxy.helper")
+
+        let candidates = SigningDiagnostics.helperExecutableCandidates(
+            bundledHelperURL: helperURL,
+            legacyInstalledHelperURL: helperURL
+        )
+
+        #expect(candidates == [helperURL])
+    }
+
     @Test("app signature invalid returns appSignatureInvalid")
     func appSignatureInvalid() {
         var env = MockSigningEnvironment()
@@ -167,6 +192,7 @@ struct SigningDiagnosticsClassifyTests {
 /// These verify identity-derived paths and the real classify contract.
 /// Full caller-validation logic is tested in `CallerValidationTests` and
 /// `ConnectionValidatorTests` via the shared validation primitives.
+@Suite(.serialized)
 struct SigningDiagnosticsLiveTests {
     @Test("LiveEnvironment validates test host app signature successfully")
     func liveAppSignatureValid() {
