@@ -14,6 +14,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Added a Star History chart to all README translations.
 
+## [0.12.1] - 2026-04-28
+
+### Fixed
+
+- Polish software update flow and helper validation
+- Align debug runtime contract for CI
+
 ## [0.12.0] - 2026-04-28
 
 ### Fixed

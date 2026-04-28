@@ -39,19 +39,16 @@
 ---
 
 <!-- BEGIN GENERATED: latest-release -->
-## Dernière version publiée
+## Latest Tagged Release
 
-**v0.12.0** — 2026-04-28
+**v0.12.1** — 2026-04-28
 
-### Corrections
+### Fixed
 
-- Fixed Homebrew/public app bundles that could fail helper installation with "unable to read plist" by validating and packaging the bundled helper launchd plist correctly (issue #53).
+- Polish software update flow and helper validation
+- Align debug runtime contract for CI
 
-### Modifications
-
-- Added a Star History chart to all README translations.
-
-Consultez [CHANGELOG.md](CHANGELOG.md) pour l’historique complet des versions.
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
 
 ## Points forts de la branche actuelle
