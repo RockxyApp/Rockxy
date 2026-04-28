@@ -114,6 +114,14 @@ struct RockxyUpdateConfigurationTests {
 
         #expect(template.contains("#include \"LocalDev.xcconfig\""))
     }
+
+    @Test("LocalDev keeps manual update feed while disabling automatic checks")
+    func localDevKeepsManualUpdateFeed() throws {
+        let localDev = try loadRepoFile("Configuration/LocalDev.xcconfig")
+
+        #expect(localDev.contains("ROCKXY_UPDATES_ENABLED = NO"))
+        #expect(localDev.contains("ROCKXY_SPARKLE_FEED_URL = $(ROCKXY_PUBLIC_APPCAST_FEED_URL)"))
+    }
 }
 
 @MainActor
@@ -150,6 +158,22 @@ struct AppUpdaterTests {
         #expect(!updater.isConfigured)
         #expect(updater.supportsManualChecks)
         #expect(!updater.supportsAutomaticChecks)
+        #expect(updater.canInitiateUpdateCheck)
+    }
+
+    @Test("Manual-only updater still allows user-initiated checks after startup path")
+    func manualOnlyUpdaterRemainsInitiableAfterStartupPath() {
+        let configuration = RockxyUpdateConfiguration(infoDictionary: [
+            "RockxyUpdatesEnabled": "NO",
+            "SUFeedURL": "https://raw.githubusercontent.com/RockxyApp/Rockxy/main/appcast.xml",
+            "SUPublicEDKey": "public-key",
+            "RockxyBuildReleaseDate": "2026-04-25T00:00:00Z",
+        ])
+        let updater = AppUpdater(configuration: configuration)
+
+        updater.startIfConfigured()
+
+        #expect(updater.supportsManualChecks)
         #expect(updater.canInitiateUpdateCheck)
     }
 }

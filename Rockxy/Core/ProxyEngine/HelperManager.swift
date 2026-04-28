@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Security
 import ServiceManagement
 
 // Defines `HelperManager`, which coordinates helper behavior in the proxy engine.
@@ -713,7 +714,11 @@ final class HelperManager {
         "Contents/Library/LaunchDaemons/\(plistName)"
     }
 
-    nonisolated private static func bundledHelperInfoDictionary(at helperBinaryURL: URL) -> [String: Any]? {
+    nonisolated static func bundledHelperInfoDictionary(at helperBinaryURL: URL) -> [String: Any]? {
+        if let infoDictionary = signedExecutableInfoDictionary(at: helperBinaryURL) {
+            return infoDictionary
+        }
+
         if let bundle = Bundle(url: helperBinaryURL),
            let infoDictionary = bundle.infoDictionary
         {
@@ -727,6 +732,29 @@ final class HelperManager {
         }
 
         return nil
+    }
+
+    nonisolated private static func signedExecutableInfoDictionary(at executableURL: URL) -> [String: Any]? {
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(executableURL as CFURL, [], &staticCode) == errSecSuccess,
+              let staticCode else
+        {
+            return nil
+        }
+
+        var signingInfo: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: kSecCSSigningInformation),
+            &signingInfo
+        ) == errSecSuccess,
+            let signingInfo = signingInfo as? [String: Any],
+            let infoDictionary = signingInfo[kSecCodeInfoPList as String] as? [String: Any]
+        else {
+            return nil
+        }
+
+        return infoDictionary
     }
 
     nonisolated private static func helperPreflightFailureReason(_ error: HelperInstallPreflightError) -> String {

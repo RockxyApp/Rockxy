@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @testable import Rockxy
 import ServiceManagement
@@ -93,6 +94,39 @@ struct HelperManagerTests {
             bundle: fixture.bundle,
             helperInfoDictionaryProvider: { _ in fixture.helperInfoDictionary }
         )
+    }
+
+    @Test("embedded bundle metadata is readable from a signed executable path")
+    func signedExecutablePathExposesEmbeddedInfoDictionary() throws {
+        let bundles = Bundle.allBundles + Bundle.allFrameworks
+        guard let bundle = bundles.first(where: { candidate in
+            guard let executableURL = candidate.executableURL else {
+                return false
+            }
+
+            return Bundle(url: executableURL) == nil
+                && Bundle(path: executableURL.path) == nil
+                && HelperManager.bundledHelperInfoDictionary(at: executableURL) != nil
+        }) else {
+            Issue.record("Unable to locate a signed bundle executable with embedded metadata")
+            return
+        }
+
+        guard let executableURL = bundle.executableURL else {
+            Issue.record("Selected bundle is missing an executable URL: \(bundle.bundleURL.path)")
+            return
+        }
+
+        let infoDictionary = try #require(HelperManager.bundledHelperInfoDictionary(at: executableURL))
+        #expect(infoDictionary["CFBundleIdentifier"] as? String == bundle.bundleIdentifier)
+    }
+
+    @Test("real app bundle helper resources validate against generated launchd plist")
+    func builtAppBundleInstallResourcesValidate() throws {
+        let appBundle = Bundle(for: AppDelegate.self)
+        #expect(appBundle.bundleIdentifier == TestIdentity.communityBundleIdentifier)
+
+        try HelperManager.validateBundledHelperInstallResources(bundle: appBundle)
     }
 
     @Test("helper install resources reject helper directory")

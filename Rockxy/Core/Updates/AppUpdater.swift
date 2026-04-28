@@ -66,7 +66,12 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     static let shared = AppUpdater(configuration: .current)
 
-    static let fullChangelogURL = URL(string: "https://github.com/RockxyApp/Rockxy/releases")!
+    static let fullChangelogURL: URL = {
+        guard let url = URL(string: "https://github.com/RockxyApp/Rockxy/releases") else {
+            preconditionFailure("Invalid full changelog URL")
+        }
+        return url
+    }()
 
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = false

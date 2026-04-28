@@ -24,6 +24,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         let summary: String
         let currentVersion: String
         let latestVersion: String?
+        let releaseNotes: SoftwareUpdateReleaseNotesContent
         let detailURL: URL?
     }
 
@@ -81,20 +82,38 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
     func updateReleaseNotes(_ content: SoftwareUpdateReleaseNotesContent) {
         switch phase {
         case let .available(context):
-            phase = .available(context.replacingReleaseNotes(with: content))
+            phase = .available(context.replacingReleaseNotes(with: preferredReleaseNotes(
+                current: context.releaseNotes,
+                incoming: content
+            )))
         case let .downloading(context, bytesReceived, expectedBytes):
             phase = .downloading(
-                context.replacingReleaseNotes(with: content),
+                context.replacingReleaseNotes(with: preferredReleaseNotes(
+                    current: context.releaseNotes,
+                    incoming: content
+                )),
                 bytesReceived: bytesReceived,
                 expectedBytes: expectedBytes
             )
         case let .extracting(context, progress):
-            phase = .extracting(context.replacingReleaseNotes(with: content), progress: progress)
+            phase = .extracting(
+                context.replacingReleaseNotes(with: preferredReleaseNotes(
+                    current: context.releaseNotes,
+                    incoming: content
+                )),
+                progress: progress
+            )
         case let .readyToInstall(context):
-            phase = .readyToInstall(context.replacingReleaseNotes(with: content))
+            phase = .readyToInstall(context.replacingReleaseNotes(with: preferredReleaseNotes(
+                current: context.releaseNotes,
+                incoming: content
+            )))
         case let .installing(context, applicationTerminated):
             phase = .installing(
-                context.replacingReleaseNotes(with: content),
+                context.replacingReleaseNotes(with: preferredReleaseNotes(
+                    current: context.releaseNotes,
+                    incoming: content
+                )),
                 applicationTerminated: applicationTerminated
             )
         default:
@@ -179,18 +198,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
     func showNoUpdate(error: NSError, acknowledgement: @escaping () -> Void) {
         resetCallbacks()
         activeAcknowledge = acknowledgement
-
-        let latestItem = error.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
-        let latestVersion = latestItem?.displayVersionString
-        let context = NoUpdateContext(
-            title: String(localized: "Rockxy is up to date"),
-            summary: error.localizedDescription,
-            currentVersion: currentVersionSummary,
-            latestVersion: latestVersion,
-            detailURL: latestItem?.fullReleaseNotesURL ?? latestItem?.releaseNotesURL ?? latestItem?.infoURL ?? AppUpdater.fullChangelogURL
-        )
-
-        phase = .noUpdate(context)
+        phase = .noUpdate(makeNoUpdateContext(from: error))
         showWindow()
     }
 
@@ -250,6 +258,42 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         activeRetryTermination?()
     }
 
+    func makeNoUpdateContext(from error: NSError) -> NoUpdateContext {
+        let latestItem = error.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
+        let latestVersion = latestItem?.displayVersionString
+        let latestPublishedFallback = String(
+            localized: "Release notes are unavailable for the latest published version."
+        )
+        let localBuildFallback = String(
+            localized: "Release notes for this local build are unavailable because this version is not published to the update feed yet."
+        )
+        let matchesRunningVersion = latestItem.map {
+            $0.displayVersionString == configuration.appVersion && $0.versionString == configuration.buildNumber
+        } ?? false
+        let releaseNotes: SoftwareUpdateReleaseNotesContent
+        let detailURL: URL?
+
+        if let latestItem, matchesRunningVersion {
+            releaseNotes = SoftwareUpdateReleaseNotesContent.from(appcastItem: latestItem)
+                .resolvedForStaticDisplay(fallbackMessage: latestPublishedFallback)
+            detailURL = latestItem.fullReleaseNotesURL ?? latestItem.releaseNotesURL ?? latestItem.infoURL ?? AppUpdater.fullChangelogURL
+        } else {
+            releaseNotes = .unavailable(matchesRunningVersion ? latestPublishedFallback : localBuildFallback)
+            detailURL = matchesRunningVersion
+                ? (latestItem?.fullReleaseNotesURL ?? latestItem?.releaseNotesURL ?? latestItem?.infoURL ?? AppUpdater.fullChangelogURL)
+                : AppUpdater.fullChangelogURL
+        }
+
+        return NoUpdateContext(
+            title: String(localized: "Rockxy is up to date"),
+            summary: error.localizedDescription,
+            currentVersion: currentVersionSummary,
+            latestVersion: latestVersion,
+            releaseNotes: releaseNotes,
+            detailURL: detailURL
+        )
+    }
+
     func windowWillClose(_ notification: Notification) {
         guard !programmaticClose else {
             return
@@ -286,9 +330,9 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
             window.titleVisibility = .visible
             window.isReleasedWhenClosed = false
             window.center()
-            window.setContentSize(NSSize(width: 760, height: 620))
+            window.setContentSize(NSSize(width: 780, height: 610))
             window.standardWindowButton(.zoomButton)?.isHidden = true
-            window.toolbarStyle = .unified
+            window.toolbarStyle = .unifiedCompact
             window.delegate = self
             windowController = NSWindowController(window: window)
         }
@@ -303,6 +347,28 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         activeDismiss = nil
         activeAcknowledge = nil
         activeRetryTermination = nil
+    }
+
+    private func preferredReleaseNotes(
+        current: SoftwareUpdateReleaseNotesContent,
+        incoming: SoftwareUpdateReleaseNotesContent
+    ) -> SoftwareUpdateReleaseNotesContent {
+        switch (current, incoming) {
+        case (.loading, _),
+             (.unavailable, _):
+            return incoming
+        case (.html, .loading),
+             (.html, .unavailable),
+             (.plainText, .loading),
+             (.plainText, .unavailable):
+            return current
+        case (.html, .html),
+             (.html, .plainText),
+             (.plainText, .html),
+             (.plainText, .plainText):
+            // Keep the appcast body instead of overwriting it with a full external release page.
+            return current
+        }
     }
 
     private func makeUpdateContext(from item: SUAppcastItem, state: SPUUserUpdateState) -> UpdateContext {

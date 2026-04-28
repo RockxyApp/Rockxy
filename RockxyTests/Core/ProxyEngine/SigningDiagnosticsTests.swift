@@ -175,10 +175,30 @@ struct SigningDiagnosticsLiveTests {
         #expect(error == nil)
     }
 
+    @Test("LiveEnvironment resolves the bundled helper executable from the app package")
+    func liveBundledHelperExecutableDetected() {
+        let bundledHelperURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Library/HelperTools", isDirectory: true)
+            .appendingPathComponent("RockxyHelperTool", isDirectory: false)
+
+        #expect(FileManager.default.isExecutableFile(atPath: bundledHelperURL.path))
+
+        let env = SigningDiagnostics.LiveEnvironment()
+        #expect(env.helperBinaryExists())
+    }
+
     @Test("LiveEnvironment can extract app certificate chain from test host")
     func liveAppCertificateChainExtractable() {
         let env = SigningDiagnostics.LiveEnvironment()
         let chain = env.appCertificateChain()
+        #expect(chain != nil)
+        #expect((chain?.count ?? 0) > 0)
+    }
+
+    @Test("LiveEnvironment can extract helper certificate chain from the bundled helper executable")
+    func liveHelperCertificateChainExtractable() {
+        let env = SigningDiagnostics.LiveEnvironment()
+        let chain = env.helperCertificateChain()
         #expect(chain != nil)
         #expect((chain?.count ?? 0) > 0)
     }
