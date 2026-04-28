@@ -79,7 +79,8 @@ struct HelperManagerTests {
             data,
             expectedLabel: TestIdentity.helperMachServiceName,
             expectedBundleProgram: expectedHelperBundleProgram,
-            expectedMachServiceName: TestIdentity.helperMachServiceName
+            expectedMachServiceName: TestIdentity.helperMachServiceName,
+            expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
         )
     }
 
@@ -88,7 +89,10 @@ struct HelperManagerTests {
         let fixture = try makeHelperInstallResourceFixture(helperKind: .regularFile(permissions: 0o755))
         defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
 
-        try HelperManager.validateBundledHelperInstallResources(bundle: fixture.bundle)
+        try HelperManager.validateBundledHelperInstallResources(
+            bundle: fixture.bundle,
+            helperInfoDictionaryProvider: { _ in fixture.helperInfoDictionary }
+        )
     }
 
     @Test("helper install resources reject helper directory")
@@ -130,7 +134,8 @@ struct HelperManagerTests {
                 data,
                 expectedLabel: TestIdentity.helperMachServiceName,
                 expectedBundleProgram: expectedHelperBundleProgram,
-                expectedMachServiceName: TestIdentity.helperMachServiceName
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
             )
             Issue.record("Expected helper plist validation to fail for missing Label")
         } catch let error as HelperManager.HelperPlistValidationError {
@@ -149,7 +154,8 @@ struct HelperManagerTests {
                 data,
                 expectedLabel: TestIdentity.helperMachServiceName,
                 expectedBundleProgram: expectedHelperBundleProgram,
-                expectedMachServiceName: TestIdentity.helperMachServiceName
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
             )
             Issue.record("Expected helper plist validation to fail for wrong BundleProgram")
         } catch let error as HelperManager.HelperPlistValidationError {
@@ -168,7 +174,8 @@ struct HelperManagerTests {
                 data,
                 expectedLabel: TestIdentity.helperMachServiceName,
                 expectedBundleProgram: expectedHelperBundleProgram,
-                expectedMachServiceName: TestIdentity.helperMachServiceName
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
             )
             Issue.record("Expected helper plist validation to fail for missing MachServices entry")
         } catch let error as HelperManager.HelperPlistValidationError {
@@ -189,13 +196,62 @@ struct HelperManagerTests {
                 data,
                 expectedLabel: TestIdentity.helperMachServiceName,
                 expectedBundleProgram: expectedHelperBundleProgram,
-                expectedMachServiceName: TestIdentity.helperMachServiceName
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
             )
             Issue.record("Expected helper plist validation to fail for disabled MachServices entry")
         } catch let error as HelperManager.HelperPlistValidationError {
             #expect(error == .disabledMachService(TestIdentity.helperMachServiceName))
         } catch {
             Issue.record("Unexpected helper plist validation error: \(error)")
+        }
+    }
+
+    @Test("mismatched AssociatedBundleIdentifiers fail helper plist validation")
+    func mismatchedAssociatedBundleIdentifiersFailValidation() throws {
+        let data = try makeHelperLaunchdPlistData(
+            associatedBundleIdentifiers: [TestIdentity.communityBundleIdentifier]
+        )
+
+        do {
+            try HelperManager.validateBundledHelperLaunchdPlistData(
+                data,
+                expectedLabel: TestIdentity.helperMachServiceName,
+                expectedBundleProgram: expectedHelperBundleProgram,
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
+            )
+            Issue.record("Expected helper plist validation to fail for mismatched AssociatedBundleIdentifiers")
+        } catch let error as HelperManager.HelperPlistValidationError {
+            #expect(error == .unexpectedAssociatedBundleIdentifiers([TestIdentity.communityBundleIdentifier]))
+        } catch {
+            Issue.record("Unexpected helper plist validation error: \(error)")
+        }
+    }
+
+    @Test("helper install resources reject mismatched helper metadata")
+    func helperInstallResourcesRejectMismatchedHelperMetadata() throws {
+        let fixture = try makeHelperInstallResourceFixture(helperKind: .regularFile(permissions: 0o755))
+        defer { try? FileManager.default.removeItem(at: fixture.temporaryDirectory) }
+
+        let mismatchedInfo = fixture.helperInfoDictionary.merging([
+            "RockxyAllowedCallerIdentifiers": TestIdentity.communityBundleIdentifier,
+        ]) { _, newValue in newValue }
+
+        do {
+            try HelperManager.validateBundledHelperInstallResources(
+                bundle: fixture.bundle,
+                helperInfoDictionaryProvider: { _ in mismatchedInfo }
+            )
+            Issue.record("Expected helper install resource validation to fail for mismatched helper metadata")
+        } catch let error as HelperManager.HelperInstallPreflightError {
+            #expect(
+                error == .invalidBundledHelperMetadata(
+                    .unexpectedAllowedCallerIdentifiers([TestIdentity.communityBundleIdentifier])
+                )
+            )
+        } catch {
+            Issue.record("Unexpected helper install preflight error: \(error)")
         }
     }
 
@@ -208,7 +264,8 @@ struct HelperManagerTests {
                 malformedData,
                 expectedLabel: TestIdentity.helperMachServiceName,
                 expectedBundleProgram: expectedHelperBundleProgram,
-                expectedMachServiceName: TestIdentity.helperMachServiceName
+                expectedMachServiceName: TestIdentity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: TestIdentity.expectedAllowedCallerIdentifiers
             )
             Issue.record("Expected helper plist validation to fail for malformed data")
         } catch let error as HelperManager.HelperPlistValidationError {
@@ -398,6 +455,7 @@ private enum HelperBinaryKind {
 private struct HelperInstallResourceFixture {
     let temporaryDirectory: URL
     let helperBinaryURL: URL
+    let helperInfoDictionary: [String: Any]
     let bundle: Bundle
 }
 
@@ -415,6 +473,7 @@ private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) thro
         "RockxyHelperBundleIdentifier": TestIdentity.helperBundleIdentifier,
         "RockxyHelperMachServiceName": TestIdentity.helperMachServiceName,
         "RockxyHelperPlistName": TestIdentity.helperPlistName,
+        "RockxyAllowedCallerIdentifiers": TestIdentity.expectedAllowedCallerIdentifiers.joined(separator: " "),
     ]
     let infoData = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
     try infoData.write(to: contentsURL.appendingPathComponent("Info.plist"))
@@ -440,6 +499,13 @@ private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) thro
     return HelperInstallResourceFixture(
         temporaryDirectory: temporaryDirectory,
         helperBinaryURL: helperBinaryURL,
+        helperInfoDictionary: [
+            "CFBundleIdentifier": TestIdentity.helperBundleIdentifier,
+            "RockxyFamilyNamespace": TestIdentity.familyNamespace,
+            "RockxyHelperBundleIdentifier": TestIdentity.helperBundleIdentifier,
+            "RockxyHelperMachServiceName": TestIdentity.helperMachServiceName,
+            "RockxyAllowedCallerIdentifiers": TestIdentity.expectedAllowedCallerIdentifiers.joined(separator: " "),
+        ],
         bundle: bundle
     )
 }
@@ -447,7 +513,8 @@ private func makeHelperInstallResourceFixture(helperKind: HelperBinaryKind) thro
 private func makeHelperLaunchdPlistData(
     label: String? = TestIdentity.helperMachServiceName,
     bundleProgram: String? = expectedHelperBundleProgram,
-    machServices: [String: Any]? = [TestIdentity.helperMachServiceName: true]
+    machServices: [String: Any]? = [TestIdentity.helperMachServiceName: true],
+    associatedBundleIdentifiers: [String]? = TestIdentity.expectedAllowedCallerIdentifiers
 )
     throws -> Data
 {
@@ -460,6 +527,9 @@ private func makeHelperLaunchdPlistData(
     }
     if let machServices {
         plist["MachServices"] = machServices
+    }
+    if let associatedBundleIdentifiers {
+        plist["AssociatedBundleIdentifiers"] = associatedBundleIdentifiers
     }
 
     return try PropertyListSerialization.data(

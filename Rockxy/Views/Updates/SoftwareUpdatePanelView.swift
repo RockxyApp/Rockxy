@@ -283,8 +283,8 @@ struct SoftwareUpdatePanelView: View {
             )
 
             infoGrid(rows: [
-                (String(localized: "Current Version"), context.currentVersion),
-                (String(localized: "Latest Available"), context.latestVersion ?? String(localized: "This build"))
+                .init(label: String(localized: "Current Version"), value: context.currentVersion),
+                .init(label: String(localized: "Latest Available"), value: context.latestVersion ?? String(localized: "This build"))
             ])
 
             Spacer(minLength: 0)
@@ -340,22 +340,23 @@ struct SoftwareUpdatePanelView: View {
 
     private func metadataGrid(_ context: SoftwareUpdateController.UpdateContext) -> some View {
         infoGrid(rows: [
-            (String(localized: "Current Version"), context.currentVersion),
-            (String(localized: "Latest Version"), "\(context.latestVersion) (\(context.buildNumber))"),
-            (String(localized: "Release Date"), context.publishedDate.map(formattedDate) ?? String(localized: "Not provided")),
-            (String(localized: "Package Size"), context.downloadSize.map(formattedSize) ?? String(localized: "Not provided"))
+            .init(label: String(localized: "Current Version"), value: context.currentVersion),
+            .init(label: String(localized: "Latest Version"), value: "\(context.latestVersion) (\(context.buildNumber))"),
+            .init(label: String(localized: "Update Stage"), value: context.updateStageDescription),
+            .init(label: String(localized: "Release Date"), value: context.publishedDate.map(formattedDate) ?? String(localized: "Not provided")),
+            .init(label: String(localized: "Package Size"), value: context.downloadSize.map(formattedSize) ?? String(localized: "Not provided"))
         ])
     }
 
-    private func infoGrid(rows: [(String, String)]) -> some View {
+    private func infoGrid(rows: [InfoRow]) -> some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(rows) { row in
                 GridRow {
-                    Text(row.0)
+                    Text(row.label)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .gridColumnAlignment(.trailing)
-                    Text(row.1)
+                    Text(row.value)
                         .font(.system(size: 13))
                         .textSelection(.enabled)
                 }
@@ -508,7 +509,8 @@ struct SoftwareUpdatePanelView: View {
              let .installing(context, _):
             return [
                 String(localized: "Current \(context.currentVersion)"),
-                String(localized: "Latest \(context.latestVersion)")
+                String(localized: "Latest \(context.latestVersion)"),
+                String(localized: "Stage \(context.updateStageDescription)")
             ]
         case let .noUpdate(context):
             return [String(localized: "Current \(context.currentVersion)")]
@@ -551,4 +553,11 @@ struct SoftwareUpdatePanelView: View {
 
         controller.chooseInstall()
     }
+}
+
+private struct InfoRow: Identifiable {
+    let label: String
+    let value: String
+
+    var id: String { label }
 }

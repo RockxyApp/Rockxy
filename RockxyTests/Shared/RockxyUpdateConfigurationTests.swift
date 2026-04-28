@@ -100,6 +100,20 @@ struct RockxyUpdateConfigurationTests {
 
         #expect(configuration.buildReleaseDate == .distantFuture)
     }
+
+    @Test("Release guidance points dry runs at publish confirm")
+    func releaseGuidanceMentionsPublishConfirm() throws {
+        let script = try loadRepoFile("scripts/rockxy-release.sh")
+
+        #expect(script.contains("scripts/rockxy-publish.sh --confirm"))
+    }
+
+    @Test("Developer template inherits LocalDev defaults")
+    func developerTemplateIncludesLocalDevDefaults() throws {
+        let template = try loadRepoFile("Configuration/Developer.xcconfig.template")
+
+        #expect(template.contains("#include \"LocalDev.xcconfig\""))
+    }
 }
 
 @MainActor
@@ -138,4 +152,12 @@ struct AppUpdaterTests {
         #expect(!updater.supportsAutomaticChecks)
         #expect(updater.canInitiateUpdateCheck)
     }
+}
+
+private func loadRepoFile(_ relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    return try String(contentsOf: repoRoot.appendingPathComponent(relativePath), encoding: .utf8)
 }

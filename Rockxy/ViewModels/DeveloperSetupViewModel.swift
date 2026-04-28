@@ -31,7 +31,7 @@ final class DeveloperSetupViewModel {
             recordingEnabled: coordinator.isRecording,
             activePort: coordinator.activeProxyPort,
             effectiveListenAddress: settings.effectiveListenAddress,
-            reachableLANAddress: Self.reachableLANAddress(),
+            reachableLANAddress: Self.reachableLANAddress(for: settings.effectiveListenAddress),
             certificateGenerated: false,
             certificateTrusted: false,
             certificateExportable: false,
@@ -293,7 +293,7 @@ final class DeveloperSetupViewModel {
         snapshot.recordingEnabled = coordinator.isRecording
         snapshot.activePort = coordinator.isProxyRunning ? coordinator.activeProxyPort : settings.proxyPort
         snapshot.effectiveListenAddress = settings.effectiveListenAddress
-        snapshot.reachableLANAddress = Self.reachableLANAddress()
+        snapshot.reachableLANAddress = Self.reachableLANAddress(for: settings.effectiveListenAddress)
         snapshot.certificateGenerated = certificateSnapshot.hasGeneratedCertificate
         snapshot.certificateTrusted = certificateSnapshot.isSystemTrustValidated || readiness.canInterceptHTTPS
         snapshot.certificateExportable = pem != nil
@@ -547,8 +547,24 @@ final class DeveloperSetupViewModel {
         isProxyRunning ? activePort : configuredPort
     }
 
-    static func reachableLANAddress() -> String? {
-        RootCADownloadServer.lanIPv4Addresses().first
+    static func reachableLANAddress(
+        for effectiveListenAddress: String,
+        discoverLANAddress: () -> String? = { RootCADownloadServer.lanIPv4Addresses().first }
+    ) -> String? {
+        let normalizedListenAddress = effectiveListenAddress
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard !normalizedListenAddress.isEmpty else {
+            return nil
+        }
+        if isWildcardListenAddress(normalizedListenAddress) {
+            return discoverLANAddress()
+        }
+        guard !isLoopbackListenAddress(normalizedListenAddress) else {
+            return nil
+        }
+        return effectiveListenAddress
     }
 
     static func validationIssue(
@@ -589,7 +605,7 @@ final class DeveloperSetupViewModel {
         else {
             return nil
         }
-        guard snapshot.effectiveListenAddress != "127.0.0.1",
+        guard !isLoopbackListenAddress(snapshot.effectiveListenAddress.lowercased()),
               snapshot.reachableLANAddress != nil
         else {
             return .deviceProxyUnreachable
@@ -640,5 +656,23 @@ final class DeveloperSetupViewModel {
         }
 
         return FileManager.default.fileExists(atPath: path)
+    }
+
+    private static func isWildcardListenAddress(_ address: String) -> Bool {
+        switch address {
+        case "0.0.0.0", "::", "[::]", "*":
+            true
+        default:
+            false
+        }
+    }
+
+    private static func isLoopbackListenAddress(_ address: String) -> Bool {
+        switch address {
+        case "127.0.0.1", "::1", "localhost":
+            true
+        default:
+            false
+        }
     }
 }

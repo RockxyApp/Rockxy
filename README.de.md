@@ -203,7 +203,7 @@ Rockxy wird von unabh&auml;ngigen Entwicklern gebaut und gewartet. Sponsoring fi
 
 ## Sterne-Verlauf
 
-<a href="https://www.star-history.com/?repos=RockxyApp%2FRockxy&type=date&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=RockxyApp%2FRockxy&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=RockxyApp/Rockxy&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=RockxyApp/Rockxy&type=date&legend=top-left" />

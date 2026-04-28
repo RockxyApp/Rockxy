@@ -47,24 +47,19 @@ struct DeveloperSetupWindowView: View {
                 )
             }
         }
-        .sheet(isPresented: Binding(
-            get: { caShareController.currentSession != nil },
-            set: { isPresented in
-                if !isPresented {
+        .sheet(item: $presentedShareSession, onDismiss: {
+            presentedShareSession = nil
+            Task { await caShareController.stopSharing(clearSession: true) }
+        }) { shareSession in
+            RootCAShareSheet(
+                session: shareSession,
+                fingerprint: caShareController.currentFingerprint,
+                onCopyURL: { copyRootCAShareURL(shareSession.publicURL) },
+                onStop: {
+                    presentedShareSession = nil
                     Task { await caShareController.stopSharing(clearSession: true) }
                 }
-            }
-        )) {
-            if let shareSession = caShareController.currentSession {
-                RootCAShareSheet(
-                    session: shareSession,
-                    fingerprint: caShareController.currentFingerprint,
-                    onCopyURL: { copyRootCAShareURL(shareSession.publicURL) },
-                    onStop: {
-                        Task { await caShareController.stopSharing(clearSession: true) }
-                    }
-                )
-            }
+            )
         }
         .onReceive(NotificationCenter.default.publisher(for: .sessionCleared)) { _ in
             viewModel.handleSessionCleared()
@@ -89,6 +84,7 @@ struct DeveloperSetupWindowView: View {
     @State private var viewModel: DeveloperSetupViewModel
     @StateObject private var caShareController = CAShareController()
     @State private var certificateShareStatusMessage: String?
+    @State private var presentedShareSession: RootCADownloadSession?
 
     private var toolbar: some View {
         HStack(spacing: 10) {
@@ -339,15 +335,15 @@ struct DeveloperSetupWindowView: View {
     private var deviceProxyCaption: String {
         if viewModel.snapshot.effectiveListenAddress == "127.0.0.1" {
             return String(
-                localized: "Physical devices cannot reach localhost-only mode. Turn off Only Listen on localhost, then restart the proxy."
+                localized: "Devices outside this Mac cannot reach localhost-only mode. Turn off Only Listen on localhost, then restart the proxy."
             )
         }
 
         guard viewModel.snapshot.reachableLANAddress != nil else {
-            return String(localized: "Connect this Mac to Wi-Fi or Ethernet to expose a LAN IP for physical devices.")
+            return String(localized: "Connect this Mac to Wi-Fi or Ethernet to expose a reachable LAN IP.")
         }
 
-        return String(localized: "Use this as the iPhone Wi-Fi proxy Server with port \(viewModel.snapshot.activePort).")
+        return String(localized: "Use this host and port when configuring a device, simulator, or client on the same network.")
     }
 
     private var setupContent: some View {
@@ -833,7 +829,8 @@ struct DeveloperSetupWindowView: View {
         Task { @MainActor in
             do {
                 certificateShareStatusMessage = String(localized: "Preparing certificate sharing link...")
-                _ = try await caShareController.startSharing()
+                let session = try await caShareController.startSharing()
+                presentedShareSession = session
                 certificateShareStatusMessage = String(localized: "Certificate sharing link started for \(viewModel.selectedTarget.title).")
                 await viewModel.refreshSnapshot()
             } catch {

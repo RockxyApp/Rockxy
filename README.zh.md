@@ -39,29 +39,29 @@
 ---
 
 <!-- BEGIN GENERATED: latest-release -->
-## Latest Tagged Release
+## 最新标签版本
 
 **v0.11.0** — 2026-04-25
 
-### Added
+### 新增
 
 - Sparkle-powered automatic updates for signed public releases.
 - Bundled Rockxy MCP support for local developer-tool integrations.
 - Rockxy Pro activation and entitlement-aware upgrade foundations.
 
-### Fixed
+### 修复
 
 - Improved paid-license activation recovery and product validation reliability.
 - Closed release-readiness gaps around production licensing configuration and update metadata.
 - Fixed release signing settings required for Apple notarization and Gatekeeper acceptance.
 
-### Changed
+### 变更
 
 - Hardened the release pipeline with production signing, notarization, stapling, checksum, and update-feed validation.
 - Refreshed public documentation, localized README content, and release metadata for the 0.11.0 release.
 - Improved Xcode project and build configuration reproducibility for fresh checkouts.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full release history.
+完整发布历史请参阅 [CHANGELOG.md](CHANGELOG.md)。
 <!-- END GENERATED: latest-release -->
 
 ## 当前分支亮点

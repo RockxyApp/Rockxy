@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import os
 
 // MARK: - CAShareController
 
@@ -32,14 +33,17 @@ final class CAShareController: ObservableObject {
 
     func copyShareURL(sessionURL: URL) throws {
         guard currentFingerprint != nil else {
+            Self.logger.error("Refused to copy Root CA share URL because the fingerprint is unavailable.")
             throw RootCAShareValidationError.missingFingerprint
         }
         guard currentSession?.publicURL == sessionURL else {
+            Self.logger.error("Refused to copy Root CA share URL because the session URL no longer matches the active share session.")
             throw RootCADownloadError.invalidSessionURL
         }
 
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(sessionURL.absoluteString, forType: .string)
+        Self.logger.info("Copied Root CA share URL to the pasteboard.")
     }
 
     func stopSharing(clearSession: Bool) async {
@@ -73,4 +77,8 @@ final class CAShareController: ObservableObject {
     }
 
     private let shareServer = RootCADownloadServer()
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "CAShareController"
+    )
 }

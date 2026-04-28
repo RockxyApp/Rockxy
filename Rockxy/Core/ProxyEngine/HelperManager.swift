@@ -60,6 +60,8 @@ final class HelperManager {
         case missingMachServices
         case missingMachService(String)
         case disabledMachService(String)
+        case missingAssociatedBundleIdentifiers
+        case unexpectedAssociatedBundleIdentifiers([String])
         case unknown(Error)
 
         static func == (lhs: HelperPlistValidationError, rhs: HelperPlistValidationError) -> Bool {
@@ -67,7 +69,8 @@ final class HelperManager {
             case (.malformedPlist, .malformedPlist),
                  (.missingLabel, .missingLabel),
                  (.missingBundleProgram, .missingBundleProgram),
-                 (.missingMachServices, .missingMachServices):
+                 (.missingMachServices, .missingMachServices),
+                 (.missingAssociatedBundleIdentifiers, .missingAssociatedBundleIdentifiers):
                 return true
             case let (.unexpectedLabel(lhsLabel), .unexpectedLabel(rhsLabel)):
                 return lhsLabel == rhsLabel
@@ -77,6 +80,8 @@ final class HelperManager {
                 return lhsService == rhsService
             case let (.disabledMachService(lhsService), .disabledMachService(rhsService)):
                 return lhsService == rhsService
+            case let (.unexpectedAssociatedBundleIdentifiers(lhsIdentifiers), .unexpectedAssociatedBundleIdentifiers(rhsIdentifiers)):
+                return lhsIdentifiers == rhsIdentifiers
             case let (.unknown(lhsError), .unknown(rhsError)):
                 return String(describing: lhsError) == String(describing: rhsError)
             default:
@@ -85,11 +90,19 @@ final class HelperManager {
         }
     }
 
+    enum HelperMetadataValidationError: Error, Equatable {
+        case missingInfoDictionary
+        case missingValue(String)
+        case unexpectedValue(key: String, value: String)
+        case unexpectedAllowedCallerIdentifiers([String])
+    }
+
     enum HelperInstallPreflightError: LocalizedError, Equatable {
         case missingBundledHelperBinary(path: String)
         case missingBundledLaunchdPlist(path: String)
         case unreadableBundledLaunchdPlist(path: String)
         case invalidBundledLaunchdPlist(HelperPlistValidationError)
+        case invalidBundledHelperMetadata(HelperMetadataValidationError)
 
         var errorDescription: String? {
             HelperManager.helperPackageIncompleteMessage
@@ -143,7 +156,8 @@ final class HelperManager {
         _ data: Data,
         expectedLabel: String,
         expectedBundleProgram: String,
-        expectedMachServiceName: String
+        expectedMachServiceName: String,
+        expectedAssociatedBundleIdentifiers: [String]
     ) throws {
         let plistObject: Any
         do {
@@ -179,11 +193,87 @@ final class HelperManager {
         guard machServiceEnabled else {
             throw HelperPlistValidationError.disabledMachService(expectedMachServiceName)
         }
+
+        guard let associatedBundleIdentifiers = plist["AssociatedBundleIdentifiers"] as? [String] else {
+            throw HelperPlistValidationError.missingAssociatedBundleIdentifiers
+        }
+
+        let normalizedAssociatedBundleIdentifiers = normalizedIdentifiers(associatedBundleIdentifiers)
+        let normalizedExpectedAssociatedBundleIdentifiers = normalizedIdentifiers(expectedAssociatedBundleIdentifiers)
+        guard normalizedAssociatedBundleIdentifiers == normalizedExpectedAssociatedBundleIdentifiers else {
+            throw HelperPlistValidationError.unexpectedAssociatedBundleIdentifiers(
+                normalizedAssociatedBundleIdentifiers
+            )
+        }
+    }
+
+    nonisolated static func validateBundledHelperInfoDictionary(
+        _ info: [String: Any],
+        expectedIdentity: RockxyIdentity
+    ) throws {
+        let bundleIdentifier = stringValue(forKey: "CFBundleIdentifier", in: info)
+        guard !bundleIdentifier.isEmpty else {
+            throw HelperMetadataValidationError.missingValue("CFBundleIdentifier")
+        }
+        guard bundleIdentifier == expectedIdentity.helperBundleIdentifier else {
+            throw HelperMetadataValidationError.unexpectedValue(
+                key: "CFBundleIdentifier",
+                value: bundleIdentifier
+            )
+        }
+
+        let helperBundleIdentifier = stringValue(forKey: "RockxyHelperBundleIdentifier", in: info)
+        guard !helperBundleIdentifier.isEmpty else {
+            throw HelperMetadataValidationError.missingValue("RockxyHelperBundleIdentifier")
+        }
+        guard helperBundleIdentifier == expectedIdentity.helperBundleIdentifier else {
+            throw HelperMetadataValidationError.unexpectedValue(
+                key: "RockxyHelperBundleIdentifier",
+                value: helperBundleIdentifier
+            )
+        }
+
+        let helperMachServiceName = stringValue(forKey: "RockxyHelperMachServiceName", in: info)
+        guard !helperMachServiceName.isEmpty else {
+            throw HelperMetadataValidationError.missingValue("RockxyHelperMachServiceName")
+        }
+        guard helperMachServiceName == expectedIdentity.helperMachServiceName else {
+            throw HelperMetadataValidationError.unexpectedValue(
+                key: "RockxyHelperMachServiceName",
+                value: helperMachServiceName
+            )
+        }
+
+        let familyNamespace = stringValue(forKey: "RockxyFamilyNamespace", in: info)
+        guard !familyNamespace.isEmpty else {
+            throw HelperMetadataValidationError.missingValue("RockxyFamilyNamespace")
+        }
+        guard familyNamespace == expectedIdentity.familyNamespace else {
+            throw HelperMetadataValidationError.unexpectedValue(
+                key: "RockxyFamilyNamespace",
+                value: familyNamespace
+            )
+        }
+
+        let allowedCallerIdentifiers = normalizedIdentifiers(
+            stringValue(forKey: "RockxyAllowedCallerIdentifiers", in: info)
+                .split(whereSeparator: \.isWhitespace)
+                .map(String.init)
+        )
+        guard !allowedCallerIdentifiers.isEmpty else {
+            throw HelperMetadataValidationError.missingValue("RockxyAllowedCallerIdentifiers")
+        }
+        guard allowedCallerIdentifiers == normalizedIdentifiers(expectedIdentity.allowedCallerIdentifiers) else {
+            throw HelperMetadataValidationError.unexpectedAllowedCallerIdentifiers(
+                allowedCallerIdentifiers
+            )
+        }
     }
 
     nonisolated static func validateBundledHelperInstallResources(
         bundle: Bundle = .main,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        helperInfoDictionaryProvider: (URL) -> [String: Any]? = HelperManager.bundledHelperInfoDictionary
     ) throws {
         let identity = RockxyIdentity(bundle: bundle)
         let appBundleURL = bundle.bundleURL
@@ -219,12 +309,26 @@ final class HelperManager {
                 plistData,
                 expectedLabel: identity.helperMachServiceName,
                 expectedBundleProgram: bundledHelperBinaryRelativePath,
-                expectedMachServiceName: identity.helperMachServiceName
+                expectedMachServiceName: identity.helperMachServiceName,
+                expectedAssociatedBundleIdentifiers: identity.allowedCallerIdentifiers
             )
         } catch let validationError as HelperPlistValidationError {
             throw HelperInstallPreflightError.invalidBundledLaunchdPlist(validationError)
         } catch {
             throw HelperInstallPreflightError.invalidBundledLaunchdPlist(.unknown(error))
+        }
+
+        guard let helperInfoDictionary = helperInfoDictionaryProvider(helperBinaryURL) else {
+            throw HelperInstallPreflightError.invalidBundledHelperMetadata(.missingInfoDictionary)
+        }
+
+        do {
+            try validateBundledHelperInfoDictionary(
+                helperInfoDictionary,
+                expectedIdentity: identity
+            )
+        } catch let validationError as HelperMetadataValidationError {
+            throw HelperInstallPreflightError.invalidBundledHelperMetadata(validationError)
         }
     }
 
@@ -609,6 +713,22 @@ final class HelperManager {
         "Contents/Library/LaunchDaemons/\(plistName)"
     }
 
+    nonisolated private static func bundledHelperInfoDictionary(at helperBinaryURL: URL) -> [String: Any]? {
+        if let bundle = Bundle(url: helperBinaryURL),
+           let infoDictionary = bundle.infoDictionary
+        {
+            return infoDictionary
+        }
+
+        if let bundle = Bundle(path: helperBinaryURL.path),
+           let infoDictionary = bundle.infoDictionary
+        {
+            return infoDictionary
+        }
+
+        return nil
+    }
+
     nonisolated private static func helperPreflightFailureReason(_ error: HelperInstallPreflightError) -> String {
         switch error {
         case let .missingBundledHelperBinary(path):
@@ -635,10 +755,41 @@ final class HelperManager {
                 "Helper launchd plist is missing MachServices.\(machServiceName) = true"
             case let .disabledMachService(machServiceName):
                 "Helper launchd plist has disabled MachServices.\(machServiceName)"
+            case .missingAssociatedBundleIdentifiers:
+                "Helper launchd plist is missing AssociatedBundleIdentifiers"
+            case let .unexpectedAssociatedBundleIdentifiers(associatedBundleIdentifiers):
+                "Helper launchd plist has unexpected AssociatedBundleIdentifiers \(associatedBundleIdentifiers.joined(separator: ", "))"
             case let .unknown(error):
                 "Helper launchd plist validation failed: \(String(describing: error))"
             }
+        case let .invalidBundledHelperMetadata(validationError):
+            switch validationError {
+            case .missingInfoDictionary:
+                "Bundled helper executable is missing embedded Info.plist metadata"
+            case let .missingValue(key):
+                "Bundled helper metadata is missing \(key)"
+            case let .unexpectedValue(key, value):
+                "Bundled helper metadata has unexpected \(key) '\(value)'"
+            case let .unexpectedAllowedCallerIdentifiers(allowedCallerIdentifiers):
+                "Bundled helper metadata has unexpected RockxyAllowedCallerIdentifiers \(allowedCallerIdentifiers.joined(separator: ", "))"
+            }
         }
+    }
+
+    nonisolated private static func normalizedIdentifiers(_ identifiers: [String]) -> [String] {
+        Array(
+            Set(
+                identifiers
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            )
+        )
+        .sorted()
+    }
+
+    nonisolated private static func stringValue(forKey key: String, in info: [String: Any]) -> String {
+        (info[key] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     private func postStatusChangeIfNeeded(

@@ -59,7 +59,6 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                 delegate: self
             )
             bindSparkleState()
-            refreshSparkleState()
         }
     }
 
@@ -67,12 +66,7 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
 
     static let shared = AppUpdater(configuration: .current)
 
-    static let fullChangelogURL: URL = {
-        if let url = URL(string: "https://github.com/RockxyApp/Rockxy/releases") {
-            return url
-        }
-        return URL(fileURLWithPath: "/")
-    }()
+    static let fullChangelogURL = URL(string: "https://github.com/RockxyApp/Rockxy/releases")!
 
     @Published private(set) var canCheckForUpdates = false
     @Published private(set) var automaticallyChecksForUpdates = false

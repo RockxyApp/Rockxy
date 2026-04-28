@@ -199,6 +199,32 @@ struct DeveloperSetupViewModelTests {
         #expect(viewModel.showsAutomationSheet == false)
     }
 
+    @Test("Reachable LAN address prefers a concrete non-wildcard listen address")
+    func reachableLANAddressPrefersConcreteListenAddress() {
+        let reachableAddress = DeveloperSetupViewModel.reachableLANAddress(
+            for: "192.168.1.25",
+            discoverLANAddress: {
+                Issue.record("Concrete listen addresses should not trigger LAN auto-discovery")
+                return "10.0.0.5"
+            }
+        )
+
+        #expect(reachableAddress == "192.168.1.25")
+    }
+
+    @Test("Reachable LAN address skips discovery for loopback-only mode")
+    func reachableLANAddressSkipsDiscoveryForLoopback() {
+        let reachableAddress = DeveloperSetupViewModel.reachableLANAddress(
+            for: "127.0.0.1",
+            discoverLANAddress: {
+                Issue.record("Loopback mode should not trigger LAN auto-discovery")
+                return "10.0.0.5"
+            }
+        )
+
+        #expect(reachableAddress == nil)
+    }
+
     @Test("Node.js workflow exposes runtime snippets and validation")
     func nodeWorkflow() {
         let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .nodeJS)

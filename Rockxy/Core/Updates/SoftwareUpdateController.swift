@@ -11,6 +11,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         let currentVersion: String
         let latestVersion: String
         let buildNumber: String
+        let updateStageDescription: String
         let publishedDate: Date?
         let releaseNotes: SoftwareUpdateReleaseNotesContent
         let detailURL: URL?
@@ -66,10 +67,10 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
 
     func showAvailable(
         item: SUAppcastItem,
-        state _: SPUUserUpdateState,
+        state: SPUUserUpdateState,
         reply: @escaping (SPUUserUpdateChoice) -> Void
     ) {
-        let context = makeUpdateContext(from: item)
+        let context = makeUpdateContext(from: item, state: state)
         resetCallbacks()
         activeChoiceReply = reply
         activeDismiss = { reply(.dismiss) }
@@ -164,7 +165,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         showWindow()
     }
 
-    func showInstalling(applicationTerminated: Bool, retryTerminatingApplication: (() -> Void)?) {
+    func showInstalling(applicationTerminated: Bool, retryTerminatingApplication: @escaping () -> Void) {
         guard let context = activeUpdateContext else {
             return
         }
@@ -215,6 +216,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         programmaticClose = true
         windowController?.close()
         programmaticClose = false
+        windowController = nil
         phase = .hidden
         activeUpdateContext = nil
         resetCallbacks()
@@ -261,6 +263,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
 
         phase = .hidden
         activeUpdateContext = nil
+        windowController = nil
         resetCallbacks()
     }
 
@@ -302,7 +305,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
         activeRetryTermination = nil
     }
 
-    private func makeUpdateContext(from item: SUAppcastItem) -> UpdateContext {
+    private func makeUpdateContext(from item: SUAppcastItem, state: SPUUserUpdateState) -> UpdateContext {
         let preferredTitle = item.title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = if let preferredTitle, !preferredTitle.isEmpty {
             preferredTitle
@@ -318,6 +321,7 @@ final class SoftwareUpdateController: NSObject, ObservableObject, NSWindowDelega
             currentVersion: configuration.appVersion,
             latestVersion: item.displayVersionString,
             buildNumber: item.versionString,
+            updateStageDescription: String(describing: state.stage.rawValue),
             publishedDate: item.date as Date?,
             releaseNotes: SoftwareUpdateReleaseNotesContent.from(appcastItem: item),
             detailURL: item.fullReleaseNotesURL ?? item.releaseNotesURL ?? item.infoURL,
@@ -337,6 +341,7 @@ private extension SoftwareUpdateController.UpdateContext {
             currentVersion: currentVersion,
             latestVersion: latestVersion,
             buildNumber: buildNumber,
+            updateStageDescription: updateStageDescription,
             publishedDate: publishedDate,
             releaseNotes: notes,
             detailURL: detailURL,

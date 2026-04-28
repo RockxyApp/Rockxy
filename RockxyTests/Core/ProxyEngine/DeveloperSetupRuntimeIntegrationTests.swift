@@ -601,15 +601,16 @@ struct DeveloperSetupRuntimeIntegrationTests {
                 "\(runtimeName) probe failed.\nstdout:\n\(result.stdout)\nstderr:\n\(result.stderr)"
             )
 
+            let captureBudget = TimeoutBudget(timeout: captureTimeout)
             let capturedTransaction = try await transactionRecorder.waitForTransaction(
                 host: expectedCapturedHost,
                 method: expectedCapturedMethod,
                 path: allowAnyCapturedPath ? nil : (expectedCapturedPath ?? requestPath),
-                timeout: captureTimeout
+                budget: captureBudget
             )
             let upstreamRequest = try await upstreamRecorder.waitForRequest(
                 path: requestPath,
-                timeout: captureTimeout
+                budget: captureBudget
             )
 
             #expect(capturedTransaction.request.method == expectedCapturedMethod)
@@ -795,16 +796,16 @@ struct DeveloperSetupRuntimeIntegrationTests {
             return data
         }
 
-        let deadline = ContinuousClock().now + timeout
+        let budget = TimeoutBudget(timeout: timeout)
         while process.isRunning {
-            if ContinuousClock().now >= deadline {
+            guard !budget.hasExpired else {
                 process.terminate()
                 process.waitUntilExit()
                 stdoutReader.cancel()
                 stderrReader.cancel()
                 throw RuntimeProbeError.processTimedOut(executableURL.lastPathComponent)
             }
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await budget.sleep(step: .milliseconds(100))
         }
 
         let stdoutData = (try? await stdoutReader.value) ?? Data()
@@ -864,15 +865,13 @@ private final class TransactionRecorder: @unchecked Sendable {
         host: String,
         method: String,
         path: String?,
-        timeout: Duration = .seconds(10)
+        budget: TimeoutBudget
     ) async throws -> HTTPTransaction {
-        let deadline = ContinuousClock().now + timeout
-
-        while ContinuousClock().now < deadline {
+        while !budget.hasExpired {
             if let transaction = matchingTransaction(host: host, method: method, path: path) {
                 return transaction
             }
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await budget.sleep(step: .milliseconds(50))
         }
 
         throw RuntimeProbeError.captureTimedOut(path ?? host)
@@ -906,14 +905,12 @@ private final class UpstreamRequestRecorder: @unchecked Sendable {
         lock.unlock()
     }
 
-    func waitForRequest(path: String, timeout: Duration = .seconds(10)) async throws -> UpstreamRequest {
-        let deadline = ContinuousClock().now + timeout
-
-        while ContinuousClock().now < deadline {
+    func waitForRequest(path: String, budget: TimeoutBudget) async throws -> UpstreamRequest {
+        while !budget.hasExpired {
             if let request = matchingRequest(path: path) {
                 return request
             }
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await budget.sleep(step: .milliseconds(50))
         }
 
         throw RuntimeProbeError.upstreamTimedOut(path)
@@ -927,6 +924,28 @@ private final class UpstreamRequestRecorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var requests: [UpstreamRequest] = []
+}
+
+private final class TimeoutBudget: @unchecked Sendable {
+    init(timeout: Duration, clock: ContinuousClock = ContinuousClock()) {
+        self.clock = clock
+        deadline = clock.now + timeout
+    }
+
+    var hasExpired: Bool {
+        clock.now >= deadline
+    }
+
+    func sleep(step: Duration) async throws {
+        let remaining = deadline - clock.now
+        guard remaining > .zero else {
+            return
+        }
+        try await Task.sleep(for: min(step, remaining))
+    }
+
+    private let clock: ContinuousClock
+    private let deadline: ContinuousClock.Instant
 }
 
 // MARK: - LocalHTTPProbeServer
