@@ -10,10 +10,10 @@ import SwiftUI
 /// `AppPolicy`; this type only presents already-created workspaces as native
 /// macOS window tabs.
 @MainActor
-final class RockxyWorkspaceWindowManager {
+final class RockxyWorkspaceWindowManager: NSObject {
     // MARK: Lifecycle
 
-    private init() {}
+    override private init() {}
 
     // MARK: Internal
 
@@ -193,7 +193,7 @@ final class RockxyWorkspaceWindowManager {
     private var controllers: [ObjectIdentifier: WorkspaceTabWindowController] = [:]
     private var workspacesByWindow: [ObjectIdentifier: UUID] = [:]
     private var observersByWindow: [ObjectIdentifier: [NSObjectProtocol]] = [:]
-    private var tabInteractionHandlers: [ObjectIdentifier: WorkspaceTabInteractionHandler] = [:]
+    private var tabInteractionMonitor: Any?
     private var renameSession: WorkspaceTabRenameSession?
 
     private var windows: [NSWindow] {
@@ -222,19 +222,19 @@ final class RockxyWorkspaceWindowManager {
         let key = ObjectIdentifier(window)
         workspacesByWindow[key] = workspaceID
         installObserversIfNeeded(for: window)
-        installTabInteractionHandlerIfNeeded(for: window)
+        installTabInteractionMonitorIfNeeded()
         updateWindowTitles(coordinator: coordinator)
     }
 
-    private func installTabInteractionHandlerIfNeeded(for window: NSWindow) {
-        let key = ObjectIdentifier(window)
-        guard tabInteractionHandlers[key] == nil,
-              let targetView = window.standardWindowButton(.closeButton)?.superview else {
+    private func installTabInteractionMonitorIfNeeded() {
+        guard tabInteractionMonitor == nil else {
             return
         }
-        let handler = WorkspaceTabInteractionHandler(window: window, manager: self)
-        targetView.addGestureRecognizer(handler.doubleClickRecognizer)
-        tabInteractionHandlers[key] = handler
+        tabInteractionMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { @MainActor [weak self] event in
+            self?.handleTabMouseEvent(event) ?? event
+        }
     }
 
     private func installObserversIfNeeded(for window: NSWindow) {
@@ -286,9 +286,6 @@ final class RockxyWorkspaceWindowManager {
             renameSession?.cancel()
             renameSession = nil
         }
-        if let handler = tabInteractionHandlers.removeValue(forKey: windowKey) {
-            handler.detach()
-        }
         controllers.removeValue(forKey: windowKey)
     }
 
@@ -330,23 +327,90 @@ final class RockxyWorkspaceWindowManager {
         }
     }
 
-    fileprivate func handleTabDoubleClick(window: NSWindow, location: NSPoint) {
-        guard let coordinator,
-              window.identifier == Self.mainWindowIdentifier,
-              isLocationInTabStrip(location, window: window),
-              let targetWindow = tabWindow(at: location, in: window),
+    private func handleTabMouseEvent(_ event: NSEvent) -> NSEvent? {
+        if let renameSession, !renameSession.contains(event: event) {
+            renameSession.commit()
+            self.renameSession = nil
+        }
+
+        guard let target = tabHitTarget(for: event) else {
+            return event
+        }
+
+        switch event.type {
+        case .leftMouseDown where event.clickCount == 2:
+            target.window.makeKeyAndOrderFront(nil)
+            beginRename(window: target.window, workspaceID: target.workspaceID, coordinator: target.coordinator)
+            return nil
+        case .rightMouseDown:
+            showTabContextMenu(for: target, event: event)
+            return nil
+        default:
+            return event
+        }
+    }
+
+    private func tabHitTarget(for event: NSEvent) -> WorkspaceTabHitTarget? {
+        guard let sourceWindow = event.window,
+              sourceWindow.identifier == Self.mainWindowIdentifier,
+              let coordinator,
+              isLocationInTabStrip(event.locationInWindow, window: sourceWindow),
+              let targetWindow = tabWindow(at: event.locationInWindow, in: sourceWindow),
               let workspaceID = workspaceID(for: targetWindow) else {
+            return nil
+        }
+        return WorkspaceTabHitTarget(window: targetWindow, workspaceID: workspaceID, coordinator: coordinator)
+    }
+
+    private func showTabContextMenu(for target: WorkspaceTabHitTarget, event: NSEvent) {
+        guard let view = event.window?.contentView else {
             return
         }
-        targetWindow.makeKeyAndOrderFront(nil)
-        beginRename(window: targetWindow, workspaceID: workspaceID, coordinator: coordinator)
+
+        let menu = NSMenu()
+        let renameItem = NSMenuItem(
+            title: String(localized: "Rename Tab"),
+            action: #selector(handleRenameTabMenuItem(_:)),
+            keyEquivalent: ""
+        )
+        renameItem.target = self
+        renameItem.representedObject = target.workspaceID
+        menu.addItem(renameItem)
+
+        if let workspace = target.coordinator.workspaceStore.workspaces.first(where: { $0.id == target.workspaceID }),
+           workspace.isClosable {
+            let closeItem = NSMenuItem(
+                title: String(localized: "Close Tab"),
+                action: #selector(handleCloseTabMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            closeItem.target = self
+            closeItem.representedObject = target.workspaceID
+            menu.addItem(closeItem)
+        }
+
+        if target.coordinator.workspaceStore.canCreateWorkspace {
+            menu.addItem(.separator())
+            let newItem = NSMenuItem(
+                title: String(localized: "New Tab"),
+                action: #selector(handleNewTabMenuItem(_:)),
+                keyEquivalent: ""
+            )
+            newItem.target = self
+            menu.addItem(newItem)
+        }
+
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
     }
 
     private func isLocationInTabStrip(_ location: NSPoint, window: NSWindow) -> Bool {
-        let topInset: CGFloat = 44
         let leftInset: CGFloat = 76
         let rightInset: CGFloat = 52
-        return location.y >= window.frame.height - topInset
+        let tabbedWindowCount = window.tabbedWindows?.count ?? 1
+        let contentTop = window.contentLayoutRect.maxY
+        return tabbedWindowCount > 1
+            && location.y >= contentTop
+            && location.y <= window.frame.height
             && location.x >= leftInset
             && location.x <= window.frame.width - rightInset
     }
@@ -376,8 +440,34 @@ final class RockxyWorkspaceWindowManager {
         let horizontalPadding: CGFloat = 12
         let width = max(86, min(tabWidth - horizontalPadding * 2, 260))
         let x = window.frame.minX + leftInset + tabWidth * CGFloat(index) + horizontalPadding
-        let y = window.frame.maxY - 34
+        let titlebarHeight = max(28, window.frame.height - window.contentLayoutRect.maxY)
+        let y = window.frame.minY + window.contentLayoutRect.maxY + max(4, (titlebarHeight - 24) / 2)
         return NSRect(x: x, y: y, width: width, height: 24)
+    }
+
+    @objc private func handleRenameTabMenuItem(_ sender: NSMenuItem) {
+        guard let coordinator,
+              let workspaceID = sender.representedObject as? UUID,
+              let window = window(forWorkspaceID: workspaceID) else {
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        beginRename(window: window, workspaceID: workspaceID, coordinator: coordinator)
+    }
+
+    @objc private func handleCloseTabMenuItem(_ sender: NSMenuItem) {
+        guard let workspaceID = sender.representedObject as? UUID,
+              let window = window(forWorkspaceID: workspaceID),
+              let coordinator else {
+            return
+        }
+        window.makeKeyAndOrderFront(nil)
+        coordinator.workspaceStore.selectWorkspace(id: workspaceID)
+        closeCurrentWorkspaceTab(coordinator: coordinator)
+    }
+
+    @objc private func handleNewTabMenuItem(_ sender: NSMenuItem) {
+        openNewWorkspaceTabFromNativeControl()
     }
 
     private func findSibling(excluding window: NSWindow) -> NSWindow? {
@@ -433,44 +523,12 @@ final class WorkspaceTabWindowController: NSWindowController {
     }
 }
 
-// MARK: - WorkspaceTabInteractionHandler
+// MARK: - WorkspaceTabHitTarget
 
-@MainActor
-private final class WorkspaceTabInteractionHandler: NSObject {
-    // MARK: Lifecycle
-
-    init(window: NSWindow, manager: RockxyWorkspaceWindowManager) {
-        self.window = window
-        self.manager = manager
-        self.doubleClickRecognizer = NSClickGestureRecognizer()
-        super.init()
-        doubleClickRecognizer.target = self
-        doubleClickRecognizer.action = #selector(handleDoubleClick(_:))
-        doubleClickRecognizer.numberOfClicksRequired = 2
-        doubleClickRecognizer.buttonMask = 0x1
-    }
-
-    // MARK: Internal
-
-    let doubleClickRecognizer: NSClickGestureRecognizer
-
-    func detach() {
-        doubleClickRecognizer.view?.removeGestureRecognizer(doubleClickRecognizer)
-    }
-
-    // MARK: Private
-
-    private weak var window: NSWindow?
-    private weak var manager: RockxyWorkspaceWindowManager?
-
-    @objc private func handleDoubleClick(_ recognizer: NSClickGestureRecognizer) {
-        guard let window,
-              let view = recognizer.view else {
-            return
-        }
-        let location = view.convert(recognizer.location(in: view), to: nil)
-        manager?.handleTabDoubleClick(window: window, location: location)
-    }
+private struct WorkspaceTabHitTarget {
+    let window: NSWindow
+    let workspaceID: UUID
+    let coordinator: MainContentCoordinator
 }
 
 // MARK: - WorkspaceTabRenameSession
