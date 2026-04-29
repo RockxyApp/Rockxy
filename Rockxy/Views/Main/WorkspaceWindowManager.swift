@@ -69,6 +69,10 @@ final class RockxyWorkspaceWindowManager {
         openWorkspaceTab(coordinator: coordinator, workspaceID: workspace.id)
     }
 
+    var canCreateWorkspaceTab: Bool {
+        coordinator?.workspaceStore.canCreateWorkspace == true
+    }
+
     func closeCurrentWorkspaceTab(coordinator: MainContentCoordinator) {
         let activeWorkspace = coordinator.workspaceStore.activeWorkspace
         guard activeWorkspace.isClosable else {

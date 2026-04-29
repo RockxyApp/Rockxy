@@ -337,11 +337,13 @@ struct RockxyMenuCommands: Commands {
                 actions?.newWorkspaceTab()
             }
             .keyboardShortcut("t", modifiers: [.command])
+            .disabled(actions?.canCreateWorkspaceTab != true)
 
             Button(String(localized: "Close Tab")) {
                 actions?.closeWorkspaceTab()
             }
             .keyboardShortcut("w", modifiers: [.command])
+            .disabled(actions?.canCloseWorkspaceTab != true)
 
             Button(String(localized: "New Session")) {
                 actions?.clearSession()

@@ -5,7 +5,7 @@ import os
 /// last window closes (dock-icon behavior) and will restore system proxy settings
 /// on termination once `SystemProxyManager` is implemented.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidations {
     // MARK: Internal
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -47,6 +47,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func newWindowForTab(_ sender: Any?) {
         RockxyWorkspaceWindowManager.shared.openNewWorkspaceTabFromNativeControl()
+    }
+
+    func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard item.action == #selector(newWindowForTab(_:)) else {
+            return true
+        }
+        return RockxyWorkspaceWindowManager.shared.canCreateWorkspaceTab
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

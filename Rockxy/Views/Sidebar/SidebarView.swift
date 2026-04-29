@@ -438,6 +438,7 @@ struct SidebarView: View {
         } label: {
             Label(String(localized: "Open in New Tab"), systemImage: "plus.rectangle.on.rectangle")
         }
+        .disabled(!coordinator.workspaceStore.canCreateWorkspace)
 
         Divider()
 
@@ -579,6 +580,7 @@ struct SidebarView: View {
         } label: {
             Label(String(localized: "Open in New Tab"), systemImage: "plus.rectangle.on.rectangle")
         }
+        .disabled(!coordinator.workspaceStore.canCreateWorkspace)
 
         Divider()
 

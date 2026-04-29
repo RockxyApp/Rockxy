@@ -26,6 +26,14 @@ struct MainContentCommandActions {
         coordinator.selectedTransactionIDs.count == 2
     }
 
+    var canCreateWorkspaceTab: Bool {
+        coordinator.workspaceStore.canCreateWorkspace
+    }
+
+    var canCloseWorkspaceTab: Bool {
+        coordinator.workspaceStore.activeWorkspace.isClosable
+    }
+
     func startProxy() {
         coordinator.startProxy()
     }
