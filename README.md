@@ -41,11 +41,16 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.12.2** — 2026-04-28
+**v0.13.0** — 2026-04-29
+
+### Added
+
+- Improve domain grouping and helper recovery
 
 ### Fixed
 
-- Add helper registration reset to onboarding
+- Improve modify headers editor
+- Allow helper across dev and release signing
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

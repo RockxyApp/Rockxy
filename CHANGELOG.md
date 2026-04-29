@@ -14,6 +14,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Added a Star History chart to all README translations.
 
+## [0.13.0] - 2026-04-29
+
+### Added
+
+- Improve domain grouping and helper recovery
+
+### Fixed
+
+- Improve modify headers editor
+- Allow helper across dev and release signing
+
 ## [0.12.2] - 2026-04-28
 
 ### Fixed
