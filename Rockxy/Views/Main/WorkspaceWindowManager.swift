@@ -1,4 +1,4 @@
-import AppKit
+@preconcurrency import AppKit
 import os
 import SwiftUI
 
@@ -166,6 +166,14 @@ final class RockxyWorkspaceWindowManager {
         }
     }
 
+    func beginRenameForActiveWorkspace(coordinator: MainContentCoordinator) {
+        guard let window = window(forWorkspaceID: coordinator.workspaceStore.activeWorkspaceID) ?? NSApp.keyWindow,
+              let workspaceID = workspaceID(for: window) else {
+            return
+        }
+        beginRename(window: window, workspaceID: workspaceID, coordinator: coordinator)
+    }
+
     func prepareWorkspaceContent(_ workspace: WorkspaceState, coordinator: MainContentCoordinator) {
         Task { @MainActor in
             await Task.yield()
@@ -185,6 +193,8 @@ final class RockxyWorkspaceWindowManager {
     private var controllers: [ObjectIdentifier: WorkspaceTabWindowController] = [:]
     private var workspacesByWindow: [ObjectIdentifier: UUID] = [:]
     private var observersByWindow: [ObjectIdentifier: [NSObjectProtocol]] = [:]
+    private var tabInteractionHandlers: [ObjectIdentifier: WorkspaceTabInteractionHandler] = [:]
+    private var renameSession: WorkspaceTabRenameSession?
 
     private var windows: [NSWindow] {
         NSApp.windows.filter { $0.identifier == Self.mainWindowIdentifier }
@@ -212,7 +222,19 @@ final class RockxyWorkspaceWindowManager {
         let key = ObjectIdentifier(window)
         workspacesByWindow[key] = workspaceID
         installObserversIfNeeded(for: window)
+        installTabInteractionHandlerIfNeeded(for: window)
         updateWindowTitles(coordinator: coordinator)
+    }
+
+    private func installTabInteractionHandlerIfNeeded(for window: NSWindow) {
+        let key = ObjectIdentifier(window)
+        guard tabInteractionHandlers[key] == nil,
+              let targetView = window.standardWindowButton(.closeButton)?.superview else {
+            return
+        }
+        let handler = WorkspaceTabInteractionHandler(window: window, manager: self)
+        targetView.addGestureRecognizer(handler.doubleClickRecognizer)
+        tabInteractionHandlers[key] = handler
     }
 
     private func installObserversIfNeeded(for window: NSWindow) {
@@ -260,6 +282,13 @@ final class RockxyWorkspaceWindowManager {
                 NotificationCenter.default.removeObserver(observer)
             }
         }
+        if renameSession?.windowKey == windowKey {
+            renameSession?.cancel()
+            renameSession = nil
+        }
+        if let handler = tabInteractionHandlers.removeValue(forKey: windowKey) {
+            handler.detach()
+        }
         controllers.removeValue(forKey: windowKey)
     }
 
@@ -283,6 +312,72 @@ final class RockxyWorkspaceWindowManager {
 
     private func window(forWorkspaceID targetWorkspaceID: UUID) -> NSWindow? {
         windows.first { workspaceID(for: $0) == targetWorkspaceID }
+    }
+
+    private func beginRename(window: NSWindow, workspaceID: UUID, coordinator: MainContentCoordinator) {
+        guard let workspace = coordinator.workspaceStore.workspaces.first(where: { $0.id == workspaceID }) else {
+            return
+        }
+        renameSession?.commit()
+        syncWorkspaceOrderFromNativeTabs(around: window, coordinator: coordinator)
+        renameSession = WorkspaceTabRenameSession(
+            window: window,
+            workspace: workspace,
+            coordinator: coordinator,
+            frame: editorFrame(for: window)
+        ) { [weak self] in
+            self?.renameSession = nil
+        }
+    }
+
+    fileprivate func handleTabDoubleClick(window: NSWindow, location: NSPoint) {
+        guard let coordinator,
+              window.identifier == Self.mainWindowIdentifier,
+              isLocationInTabStrip(location, window: window),
+              let targetWindow = tabWindow(at: location, in: window),
+              let workspaceID = workspaceID(for: targetWindow) else {
+            return
+        }
+        targetWindow.makeKeyAndOrderFront(nil)
+        beginRename(window: targetWindow, workspaceID: workspaceID, coordinator: coordinator)
+    }
+
+    private func isLocationInTabStrip(_ location: NSPoint, window: NSWindow) -> Bool {
+        let topInset: CGFloat = 44
+        let leftInset: CGFloat = 76
+        let rightInset: CGFloat = 52
+        return location.y >= window.frame.height - topInset
+            && location.x >= leftInset
+            && location.x <= window.frame.width - rightInset
+    }
+
+    private func tabWindow(at location: NSPoint, in window: NSWindow) -> NSWindow? {
+        let tabbedWindows = window.tabbedWindows ?? [window]
+        guard !tabbedWindows.isEmpty else {
+            return nil
+        }
+        let leftInset: CGFloat = 76
+        let rightInset: CGFloat = 52
+        let availableWidth = max(1, window.frame.width - leftInset - rightInset)
+        let index = min(
+            max(Int((location.x - leftInset) / (availableWidth / CGFloat(tabbedWindows.count))), 0),
+            tabbedWindows.count - 1
+        )
+        return tabbedWindows[index]
+    }
+
+    private func editorFrame(for window: NSWindow) -> NSRect {
+        let tabbedWindows = window.tabbedWindows ?? [window]
+        let index = tabbedWindows.firstIndex(of: window) ?? 0
+        let leftInset: CGFloat = 76
+        let rightInset: CGFloat = 52
+        let availableWidth = max(120, window.frame.width - leftInset - rightInset)
+        let tabWidth = availableWidth / CGFloat(max(tabbedWindows.count, 1))
+        let horizontalPadding: CGFloat = 12
+        let width = max(86, min(tabWidth - horizontalPadding * 2, 260))
+        let x = window.frame.minX + leftInset + tabWidth * CGFloat(index) + horizontalPadding
+        let y = window.frame.maxY - 34
+        return NSRect(x: x, y: y, width: width, height: 24)
     }
 
     private func findSibling(excluding window: NSWindow) -> NSWindow? {
@@ -335,6 +430,195 @@ final class WorkspaceTabWindowController: NSWindowController {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("WorkspaceTabWindowController does not support NSCoder init")
+    }
+}
+
+// MARK: - WorkspaceTabInteractionHandler
+
+@MainActor
+private final class WorkspaceTabInteractionHandler: NSObject {
+    // MARK: Lifecycle
+
+    init(window: NSWindow, manager: RockxyWorkspaceWindowManager) {
+        self.window = window
+        self.manager = manager
+        self.doubleClickRecognizer = NSClickGestureRecognizer()
+        super.init()
+        doubleClickRecognizer.target = self
+        doubleClickRecognizer.action = #selector(handleDoubleClick(_:))
+        doubleClickRecognizer.numberOfClicksRequired = 2
+        doubleClickRecognizer.buttonMask = 0x1
+    }
+
+    // MARK: Internal
+
+    let doubleClickRecognizer: NSClickGestureRecognizer
+
+    func detach() {
+        doubleClickRecognizer.view?.removeGestureRecognizer(doubleClickRecognizer)
+    }
+
+    // MARK: Private
+
+    private weak var window: NSWindow?
+    private weak var manager: RockxyWorkspaceWindowManager?
+
+    @objc private func handleDoubleClick(_ recognizer: NSClickGestureRecognizer) {
+        guard let window,
+              let view = recognizer.view else {
+            return
+        }
+        let location = view.convert(recognizer.location(in: view), to: nil)
+        manager?.handleTabDoubleClick(window: window, location: location)
+    }
+}
+
+// MARK: - WorkspaceTabRenameSession
+
+@MainActor
+private final class WorkspaceTabRenameSession: NSObject, NSTextFieldDelegate {
+    // MARK: Lifecycle
+
+    init(
+        window: NSWindow,
+        workspace: WorkspaceState,
+        coordinator: MainContentCoordinator,
+        frame: NSRect,
+        onFinish: @escaping () -> Void
+    ) {
+        self.windowKey = ObjectIdentifier(window)
+        self.workspace = workspace
+        self.coordinator = coordinator
+        self.originalTitle = workspace.title
+        self.onFinish = onFinish
+
+        let panel = WorkspaceTabRenamePanel(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isReleasedWhenClosed = false
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.level = .floating
+
+        let field = WorkspaceTabRenameField(frame: NSRect(origin: .zero, size: frame.size))
+        field.stringValue = workspace.title
+        field.font = .systemFont(ofSize: 13, weight: .medium)
+        field.alignment = .center
+        field.isBordered = true
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.backgroundColor = .controlBackgroundColor
+        field.textColor = .labelColor
+        field.focusRingType = .default
+
+        super.init()
+
+        self.panel = panel
+        self.field = field
+        panel.onResignKey = { [weak self] in
+            self?.commit()
+        }
+        field.delegate = self
+        field.onCommit = { [weak self] in self?.commit() }
+        field.onCancel = { [weak self] in self?.cancel() }
+        panel.contentView = field
+
+        window.addChildWindow(panel, ordered: .above)
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(field)
+        field.currentEditor()?.selectAll(nil)
+    }
+
+    // MARK: Internal
+
+    let windowKey: ObjectIdentifier
+
+    func contains(event: NSEvent) -> Bool {
+        event.window === panel
+    }
+
+    func commit() {
+        guard !isFinished else {
+            return
+        }
+        isFinished = true
+        let title = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        workspace.title = title.isEmpty ? originalTitle : title
+        if let coordinator {
+            RockxyWorkspaceWindowManager.shared.updateWindowTitles(coordinator: coordinator)
+        }
+        close()
+    }
+
+    func cancel() {
+        guard !isFinished else {
+            return
+        }
+        isFinished = true
+        workspace.title = originalTitle
+        if let coordinator {
+            RockxyWorkspaceWindowManager.shared.updateWindowTitles(coordinator: coordinator)
+        }
+        close()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        commit()
+    }
+
+    // MARK: Private
+
+    private weak var coordinator: MainContentCoordinator?
+    private let workspace: WorkspaceState
+    private let originalTitle: String
+    private let onFinish: () -> Void
+    private var isFinished = false
+    private var panel: WorkspaceTabRenamePanel!
+    private var field: WorkspaceTabRenameField!
+
+    private func close() {
+        panel.parent?.removeChildWindow(panel)
+        panel.close()
+        onFinish()
+    }
+}
+
+@MainActor
+private final class WorkspaceTabRenamePanel: NSPanel {
+    var onResignKey: (() -> Void)?
+
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
+    }
+
+    override func resignKey() {
+        super.resignKey()
+        onResignKey?()
+    }
+}
+
+@MainActor
+private final class WorkspaceTabRenameField: NSTextField {
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 36, 76:
+            onCommit?()
+        case 53:
+            onCancel?()
+        default:
+            super.keyDown(with: event)
+        }
     }
 }
 

@@ -130,25 +130,6 @@ struct ContentView: View {
                 }
             }
         }
-        .overlay(alignment: .top) {
-            if isRenamingWorkspace {
-                WorkspaceTitleEditor(
-                    title: $workspaceRenameDraft,
-                    onCommit: commitWorkspaceRename,
-                    onCancel: cancelWorkspaceRename
-                )
-                .padding(.top, 10)
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .renameWorkspaceTabRequested)) { notification in
-            guard let workspaceID = notification.userInfo?["workspaceID"] as? UUID,
-                  workspaceID == contentWorkspaceID else {
-                return
-            }
-            beginWorkspaceRename(workspaceID: workspaceID)
-        }
-        .animation(.snappy(duration: 0.16), value: isRenamingWorkspace)
     }
 
     // MARK: Private
@@ -157,17 +138,8 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Bindable private var coordinator: MainContentCoordinator
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
-    @State private var isRenamingWorkspace = false
-    @State private var renamingWorkspaceID: UUID?
-    @State private var workspaceRenameDraft = ""
     private let managesLifecycle: Bool
     private let representedWorkspaceID: UUID?
-
-    private var contentWorkspaceID: UUID {
-        representedWorkspaceID
-            ?? coordinator.workspaceStore.workspaces.first(where: { !$0.isClosable })?.id
-            ?? coordinator.workspaceStore.activeWorkspaceID
-    }
 
     private func handleSystemProxyWarningAction(_ action: SystemProxyWarning.Action?) {
         switch action {
@@ -193,67 +165,6 @@ struct ContentView: View {
             break
         }
     }
-
-    private func beginWorkspaceRename(workspaceID: UUID) {
-        guard let workspace = coordinator.workspaceStore.workspaces.first(where: { $0.id == workspaceID }) else {
-            return
-        }
-        renamingWorkspaceID = workspaceID
-        workspaceRenameDraft = workspace.title
-        isRenamingWorkspace = true
-    }
-
-    private func commitWorkspaceRename() {
-        guard let renamingWorkspaceID else {
-            cancelWorkspaceRename()
-            return
-        }
-        let trimmed = workspaceRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            cancelWorkspaceRename()
-            return
-        }
-        coordinator.workspaceStore.renameWorkspace(id: renamingWorkspaceID, to: trimmed)
-        RockxyWorkspaceWindowManager.shared.updateWindowTitles(coordinator: coordinator)
-        cancelWorkspaceRename()
-    }
-
-    private func cancelWorkspaceRename() {
-        isRenamingWorkspace = false
-        renamingWorkspaceID = nil
-        workspaceRenameDraft = ""
-    }
-}
-
-// MARK: - Workspace Title Editor
-
-private struct WorkspaceTitleEditor: View {
-    @Binding var title: String
-    let onCommit: () -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        TextField(String(localized: "Tab Name"), text: $title)
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 13, weight: .medium))
-            .frame(width: 280)
-            .focused($isFocused)
-            .onSubmit(onCommit)
-            .onExitCommand(perform: onCancel)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
-            .onAppear {
-                isFocused = true
-            }
-    }
-
-    @FocusState private var isFocused: Bool
 }
 
 // MARK: - Workspace Window Accessor

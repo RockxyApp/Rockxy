@@ -182,11 +182,7 @@ struct MainContentCommandActions {
     }
 
     func renameWorkspaceTab() {
-        NotificationCenter.default.post(
-            name: .renameWorkspaceTabRequested,
-            object: nil,
-            userInfo: ["workspaceID": coordinator.workspaceStore.activeWorkspaceID]
-        )
+        RockxyWorkspaceWindowManager.shared.beginRenameForActiveWorkspace(coordinator: coordinator)
     }
 
     func selectWorkspaceTab(at index: Int) {
