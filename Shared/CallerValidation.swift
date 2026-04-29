@@ -3,7 +3,8 @@ import Security
 
 /// Testable caller-validation primitives shared between the helper and app test targets.
 /// `ConnectionValidator` delegates to these for its two-layer validation:
-/// 1. Certificate chain comparison (same-developer check)
+/// 1. Team identifier comparison (same-developer check), with exact certificate
+///    chain comparison as a fallback when the signing team cannot be read.
 /// 2. Bundle identity requirement (allowlist check)
 enum CallerValidation {
     // MARK: Internal
@@ -15,6 +16,17 @@ enum CallerValidation {
             return false
         }
         return zip(lhs, rhs).allSatisfy { $0 == $1 }
+    }
+
+    static func teamIdentifiersMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+        guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !lhs.isEmpty,
+              !rhs.isEmpty else
+        {
+            return false
+        }
+        return lhs == rhs
     }
 
     /// Checks whether a caller process satisfies any of the allowed bundle identifiers
@@ -52,27 +64,22 @@ enum CallerValidation {
     /// Performs the same two-layer validation as `ConnectionValidator.isValidCaller(_:)`
     /// but accepts a `pid_t` directly, making it testable without a real `NSXPCConnection`.
     ///
-    /// Layer 1: Extracts certificate chains for the current process and the caller PID,
-    ///          then compares them byte-by-byte (same-developer check).
+    /// Layer 1: Extracts signing TeamIdentifiers for the current process and caller PID,
+    ///          then compares them (same-developer check). If either team is unavailable,
+    ///          falls back to exact certificate-chain comparison.
     /// Layer 2: Constructs `SecRequirement` for each allowed identifier and validates
     ///          the caller's `SecCode` against them (bundle identity check).
     static func validateCaller(pid: pid_t, allowedIdentifiers: [String]) -> Bool {
-        guard let selfCerts = certificatesForSelf() else {
-            return false
-        }
-        guard let callerCerts = certificatesForProcess(pid: pid) else {
-            return false
-        }
-
-        let selfDER = certificateDERData(from: selfCerts)
-        let callerDER = certificateDERData(from: callerCerts)
-        guard certificateDataChainsMatch(selfDER, callerDER) else {
+        guard let selfCode = secCodeForSelf(),
+              let callerCode = secCodeForPID(pid) else
+        {
             return false
         }
 
-        guard let callerCode = secCodeForPID(pid) else {
+        guard signingAuthoritiesMatch(selfCode, callerCode) else {
             return false
         }
+
         return callerSatisfiesAnyIdentifier(callerCode: callerCode, allowedIdentifiers: allowedIdentifiers)
     }
 
@@ -83,6 +90,14 @@ enum CallerValidation {
         var code: SecCode?
         let status = SecCodeCopyGuestWithAttributes(nil, attributes, [], &code)
         guard status == errSecSuccess else {
+            return nil
+        }
+        return code
+    }
+
+    static func secCodeForSelf() -> SecCode? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess else {
             return nil
         }
         return code
@@ -122,8 +137,7 @@ enum CallerValidation {
     }
 
     static func certificatesForSelf() -> [SecCertificate]? {
-        var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let selfCode = code else {
+        guard let selfCode = secCodeForSelf() else {
             return nil
         }
         return certificatesFromCode(selfCode)
@@ -139,6 +153,38 @@ enum CallerValidation {
     // MARK: Private
 
     private static func certificatesFromCode(_ code: SecCode) -> [SecCertificate]? {
+        guard let dict = signingInformation(from: code) else {
+            return nil
+        }
+        guard let certs = dict[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              !certs.isEmpty else
+        {
+            return nil
+        }
+        return certs
+    }
+
+    private static func signingAuthoritiesMatch(_ lhs: SecCode, _ rhs: SecCode) -> Bool {
+        if teamIdentifiersMatch(teamIdentifier(from: lhs), teamIdentifier(from: rhs)) {
+            return true
+        }
+
+        guard let lhsCerts = certificatesFromCode(lhs),
+              let rhsCerts = certificatesFromCode(rhs) else
+        {
+            return false
+        }
+        return certificateDataChainsMatch(
+            certificateDERData(from: lhsCerts),
+            certificateDERData(from: rhsCerts)
+        )
+    }
+
+    private static func teamIdentifier(from code: SecCode) -> String? {
+        signingInformation(from: code)?[kSecCodeInfoTeamIdentifier as String] as? String
+    }
+
+    private static func signingInformation(from code: SecCode) -> [String: Any]? {
         var staticCode: SecStaticCode?
         guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess,
               let sc = staticCode else
@@ -152,12 +198,10 @@ enum CallerValidation {
         guard SecCodeCopySigningInformation(
             sc, SecCSFlags(rawValue: kSecCSSigningInformation), &info
         ) == errSecSuccess,
-            let dict = info as? [String: Any],
-            let certs = dict[kSecCodeInfoCertificates as String] as? [SecCertificate],
-            !certs.isEmpty else
+            let dict = info as? [String: Any] else
         {
             return nil
         }
-        return certs
+        return dict
     }
 }

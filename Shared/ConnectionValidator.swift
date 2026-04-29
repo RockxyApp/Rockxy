@@ -4,10 +4,11 @@ import Security
 
 /// XPC Caller Validation Model (two-layer defense-in-depth):
 ///
-/// 1. **Certificate chain comparison** (Pearcleaner pattern): extracts the helper's own
-///    signing certificate chain and compares it byte-by-byte against the caller's.
-///    Validates that both binaries were signed by the same developer certificate.
-///    Immune to Info.plist tampering since certificates are embedded in the code signature.
+/// 1. **Team identifier comparison**: extracts the helper's and caller's signing
+///    TeamIdentifier and requires the same Apple team. This keeps one canonical helper
+///    usable across Apple Development Xcode builds and Developer ID release builds.
+///    When a TeamIdentifier is unavailable, validation falls back to exact certificate
+///    chain comparison.
 ///
 /// 2. **Bundle identity requirement** (Apple SecRequirement pattern): validates the caller
 ///    matches one of the configured Rockxy app bundle identifiers, not just any app sharing

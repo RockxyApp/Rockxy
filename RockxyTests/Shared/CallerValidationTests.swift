@@ -4,7 +4,7 @@ import Security
 import Testing
 
 /// Tests for the shared caller-validation primitives used by `ConnectionValidator`.
-/// These exercise the real validation logic (certificate chain comparison, bundle
+/// These exercise the real validation logic (team/certificate comparison, bundle
 /// identity requirement checking) that the helper's `isValidCaller` delegates to.
 @Suite(.serialized)
 struct CallerValidationTests {
@@ -45,6 +45,25 @@ struct CallerValidationTests {
     @Test("Single certificate mismatch")
     func singleCertMismatch() {
         #expect(!CallerValidation.certificateDataChainsMatch([Data([1])], [Data([2])]))
+    }
+
+    // MARK: - Team Identifier Comparison
+
+    @Test("Matching TeamIdentifiers pass with whitespace normalized")
+    func matchingTeamIdentifiersPass() {
+        #expect(CallerValidation.teamIdentifiersMatch(" 9YNS969KZE ", "9YNS969KZE\n"))
+    }
+
+    @Test("Different TeamIdentifiers fail")
+    func differentTeamIdentifiersFail() {
+        #expect(!CallerValidation.teamIdentifiersMatch("9YNS969KZE", "ABCDE12345"))
+    }
+
+    @Test("Missing TeamIdentifier fails")
+    func missingTeamIdentifierFails() {
+        #expect(!CallerValidation.teamIdentifiersMatch(nil, "9YNS969KZE"))
+        #expect(!CallerValidation.teamIdentifiersMatch("", "9YNS969KZE"))
+        #expect(!CallerValidation.teamIdentifiersMatch("9YNS969KZE", " "))
     }
 
     // MARK: - Live Caller Identity (TEST_HOST = signed Rockxy app)
