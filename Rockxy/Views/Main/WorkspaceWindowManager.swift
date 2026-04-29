@@ -396,6 +396,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
 
     override func layout() {
         super.layout()
+        stopTabFrameAnimation(snapToTarget: true)
         recalculateFrames()
         if let editingWorkspaceID,
            let field = editField,
@@ -555,7 +556,9 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
 
     func update(coordinator: MainContentCoordinator) {
         self.coordinator = coordinator
+        let previousFrames = currentTabFramesForDrawing()
         recalculateFrames()
+        animateTabFrameChanges(from: previousFrames, to: tabFrames)
         needsDisplay = true
     }
 
@@ -645,6 +648,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     private static let maximumTabWidth: CGFloat = 220
     private static let addButtonSize: CGFloat = 28
     private static let dragThreshold: CGFloat = 4
+    private static let reorderAnimationDuration: TimeInterval = 0.16
 
     private weak var manager: RockxyWorkspaceWindowManager!
     private weak var coordinator: MainContentCoordinator?
@@ -652,6 +656,11 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     private var tabFrames: [UUID: NSRect] = [:]
     private var closeFrames: [UUID: NSRect] = [:]
     private var addButtonFrame = NSRect.zero
+    private var presentedTabFrames: [UUID: NSRect] = [:]
+    private var tabAnimationStartFrames: [UUID: NSRect] = [:]
+    private var tabAnimationTargetFrames: [UUID: NSRect] = [:]
+    private var tabAnimationStartDate = Date()
+    private var tabAnimationTimer: Timer?
     private var hoveredWorkspaceID: UUID?
     private var isAddButtonHovered = false
     private var mouseDownWorkspaceID: UUID?
@@ -734,7 +743,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     }
 
     private func drawSeparator() {
-        NSColor.separatorColor.withAlphaComponent(0.34).setFill()
+        NSColor.separatorColor.withAlphaComponent(isDarkAppearance ? 0.20 : 0.16).setFill()
         NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
     }
 
@@ -765,7 +774,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     }
 
     private func drawWorkspaceTab(_ workspace: WorkspaceState, activeWorkspaceID: UUID) {
-        guard let frame = tabFrames[workspace.id] else {
+        guard let frame = currentFrame(for: workspace.id) else {
             return
         }
         let isActive = workspace.id == activeWorkspaceID
@@ -779,9 +788,10 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
                 alpha: isDragging ? 0.28 : 1
             )
         }
-        if let closeFrame = closeFrames[workspace.id],
+        if workspace.isClosable,
            isActive || workspace.id == hoveredWorkspaceID,
            !isDragging {
+            let closeFrame = closeFrame(in: frame)
             drawCloseGlyph(in: closeFrame, isActive: isActive, isHovered: workspace.id == hoveredWorkspaceID)
         }
         drawInactiveDividerIfNeeded(after: workspace, frame: frame, isActive: isActive)
@@ -793,9 +803,9 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         if isActive {
             NSGraphicsContext.saveGraphicsState()
             let shadow = NSShadow()
-            shadow.shadowBlurRadius = 3
+            shadow.shadowBlurRadius = 4
             shadow.shadowOffset = NSSize(width: 0, height: -0.5)
-            shadow.shadowColor = NSColor.black.withAlphaComponent(isDarkAppearance ? 0.28 : 0.12)
+            shadow.shadowColor = NSColor.black.withAlphaComponent(isDarkAppearance ? 0.20 : 0.055)
             shadow.set()
             selectedTabFillColor.setFill()
             path.fill()
@@ -880,7 +890,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         }()
         NSColor.labelColor.withAlphaComponent(fillAlpha).setFill()
         path.fill()
-        NSColor.separatorColor.withAlphaComponent(canCreate ? 0.30 : 0.16).setStroke()
+        NSColor.separatorColor.withAlphaComponent(canCreate ? (isDarkAppearance ? 0.22 : 0.12) : 0.10).setStroke()
         path.lineWidth = 0.7
         path.stroke()
 
@@ -908,7 +918,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         let shadow = NSShadow()
         shadow.shadowBlurRadius = 6
         shadow.shadowOffset = NSSize(width: 0, height: -1)
-        shadow.shadowColor = NSColor.black.withAlphaComponent(isDarkAppearance ? 0.34 : 0.18)
+        shadow.shadowColor = NSColor.black.withAlphaComponent(isDarkAppearance ? 0.26 : 0.10)
         shadow.set()
         selectedTabFillColor.withAlphaComponent(0.95).setFill()
         path.fill()
@@ -949,9 +959,9 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
 
     private var selectedTabStrokeColor: NSColor {
         if isDarkAppearance {
-            return NSColor.white.withAlphaComponent(0.12)
+            return NSColor.white.withAlphaComponent(0.14)
         }
-        return NSColor.separatorColor.withAlphaComponent(0.36)
+        return NSColor.white.withAlphaComponent(0.82)
     }
 
     private var hoverTabFillColor: NSColor {
@@ -959,7 +969,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     }
 
     private var dividerColor: NSColor {
-        NSColor.separatorColor.withAlphaComponent(isDarkAppearance ? 0.24 : 0.30)
+        NSColor.separatorColor.withAlphaComponent(isDarkAppearance ? 0.20 : 0.22)
     }
 
     private func titleFrame(for frame: NSRect, workspace: WorkspaceState) -> NSRect {
@@ -992,6 +1002,15 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
 
     private func closeWorkspaceID(at point: NSPoint) -> UUID? {
         closeFrames.first { $0.value.contains(point) }?.key
+    }
+
+    private func closeFrame(in tabFrame: NSRect) -> NSRect {
+        NSRect(
+            x: tabFrame.maxX - 26,
+            y: tabFrame.midY - 7,
+            width: 14,
+            height: 14
+        )
     }
 
     private func insertionIndex(at point: NSPoint) -> Int {
@@ -1046,6 +1065,88 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         let dx = lhs.x - rhs.x
         let dy = lhs.y - rhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private func currentFrame(for workspaceID: UUID) -> NSRect? {
+        presentedTabFrames[workspaceID] ?? tabFrames[workspaceID]
+    }
+
+    private func currentTabFramesForDrawing() -> [UUID: NSRect] {
+        presentedTabFrames.isEmpty ? tabFrames : presentedTabFrames
+    }
+
+    private func animateTabFrameChanges(from previousFrames: [UUID: NSRect], to targetFrames: [UUID: NSRect]) {
+        guard !previousFrames.isEmpty,
+              !targetFrames.isEmpty else {
+            stopTabFrameAnimation(snapToTarget: true)
+            return
+        }
+
+        let commonIDs = Set(previousFrames.keys).intersection(targetFrames.keys)
+        let shouldAnimate = commonIDs.contains { workspaceID in
+            guard let previous = previousFrames[workspaceID],
+                  let target = targetFrames[workspaceID] else {
+                return false
+            }
+            return abs(previous.minX - target.minX) > 0.5 || abs(previous.width - target.width) > 0.5
+        }
+
+        guard shouldAnimate else {
+            return
+        }
+
+        tabAnimationTimer?.invalidate()
+        tabAnimationStartDate = Date()
+        tabAnimationTargetFrames = targetFrames
+        tabAnimationStartFrames = Dictionary(uniqueKeysWithValues: targetFrames.map { workspaceID, targetFrame in
+            (workspaceID, previousFrames[workspaceID] ?? targetFrame)
+        })
+        presentedTabFrames = tabAnimationStartFrames
+
+        let timer = Timer(
+            timeInterval: 1 / 60,
+            target: self,
+            selector: #selector(advanceTabFrameAnimation(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+        tabAnimationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    @objc private func advanceTabFrameAnimation(_ timer: Timer) {
+        let elapsed = Date().timeIntervalSince(tabAnimationStartDate)
+        let progress = min(1, elapsed / Self.reorderAnimationDuration)
+        let easedProgress = 1 - pow(1 - progress, 3)
+
+        presentedTabFrames = Dictionary(uniqueKeysWithValues: tabAnimationTargetFrames.map { workspaceID, targetFrame in
+            let startFrame = tabAnimationStartFrames[workspaceID] ?? targetFrame
+            return (workspaceID, interpolate(from: startFrame, to: targetFrame, progress: easedProgress))
+        })
+        needsDisplay = true
+
+        if progress >= 1 {
+            stopTabFrameAnimation(snapToTarget: true)
+        }
+    }
+
+    private func stopTabFrameAnimation(snapToTarget: Bool) {
+        tabAnimationTimer?.invalidate()
+        tabAnimationTimer = nil
+        tabAnimationStartFrames.removeAll(keepingCapacity: true)
+        tabAnimationTargetFrames.removeAll(keepingCapacity: true)
+        if snapToTarget {
+            presentedTabFrames.removeAll(keepingCapacity: true)
+        }
+    }
+
+    private func interpolate(from startFrame: NSRect, to targetFrame: NSRect, progress: CGFloat) -> NSRect {
+        NSRect(
+            x: startFrame.minX + (targetFrame.minX - startFrame.minX) * progress,
+            y: startFrame.minY + (targetFrame.minY - startFrame.minY) * progress,
+            width: startFrame.width + (targetFrame.width - startFrame.width) * progress,
+            height: startFrame.height + (targetFrame.height - startFrame.height) * progress
+        )
     }
 
     private func commitEditingIfNeeded(forClickAt point: NSPoint) -> Bool {
