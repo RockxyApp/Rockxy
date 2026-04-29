@@ -63,12 +63,7 @@ struct CenterContentView: View {
 
             ActiveFilterSummaryBar(coordinator: coordinator)
 
-            InspectorSplitView(layout: coordinator.inspectorLayout) {
-                tableContent
-            } inspector: {
-                InspectorPanelView(coordinator: coordinator)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            inspectorWorkspace
 
             StatusBarView(
                 totalCount: coordinator.filteredTransactions.count,
@@ -123,6 +118,49 @@ struct CenterContentView: View {
     /// tracks access to `isActive` inside `body` and re-renders the status bar when
     /// the master toggle changes.
     private let allowListManager = AllowListManager.shared
+
+    private var inspectorWorkspace: some View {
+        GeometryReader { proxy in
+            switch coordinator.inspectorLayout {
+            case .hidden:
+                tableContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .right:
+                HSplitView {
+                    tableContent
+                        .frame(
+                            minWidth: Self.minimumRightPaneWidth,
+                            idealWidth: max(Self.minimumRightPaneWidth, proxy.size.width * 0.5)
+                        )
+                    InspectorPanelView(coordinator: coordinator)
+                        .frame(
+                            minWidth: Self.minimumRightPaneWidth,
+                            idealWidth: max(Self.minimumRightPaneWidth, proxy.size.width * 0.5)
+                        )
+                }
+                .id("right-inspector-split")
+            case .bottom:
+                VSplitView {
+                    tableContent
+                        .frame(
+                            minHeight: Self.minimumBottomTableHeight,
+                            idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height / 3)
+                        )
+                    InspectorPanelView(coordinator: coordinator)
+                        .frame(
+                            minHeight: Self.minimumBottomInspectorHeight,
+                            idealHeight: max(Self.minimumBottomInspectorHeight, proxy.size.height * 2 / 3)
+                        )
+                }
+                .id("bottom-inspector-split")
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private static let minimumRightPaneWidth: CGFloat = 300
+    private static let minimumBottomTableHeight: CGFloat = 200
+    private static let minimumBottomInspectorHeight: CGFloat = 200
 
     private var tableContent: some View {
         RequestTableView(
