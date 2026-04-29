@@ -55,6 +55,7 @@ final class RockxyWorkspaceWindowManager {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+        syncWorkspaceOrderFromNativeTabs(around: window, coordinator: coordinator)
         updateWindowTitles(coordinator: coordinator)
     }
 
@@ -64,9 +65,8 @@ final class RockxyWorkspaceWindowManager {
             return
         }
         let workspace = coordinator.workspaceStore.createWorkspace()
-        coordinator.recomputeFilteredTransactions(for: workspace)
-        coordinator.rebuildSidebarIndexes(for: workspace)
         openWorkspaceTab(coordinator: coordinator, workspaceID: workspace.id)
+        prepareWorkspaceContent(workspace, coordinator: coordinator)
     }
 
     var canCreateWorkspaceTab: Bool {
@@ -74,6 +74,7 @@ final class RockxyWorkspaceWindowManager {
     }
 
     func closeCurrentWorkspaceTab(coordinator: MainContentCoordinator) {
+        syncWorkspaceOrderFromNativeTabs(coordinator: coordinator)
         let activeWorkspace = coordinator.workspaceStore.activeWorkspace
         guard activeWorkspace.isClosable else {
             return
@@ -95,6 +96,7 @@ final class RockxyWorkspaceWindowManager {
     }
 
     func selectWorkspaceTab(at index: Int, coordinator: MainContentCoordinator) {
+        syncWorkspaceOrderFromNativeTabs(coordinator: coordinator)
         guard let keyWindow = NSApp.keyWindow,
               let tabbedWindows = keyWindow.tabbedWindows,
               index >= 0,
@@ -107,6 +109,7 @@ final class RockxyWorkspaceWindowManager {
     }
 
     func selectPreviousWorkspaceTab(coordinator: MainContentCoordinator) {
+        syncWorkspaceOrderFromNativeTabs(coordinator: coordinator)
         guard visibleTabbedWindowCount > 1 else {
             coordinator.workspaceStore.selectPreviousWorkspace()
             updateWindowTitles(coordinator: coordinator)
@@ -116,6 +119,7 @@ final class RockxyWorkspaceWindowManager {
     }
 
     func selectNextWorkspaceTab(coordinator: MainContentCoordinator) {
+        syncWorkspaceOrderFromNativeTabs(coordinator: coordinator)
         guard visibleTabbedWindowCount > 1 else {
             coordinator.workspaceStore.selectNextWorkspace()
             updateWindowTitles(coordinator: coordinator)
@@ -129,6 +133,7 @@ final class RockxyWorkspaceWindowManager {
               let workspaceID = workspaceID(for: window) else {
             return
         }
+        syncWorkspaceOrderFromNativeTabs(around: window, coordinator: coordinator)
         coordinator.workspaceStore.selectWorkspace(id: workspaceID)
         updateWindowTitles(coordinator: coordinator)
     }
@@ -146,6 +151,7 @@ final class RockxyWorkspaceWindowManager {
             return
         }
 
+        syncWorkspaceOrderFromNativeTabs(coordinator: coordinator)
         coordinator.workspaceStore.closeWorkspace(id: workspaceID)
         updateWindowTitles(coordinator: coordinator)
     }
@@ -157,6 +163,17 @@ final class RockxyWorkspaceWindowManager {
                 continue
             }
             window.title = workspace.title
+        }
+    }
+
+    func prepareWorkspaceContent(_ workspace: WorkspaceState, coordinator: MainContentCoordinator) {
+        Task { @MainActor in
+            await Task.yield()
+            guard coordinator.workspaceStore.workspaces.contains(where: { $0.id == workspace.id }) else {
+                return
+            }
+            coordinator.recomputeFilteredTransactions(for: workspace)
+            coordinator.rebuildSidebarIndexes(for: workspace)
         }
     }
 
@@ -248,6 +265,20 @@ final class RockxyWorkspaceWindowManager {
 
     private func workspaceID(for window: NSWindow) -> UUID? {
         workspacesByWindow[ObjectIdentifier(window)]
+    }
+
+    private func syncWorkspaceOrderFromNativeTabs(
+        around window: NSWindow? = nil,
+        coordinator: MainContentCoordinator
+    ) {
+        guard let window = window ?? NSApp.keyWindow else {
+            return
+        }
+        let orderedIDs = (window.tabbedWindows ?? [window]).compactMap { workspaceID(for: $0) }
+        guard orderedIDs.count > 1 else {
+            return
+        }
+        coordinator.workspaceStore.reorderWorkspaces(toWorkspaceIDs: orderedIDs)
     }
 
     private func window(forWorkspaceID targetWorkspaceID: UUID) -> NSWindow? {

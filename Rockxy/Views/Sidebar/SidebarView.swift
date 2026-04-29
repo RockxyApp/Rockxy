@@ -432,9 +432,8 @@ struct SidebarView: View {
             filter.sidebarPathPrefix = pathPrefix
             let title = pathPrefix.map { "\(domain)\($0)" } ?? domain
             let ws = coordinator.workspaceStore.createWorkspace(title: title, filter: filter)
-            coordinator.recomputeFilteredTransactions(for: ws)
-            coordinator.rebuildSidebarIndexes(for: ws)
             RockxyWorkspaceWindowManager.shared.openWorkspaceTab(coordinator: coordinator, workspaceID: ws.id)
+            RockxyWorkspaceWindowManager.shared.prepareWorkspaceContent(ws, coordinator: coordinator)
         } label: {
             Label(String(localized: "Open in New Tab"), systemImage: "plus.rectangle.on.rectangle")
         }
@@ -574,9 +573,8 @@ struct SidebarView: View {
             var filter = FilterCriteria.empty
             filter.sidebarApp = app.name
             let ws = coordinator.workspaceStore.createWorkspace(title: app.name, filter: filter)
-            coordinator.recomputeFilteredTransactions(for: ws)
-            coordinator.rebuildSidebarIndexes(for: ws)
             RockxyWorkspaceWindowManager.shared.openWorkspaceTab(coordinator: coordinator, workspaceID: ws.id)
+            RockxyWorkspaceWindowManager.shared.prepareWorkspaceContent(ws, coordinator: coordinator)
         } label: {
             Label(String(localized: "Open in New Tab"), systemImage: "plus.rectangle.on.rectangle")
         }

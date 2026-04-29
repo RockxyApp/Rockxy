@@ -34,6 +34,10 @@ struct MainContentCommandActions {
         coordinator.workspaceStore.activeWorkspace.isClosable
     }
 
+    var canRenameWorkspaceTab: Bool {
+        coordinator.workspaceStore.workspaces.contains { $0.id == coordinator.workspaceStore.activeWorkspaceID }
+    }
+
     func startProxy() {
         coordinator.startProxy()
     }
@@ -169,13 +173,20 @@ struct MainContentCommandActions {
             return
         }
         let ws = coordinator.workspaceStore.createWorkspace()
-        coordinator.recomputeFilteredTransactions(for: ws)
-        coordinator.rebuildSidebarIndexes(for: ws)
         RockxyWorkspaceWindowManager.shared.openWorkspaceTab(coordinator: coordinator, workspaceID: ws.id)
+        RockxyWorkspaceWindowManager.shared.prepareWorkspaceContent(ws, coordinator: coordinator)
     }
 
     func closeWorkspaceTab() {
         RockxyWorkspaceWindowManager.shared.closeCurrentWorkspaceTab(coordinator: coordinator)
+    }
+
+    func renameWorkspaceTab() {
+        NotificationCenter.default.post(
+            name: .renameWorkspaceTabRequested,
+            object: nil,
+            userInfo: ["workspaceID": coordinator.workspaceStore.activeWorkspaceID]
+        )
     }
 
     func selectWorkspaceTab(at index: Int) {

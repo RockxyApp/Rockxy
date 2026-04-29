@@ -345,6 +345,12 @@ struct RockxyMenuCommands: Commands {
             .keyboardShortcut("w", modifiers: [.command])
             .disabled(actions?.canCloseWorkspaceTab != true)
 
+            Button(String(localized: "Rename Tab…")) {
+                actions?.renameWorkspaceTab()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(actions?.canRenameWorkspaceTab != true)
+
             Button(String(localized: "New Session")) {
                 actions?.clearSession()
             }

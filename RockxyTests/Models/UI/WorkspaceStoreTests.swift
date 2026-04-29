@@ -202,6 +202,33 @@ struct WorkspaceStoreTests {
         #expect(store.workspaces.map(\.title) == titles)
     }
 
+    @Test("Reorder workspaces follows native tab order")
+    func reorderWorkspacesToIDs() {
+        let store = WorkspaceStore()
+        let defaultID = store.workspaces[0].id
+        let ws1 = store.createWorkspace(title: "A")
+        let ws2 = store.createWorkspace(title: "B")
+        let ws3 = store.createWorkspace(title: "C")
+
+        store.reorderWorkspaces(toWorkspaceIDs: [ws2.id, defaultID, ws3.id, ws1.id])
+
+        #expect(store.workspaces.map(\.id) == [ws2.id, defaultID, ws3.id, ws1.id])
+        #expect(store.activeWorkspaceID == ws3.id)
+    }
+
+    @Test("Partial native reorder keeps remaining workspaces stable")
+    func partialReorderKeepsRemainder() {
+        let store = WorkspaceStore()
+        let defaultID = store.workspaces[0].id
+        let ws1 = store.createWorkspace(title: "A")
+        let ws2 = store.createWorkspace(title: "B")
+        let ws3 = store.createWorkspace(title: "C")
+
+        store.reorderWorkspaces(toWorkspaceIDs: [ws3.id, ws1.id])
+
+        #expect(store.workspaces.map(\.id) == [ws3.id, ws1.id, defaultID, ws2.id])
+    }
+
     // MARK: - Duplicate
 
     @Test("Duplicate creates copy with same filter and tab state")
