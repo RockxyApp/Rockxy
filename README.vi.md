@@ -41,16 +41,16 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.13.0** — 2026-04-29
+**v0.14.0** — 2026-04-29
 
 ### Added
 
-- Improve domain grouping and helper recovery
+- Native macOS workspace tabs for a more familiar multi-workspace workflow.
 
 ### Fixed
 
-- Improve modify headers editor
-- Allow helper across dev and release signing
+- Workspace tab creation, inline rename, reorder, and drag interactions are more reliable.
+- Software Update now opens centered when checking for updates.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

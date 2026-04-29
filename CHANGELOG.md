@@ -14,6 +14,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Added a Star History chart to all README translations.
 
+## [0.14.0] - 2026-04-29
+
+### Added
+
+- Native macOS workspace tabs for a more familiar multi-workspace workflow.
+
+### Fixed
+
+- Workspace tab creation, inline rename, reorder, and drag interactions are more reliable.
+- Software Update now opens centered when checking for updates.
+
 ## [0.13.0] - 2026-04-29
 
 ### Added

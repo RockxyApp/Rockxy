@@ -6,26 +6,26 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.13.0 (build 21)</title>
+      <title>Version 0.14.0 (build 22)</title>
       <pubDate>Wed, 29 Apr 2026 00:00:00 +0000</pubDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.13.0/Rockxy-0.13.0-21.dmg"
-        sparkle:version="21"
-        sparkle:shortVersionString="0.13.0"
-        sparkle:edSignature="L2OMu0QZmvs7YM5QtPMPLj+8sJMmlwUNxkbfDtGxpZH0zJMul2bzuxffnZ3h/dLI356i4a7z5D/judo8n04tBg=="
-        length="20718117"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.14.0/Rockxy-0.14.0-22.dmg"
+        sparkle:version="22"
+        sparkle:shortVersionString="0.14.0"
+        sparkle:edSignature="wkz3PZ1lheHdjPZnrFH0BYcjYa2QLV0ShzM6B++RTbwxXiOcOs7jme2KyeX0PEJhp8Lg4ocInfhr/H9QSONVDw=="
+        length="20798679"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.13.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.14.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Improve domain grouping and helper recovery</li>
+  <li>Native macOS workspace tabs for a more familiar multi-workspace workflow.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Improve modify headers editor</li>
-  <li>Allow helper across dev and release signing</li>
+  <li>Workspace tab creation, inline rename, reorder, and drag interactions are more reliable.</li>
+  <li>Software Update now opens centered when checking for updates.</li>
 </ul>
       ]]></description>
     </item>
