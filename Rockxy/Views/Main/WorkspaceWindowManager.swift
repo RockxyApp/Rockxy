@@ -10,7 +10,7 @@ import SwiftUI
 /// `AppPolicy`; this type only presents already-created workspaces as native
 /// macOS window tabs.
 @MainActor
-final class RockxyWorkspaceWindowManager: NSObject {
+final class RockxyWorkspaceWindowManager: NSObject, NSMenuDelegate {
     // MARK: Lifecycle
 
     override private init() {}
@@ -195,6 +195,9 @@ final class RockxyWorkspaceWindowManager: NSObject {
     private var observersByWindow: [ObjectIdentifier: [NSObjectProtocol]] = [:]
     private var tabInteractionMonitor: Any?
     private var renameSession: WorkspaceTabRenameSession?
+    private var pendingMouseDown: WorkspaceTabMouseDown?
+    private var isTrackingTabContextMenu = false
+    private var pendingContextMenuRenameWorkspaceID: UUID?
 
     private var windows: [NSWindow] {
         NSApp.windows.filter { $0.identifier == Self.mainWindowIdentifier }
@@ -231,7 +234,7 @@ final class RockxyWorkspaceWindowManager: NSObject {
             return
         }
         tabInteractionMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+            matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown]
         ) { @MainActor [weak self] event in
             self?.handleTabMouseEvent(event) ?? event
         }
@@ -328,19 +331,44 @@ final class RockxyWorkspaceWindowManager: NSObject {
     }
 
     private func handleTabMouseEvent(_ event: NSEvent) -> NSEvent? {
+        guard !isTrackingTabContextMenu else {
+            return event
+        }
+
         if let renameSession, !renameSession.contains(event: event) {
             renameSession.commit()
             self.renameSession = nil
         }
 
         guard let target = tabHitTarget(for: event) else {
+            if event.type == .leftMouseUp {
+                pendingMouseDown = nil
+            }
             return event
         }
 
         switch event.type {
-        case .leftMouseDown where event.clickCount == 2:
-            target.window.makeKeyAndOrderFront(nil)
-            beginRename(window: target.window, workspaceID: target.workspaceID, coordinator: target.coordinator)
+        case .leftMouseDown:
+            pendingMouseDown = WorkspaceTabMouseDown(target: target, location: event.locationInWindow)
+            return event
+        case .leftMouseUp:
+            defer { pendingMouseDown = nil }
+            guard event.clickCount == 2,
+                  pendingMouseDown?.workspaceID == target.workspaceID,
+                  let downLocation = pendingMouseDown?.location,
+                  distance(from: downLocation, to: event.locationInWindow) <= 6 else {
+                return event
+            }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    target.window.makeKeyAndOrderFront(nil)
+                    self?.beginRename(
+                        window: target.window,
+                        workspaceID: target.workspaceID,
+                        coordinator: target.coordinator
+                    )
+                }
+            }
             return nil
         case .rightMouseDown:
             showTabContextMenu(for: target, event: event)
@@ -359,15 +387,21 @@ final class RockxyWorkspaceWindowManager: NSObject {
               let workspaceID = workspaceID(for: targetWindow) else {
             return nil
         }
-        return WorkspaceTabHitTarget(window: targetWindow, workspaceID: workspaceID, coordinator: coordinator)
+        return WorkspaceTabHitTarget(
+            sourceWindow: sourceWindow,
+            window: targetWindow,
+            workspaceID: workspaceID,
+            coordinator: coordinator
+        )
     }
 
     private func showTabContextMenu(for target: WorkspaceTabHitTarget, event: NSEvent) {
-        guard let view = event.window?.contentView else {
+        guard let view = target.sourceWindow.contentView else {
             return
         }
 
         let menu = NSMenu()
+        menu.delegate = self
         let renameItem = NSMenuItem(
             title: String(localized: "Rename Tab"),
             action: #selector(handleRenameTabMenuItem(_:)),
@@ -400,7 +434,11 @@ final class RockxyWorkspaceWindowManager: NSObject {
             menu.addItem(newItem)
         }
 
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        isTrackingTabContextMenu = true
+        let location = event.locationInWindow
+        DispatchQueue.main.async {
+            menu.popUp(positioning: nil, at: location, in: view)
+        }
     }
 
     private func isLocationInTabStrip(_ location: NSPoint, window: NSWindow) -> Bool {
@@ -446,13 +484,10 @@ final class RockxyWorkspaceWindowManager: NSObject {
     }
 
     @objc private func handleRenameTabMenuItem(_ sender: NSMenuItem) {
-        guard let coordinator,
-              let workspaceID = sender.representedObject as? UUID,
-              let window = window(forWorkspaceID: workspaceID) else {
+        guard let workspaceID = sender.representedObject as? UUID else {
             return
         }
-        window.makeKeyAndOrderFront(nil)
-        beginRename(window: window, workspaceID: workspaceID, coordinator: coordinator)
+        pendingContextMenuRenameWorkspaceID = workspaceID
     }
 
     @objc private func handleCloseTabMenuItem(_ sender: NSMenuItem) {
@@ -468,6 +503,31 @@ final class RockxyWorkspaceWindowManager: NSObject {
 
     @objc private func handleNewTabMenuItem(_ sender: NSMenuItem) {
         openNewWorkspaceTabFromNativeControl()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isTrackingTabContextMenu = false
+        guard let workspaceID = pendingContextMenuRenameWorkspaceID else {
+            return
+        }
+        pendingContextMenuRenameWorkspaceID = nil
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let coordinator = self.coordinator,
+                      let window = self.window(forWorkspaceID: workspaceID) else {
+                    return
+                }
+                window.makeKeyAndOrderFront(nil)
+                self.beginRename(window: window, workspaceID: workspaceID, coordinator: coordinator)
+            }
+        }
+    }
+
+    private func distance(from lhs: NSPoint, to rhs: NSPoint) -> CGFloat {
+        let dx = lhs.x - rhs.x
+        let dy = lhs.y - rhs.y
+        return sqrt(dx * dx + dy * dy)
     }
 
     private func findSibling(excluding window: NSWindow) -> NSWindow? {
@@ -526,9 +586,20 @@ final class WorkspaceTabWindowController: NSWindowController {
 // MARK: - WorkspaceTabHitTarget
 
 private struct WorkspaceTabHitTarget {
+    let sourceWindow: NSWindow
     let window: NSWindow
     let workspaceID: UUID
     let coordinator: MainContentCoordinator
+}
+
+private struct WorkspaceTabMouseDown {
+    let workspaceID: UUID
+    let location: NSPoint
+
+    init(target: WorkspaceTabHitTarget, location: NSPoint) {
+        self.workspaceID = target.workspaceID
+        self.location = location
+    }
 }
 
 // MARK: - WorkspaceTabRenameSession
@@ -588,7 +659,9 @@ private final class WorkspaceTabRenameSession: NSObject, NSTextFieldDelegate {
         window.addChildWindow(panel, ordered: .above)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(field)
-        field.currentEditor()?.selectAll(nil)
+        if let editor = field.currentEditor() {
+            editor.selectedRange = NSRange(location: field.stringValue.utf16.count, length: 0)
+        }
     }
 
     // MARK: Internal
@@ -626,6 +699,23 @@ private final class WorkspaceTabRenameSession: NSObject, NSTextFieldDelegate {
 
     func controlTextDidEndEditing(_ notification: Notification) {
         commit()
+    }
+
+    func control(
+        _ control: NSControl,
+        textView: NSTextView,
+        doCommandBy commandSelector: Selector
+    ) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.insertNewline(_:)):
+            commit()
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            cancel()
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: Private
