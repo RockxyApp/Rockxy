@@ -9,25 +9,26 @@ description: Latency percentile analysis, slow request detection, payload tracki
 
 # Performance Insights
 
-Rockxy tracks timing and size data for every captured request and computes per-endpoint statistics in real time. Use performance insights to find slow endpoints, oversized payloads, blocking dependency chains, and regressions between sessions.
+The planned Performance Insights surface would turn captured timing and size data into per-endpoint statistics. Today, Rockxy exposes the raw timing data through the request table, inspector Timing tab, and Timeline tab.
 
 <Frame caption="The Performance Insights dashboard showing latency percentiles and slow request flags.">
   <img className="block dark:hidden" src="/images/performance-insights.png" alt="Rockxy performance insights dashboard" />
   <img className="hidden dark:block" src="/images/performance-insights-dark.png" alt="Rockxy performance insights dashboard (dark mode)" />
 </Frame>
 
-## Entry Points
+## Current Status
 
-| Action | How to Access |
+There is no dedicated Performance tab or performance-threshold settings page in the current main window. Available performance-oriented surfaces today are:
+
+| Surface | How to Access |
 |--------|---------------|
-| Performance tab | **Performance** tab in the main sidebar |
-| Timeline view | **Timeline** tab in the main sidebar |
+| Timeline view | **Timeline** tab in the main content switcher |
 | Per-request timing | Select a request > **Timing** tab in the inspector |
-| Threshold settings | **Settings > Performance** |
+| Request table sorting | Sort by duration, status, size, or timing-related columns where visible |
 
 ## Latency Analysis
 
-Rockxy computes latency percentiles for every endpoint that has received at least 5 requests in the current session. The latency table shows:
+The planned latency analysis would compute percentiles for endpoints with enough samples in the current session. The intended table shape is:
 
 | Endpoint | Requests | p50 | p95 | p99 | Avg Size | Error Rate |
 |---|---|---|---|---|---|---|
@@ -43,21 +44,21 @@ Click any row to see the full latency distribution histogram for that endpoint.
 
 ## Slow Request Detection
 
-Requests that exceed the p95 latency threshold for their endpoint are flagged as slow. Slow requests are:
+In the planned design, requests that exceed the p95 latency threshold for their endpoint would be flagged as slow. Slow requests would be:
 
 - Highlighted in the traffic list with a warning indicator.
-- Listed in the **Slow Requests** section of the Performance tab.
+- Listed in a dedicated slow-request summary.
 - Included in trend tracking for regression detection.
 
 <Note>
 Thresholds are calculated per endpoint, not globally. A 200 ms request to a fast endpoint (p95: 100 ms) is flagged, while a 200 ms request to a slow endpoint (p95: 500 ms) is not. This prevents alert fatigue from endpoints with legitimately different latency profiles.
 </Note>
 
-You can also set a fixed latency threshold in **Settings > Performance** to flag any request above a specific duration regardless of percentile.
+The current Settings UI does not expose a fixed latency threshold.
 
 ## Payload Size Analysis
 
-Rockxy tracks request and response body sizes for every endpoint and surfaces size outliers:
+The planned payload analysis would track request and response body sizes per endpoint and surface size outliers:
 
 - **Average size** per endpoint, tracked over time.
 - **Oversized responses** — responses significantly larger than the endpoint's average are flagged.
@@ -88,9 +89,9 @@ The waterfall makes it easy to spot sequential chains (requests that start only 
 
 ## Dependency Detection
 
-Rockxy automatically detects sequential request chains — cases where request B starts only after request A completes, suggesting a data dependency or waterfall pattern.
+Future Performance Insights work may detect sequential request chains — cases where request B starts only after request A completes, suggesting a data dependency or waterfall pattern.
 
-Detected chains are highlighted in the timeline view with a connecting line between dependent requests. The Performance tab lists the longest chains with their total duration and individual request breakdown.
+In the planned design, detected chains would be highlighted in the timeline view and summarized with their total duration and individual request breakdown.
 
 Use dependency detection to find opportunities for:
 
@@ -100,7 +101,7 @@ Use dependency detection to find opportunities for:
 
 ## Trend Tracking
 
-Rockxy compares current session metrics against historical baselines from previous sessions. The trend view shows:
+The planned trend view would compare current session metrics against historical baselines from previous sessions:
 
 - **Latency trends** — is the p95 for an endpoint increasing or decreasing compared to previous sessions?
 - **Error rate trends** — are errors becoming more or less frequent?
@@ -109,7 +110,7 @@ Rockxy compares current session metrics against historical baselines from previo
 Each metric displays a direction indicator (arrow up, arrow down, or stable) with the magnitude of change.
 
 <Note>
-Baselines are calculated from the most recent 10 completed sessions stored in SQLite. If fewer than 3 historical sessions exist for an endpoint, trend data is not shown for that endpoint.
+Baseline rules are still design direction and are not active in the current app.
 </Note>
 
 ## Next Steps

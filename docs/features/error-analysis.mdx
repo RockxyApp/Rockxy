@@ -9,31 +9,27 @@ description: Automatic error detection, pattern grouping, and cross-source corre
 
 # Error Analysis
 
-Rockxy automatically detects errors from both network traffic and application logs, groups them by pattern, and correlates errors across sources so you can trace failures from the HTTP layer through to your app's log output in a single view.
+The planned Error Analysis surface would detect errors from network traffic and application logs, group them by pattern, and correlate errors across sources. Today, Rockxy exposes the underlying traffic, logs, timing, and filters, but not this grouped analysis workflow.
 
 <Frame caption="The Error Analysis view showing grouped error patterns with occurrence counts.">
   <img className="block dark:hidden" src="/images/error-analysis.png" alt="Rockxy error analysis view" />
   <img className="hidden dark:block" src="/images/error-analysis-dark.png" alt="Rockxy error analysis view (dark mode)" />
 </Frame>
 
-## Entry Points
+## Current Status
 
-| Action | How to Access |
-|--------|---------------|
-| Errors tab | **Errors** tab in the main sidebar |
-| Error detail | Click any error group to expand individual occurrences |
-| Jump to request | Click an occurrence to navigate to the full request in the traffic inspector |
+There is no dedicated Errors tab in the current main window. Today, error-oriented debugging happens through the request list status codes, the inspector, the Logs tab, and filtering. The sections below describe the intended design direction, not an available production workflow.
 
 ## Error Sources
 
-Rockxy collects errors from three categories:
+The planned grouped view would collect errors from three categories:
 
 - **HTTP 4xx/5xx responses** — any server response with a status code in the 400–599 range is flagged as an error.
 - **Network connection failures** — DNS resolution failures, connection timeouts, TLS handshake errors, and other transport-level problems.
 - **Log entries at Error or Fault level** — application log entries captured by the log engine at the Error or Fault severity level.
 
 <Note>
-Error detection is automatic. Every captured request and log entry is evaluated — there is nothing to configure. Errors appear in the Errors tab as soon as they are detected.
+This is planned behavior for the future Error Analysis surface. In the current app, use request-list filtering/sorting and the Logs tab to investigate these signals manually.
 </Note>
 
 ## Error Grouping
@@ -62,16 +58,16 @@ Click any error group to expand it and see individual occurrences. Each occurren
 - The complete log message and source metadata (for log errors).
 - A timestamp and duration.
 
-Click any individual occurrence to jump to the full request in the traffic inspector or the full log entry in the Logs tab. The surrounding context (nearby requests, correlated logs) is preserved so you can investigate without losing your place.
+In the planned surface, clicking an individual occurrence would jump to the full request in the traffic inspector or the full log entry in the Logs tab while preserving surrounding context.
 
 ## Cross-Source Correlation
 
-Rockxy links network errors with log errors that share the same context:
+The planned cross-source view would link network errors with log errors that share the same context:
 
 - **Same process** — the network request and the log entry originate from the same application process.
 - **Same time window** — the log entry occurred during or immediately after the network request.
 
-When a network error has correlated log entries, the error detail view shows both in a unified timeline. This lets you see, for example, that a 500 response from `/api/orders` was accompanied by a log error reading "failed to decode order payload: unexpected null in required field."
+In that future surface, a network error with correlated log entries would show both in a unified timeline. For example, a 500 response from `/api/orders` could appear next to nearby app log output explaining the server or client failure.
 
 <Tip>
 Cross-source correlation is where Rockxy differs from traditional proxy tools. Instead of checking Console.app separately, you see the full picture — the HTTP error and the app-side log that explains why — in one place.
@@ -79,17 +75,11 @@ Cross-source correlation is where Rockxy differs from traditional proxy tools. I
 
 ## Navigating Errors
 
-Access error analysis from two locations:
+Until a dedicated Error Analysis surface ships, use:
 
-- **Errors tab** in the main sidebar — shows all error groups for the current session, sorted by most recent occurrence.
-- **Analytics > Errors** section — the same data in the context of the broader analytics dashboard, alongside performance metrics and trends.
-
-Both views support filtering by:
-
-- Error source (network, log, or all).
-- Status code range (4xx, 5xx, or specific codes).
-- Time range.
-- Keyword search across error patterns and messages.
+- Status-code sorting and filtering in the request table.
+- The **Logs** tab for nearby app/system log output.
+- The **Timeline** tab and per-request Timing inspector for slow or failed requests.
 
 ## Next Steps
 

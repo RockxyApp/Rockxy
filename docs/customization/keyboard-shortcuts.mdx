@@ -1,6 +1,6 @@
 ---
 title: "Keyboard Shortcuts"
-description: "All keyboard shortcuts for proxy control, recording, navigation, and session management"
+description: "Current keyboard shortcuts for proxy control, sessions, tabs, navigation, rules, diff, and scripting"
 ---
 
 Rockxy supports keyboard shortcuts for the most common debugging actions. All shortcuts are accessible from the menu bar as well.
@@ -11,13 +11,56 @@ Rockxy supports keyboard shortcuts for the most common debugging actions. All sh
 |----------|--------|
 | <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | Start Proxy |
 | <kbd>Cmd</kbd>+<kbd>.</kbd> | Stop Proxy |
-| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Toggle Recording |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> | Toggle Recording |
 
-## Session
+## Tabs and Sessions
 
 | Shortcut | Action |
 |----------|--------|
-| <kbd>Cmd</kbd>+<kbd>K</kbd> | Clear Session |
+| <kbd>Cmd</kbd>+<kbd>T</kbd> | New workspace tab |
+| <kbd>Cmd</kbd>+<kbd>W</kbd> | Close workspace tab |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> | Rename workspace tab |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> | New Session |
+| <kbd>Cmd</kbd>+<kbd>O</kbd> | Open Session |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Save Session |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd> | Import HAR |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd> | Export HAR |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Delete</kbd> | Clear Session |
+
+## Flow and Selection
+
+| Shortcut | Action |
+|----------|--------|
+| <kbd>Cmd</kbd>+<kbd>Return</kbd> | Repeat selected request |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>Return</kbd> | Edit and Repeat |
+| <kbd>Cmd</kbd>+<kbd>C</kbd> | Copy selected URL |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd> | Copy selected request as cURL |
+| <kbd>Delete</kbd> | Delete selected request |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Delete</kbd> | Delete all requests |
+
+## Navigation and Tools
+
+| Shortcut | Action |
+|----------|--------|
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> | Filter Domain or App |
+| <kbd>Cmd</kbd>+<kbd>L</kbd> | Focus URL search / add comment, depending on active menu context |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | Auto Select the Latest Request |
+| <kbd>Cmd</kbd>+<kbd>Control</kbd>+<kbd>[</kbd> | Toggle Source List Panel |
+| <kbd>Cmd</kbd>+<kbd>Control</kbd>+<kbd>]</kbd> | Dock inspector to bottom |
+| <kbd>Cmd</kbd>+<kbd>Control</kbd>+<kbd>\</kbd> | Dock inspector to right |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>]</kbd> | Select next workspace tab |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>[</kbd> | Select previous workspace tab |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>P</kbd> | SSL Proxying List |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>B</kbd> | Bypass Proxy List |
+| <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>B</kbd> | Breakpoint Rules |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>L</kbd> | Map Local |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>R</kbd> | Map Remote |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>[</kbd> | Block List |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>A</kbd> | Allow List |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>N</kbd> | Network Conditions |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>Y</kbd> | Open Diff View |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>D</kbd> | Compare Selected |
+| <kbd>Cmd</kbd>+<kbd>Option</kbd>+<kbd>I</kbd> | Script List |
 
 ## General
 

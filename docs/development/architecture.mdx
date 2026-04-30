@@ -270,9 +270,8 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    A["LogCaptureEngine\n(background)"] --> B["LogSessionManager\n(actor)"]
-    B --> C["MainContentCoordinator\n(@MainActor)"]
-    C --> D["Views"]
+    A["LogCaptureEngine\n(actor)"] --> B["MainContentCoordinator\n(@MainActor)"]
+    B --> C["LogStreamView\n(SwiftUI)"]
 ```
 
 ## Proxy Pipeline
@@ -293,11 +292,11 @@ flowchart LR
 
 | Data | Storage | Implementation |
 |------|---------|---------------|
-| Active sessions | In-memory ring buffer (50k capacity) | `InMemorySessionBuffer` (actor) |
+| Live traffic | Batched in-memory workspace state (50k default live cap) | `TrafficSessionManager` + `MainContentCoordinator` |
 | Saved sessions | SQLite | `SessionStore` |
 | Root CA key | macOS Keychain | `KeychainHelper` |
 | Rules | JSON file | `RuleStore` |
-| Large bodies (>1MB) | Disk files | `~/Library/Application Support/Rockxy/bodies/` |
+| Large bodies (>1MB) | Disk files | `~/Library/Application Support/com.amunx.rockxy.community/bodies/` for the Community build |
 | Log entries | SQLite | `SessionStore` (log_entries table) |
 
 ## Privileged Helper & Security
@@ -317,7 +316,7 @@ Rockxy uses a privileged helper daemon (`RockxyHelperTool`) registered via `SMAp
 - **SOCKS proxy backup** — backs up and restores SOCKS proxy settings alongside HTTP/HTTPS
 - **Stale helper recovery** — detects and recovers from stale helper state after crashes
 
-For vulnerability reporting, see [SECURITY.md](https://github.com/LocNguyenHuu/Rockxy/blob/main/SECURITY.md).
+For vulnerability reporting, see [SECURITY.md](https://github.com/RockxyApp/Rockxy/blob/main/SECURITY.md).
 
 ## Next Steps
 

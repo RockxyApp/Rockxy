@@ -38,17 +38,17 @@ The client sees a valid certificate signed by Rockxy's root CA. As long as the r
 
 | Action | How to Access |
 |--------|---------------|
-| Install Root CA | **Certificate > Install Root CA** |
+| Install Root CA | **Certificate > Install on This Mac...** |
 | SSL Proxying List | **Tools > SSL Proxying List...** |
-| Certificate Inspector | Select an HTTPS request > **Certs** tab in the inspector |
+| Certificate state | **Settings > General** root CA panel, Welcome flow, and Advanced diagnostics |
 
 ## Certificate Setup
 
 Follow these steps to enable HTTPS interception:
 
 1. **Generate Root CA** — Rockxy automatically generates a root CA certificate on first launch. No manual action needed.
-2. **Install to Keychain** — Open `Certificate → Install Root CA` from the menu bar. Rockxy adds the root CA to your macOS login Keychain.
-3. **Trust the Certificate** — Open Keychain Access, find the "Rockxy CA" certificate, double-click it, expand "Trust", and set "When using this certificate" to **Always Trust**.
+2. **Install and trust** — Open `Certificate → Install on This Mac...` from the menu bar, or use the root CA panel in **Settings > General**. Rockxy drives the install/trust flow through its helper and certificate manager.
+3. **Verify trust** — If an app still rejects HTTPS interception, open Keychain Access and verify the Rockxy root is trusted.
 4. **Restart Target Apps** — Some apps cache TLS sessions. Restart them after trusting the CA to pick up the change.
 
 <Warning>
@@ -131,7 +131,7 @@ To remove the root CA and disable HTTPS interception:
 
 **Symptom:** Browsers show "Your connection is not private" or apps fail with TLS errors.
 
-**Fix:** Open Keychain Access, find "Rockxy CA", and verify the trust setting is "Always Trust". If missing, reinstall via `Certificate → Install Root CA`.
+**Fix:** Open Keychain Access, find "Rockxy CA", and verify the trust setting is "Always Trust". If missing, reinstall via `Certificate → Install on This Mac...`.
 
 ### App uses certificate pinning
 

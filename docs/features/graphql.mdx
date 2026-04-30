@@ -71,11 +71,11 @@ The `variables` object from the request body, displayed as a collapsible JSON tr
 
 The `data` field from the GraphQL response body, displayed as a collapsible JSON tree. Errors returned in the `errors` array are highlighted separately with their message, path, and location information.
 
-## Operation Grouping
+## Operation Display
 
-In the traffic list sidebar, GraphQL requests are grouped by their operation name. This makes it easy to find all instances of a specific query or mutation across your session.
+GraphQL metadata is carried on the captured transaction and projected into the request list row. The operation name appears in the query/name column when available, and the dedicated GraphQL inspector shows the full parsed operation details.
 
-For example, if your app sends `GetUser` 15 times and `CreatePost` 3 times, the sidebar groups them under their respective operation names with request counts — so you can quickly spot which operations are called most frequently and drill into individual executions.
+Use the search and advanced filter controls to narrow the request list to GraphQL calls, then sort or search by operation-related values from the visible table.
 
 ## Next Steps
 

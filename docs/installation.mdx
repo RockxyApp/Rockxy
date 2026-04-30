@@ -17,7 +17,7 @@ Rockxy is a free, open-source, native macOS application. There is no account sig
 
 ## Download
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/LocNguyenHuu/Rockxy/releases).
+Download the latest `.dmg` from [GitHub Releases](https://github.com/RockxyApp/Rockxy/releases).
 
 Rockxy currently ships a universal macOS release package for both Apple Silicon and Intel Macs.
 
@@ -46,8 +46,8 @@ Rockxy generates a unique root CA certificate on first launch. This certificate 
 ### Steps
 
 1. Launch Rockxy.
-2. Go to **Certificate > Install Root CA** in the menu bar.
-3. Enter your macOS password when prompted. This adds the root CA to your system keychain.
+2. Go to **Certificate > Install on This Mac...** in the menu bar.
+3. Enter your macOS password if prompted. This adds and trusts the root CA through Rockxy's certificate flow.
 4. Open **Keychain Access** (or follow the on-screen prompt). Locate the **Rockxy CA** certificate.
 5. Double-click the certificate, expand **Trust**, and set **When using this certificate** to **Always Trust**.
 6. Close the dialog and enter your password to confirm.
@@ -58,18 +58,18 @@ After trusting the certificate, restart any browsers or applications that pin th
 
 | Data | Storage Method | Location |
 |------|---------------|----------|
-| User preferences | UserDefaults | `~/Library/Preferences/com.amunx.Rockxy.plist` |
+| User preferences | UserDefaults | `~/Library/Preferences/com.amunx.rockxy.community.plist` for the Community build |
 | Root CA private key | macOS Keychain | Keychain Access > System keychain |
-| Saved sessions | SQLite | `~/Library/Application Support/Rockxy/sessions.db` |
-| Large response bodies | Disk files | `~/Library/Application Support/Rockxy/bodies/` |
-| Traffic rules | JSON file | `~/Library/Application Support/Rockxy/rules.json` |
+| Saved traffic and logs | SQLite | `~/Library/Application Support/com.amunx.rockxy.community/rockxy.sqlite3` |
+| Large response bodies | Disk files | `~/Library/Application Support/com.amunx.rockxy.community/bodies/` |
+| Traffic rules | JSON file | `~/Library/Application Support/com.amunx.rockxy.community/rules.json` |
 
 ## Build from Source
 
 Requires Xcode 16+ with Swift 5.9. Dependencies are managed via Swift Package Manager through the Xcode project (no standalone `Package.swift`).
 
 ```bash
-git clone https://github.com/LocNguyenHuu/Rockxy.git
+git clone https://github.com/RockxyApp/Rockxy.git
 cd Rockxy
 xcodebuild -project Rockxy.xcodeproj -scheme Rockxy -configuration Debug build
 ```
@@ -90,8 +90,8 @@ Uninstalling Rockxy removes the application but does not automatically delete yo
 2. Delete `Rockxy.app` from the Applications folder.
 3. Remove application data:
    ```bash
-   rm -rf ~/Library/Application\ Support/Rockxy
-   rm -f ~/Library/Preferences/com.amunx.Rockxy.plist
+   rm -rf ~/Library/Application\ Support/com.amunx.rockxy.community
+   rm -f ~/Library/Preferences/com.amunx.rockxy.community.plist
    ```
 4. Open **Keychain Access**, find the **Rockxy CA** certificate, and delete it.
 
@@ -111,7 +111,7 @@ Some applications (e.g., Firefox, Electron apps with custom proxy settings) igno
 
 ### High memory usage with many captured requests
 
-Rockxy holds up to 50,000 transactions in memory. Older transactions are evicted to SQLite automatically. If memory usage is still high, clear the current session from **File > Clear Session**.
+Rockxy holds up to 50,000 transactions in memory. Older transactions are evicted from the active in-memory buffer as needed. If memory usage is still high, clear the current session from **Flow > Clear Session**.
 
 ## Claude Setup
 

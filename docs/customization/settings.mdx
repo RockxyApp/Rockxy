@@ -1,6 +1,6 @@
 ---
 title: "Settings"
-description: "Configure proxy port, recording behavior, buffer sizes, log capture, and excluded hosts"
+description: "Configure proxy behavior, certificates, tools, plugins, MCP, updates, helper diagnostics, and privacy settings"
 ---
 
 ## Opening Settings
@@ -12,45 +12,28 @@ Open the settings panel from the menu bar: **Rockxy → Settings** or press <kbd
   <img className="hidden dark:block" src="/images/settings-dark.png" alt="Rockxy Settings panel (dark mode)" />
 </Frame>
 
+## Settings Tabs
+
+Rockxy's settings window currently has these tabs: **General**, **Appearance**, **Privacy**, **Tools**, **Plugins**, **MCP**, and **Advanced**.
+
 ## General
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Auto-Start Proxy | Off | Start the proxy server automatically when Rockxy launches |
-| Record on Launch | On | Begin recording network traffic immediately on startup |
+| Port Number | `9090` | Local proxy server port. Change it if another service occupies the port. |
+| Auto Start Recording Traffic at Launch | On | Begin recording network traffic as soon as Rockxy launches. |
+| Advanced Proxy Setting | N/A | Opens the Advanced Proxy Settings window for listen-address, helper, and proxy diagnostics. |
+| Root CA Certificate | Generated per install | Generate, install and trust, export, share, recheck, or reset the Rockxy root CA. |
 
-## Proxy
+## Tools
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Proxy Port | `9090` | Local proxy server port. Change if another service occupies 9090 |
-| Listen Address | `127.0.0.1` | Network interface to bind. Use `0.0.0.0` to accept connections from other devices on your network |
-| Excluded Hosts | *(empty)* | Comma-separated list of hosts to bypass the proxy entirely |
+| Disable caching (No-Cache headers) | Off | Adds no-cache headers and strips conditional cache validators from outbound requests. |
 
-<Tip>
-  Add noisy hosts like `analytics.example.com` or `telemetry.sdk.io` to the excluded list to keep your session focused on the traffic you care about.
-</Tip>
+## Privacy
 
-## Buffer Sizes
-
-| Buffer | Default | Description |
-|--------|---------|-------------|
-| Transaction Buffer | 50,000 | Maximum number of HTTP transactions held in the in-memory ring buffer |
-| Log Buffer | 100,000 | Maximum number of log entries held in the in-memory ring buffer |
-
-<Note>
-  When either buffer reaches capacity, the oldest 10% of entries are evicted — moved to the SQLite database or discarded depending on your retention settings. This keeps memory usage stable during long debugging sessions.
-</Note>
-
-## Log Capture
-
-Toggle log capture on or off from the **Log Capture** section in Settings. When enabled, Rockxy captures logs from:
-
-- **OSLog** — system and application logs via `OSLogStore` (macOS 12+)
-- **Process stdout/stderr** — output from monitored processes
-- **Custom sources** — logs from installed plugins that conform to the log source protocol
-
-Configure which sources are active and set minimum log level filters (Debug, Info, Warning, Error, Critical) per source.
+The Privacy tab discloses local storage paths, export sensitivity, and telemetry behavior. Rockxy does not collect analytics or crash reports.
 
 ## MCP
 
@@ -78,12 +61,12 @@ Rockxy stores data across several locations on disk:
 
 | Data | Location |
 |------|----------|
-| User Preferences | `~/Library/Preferences/com.amunx.Rockxy.plist` |
+| User Preferences | `~/Library/Preferences/com.amunx.rockxy.community.plist` |
 | Root CA Key | macOS Keychain (managed by `KeychainHelper`) |
-| Session Database | `~/Library/Application Support/Rockxy/sessions.db` |
-| Large Bodies (>1MB) | `~/Library/Application Support/Rockxy/bodies/` |
-| Rules | `~/Library/Application Support/Rockxy/rules.json` |
-| Certificate Cache | `~/Library/Application Support/Rockxy/certs/` |
+| Session Database | `~/Library/Application Support/com.amunx.rockxy.community/rockxy.sqlite3` |
+| Large Bodies (>1MB) | `~/Library/Application Support/com.amunx.rockxy.community/bodies/` |
+| Rules | `~/Library/Application Support/com.amunx.rockxy.community/rules.json` |
+| Certificate Cache | macOS Keychain plus generated in-memory/on-disk app support data as needed |
 
 <Warning>
   The Root CA private key is stored in the macOS Keychain and protected by system-level access controls. Do not attempt to export or modify it manually — use Rockxy's certificate management UI instead.

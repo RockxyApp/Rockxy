@@ -9,7 +9,7 @@ This guide takes you from download to inspecting your first captured request in 
 
 ## 1. Download Rockxy
 
-Grab the latest release from [GitHub Releases](https://github.com/LocNguyenHuu/Rockxy/releases). Rockxy currently ships a universal `.dmg` that supports both Apple Silicon and Intel Macs.
+Grab the latest release from [GitHub Releases](https://github.com/RockxyApp/Rockxy/releases). Rockxy currently ships a universal `.dmg` that supports both Apple Silicon and Intel Macs.
 
 ## 2. Install
 
@@ -23,8 +23,8 @@ If macOS blocks the app, right-click it and select **Open**, then click **Open**
 HTTPS interception will not work until you install and trust the root CA certificate. Skip this step only if you need to capture plain HTTP traffic.
 </Warning>
 
-1. In the Rockxy menu bar, go to **Certificate > Install Root CA**.
-2. Enter your macOS password to add the certificate to your system keychain.
+1. In the Rockxy menu bar, go to **Certificate > Install on This Mac...**.
+2. Enter your macOS password if prompted to add and trust the certificate.
 3. Open **Keychain Access**, find **Rockxy CA**, double-click it.
 4. Expand **Trust** and set **When using this certificate** to **Always Trust**.
 5. Close the dialog and enter your password to confirm.
@@ -35,7 +35,7 @@ The root CA private key is stored in your macOS Keychain and never leaves your m
 
 Click the **Start** button in the toolbar or use the keyboard shortcut. Rockxy sets itself as the system HTTP/HTTPS proxy and begins capturing traffic from all applications.
 
-<Tip>Press **Cmd+Shift+R** to toggle traffic capture on and off.</Tip>
+<Tip>Press **Cmd+Shift+R** to start capture and **Cmd+.** to stop it.</Tip>
 
 Open a browser or any app that makes network requests. You will see requests appear in the request list in real time.
 
@@ -58,7 +58,7 @@ For WebSocket connections, you will see individual frames listed with their opco
 
 ## 6. Explore Logs
 
-Switch to the **Logs** tab in the sidebar to see captured application logs from OSLog streams and process stdout/stderr. Logs are correlated with network requests by timestamp and process, so you can trace a request from the network layer through to the application log output.
+Switch to the **Logs** tab in the main content switcher to see captured application logs from OSLog streams and process stdout/stderr. Rockxy currently correlates logs to nearby requests by timestamp so you can jump between network traffic and related log output while debugging.
 
 ## 7. Connect Rockxy to Claude
 
@@ -81,7 +81,7 @@ For the full setup guide, including Claude CLI and Claude Desktop instructions, 
     Capture and correlate OSLog streams with network requests.
   </Card>
   <Card title="Keyboard Shortcuts" icon="keyboard" href="/customization/keyboard-shortcuts">
-    All available keyboard shortcuts for fast navigation.
+    Current menu shortcuts for proxy control, sessions, tabs, rules, diff, and scripting.
   </Card>
   <Card title="Sessions & HAR" icon="floppy-disk" href="/features/sessions">
     Save, restore, import, and export captured traffic.

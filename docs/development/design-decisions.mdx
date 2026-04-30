@@ -48,18 +48,18 @@ JavaScript plugins run in JavaScriptCore with a controlled bridge API (`$rockxy`
 | Data | Mechanism | Location |
 |------|-----------|----------|
 | User preferences | UserDefaults | `AppSettingsStorage` |
-| Active sessions | In-memory ring buffer (50k) | `InMemorySessionBuffer` |
+| Live traffic | Batched in-memory workspace state (50k default live cap) | `TrafficSessionManager` + `MainContentCoordinator` |
 | Saved sessions | SQLite | `SessionStore` |
 | Root CA private key | macOS Keychain | `KeychainHelper` |
 | Rules | JSON file | `RuleStore` |
 | Large bodies (>1MB) | Disk files | `~/Library/Application Support/com.amunx.rockxy/bodies/` or `~/Library/Application Support/com.amunx.rockxy.community/bodies/` depending on the active build |
 | Log entries | SQLite | `SessionStore` (log_entries table) |
-| Proxy backup | Plist (0o600) | `/Library/Application Support/com.amunx.Rockxy/proxy-backup.plist` |
-| Plugins | JS files + manifest | `~/Library/Application Support/Rockxy/Plugins/` |
+| Proxy backup | Plist (0o600) | `/Library/Application Support/com.amunx.rockxy/proxy-backup.plist` shared helper support |
+| Plugins | JS files + manifest | `~/Library/Application Support/com.amunx.rockxy.community/Plugins/` for the Community build |
 
 ## CI/CD Pipeline
 
-GitHub Actions workflow (manual dispatch with optional channel parameter) — canonical file: [`.github/workflows/build.yml`](https://github.com/LocNguyenHuu/Rockxy/blob/main/.github/workflows/build.yml).
+GitHub Actions workflow (manual dispatch with optional channel parameter) — canonical file: [`.github/workflows/build.yml`](https://github.com/RockxyApp/Rockxy/blob/main/.github/workflows/build.yml).
 
 1. **Lint** — `swiftlint lint --strict` on macOS 14
 2. **Build** — parallel arm64 and x86_64 release builds with Xcode 16

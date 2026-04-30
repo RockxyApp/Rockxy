@@ -66,12 +66,12 @@
       "anchors": [
         {
           "anchor": "GitHub",
-          "href": "https://github.com/LocNguyenHuu/Rockxy",
+          "href": "https://github.com/RockxyApp/Rockxy",
           "icon": "github"
         },
         {
           "anchor": "Releases",
-          "href": "https://github.com/LocNguyenHuu/Rockxy/releases",
+          "href": "https://github.com/RockxyApp/Rockxy/releases",
           "icon": "download"
         }
       ]
@@ -87,7 +87,7 @@
     "primary": {
       "type": "button",
       "label": "Download",
-      "href": "https://github.com/LocNguyenHuu/Rockxy/releases"
+      "href": "https://github.com/RockxyApp/Rockxy/releases"
     }
   },
   "contextual": {
@@ -95,7 +95,7 @@
   },
   "footer": {
     "socials": {
-      "github": "https://github.com/LocNguyenHuu/Rockxy"
+      "github": "https://github.com/RockxyApp/Rockxy"
     }
   }
 }

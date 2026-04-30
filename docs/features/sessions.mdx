@@ -95,7 +95,7 @@ Beyond file-level session save/export, Rockxy supports copying individual reques
 
 - HAR export includes HTTP transactions only. WebSocket frames, GraphQL metadata, log entries, and user annotations (comments, highlights) are not included in HAR files. Use `.rockxysession` for full-fidelity saves.
 - `.rockxysession` files are not compatible with other tools — use HAR for cross-tool sharing.
-- Bodies larger than 10 MB are truncated in `.rockxysession` files.
+- Bodies larger than 10 MB are marked as truncated in `.rockxysession` files. For full-fidelity capture of very large bodies, keep the local app data until you are done debugging.
 - Large sessions with many transactions may take a few seconds to save or load.
 
 ## Next Steps

@@ -5,7 +5,7 @@ description: Capture OSLog streams, correlate application logs with network requ
 
 # Log Intelligence
 
-Rockxy captures application logs alongside network traffic and correlates them by timestamp and process. When a network request fails, you see the log output that happened at the same time from the same app — no more switching between Console.app and your proxy tool.
+Rockxy captures application logs alongside network traffic and correlates them by timestamp. When a network request fails, nearby log output can help you line up app behavior with proxy traffic without switching to Console.app.
 
 <Frame caption="The Logs tab showing captured OSLog entries correlated with network requests.">
   <img className="block dark:hidden" src="/images/log-intelligence.png" alt="Rockxy log intelligence view" />
@@ -16,10 +16,9 @@ Rockxy captures application logs alongside network traffic and correlates them b
 
 | Action | How to Access |
 |--------|---------------|
-| Logs tab | **Logs** tab in the main sidebar |
-| Log settings | **Settings > Logs** |
-| Correlated logs for a request | Select a request > **Logs** tab in the inspector |
-| Jump to correlated request | Select a log entry > **Jump to Request** |
+| Logs tab | **Logs** tab in the main content switcher |
+| Log capture lifecycle | Starts with the main coordinator when log capture is enabled |
+| Correlated request ID | Log entries can be linked to nearby requests by timestamp |
 
 ## Log Sources
 
@@ -37,7 +36,7 @@ Rockxy captures application logs alongside network traffic and correlates them b
 
 ## Capturing Logs
 
-Enable log capture from the toolbar toggle or in **Settings > Logs**. Once enabled, Rockxy streams logs in real time from all configured sources.
+When log capture is enabled in app settings, Rockxy streams logs in real time from configured sources.
 
 To reduce noise, filter by specific apps or subsystems:
 
@@ -64,24 +63,21 @@ Click any level badge in the filter bar to show or hide entries at that level. C
 
 ## Log-Request Correlation
 
-Rockxy automatically correlates log entries with network requests using two signals:
+Rockxy currently correlates log entries with network requests using timestamp proximity:
 
-- **Timestamp proximity** — log entries that occurred within the duration of a network request are candidates for correlation.
-- **Process matching** — the log entry's process identifier must match the app that originated the network request.
+- **Timestamp proximity** — log entries close to a network request are candidates for correlation.
 
-When viewing a network request in the inspector, the **Logs** tab shows all correlated log entries. When viewing a log entry, click **Jump to Request** to navigate to the correlated network transaction.
+The `correlatedTransactionId` on a log entry links it to the closest request within the correlation window.
 
 <Note>
-Correlation accuracy depends on timestamp precision and correct process attribution. OSLog entries have microsecond timestamps, so correlation is typically accurate to within a few milliseconds. Process stdout/stderr logs may have slightly lower precision depending on the buffering behavior of the target process.
+Correlation accuracy depends on timestamp precision and traffic volume. In busy multi-app sessions, treat the correlation as a helpful proximity signal rather than proof that one process emitted both events.
 </Note>
 
 ## Log Buffer
 
-Rockxy holds up to **100,000 log entries** in an in-memory ring buffer for fast access and filtering. When the buffer reaches capacity, the oldest entries are moved to SQLite storage.
+Rockxy holds up to **100,000 log entries** in memory for fast access and filtering. When the buffer reaches capacity, older entries are evicted from the live list.
 
-Persisted log entries remain searchable and accessible from the Logs tab — they load on demand when you scroll past the in-memory boundary or search for older entries.
-
-Buffer size is configurable in **Settings > Logs > Buffer Size**.
+The current Settings UI does not expose a dedicated Logs tab or buffer-size control.
 
 ## Log Filtering
 

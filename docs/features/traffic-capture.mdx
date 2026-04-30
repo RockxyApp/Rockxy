@@ -28,8 +28,8 @@ Use the toolbar controls or keyboard shortcuts to manage capture state:
 |--------|----------|-------------|
 | Start Capture | `Cmd + Shift + R` | Start the proxy server and begin capturing traffic |
 | Stop Capture | `Cmd + .` | Stop the proxy server and restore system proxy settings |
-| Toggle Recording | `Cmd + Shift + E` | Pause/resume recording without stopping the proxy |
-| Clear Session | `Cmd + K` | Remove all captured requests from the current session |
+| Toggle Recording | `Cmd + Shift + D` | Pause/resume recording without stopping the proxy |
+| Clear Session | `Cmd + Option + Shift + Delete` | Remove all captured requests from the current session |
 
 When recording is paused, the proxy stays active (so apps don't lose connectivity) but new requests are not added to the traffic list.
 
@@ -45,23 +45,20 @@ The main traffic list displays captured requests in a high-performance virtualiz
 - **Duration** — total round-trip time in milliseconds
 - **Content Type** — detected response type (JSON, XML, HTML, image, etc.)
 
-Above the request list, tabbed views give you different perspectives on your captured data:
+Above the request list, the main content switcher gives you different perspectives on captured data:
 
 - **Traffic** — the full chronological request list
-- **Logs** — application log entries correlated with network activity
-- **Timeline** — visual waterfall showing request sequences and dependencies
-- **Errors** — automatically grouped errors from both network and log sources
-- **Performance** — latency analysis, slow request detection, payload size tracking
+- **Logs** — application log entries captured by the log engine
+- **Timeline** — visual waterfall for requests that have timing breakdowns
 
 ## Filtering Traffic
 
-The filter bar at the top of the request list supports multiple simultaneous filters to narrow down traffic:
+The toolbar supports protocol filters, URL search, and an optional advanced filter bar:
 
-- **Search** — free-text search across URL, headers, and body content
-- **Method** — filter by HTTP method (GET, POST, PUT, DELETE, etc.)
-- **Status Code** — filter by status code range (2xx, 3xx, 4xx, 5xx) or specific code
-- **Content Type** — filter by response type (JSON, XML, HTML, Image, etc.)
-- **Domain** — filter to a specific hostname or domain pattern
+- **Protocol filters** — narrow to HTTP, HTTPS, WebSocket, GraphQL, and related traffic classes.
+- **URL search** — search the selected field from the search bar.
+- **Advanced filters** — combine structured rules such as method, status, domain, path, client app, or request state.
+- **Sidebar scope** — selecting an app, domain, pinned item, or saved item scopes the request list.
 
 <Tip>
 Combine multiple filters to isolate exactly the traffic you need. For example, filter to `POST` requests returning `5xx` status codes on `api.example.com` to find failing API calls instantly.
@@ -115,12 +112,12 @@ For detected GraphQL requests, shows the parsed operation with query text and va
 
 ## Session Management
 
-Rockxy stores active traffic in a high-performance in-memory ring buffer with a capacity of 50,000 transactions. When the buffer fills up, the oldest 10% of entries are either moved to SQLite storage or discarded.
+Rockxy stores active traffic in a high-performance in-memory buffer with a default capacity of 50,000 transactions. When the live buffer exceeds the limit, the oldest overflow is evicted from the active workspace so the UI remains responsive.
 
 Completed sessions are persisted to a local SQLite database, so you can quit and relaunch Rockxy without losing your captured data. Response bodies larger than 1 MB are stored as separate files on disk to keep the database lean.
 
 <Note>
-When the ring buffer reaches capacity, the oldest entries are evicted automatically. If you need to preserve specific requests, export them before the buffer fills. Use `Cmd + K` to manually clear the session and free memory.
+When the live buffer reaches capacity, older active rows are evicted automatically. If you need to preserve specific requests, pin/save them or export them before the buffer fills. Use **Flow > Clear Session** to manually clear the session and free memory.
 </Note>
 
 ## Supported Protocols

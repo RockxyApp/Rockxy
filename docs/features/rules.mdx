@@ -7,7 +7,7 @@ description: Modify network traffic with breakpoints, URL mapping, blocking, thr
 
 Rockxy's rule engine intercepts matching requests in the proxy pipeline and applies actions before they reach the server or return to the client. Rules are evaluated in priority order against every HTTP and HTTPS request that passes through the proxy.
 
-<Frame caption="The Rules sidebar showing active traffic modification rules.">
+<Frame caption="Rockxy rule-management surfaces for traffic modification rules.">
   <img className="block dark:hidden" src="/images/rules-overview.png" alt="Rockxy rules overview" />
   <img className="hidden dark:block" src="/images/rules-overview-dark.png" alt="Rockxy rules overview (dark mode)" />
 </Frame>
@@ -16,8 +16,8 @@ Rockxy's rule engine intercepts matching requests in the proxy pipeline and appl
 
 | Action | How to Access |
 |--------|---------------|
-| Rules sidebar | Left navigation panel > **Rules** |
-| Breakpoints window | **Tools > Breakpoints...** (`Cmd+Shift+B`) |
+| Breakpoint Rules window | **Tools > Breakpoint Rules...** (`Cmd+Shift+B`) |
+| Breakpoint Queue window | **Tools > Breakpoint Queue...** |
 | Map Local window | **Tools > Map Local...** (`Cmd+Opt+L`) |
 | Map Local quick-create | Right-click a captured request > **Map Local...** |
 | Map Remote window | **Tools > Map Remote...** (`Cmd+Opt+R`) |
@@ -30,7 +30,7 @@ Rockxy's rule engine intercepts matching requests in the proxy pipeline and appl
 | Modify Headers window | **Tools > Modify Headers...** |
 | Network Conditions window | **Tools > Network Conditions...** (`Cmd+Opt+N`) |
 | Network Conditions quick-create | Right-click a captured request > **Tools > Network Conditions...** |
-| Add Breakpoint for selected | **Tools > Add Breakpoint for Selected Request**, or right-click > **Add Breakpoint** |
+| Add Breakpoint for selected | Right-click a captured request > **Tools > Breakpoint...** |
 
 ## Rule Types
 
@@ -60,13 +60,15 @@ Rockxy's rule engine intercepts matching requests in the proxy pipeline and appl
 
 ## Creating Rules
 
-1. Open the **Rules** sidebar from the left navigation panel.
-2. Click **Add Rule** at the bottom of the rule list.
-3. Configure the match condition — URL pattern, HTTP method, or header match.
-4. Select the action type from the dropdown (Breakpoint, Map Local, Map Remote, Block, Throttle, or Modify Header).
-5. Fill in the action-specific configuration (file path, target URL, delay, header operations, etc.).
-6. Set the rule priority by dragging it to the desired position in the list.
-7. Click **Save**. The rule takes effect immediately for all new requests.
+Rockxy currently exposes rule editing through dedicated tool windows rather than a single generic Rules editor. Open the window for the action you want, then create a rule from scratch or quick-create one from a captured request or sidebar domain where supported.
+
+Typical flow:
+
+1. Open the relevant tool window from **Tools**.
+2. Create a new rule or use a request/domain quick-create action.
+3. Configure the match condition — URL pattern, HTTP method, or header match when the editor supports it.
+4. Fill in the action-specific configuration (file path, target URL, delay, header operations, etc.).
+5. Save the rule. It takes effect for new matching requests.
 
 ## Rule Matching
 
@@ -258,12 +260,12 @@ WebSocket upgrade responses (HTTP 101) are not modified to avoid interfering wit
 
 ## Rule Persistence
 
-Rules are stored as JSON at `~/Library/Application Support/Rockxy/rules.json`. This file is human-readable and version-control friendly.
+Rules are stored as JSON at `~/Library/Application Support/com.amunx.rockxy.community/rules.json` for the Community build. This file is human-readable and version-control friendly.
 
 **Import/Export:**
 
-- **Export** — right-click a rule or selection of rules and choose **Export Rules**. Saves a `.json` file you can share.
-- **Import** — click **Import Rules** in the Rules sidebar and select a `.json` file. Imported rules are appended to the existing list.
+- **Export** — use the rule window's More menu or context menu when available. Exports save a `.json` file you can share.
+- **Import** — use the matching rule window's import action when available. Imported rules are appended to the existing list after validation.
 
 Share rule files between machines or team members to standardize debugging configurations.
 
@@ -271,7 +273,7 @@ Share rule files between machines or team members to standardize debugging confi
 
 Rules are evaluated top to bottom. The first matching rule wins — no further rules are checked for that request.
 
-- **Reorder** by dragging rules in the sidebar list.
+- **Reorder** where the dedicated rule window exposes ordering controls.
 - **Disable** a rule without deleting it by toggling the checkbox next to its name.
 - **Delete** by right-clicking and selecting **Delete Rule**, or pressing the Delete key with the rule selected.
 
