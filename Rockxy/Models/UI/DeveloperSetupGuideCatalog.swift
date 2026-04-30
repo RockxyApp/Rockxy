@@ -378,33 +378,88 @@ enum DeveloperSetupGuideCatalog {
         SetupGuideContent(
             setupTips: [
                 tip(
-                    "rn-underlying",
-                    "Set up the underlying iOS or Android target first",
-                    "React Native traffic flows through the native iOS or Android network stack, so Rockxy must already work for that device or emulator."
+                    "rn-ios-device",
+                    "iOS devices follow the iOS Device guide",
+                    """
+                    Set a manual HTTP proxy on the active Wi-Fi, install the Rockxy certificate profile \
+                    in Safari, enable Full Trust, then cold-launch the React Native app.
+                    """
+                ),
+                tip(
+                    "rn-ios-simulator",
+                    "iOS Simulator follows the simulator guide",
+                    """
+                    The simulator can usually reach Rockxy through the Mac network path. Trust the \
+                    Root CA inside the simulator, then rebuild or cold-launch the app after trust changes.
+                    """
+                ),
+                tip(
+                    "rn-android-device",
+                    "Android devices need proxy, user CA, and debug trust",
+                    """
+                    Set the Wi-Fi proxy to the Device Proxy host shown by Rockxy, install the Root CA \
+                    as a user CA, and use a debug build whose network-security-config trusts user CAs.
+                    """
+                ),
+                tip(
+                    "rn-android-emulator",
+                    "Android Emulator uses 10.0.2.2 for the Mac",
+                    """
+                    Set the emulator proxy to 10.0.2.2 plus Rockxy's active port, install the Root CA \
+                    in the emulator, and use the Android XML snippet for debug builds.
+                    """
                 ),
                 tip(
                     "rn-metro",
                     "Restart Metro and the app after proxy changes",
-                    "Stop Metro, change the system proxy and certificate trust, then restart the bundler and the app so the networking layer picks up the new settings."
+                    """
+                    Stop Metro, change proxy or certificate trust, run adb reverse tcp:8081 tcp:8081 \
+                    for Android when needed, then restart Metro and cold-launch the app.
+                    """
                 ),
                 tip(
                     "rn-fetch",
-                    "Fetch uses the platform stack",
-                    "The global fetch respects the iOS or Android proxy and certificate trust; if it still fails, the problem is almost always at the platform layer."
+                    "Use the fetch probe after platform setup",
+                    "The fetch snippet confirms that a predictable React Native request can reach Rockxy after the platform proxy and trust path is ready."
                 ),
             ],
             validationTips: [
                 tip(
                     "rn-validate",
                     "Trigger one known HTTPS request",
-                    "Call one predictable HTTPS endpoint from your React Native code and confirm Rockxy captures it before you debug deeper flows."
+                    """
+                    Run the React Native fetch probe from the Validate tab and confirm Rockxy captures \
+                    the target-specific httpbin request before you debug deeper app flows.
+                    """
                 ),
             ],
             troubleshootingTips: [
                 tip(
+                    "rn-no-traffic",
+                    "No traffic usually means the platform proxy is wrong",
+                    """
+                    Re-check the iOS Wi-Fi proxy, Android Wi-Fi proxy, Android Emulator 10.0.2.2 host, \
+                    or the Device Proxy LAN host before changing React Native code.
+                    """
+                ),
+                tip(
+                    "rn-metro-bridge",
+                    "Metro bridge failures need a bypass path",
+                    """
+                    If Android development mode cannot reach Metro after proxy setup, keep adb reverse \
+                    tcp:8081 tcp:8081 active. For emulator Wi-Fi proxy settings, bypass localhost; for \
+                    physical devices, bypass the Mac LAN host used by Metro.
+                    """
+                ),
+                tip(
                     "rn-release",
                     "Release builds may not trust user CAs",
                     "On Android, release builds typically do not trust user CAs; validate with a debug build whose network-security-config allows them."
+                ),
+                tip(
+                    "rn-pinning",
+                    "Certificate pinning still blocks interception",
+                    "If the app pins certificates, Rockxy cannot decrypt its HTTPS traffic until the debug build relaxes pinning."
                 ),
             ]
         )

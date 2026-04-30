@@ -23,7 +23,7 @@ Every target in the hub has a **manual** path. Manual support means:
 
 Many targets additionally ship an **in-app validation watcher**. The Snippets tab keeps the general-purpose sample request, while the Validate tab swaps in a target-specific probe URL such as `GET https://httpbin.org/anything/rockxy/python` before you press **Run Test**. This is still a generic capture check, not process attribution for the selected target.
 
-Some targets are **hybrid**: they have generated snippets and still keep platform guide notes. Flutter is the reference example: Rockxy can generate Flutter client snippets, but the underlying iOS or Android target still owns reachability and certificate trust.
+Some targets are **hybrid**: they have generated snippets and still keep platform guide notes. Flutter is the reference example: Rockxy can generate Flutter client snippets, but the underlying iOS or Android target still owns reachability and certificate trust. React Native follows the same model with a `fetch` probe, Android debug XML, and Metro troubleshooting notes.
 
 ## Support matrix
 
@@ -70,6 +70,7 @@ These targets still rely on manual setup inside the real third-party app, but th
 | ElectronJS | `--proxy-server` CLI flag, `session.setProxy` main-process call              |
 | Next.js    | App Router route handler + `NODE_USE_ENV_PROXY` + `HTTP_PROXY` / `HTTPS_PROXY` + `NODE_EXTRA_CA_CERTS` |
 | Flutter    | Dio 5, Dart `HttpClient`, `package:http`, Android debug `network_security_config.xml` |
+| React Native | `fetch` probe, Android debug `network_security_config.xml`, Metro/ADB checklist |
 
 Each snippet is generated against Rockxy's active proxy port and the exported root certificate. The **Validate** tab rewrites the sample request to a target-specific `GET https://httpbin.org/anything/rockxy/<target>` probe and then runs a short watcher for that exact request after you press **Run Test**. That confirms Rockxy saw the probe, but it does not prove which app, browser, or process emitted it. The watcher cancels automatically if the session is cleared, recording is paused, or the proxy stops.
 
@@ -79,7 +80,7 @@ Validate currently depends on reaching `httpbin.org`. If `httpbin.org` is down, 
 
 ### Guide only — concrete manual steps, no in-app snippet generator
 
-Guide-only targets are limited to targets where Rockxy cannot ship a first-party snippet (typically physical devices, simulators, or frameworks that only expose the underlying platform network stack).
+Guide-only targets are limited to targets where Rockxy cannot ship a first-party snippet, typically physical devices or simulators that expose only the underlying platform network stack.
 
 These targets depend on behavior Rockxy does not drive from macOS (physical-device pairing, simulator automation, platform trust stores), so the hub ships honest guide copy rather than a generated snippet:
 
@@ -91,10 +92,6 @@ These targets depend on behavior Rockxy does not drive from macOS (physical-devi
 - `Android Emulator` — Mac is reachable at `10.0.2.2`; set the emulator proxy to `10.0.2.2` plus Rockxy's port and install as user CA.
 - `tvOS / watchOS` — reuse the iOS Device and iOS Simulator paths; there is no dedicated pairing workflow.
 - `Vision Pro` — follows the iOS Device path on the device itself; there is no dedicated Vision Pro pairing workflow.
-
-**Frameworks**
-
-- `React Native` — `fetch` runs through the iOS or Android network stack, so fix the underlying platform first, then restart Metro and the app.
 
 ### What guide-only does NOT do
 

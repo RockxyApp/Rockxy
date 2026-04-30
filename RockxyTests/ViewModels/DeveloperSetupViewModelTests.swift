@@ -357,6 +357,26 @@ struct DeveloperSetupViewModelTests {
         #expect(viewModel.currentGuideContent != nil)
     }
 
+    @Test("React Native ships hybrid snippets, guide content, and validation")
+    func reactNativeHybridWorkflow() {
+        let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .reactNative)
+        #expect(workflow.snippets.map(\.id) == [
+            .reactNativeFetchProbe,
+            .reactNativeAndroidNetworkSecurityConfig,
+            .reactNativeMetroChecklist,
+        ])
+        #expect(workflow.validation?.host == "httpbin.org")
+        #expect(workflow.validation?.path == "/anything/rockxy/reactNative")
+        #expect(DeveloperSetupGuideCatalog.content(for: .reactNative) != nil)
+
+        let viewModel = DeveloperSetupViewModel(coordinator: MainContentCoordinator())
+        viewModel.selectTarget(.reactNative)
+
+        #expect(viewModel.toolbarCopyEnabled)
+        #expect(viewModel.toolbarVerifyEnabled)
+        #expect(viewModel.currentGuideContent != nil)
+    }
+
     @Test("Manual-snippet targets no longer return guide-only content")
     func promotedTargetsSkipGuideCatalog() {
         let promoted: [SetupTarget.ID] = [
@@ -979,6 +999,53 @@ struct DeveloperSetupViewModelTests {
         #expect(snippet?.contains("Do not ship this trust policy in release builds") == true)
     }
 
+    @Test("Generated React Native fetch snippet points at the probe and platform hosts")
+    func generatedReactNativeFetchSnippet() {
+        let snippet = DeveloperSetupWorkflowCatalog.generatedSnippet(
+            for: .reactNative,
+            snippetID: .reactNativeFetchProbe,
+            port: 9_090,
+            certificatePath: "/tmp/RockxyRootCA.pem"
+        )
+
+        #expect(snippet?.contains("runRockxyReactNativeProbe") == true)
+        #expect(snippet?.contains("https://httpbin.org/get") == true)
+        #expect(snippet?.contains("127.0.0.1:9090") == true)
+        #expect(snippet?.contains("10.0.2.2:9090") == true)
+        #expect(snippet?.contains("/tmp/RockxyRootCA.pem") == true)
+    }
+
+    @Test("Generated React Native Android XML snippet keeps user CA trust debug-only")
+    func generatedReactNativeAndroidNetworkSecurityConfigSnippet() {
+        let snippet = DeveloperSetupWorkflowCatalog.generatedSnippet(
+            for: .reactNative,
+            snippetID: .reactNativeAndroidNetworkSecurityConfig,
+            port: 9_090,
+            certificatePath: "/tmp/RockxyRootCA.pem"
+        )
+
+        #expect(snippet?.contains("android/app/src/debug/res/xml/network_security_config.xml") == true)
+        #expect(snippet?.contains("<debug-overrides>") == true)
+        #expect(snippet?.contains("<certificates src=\"user\" />") == true)
+        #expect(snippet?.contains("Do not ship this trust policy in release builds") == true)
+    }
+
+    @Test("Generated React Native Metro checklist includes adb reverse and bypass guidance")
+    func generatedReactNativeMetroChecklistSnippet() {
+        let snippet = DeveloperSetupWorkflowCatalog.generatedSnippet(
+            for: .reactNative,
+            snippetID: .reactNativeMetroChecklist,
+            port: 9_191,
+            certificatePath: nil
+        )
+
+        #expect(snippet?.contains("adb reverse tcp:8081 tcp:8081") == true)
+        #expect(snippet?.contains("10.0.2.2") == true)
+        #expect(snippet?.contains("localhost") == true)
+        #expect(snippet?.contains("Mac LAN host") == true)
+        #expect(snippet?.contains(DeveloperSetupWorkflowCatalog.certificatePathPlaceholder) == true)
+    }
+
     @Test("Validation snippet swaps in a target-specific probe path")
     func generatedValidationSnippetUsesTargetSpecificProbe() {
         let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .python)
@@ -1036,6 +1103,21 @@ struct DeveloperSetupViewModelTests {
         )
 
         #expect(snippet?.contains("https://httpbin.org/anything/rockxy/flutter") == true)
+        #expect(snippet?.contains("https://httpbin.org/get") == false)
+    }
+
+    @Test("React Native validation snippet swaps in the React Native probe path")
+    func generatedReactNativeValidationSnippetUsesReactNativeProbe() {
+        let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .reactNative)
+        let snippet = DeveloperSetupWorkflowCatalog.generatedValidationSnippet(
+            for: .reactNative,
+            workflow: workflow,
+            selectedSnippetID: .reactNativeFetchProbe,
+            port: 9_090,
+            certificatePath: "/tmp/RockxyRootCA.pem"
+        )
+
+        #expect(snippet?.contains("https://httpbin.org/anything/rockxy/reactNative") == true)
         #expect(snippet?.contains("https://httpbin.org/get") == false)
     }
 

@@ -128,9 +128,12 @@ struct DeveloperSetupGuideCatalogTests {
     @Test("React Native copy points at the underlying iOS or Android stack")
     func reactNativeCatalogCopyIsSpecific() {
         let summary = SetupTarget.reactNative.manualSummary
+        let currentSupport = SetupTarget.reactNative.currentSupportSummary
 
         #expect(summary.contains("fetch"))
         #expect(summary.contains("iOS") || summary.contains("Android"))
+        #expect(summary.contains("network stack"))
+        #expect(currentSupport.contains("Android network-security-config"))
         #expect(summary.contains("Metro"))
     }
 
@@ -286,5 +289,19 @@ struct DeveloperSetupGuideCatalogTests {
 
         #expect(tvOS.setupTips.contains(where: { $0.message.contains("iOS") }))
         #expect(vision.setupTips.contains(where: { $0.message.contains("iOS") }))
+    }
+
+    @Test("React Native guide pins platform setup and Metro troubleshooting")
+    func reactNativeGuidePinsPlatformAndMetroLandmarks() throws {
+        let guide = try #require(DeveloperSetupGuideCatalog.content(for: .reactNative))
+        let allMessages = (guide.setupTips + guide.validationTips + guide.troubleshootingTips).map(\.message)
+
+        #expect(allMessages.contains(where: { $0.contains("iOS Device") || $0.contains("iOS") }))
+        #expect(allMessages.contains(where: { $0.contains("iOS Simulator") || $0.contains("simulator") }))
+        #expect(allMessages.contains(where: { $0.contains("Android") && $0.contains("network-security-config") }))
+        #expect(allMessages.contains(where: { $0.contains("10.0.2.2") }))
+        #expect(allMessages.contains(where: { $0.contains("adb reverse tcp:8081 tcp:8081") }))
+        #expect(allMessages.contains(where: { $0.contains("localhost") }))
+        #expect(allMessages.contains(where: { $0.contains("pinning") }))
     }
 }

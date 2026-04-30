@@ -32,6 +32,9 @@ enum SetupSnippetID: String, CaseIterable, Identifiable, Equatable {
     case flutterHTTPPackage
     case flutterDio5
     case flutterAndroidNetworkSecurityConfig
+    case reactNativeFetchProbe
+    case reactNativeAndroidNetworkSecurityConfig
+    case reactNativeMetroChecklist
 
     // MARK: Internal
 
@@ -99,6 +102,12 @@ enum SetupSnippetID: String, CaseIterable, Identifiable, Equatable {
             "Dio 5"
         case .flutterAndroidNetworkSecurityConfig:
             String(localized: "Android XML")
+        case .reactNativeFetchProbe:
+            "fetch"
+        case .reactNativeAndroidNetworkSecurityConfig:
+            String(localized: "Android XML")
+        case .reactNativeMetroChecklist:
+            String(localized: "Metro checklist")
         }
     }
 }
@@ -290,13 +299,29 @@ enum DeveloperSetupWorkflowCatalog {
                 validation: validationSpec(for: .flutter, runtimeName: "Flutter", preferredSnippetID: .flutterDio5)
             )
 
+        case .reactNative:
+            SetupWorkflow(
+                snippets: [
+                    SetupSnippet(id: .reactNativeFetchProbe, title: "fetch"),
+                    SetupSnippet(
+                        id: .reactNativeAndroidNetworkSecurityConfig,
+                        title: String(localized: "Android XML")
+                    ),
+                    SetupSnippet(id: .reactNativeMetroChecklist, title: String(localized: "Metro checklist")),
+                ],
+                validation: validationSpec(
+                    for: .reactNative,
+                    runtimeName: "React Native",
+                    preferredSnippetID: .reactNativeFetchProbe
+                )
+            )
+
         case .iosDevice,
              .iosSimulator,
              .androidDevice,
              .androidEmulator,
              .tvOSWatchOS,
-             .visionPro,
-             .reactNative:
+             .visionPro:
             SetupWorkflow(snippets: [], validation: nil)
         }
     }
@@ -426,13 +451,19 @@ enum DeveloperSetupWorkflowCatalog {
         case (.nextJS, .nextJSRouteHandler):
             nextJSRouteHandlerSnippet(proxyURL: proxyURL, certPath: rawCertificatePath)
         case (.flutter, .flutterHttpClient):
-            flutterHttpClientSnippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterHttpClientSnippet(port: port, certPath: rawCertificatePath)
         case (.flutter, .flutterHTTPPackage):
-            flutterHTTPPackageSnippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterHTTPPackageSnippet(port: port, certPath: rawCertificatePath)
         case (.flutter, .flutterDio5):
-            flutterDio5Snippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterDio5Snippet(port: port, certPath: rawCertificatePath)
         case (.flutter, .flutterAndroidNetworkSecurityConfig):
-            flutterAndroidNetworkSecurityConfigSnippet(certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterAndroidNetworkSecurityConfigSnippet(certPath: rawCertificatePath)
+        case (.reactNative, .reactNativeFetchProbe):
+            DeveloperSetupMobileSnippetCatalog.reactNativeFetchProbeSnippet(port: port, certPath: rawCertificatePath)
+        case (.reactNative, .reactNativeAndroidNetworkSecurityConfig):
+            DeveloperSetupMobileSnippetCatalog.reactNativeAndroidNetworkSecurityConfigSnippet(certPath: rawCertificatePath)
+        case (.reactNative, .reactNativeMetroChecklist):
+            DeveloperSetupMobileSnippetCatalog.reactNativeMetroChecklistSnippet(port: port, certPath: rawCertificatePath)
         default:
             nil
         }
@@ -1013,143 +1044,6 @@ enum DeveloperSetupWorkflowCatalog {
         """
     }
 
-    private static func flutterProxyHostBlock(port: Int, certPath: String) -> String {
-        let certPath = escapeForStringLiteral(certPath, language: .dart)
-        return """
-        // Debug-only Rockxy proxy values. Pick the runtime that is running this app.
-        enum RockxyRuntime { localAppleRuntime, androidEmulator, physicalDevice }
-        const rockxyRuntime = RockxyRuntime.localAppleRuntime;
-
-        // localAppleRuntime: iOS Simulator / macOS desktop
-        // androidEmulator: Android Emulator
-        // physicalDevice: iOS or Android device on the same network
-        // Install or share the Rockxy Root CA first. Exported PEM hint: \(certPath)
-        const rockxyProxyForSimulator = '127.0.0.1:\(port)';
-        const rockxyProxyForAndroidEmulator = '10.0.2.2:\(port)';
-        const rockxyProxyForPhysicalDevice = '<LAN device proxy host>:\(port)';
-
-        String rockxyProxyHostPort() {
-          switch (rockxyRuntime) {
-            case RockxyRuntime.androidEmulator:
-              return rockxyProxyForAndroidEmulator;
-            case RockxyRuntime.physicalDevice:
-              return rockxyProxyForPhysicalDevice;
-            case RockxyRuntime.localAppleRuntime:
-              return rockxyProxyForSimulator;
-          }
-        }
-        """
-    }
-
-    private static func flutterHttpClientSnippet(port: Int, certPath: String) -> String {
-        """
-        import 'dart:convert';
-        import 'dart:io';
-
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
-
-        Future<void> runRockxyProbe() async {
-          final client = HttpClient();
-          client.findProxy = (uri) => 'PROXY ${rockxyProxyHostPort()};';
-
-          // Debug only. Remove this before release builds.
-          client.badCertificateCallback = (certificate, host, port) => true;
-
-          final request = await client.getUrl(Uri.parse('https://httpbin.org/get'));
-          final response = await request.close();
-          final body = await utf8.decodeStream(response);
-          print(response.statusCode);
-          print(body);
-          client.close(force: true);
-        }
-        """
-    }
-
-    private static func flutterHTTPPackageSnippet(port: Int, certPath: String) -> String {
-        """
-        import 'dart:convert';
-        import 'dart:io';
-
-        import 'package:http/io_client.dart';
-
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
-
-        Future<void> runRockxyProbe() async {
-          final httpClient = HttpClient();
-          httpClient.findProxy = (uri) => 'PROXY ${rockxyProxyHostPort()};';
-
-          // Debug only. Remove this before release builds.
-          httpClient.badCertificateCallback = (certificate, host, port) => true;
-
-          final client = IOClient(httpClient);
-          try {
-            final response = await client.get(Uri.parse('https://httpbin.org/get'));
-            print(response.statusCode);
-            print(jsonDecode(response.body));
-          } finally {
-            client.close();
-          }
-        }
-        """
-    }
-
-    private static func flutterDio5Snippet(port: Int, certPath: String) -> String {
-        """
-        import 'dart:io';
-
-        import 'package:dio/dio.dart';
-        import 'package:dio/io.dart';
-
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
-
-        Dio makeRockxyDio() {
-          final dio = Dio();
-          dio.httpClientAdapter = IOHttpClientAdapter(
-            createHttpClient: () {
-              final client = HttpClient();
-              client.findProxy = (uri) => 'PROXY ${rockxyProxyHostPort()};';
-
-              // Debug only. Remove this before release builds.
-              client.badCertificateCallback = (certificate, host, port) => true;
-              return client;
-            },
-            validateCertificate: (certificate, host, port) => true,
-          );
-          return dio;
-        }
-
-        Future<void> runRockxyProbe() async {
-          final response = await makeRockxyDio().get('https://httpbin.org/get');
-          print(response.statusCode);
-          print(response.data);
-        }
-        """
-    }
-
-    private static func flutterAndroidNetworkSecurityConfigSnippet(certPath: String) -> String {
-        let certPath = escapeForStringLiteral(certPath, language: .dart)
-        return """
-        <!-- Android debug builds only. Do not ship this trust policy in release builds. -->
-        <!-- Install the Rockxy Root CA as a user CA first. Exported PEM hint: \(certPath) -->
-
-        <!-- app/src/debug/res/xml/network_security_config.xml -->
-        <?xml version="1.0" encoding="utf-8"?>
-        <network-security-config>
-            <debug-overrides>
-                <trust-anchors>
-                    <certificates src="user" />
-                    <certificates src="system" />
-                </trust-anchors>
-            </debug-overrides>
-        </network-security-config>
-
-        <!-- app/src/debug/AndroidManifest.xml -->
-        <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-            <application android:networkSecurityConfig="@xml/network_security_config" />
-        </manifest>
-        """
-    }
-
     private static func validationSpec(
         for targetID: SetupTarget.ID,
         runtimeName: String,
@@ -1162,7 +1056,11 @@ enum DeveloperSetupWorkflowCatalog {
             host: "httpbin.org",
             path: validationPath(for: targetID),
             instruction: String(
-                localized: "Run the selected \(runtimeName) validation step and wait for Rockxy to capture GET \(validationURL(for: targetID)). This confirms a matching probe reached Rockxy, but it does not attribute the request to a specific app or process."
+                localized: """
+                Run the selected \(runtimeName) validation step and wait for Rockxy to capture \
+                GET \(validationURL(for: targetID)). This confirms a matching probe reached Rockxy, \
+                but it does not attribute the request to a specific app or process.
+                """
             ),
             preferredSnippetID: preferredSnippetID
         )
@@ -1229,6 +1127,8 @@ enum DeveloperSetupWorkflowCatalog {
             String(localized: "Next.js handler")
         case .flutter:
             String(localized: "Flutter client")
+        case .reactNative:
+            String(localized: "React Native setup")
         default:
             String(localized: "Runtime snippet")
         }
@@ -1272,6 +1172,12 @@ enum DeveloperSetupWorkflowCatalog {
             String(
                 localized: """
                 Choose the Flutter client path you use, then keep the iOS or Android device setup aligned with that runtime.
+                """
+            )
+        case .reactNative:
+            String(
+                localized: """
+                Choose the React Native probe, Android debug trust XML, or Metro checklist that matches the target runtime.
                 """
             )
         default:

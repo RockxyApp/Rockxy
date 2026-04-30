@@ -331,13 +331,20 @@ extension SetupTarget {
         manualSupport: .availableNow,
         automationSupport: .none,
         shortSummary: String(
-            localized: "React Native is available through framework guidance plus the underlying device setup."
+            localized: "React Native ships platform guidance, a fetch probe, Android debug XML, and Metro troubleshooting."
         ),
         manualSummary: String(
-            localized: "fetch runs through the iOS or Android network stack, so fix the underlying device or emulator setup first, then restart Metro and the app."
+            localized: """
+            React Native traffic runs through the native iOS or Android network stack. Set up that \
+            device or simulator first, then restart Metro and use the fetch probe, Android debug \
+            trust XML, or Metro checklist.
+            """
         ),
         currentSupportSummary: String(
-            localized: "Rockxy captures React Native traffic when the underlying platform trusts the root certificate; there is no dedicated framework-level flow."
+            localized: """
+            Rockxy ships a React Native fetch validation probe, Android network-security-config guidance, \
+            and Metro troubleshooting; proxy and certificate trust still belong to the underlying platform.
+            """
         )
     )
 

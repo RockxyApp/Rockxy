@@ -644,14 +644,28 @@ struct MCPIntegrationTests {
     }
 
     private func rockxyMCPBinaryURL() throws -> URL {
-        let binaryURL = Bundle(for: AppDelegate.self).bundleURL
+        let appBundleURL = Bundle(for: AppDelegate.self).bundleURL
+        let candidates = [
+            appBundleURL
+                .appendingPathComponent("Contents")
+                .appendingPathComponent("MacOS")
+                .appendingPathComponent("rockxy-mcp"),
+            appBundleURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("rockxy-mcp"),
+        ]
+
+        if let binaryURL = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) {
+            return binaryURL
+        }
+
+        let searchedPaths = candidates.map(\.path).joined(separator: ", ")
+        Issue.record("rockxy-mcp binary not found. Searched: \(searchedPaths)")
+        let binaryURL = appBundleURL
             .appendingPathComponent("Contents")
             .appendingPathComponent("MacOS")
             .appendingPathComponent("rockxy-mcp")
-        guard FileManager.default.isExecutableFile(atPath: binaryURL.path) else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-        return binaryURL
+        throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: binaryURL.path])
     }
 
     private func bridgeEnvironment() -> [String: String] {
