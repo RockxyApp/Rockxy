@@ -385,25 +385,7 @@ struct AllowListWindowView: View {
 
     private var footer: some View {
         HStack(spacing: 0) {
-            Button {
-                viewModel.presentNewRuleEditor()
-            } label: {
-                Image(systemName: "plus")
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.borderless)
-            .keyboardShortcut("n", modifiers: .command)
-            .help(String(localized: "New Rule"))
-
-            Button {
-                viewModel.removeSelected()
-            } label: {
-                Image(systemName: "minus")
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.borderless)
-            .disabled(viewModel.selectedRuleID == nil)
-            .help(String(localized: "Delete Rule"))
+            addRemoveControl
 
             Button {
                 // Help content is intentionally deferred; this mirrors the reference affordance.
@@ -424,6 +406,46 @@ struct AllowListWindowView: View {
         .padding(.horizontal, 20)
         .padding(.top, 10)
         .padding(.bottom, 18)
+    }
+
+    private var addRemoveControl: some View {
+        HStack(spacing: 0) {
+            Button {
+                viewModel.presentNewRuleEditor()
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: 21, height: 21)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("n", modifiers: .command)
+            .help(String(localized: "New Rule"))
+
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.7))
+                .frame(width: 1, height: 21)
+
+            Button {
+                viewModel.removeSelected()
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(viewModel.selectedRuleID == nil ? .tertiary : .primary)
+                    .frame(width: 21, height: 21)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.selectedRuleID == nil)
+            .help(String(localized: "Delete Rule"))
+        }
+        .frame(height: 23)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .overlay(
+            Rectangle()
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
     }
 
     private var moreMenu: some View {
@@ -487,15 +509,13 @@ struct AllowListWindowView: View {
             .keyboardShortcut(.delete, modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.caption2)
+                    .font(.system(size: 8, weight: .semibold))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 3)
         }
-        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
     }
 
     @ViewBuilder

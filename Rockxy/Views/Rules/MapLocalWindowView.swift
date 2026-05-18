@@ -543,22 +543,36 @@ struct MapLocalWindowView: View {
                     openNewEditor()
                 } label: {
                     Image(systemName: "plus")
-                        .frame(width: 22, height: 20)
+                        .font(.system(size: 12, weight: .regular))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut("n", modifiers: .command)
 
-                Divider().frame(height: 14)
+                Rectangle()
+                    .fill(Color(nsColor: .separatorColor))
+                    .frame(width: 1, height: 18)
 
                 Button {
                     viewModel.removeSelectedRules()
                 } label: {
                     Image(systemName: "minus")
-                        .frame(width: 22, height: 20)
+                        .font(.system(size: 12, weight: .regular))
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(viewModel.selectedRuleIDs.isEmpty)
             }
-            .buttonStyle(.bordered)
+            .foregroundStyle(.primary)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                Rectangle()
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            )
+            .frame(width: 37, height: 19)
 
             Button(String(localized: "New Folder")) {
                 viewModel.createNewFolderPlaceholder()
@@ -583,7 +597,7 @@ struct MapLocalWindowView: View {
             }
             .keyboardShortcut("f", modifiers: .command)
 
-            Menu(String(localized: "More")) {
+            Menu {
                 Button(String(localized: "New")) { openNewEditor() }
                     .keyboardShortcut("n", modifiers: .command)
                 Button(String(localized: "Edit")) {
@@ -609,8 +623,15 @@ struct MapLocalWindowView: View {
                 }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(viewModel.selectedRuleIDs.isEmpty)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(String(localized: "More"))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
             }
-            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .buttonStyle(.bordered)
             .fixedSize()
         }
         .padding(.horizontal, 18)
