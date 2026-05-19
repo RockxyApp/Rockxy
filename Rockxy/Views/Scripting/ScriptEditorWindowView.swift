@@ -179,9 +179,14 @@ struct ScriptEditorWindowView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 matchingRuleHeader
+                    .zIndex(1)
                 runOnRow
+                    .zIndex(1)
                 Divider()
+                    .zIndex(1)
                 ScriptCodeEditor(text: $viewModel.code)
+                    .clipped()
+                    .zIndex(0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             if viewModel.consolePanelVisible {
