@@ -108,7 +108,7 @@ struct RockxyApp: App {
             MapRemoteEditorWindowView()
         }
         .commandsRemoved()
-        .defaultSize(width: 834, height: 668)
+        .defaultSize(width: 834, height: 584)
         .defaultPosition(.center)
         .windowResizability(.contentSize)
 

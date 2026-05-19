@@ -35,57 +35,73 @@ struct ScriptEditorWindowView: View {
             Text("Matching Rule")
                 .font(.headline)
 
-            HStack(spacing: 8) {
-                Text("Name:")
-                TextField("", text: $viewModel.name)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 260)
-                Spacer()
-            }
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    Text("Name:")
+                        .frame(width: 58, alignment: .trailing)
+                    TextField("", text: $viewModel.name)
+                        .textFieldStyle(.roundedBorder)
+                }
 
-            HStack(spacing: 8) {
-                Text("URL:")
-                TextField("", text: $viewModel.urlPattern)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(width: 420)
+                HStack(spacing: 8) {
+                    Text("URL:")
+                        .frame(width: 58, alignment: .trailing)
+                    TextField("", text: $viewModel.urlPattern)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(size: 12, design: .monospaced))
+                }
 
-                methodMenu
-                patternModeMenu
+                HStack(spacing: 8) {
+                    Spacer()
+                        .frame(width: 66)
 
-                if viewModel.patternMode == .wildcard {
-                    Text("Support wildcard * and ?.")
+                    methodMenu
+                    patternModeMenu
+
+                    if viewModel.patternMode == .wildcard {
+                        Text("Support wildcard * and ?.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button {
+                        let sample = viewModel.sampleURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let effectiveSample = sample.isEmpty ? "https://api.example.com/path" : sample
+                        viewModel.testRulePreview = viewModel.testRule(against: effectiveSample)
+                            ? "Matches: \(effectiveSample)"
+                            : "No match for: \(effectiveSample)"
+                    } label: {
+                        Text("Test your Rule")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.accentColor)
+
+                    Spacer(minLength: 0)
+                }
+
+                Toggle(isOn: $viewModel.includeSubpaths) {
+                    Text("Include all subpaths of this URL")
+                }
+                .toggleStyle(.checkbox)
+                .padding(.leading, 66)
+
+                if !viewModel.testRulePreview.isEmpty {
+                    Text(viewModel.testRulePreview)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .padding(.leading, 66)
                 }
-
-                Button {
-                    let sample = viewModel.sampleURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let effectiveSample = sample.isEmpty ? "https://api.example.com/path" : sample
-                    viewModel.testRulePreview = viewModel.testRule(against: effectiveSample)
-                        ? "Matches: \(effectiveSample)"
-                        : "No match for: \(effectiveSample)"
-                } label: {
-                    Text("Test your Rule")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
             }
-
-            if !viewModel.testRulePreview.isEmpty {
-                Text(viewModel.testRulePreview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Toggle(isOn: $viewModel.includeSubpaths) {
-                Text("Include all subpaths of this URL")
-            }
-            .toggleStyle(.checkbox)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.65))
+            )
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private var methodMenu: some View {
@@ -142,7 +158,6 @@ struct ScriptEditorWindowView: View {
                 .toggleStyle(.checkbox)
             Toggle(isOn: $viewModel.runOnResponse) { Text("Response") }
                 .toggleStyle(.checkbox)
-            Divider().frame(height: 14)
             Toggle(isOn: $viewModel.runAsMock) { Text("Run as Mock API") }
                 .toggleStyle(.checkbox)
             Spacer()

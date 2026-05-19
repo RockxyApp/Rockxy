@@ -749,16 +749,15 @@ struct MapRemoteEditorWindowView: View {
     @State var viewModel = MapRemoteEditorViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             matchingRuleSection
             mapToSection
-            Spacer(minLength: 0)
             actionBar
         }
         .padding(.horizontal, 18)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
-        .frame(width: 834, height: 634)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
+        .frame(width: 834)
         .navigationTitle(viewModel.windowTitle)
         .onAppear { viewModel.load(context: editorStore.context) }
         .onChange(of: editorStore.draftVersion) { _, _ in
@@ -784,7 +783,7 @@ struct MapRemoteEditorWindowView: View {
             Text(String(localized: "Matching Rule"))
                 .font(.system(size: 15))
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 labeledTextField(String(localized: "Name:"), placeholder: String(localized: "Untitled"), text: $viewModel.name)
 
                 labeledTextField(String(localized: "Rule:"), placeholder: "/v1/*", text: $viewModel.urlText)
@@ -807,7 +806,7 @@ struct MapRemoteEditorWindowView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -818,7 +817,7 @@ struct MapRemoteEditorWindowView: View {
             Text(String(localized: "Map To"))
                 .font(.system(size: 15))
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(String(localized: "Protocol:"))
                         .frame(width: 64, alignment: .trailing)
@@ -850,7 +849,7 @@ struct MapRemoteEditorWindowView: View {
 
                 Divider()
                     .padding(.leading, 78)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 4)
 
                 Text(String(localized: "Advanced Settings:"))
                     .font(.system(size: 13, weight: .semibold))
@@ -866,14 +865,14 @@ struct MapRemoteEditorWindowView: View {
                 Toggle(String(localized: "Preserve Host Header"), isOn: $viewModel.preserveHost)
                     .toggleStyle(.checkbox)
                     .padding(.leading, 78)
-                    .padding(.top, 4)
+                    .padding(.top, 2)
                 Text(String(localized: "The `Host` header of Requests are not changed."))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 78)
             }
             .font(.system(size: 13))
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -892,6 +891,7 @@ struct MapRemoteEditorWindowView: View {
             .frame(width: 100)
             .disabled(!viewModel.isSaveEnabled)
         }
+        .padding(.top, 2)
     }
 
     private var methodMenu: some View {

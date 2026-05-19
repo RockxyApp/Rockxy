@@ -80,6 +80,16 @@ struct ScriptingViewModelTests {
         ])
     }
 
+    @Test("Script code highlighting recognizes JavaScript syntax roles")
+    func scriptCodeHighlightingSpans() {
+        let spans = ScriptCodeHighlighting.spans(for: #"async function run() { return "ok"; // done"#)
+        #expect(spans.contains { $0.role == .keyword })
+        #expect(spans.contains { $0.role == .function })
+        #expect(spans.contains { $0.role == .string })
+        #expect(spans.contains { $0.role == .comment })
+        #expect(spans.contains { $0.role == .punctuation })
+    }
+
     @Test("Method enum round-trips via persistedValue")
     func methodRoundTrip() {
         for m in ScriptMatchMethod.allCases {
@@ -235,9 +245,9 @@ struct ScriptingViewModelTests {
     }
 
     @Test("Scripting advanced toggles persist through AppSettingsStorage")
-    func advancedTogglesPersist() {
+    func advancedTogglesPersist() async {
+        await RuleTestLock.shared.acquire()
         let original = AppSettingsStorage.load()
-        defer { AppSettingsStorage.save(original) }
         var reset = original
         reset.scriptingToolEnabled = true
         reset.allowSystemEnvVars = false
@@ -259,6 +269,9 @@ struct ScriptingViewModelTests {
         #expect(persisted.scriptingToolEnabled == false)
         #expect(persisted.allowSystemEnvVars == true)
         #expect(persisted.allowMultipleScriptsPerRequest == true)
+
+        AppSettingsStorage.save(original)
+        await RuleTestLock.shared.release()
     }
 
     @Test("Script editor session increments even for same plugin intent")
