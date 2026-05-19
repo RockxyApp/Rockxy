@@ -61,7 +61,7 @@ struct ScriptBridgeTests {
     func storageSetGetDelete() {
         let context = makeContext()
         let testKey = "unit_test_\(UUID().uuidString)"
-        let storagePrefix = "\(TestIdentity.defaultsPrefix).plugin.\(testPluginID).storage."
+        let storagePrefix = RockxyIdentity.current.pluginStoragePrefix(pluginID: testPluginID)
 
         context.evaluateScript("$rockxy.storage.set('\(testKey)', 'testValue')")
 

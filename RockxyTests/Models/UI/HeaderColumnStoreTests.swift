@@ -286,10 +286,18 @@ struct HeaderColumnStoreTests {
     // MARK: - Helpers
 
     private func makeCleanStore() -> HeaderColumnStore {
-        UserDefaults.standard.removeObject(forKey: TestIdentity.headerColumnStorageKey)
-        UserDefaults.standard.removeObject(forKey: TestIdentity.discoveredRequestHeadersKey)
-        UserDefaults.standard.removeObject(forKey: TestIdentity.discoveredResponseHeadersKey)
-        UserDefaults.standard.removeObject(forKey: TestIdentity.hiddenBuiltInColumnsKey)
+        clearDefaultsKey("headerColumns", fallback: TestIdentity.headerColumnStorageKey)
+        clearDefaultsKey("discoveredReqHeaders", fallback: TestIdentity.discoveredRequestHeadersKey)
+        clearDefaultsKey("discoveredResHeaders", fallback: TestIdentity.discoveredResponseHeadersKey)
+        clearDefaultsKey("hiddenBuiltInColumns", fallback: TestIdentity.hiddenBuiltInColumnsKey)
         return HeaderColumnStore()
+    }
+
+    private func clearDefaultsKey(_ key: String, fallback: String) {
+        let currentKey = RockxyIdentity.current.defaultsKey(key)
+        UserDefaults.standard.removeObject(forKey: currentKey)
+        if currentKey != fallback {
+            UserDefaults.standard.removeObject(forKey: fallback)
+        }
     }
 }

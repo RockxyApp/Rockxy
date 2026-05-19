@@ -96,21 +96,25 @@ struct RockxyIdentityTests {
 
     @Test("Live displayName resolves to Rockxy")
     func liveDisplayName() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         #expect(RockxyIdentity.current.displayName == "Rockxy")
     }
 
     @Test("Live familyNamespace resolves to com.amunx.rockxy")
     func liveFamilyNamespace() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         #expect(RockxyIdentity.current.familyNamespace == "com.amunx.rockxy")
     }
 
     @Test("Live helperBundleIdentifier resolves to com.amunx.rockxy.helper")
     func liveHelperBundleIdentifier() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         #expect(RockxyIdentity.current.helperBundleIdentifier == "com.amunx.rockxy.helper")
     }
 
     @Test("Live allowedCallerIdentifiers contains both expected IDs")
     func liveAllowedCallerIdentifiers() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let ids = RockxyIdentity.current.allowedCallerIdentifiers
         for expected in TestIdentity.expectedAllowedCallerIdentifiers {
             #expect(ids.contains(expected))
@@ -119,11 +123,13 @@ struct RockxyIdentityTests {
 
     @Test("Live appBundleIdentifier is non-empty")
     func liveAppBundleIdentifier() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         #expect(!RockxyIdentity.current.appBundleIdentifier.isEmpty)
     }
 
     @Test("Live test-host appSupportDirectory uses temporary storage")
     func liveTestHostAppSupportDirectoryUsesTemporaryStorage() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let path = RockxyIdentity.current.appSupportDirectory()
         #expect(path.path.hasPrefix(FileManager.default.temporaryDirectory.path))
         #expect(path.lastPathComponent == RockxyIdentity.current.appSupportDirectoryName)

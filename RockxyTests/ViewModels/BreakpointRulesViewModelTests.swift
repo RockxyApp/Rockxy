@@ -379,6 +379,126 @@ struct BreakpointRulesViewModelTests {
         #expect(vm.selectedRuleID == addedRule?.id)
     }
 
+    @Test("selectedRule tracks table selection")
+    func selectedRuleTracksSelection() throws {
+        let vm = BreakpointRulesViewModel()
+        vm.addBreakpointRule(
+            ruleName: "Rule A",
+            urlPattern: "*.a.com/*",
+            httpMethod: .any,
+            matchType: .wildcard,
+            phaseRequest: true,
+            phaseResponse: true,
+            includeSubpaths: true
+        )
+        vm.addBreakpointRule(
+            ruleName: "Rule B",
+            urlPattern: "*.b.com/*",
+            httpMethod: .post,
+            matchType: .wildcard,
+            phaseRequest: true,
+            phaseResponse: false,
+            includeSubpaths: true
+        )
+
+        let firstID = try #require(vm.breakpointRules.first?.id)
+        vm.selectedRuleID = firstID
+
+        #expect(vm.selectedRule?.name == "Rule A")
+    }
+
+    @Test("handleRulesDidChange clears missing selected rule")
+    func handleRulesDidChangeClearsMissingSelection() throws {
+        let vm = BreakpointRulesViewModel()
+        vm.addBreakpointRule(
+            ruleName: "Rule A",
+            urlPattern: "*.a.com/*",
+            httpMethod: .any,
+            matchType: .wildcard,
+            phaseRequest: true,
+            phaseResponse: true,
+            includeSubpaths: true
+        )
+        vm.addBreakpointRule(
+            ruleName: "Rule B",
+            urlPattern: "*.b.com/*",
+            httpMethod: .any,
+            matchType: .wildcard,
+            phaseRequest: true,
+            phaseResponse: true,
+            includeSubpaths: true
+        )
+
+        let removedID = try #require(vm.breakpointRules.first?.id)
+        let remainingRule = try #require(vm.breakpointRules.last)
+        vm.selectedRuleID = removedID
+
+        vm.handleRulesDidChange(Notification(name: .rulesDidChange, object: [remainingRule]))
+
+        #expect(vm.breakpointRules.map(\.id) == [remainingRule.id])
+        #expect(vm.selectedRuleID == nil)
+    }
+
+    @Test("table labels and phase helpers mirror displayed columns")
+    func tableLabelsAndPhaseHelpers() throws {
+        let vm = BreakpointRulesViewModel()
+        let wildcardRule = ProxyRule(
+            name: "Request Rule",
+            matchCondition: RuleMatchCondition(urlPattern: #"/v2/.*"#, method: "GET"),
+            action: .breakpoint(phase: .request)
+        )
+        let regexRule = ProxyRule(
+            name: "Regex Rule",
+            matchCondition: RuleMatchCondition(
+                urlPattern: #"^https://api\.example\.com/v1$"#
+            ),
+            action: .breakpoint(phase: .response)
+        )
+        vm.handleRulesDidChange(Notification(name: .rulesDidChange, object: [wildcardRule, regexRule]))
+
+        #expect(vm.methodLabel(for: wildcardRule) == "GET")
+        #expect(vm.matchingRuleLabel(for: wildcardRule) == "Wildcard: /v2/")
+        #expect(vm.breaksOnRequest(wildcardRule))
+        #expect(!vm.breaksOnResponse(wildcardRule))
+
+        #expect(vm.methodLabel(for: regexRule) == "ANY")
+        #expect(vm.matchingRuleLabel(for: regexRule) == #"Regex: ^https://api\.example\.com/v1$"#)
+        #expect(!vm.breaksOnRequest(regexRule))
+        #expect(vm.breaksOnResponse(regexRule))
+    }
+
+    @Test("unknown row actions are no-ops")
+    func unknownRowActionsAreNoOps() {
+        let vm = BreakpointRulesViewModel()
+        vm.addBreakpointRule(
+            ruleName: "Only",
+            urlPattern: "*.only.com/*",
+            httpMethod: .any,
+            matchType: .wildcard,
+            phaseRequest: true,
+            phaseResponse: true,
+            includeSubpaths: true
+        )
+
+        vm.toggleRule(id: UUID())
+        vm.duplicateRule(id: UUID())
+
+        #expect(vm.breakpointRules.count == 1)
+        #expect(vm.breakpointRules.first?.isEnabled == true)
+        #expect(vm.breakpointRules.first?.name == "Only")
+    }
+
+    @Test("setBreakpointToolEnabled directly updates toggle state")
+    func setBreakpointToolEnabledUpdatesState() {
+        let vm = BreakpointRulesViewModel()
+
+        vm.setBreakpointToolEnabled(false)
+        #expect(vm.isBreakpointToolEnabled == false)
+
+        vm.setBreakpointToolEnabled(true)
+        #expect(vm.isBreakpointToolEnabled == true)
+    }
+
     // MARK: - Edit mode
 
     @Test("updateRule updates the existing rule in place without creating a duplicate")

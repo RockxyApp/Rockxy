@@ -70,10 +70,12 @@ final class ScriptingListViewModel {
 
     init(
         pluginManager: ScriptPluginManager = PluginManager.shared.scriptManager,
-        folderStore: ScriptFolderStore = .shared
+        folderStore: ScriptFolderStore = .shared,
+        pluginsDirectory: URL? = nil
     ) {
         self.pluginManager = pluginManager
         self.folderStore = folderStore
+        self.pluginsDirectoryOverride = pluginsDirectory
     }
 
     // MARK: Internal
@@ -162,9 +164,7 @@ final class ScriptingListViewModel {
     func createNewScript() async -> String? {
         let id = UUID().uuidString.lowercased()
         let name = "Untitled Script \(plugins.count + 1)"
-        let pluginsDir = RockxyIdentity.current
-            .appSupportPath("Plugins")
-            .appendingPathComponent(id, isDirectory: true)
+        let pluginsDir = pluginDir(for: id)
         var createdDirectory = false
         do {
             try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
@@ -271,12 +271,8 @@ final class ScriptingListViewModel {
             return
         }
         let newID = UUID().uuidString.lowercased()
-        let sourceDir = RockxyIdentity.current
-            .appSupportPath("Plugins")
-            .appendingPathComponent(id, isDirectory: true)
-        let destDir = RockxyIdentity.current
-            .appSupportPath("Plugins")
-            .appendingPathComponent(newID, isDirectory: true)
+        let sourceDir = pluginDir(for: id)
+        let destDir = pluginDir(for: newID)
         var createdDestination = false
         do {
             try FileManager.default.copyItem(at: sourceDir, to: destDir)
@@ -385,6 +381,12 @@ final class ScriptingListViewModel {
 
     private let pluginManager: ScriptPluginManager
     private let folderStore: ScriptFolderStore
+    private let pluginsDirectoryOverride: URL?
+
+    private func pluginDir(for id: String) -> URL {
+        let root = pluginsDirectoryOverride ?? RockxyIdentity.current.appSupportPath("Plugins")
+        return root.appendingPathComponent(id, isDirectory: true)
+    }
 
     private static func snapshot(from info: PluginInfo) -> PluginInfoSnapshot {
         let behavior = info.manifest.scriptBehavior ?? ScriptBehavior.defaults()

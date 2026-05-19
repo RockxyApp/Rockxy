@@ -163,6 +163,110 @@ struct BreakpointTemplateStoreTests {
         #expect(duplicate.name.contains("Copy of"))
     }
 
+    @Test("Add template uses selected kind and generates unique names")
+    func addTemplateUsesSelectedKindAndUniqueNames() {
+        let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
+        store.selectedKind = .response
+
+        let first = store.addTemplate()
+        let second = store.addTemplate()
+
+        #expect(first.kind == .response)
+        #expect(second.kind == .response)
+        #expect(store.selectedTemplateID == second.id)
+        #expect(store.responseTemplates.map(\.name) == [
+            "Untitled Response Template",
+            "Untitled Response Template 2"
+        ])
+    }
+
+    @Test("Deleting selected template falls back within the same kind")
+    func deleteSelectedTemplateFallsBackWithinSameKind() throws {
+        let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
+        let first = store.addTemplate(kind: .request)
+        let second = store.addTemplate(kind: .request)
+        store.addTemplate(kind: .response)
+        store.selectedKind = .request
+        store.selectedTemplateID = first.id
+
+        store.deleteSelectedTemplate()
+
+        #expect(store.requestTemplates.map(\.id) == [second.id])
+        #expect(store.selectedKind == .request)
+        #expect(store.selectedTemplateID == second.id)
+    }
+
+    @Test("Deleting last template clears selection")
+    func deleteLastTemplateClearsSelection() {
+        let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
+        store.addTemplate(kind: .request)
+
+        store.deleteSelectedTemplate()
+
+        #expect(store.templates.isEmpty)
+        #expect(store.selectedTemplateID == nil)
+        #expect(!store.selectedValidation.isValid)
+    }
+
+    @Test("Update selected sanitizes blank names and reset restores sample")
+    func updateSelectedSanitizesNameAndResetRestoresSample() throws {
+        let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
+        let template = store.addTemplate(kind: .request)
+        store.updateSelected(
+            name: "   ",
+            rawMessage: """
+            PATCH /custom HTTP/1.1
+            X-Trace: yes
+
+            custom
+            """
+        )
+
+        #expect(store.selectedTemplate?.name == "Untitled Request Template")
+        #expect(store.selectedTemplate?.rawMessage.contains("PATCH /custom") == true)
+
+        store.resetSelectedTemplate()
+
+        let resetTemplate = try #require(store.selectedTemplate)
+        #expect(resetTemplate.id == template.id)
+        #expect(resetTemplate.rawMessage == BreakpointTemplateKind.request.sampleMessage)
+    }
+
+    @Test("Malformed selected template does not create application payload")
+    func malformedSelectedTemplateHasNoApplicationPayload() {
+        let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
+        let template = store.addTemplate(kind: .response)
+
+        store.updateTemplate(id: template.id, rawMessage: "not a response")
+
+        #expect(!store.selectedValidation.isValid)
+        #expect(store.selectedApplicationPayload() == nil)
+        #expect(store.applicationPayload(for: UUID()) == nil)
+    }
+
+    @Test("Raw message helper serializes request target and rejects invalid edits")
+    func rawMessageHelperSerializesAndRejectsInvalidEdits() throws {
+        let draft = BreakpointRequestData(
+            method: "GET",
+            url: "https://example.com/v1/users?page=2",
+            headers: [EditableHeader(name: "Accept", value: "application/json")],
+            body: "",
+            statusCode: 200,
+            phase: .request
+        )
+
+        let raw = BreakpointRawMessage.rawMessage(from: draft, kind: .request)
+        #expect(raw.hasPrefix("GET /v1/users?page=2 HTTP/1.1"))
+        #expect(raw.contains("Accept: application/json"))
+
+        do {
+            _ = try BreakpointRawMessage.applying("GET /missing-version", kind: .request, to: draft)
+            Issue.record("Expected invalid raw message to throw")
+        } catch {
+            #expect(String(describing: error).contains("invalid"))
+        }
+    }
+
     // MARK: Private
 
     private let storageKey = "breakpointTemplates.tests"

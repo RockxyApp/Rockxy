@@ -64,12 +64,94 @@ struct RuleSyncServiceTests {
         }
     }
 
+    @Test("setNetworkConditionsToolEnabled persists UserDefaults and updates evaluation gate")
+    func setNetworkConditionsToolEnabledPersistsAndUpdatesGate() async throws {
+        await withRuleTestLock { [self] in
+            let defaultsBackup = backupNetworkConditionsToolDefault()
+            let networkRule = ProxyRule(
+                name: "3G API",
+                isEnabled: true,
+                matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+                action: .networkCondition(preset: .threeG, delayMs: 400)
+            )
+            let throttleRule = ProxyRule(
+                name: "Fallback",
+                isEnabled: true,
+                matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+                action: .throttle(delayMs: 250)
+            )
+            await RuleSyncService.replaceAllRules([networkRule, throttleRule])
+
+            await RuleSyncService.setNetworkConditionsToolEnabled(false)
+
+            #expect(UserDefaults.standard.object(forKey: Self.networkConditionsToolEnabledKey) as? Bool == false)
+            guard let url = URL(string: "https://example.com/test") else {
+                Issue.record("Expected test URL to be valid")
+                restoreNetworkConditionsToolDefault(defaultsBackup)
+                return
+            }
+            let disabledResult = await RuleEngine.shared.evaluate(method: "GET", url: url, headers: [])
+            if case let .throttle(delayMs) = disabledResult {
+                #expect(delayMs == 250)
+            } else {
+                Issue.record("Expected fallback throttle rule while Network Conditions tool is disabled")
+            }
+
+            await RuleSyncService.setNetworkConditionsToolEnabled(true)
+            #expect(UserDefaults.standard.object(forKey: Self.networkConditionsToolEnabledKey) as? Bool == true)
+
+            restoreNetworkConditionsToolDefault(defaultsBackup)
+        }
+    }
+
+    @Test("loadFromDisk applies persisted Network Conditions tool gate")
+    func loadFromDiskAppliesNetworkConditionsToolEnabled() async {
+        await withRuleTestLock { [self] in
+            let defaultsBackup = backupNetworkConditionsToolDefault()
+            let networkRule = ProxyRule(
+                name: "3G API",
+                isEnabled: true,
+                matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+                action: .networkCondition(preset: .threeG, delayMs: 400)
+            )
+            let throttleRule = ProxyRule(
+                name: "Fallback",
+                isEnabled: true,
+                matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+                action: .throttle(delayMs: 250)
+            )
+            await RuleSyncService.replaceAllRules([networkRule, throttleRule])
+            UserDefaults.standard.set(false, forKey: Self.networkConditionsToolEnabledKey)
+
+            await RuleEngine.shared.setNetworkConditionsToolEnabled(true)
+            await RuleSyncService.loadFromDisk()
+            await RuleEngine.shared.replaceAll([networkRule, throttleRule])
+
+            guard let url = URL(string: "https://example.com/test") else {
+                Issue.record("Expected test URL to be valid")
+                restoreNetworkConditionsToolDefault(defaultsBackup)
+                return
+            }
+            let result = await RuleEngine.shared.evaluate(method: "GET", url: url, headers: [])
+            if case let .throttle(delayMs) = result {
+                #expect(delayMs == 250)
+            } else {
+                Issue.record("Expected persisted disabled gate to skip network condition after load")
+            }
+
+            restoreNetworkConditionsToolDefault(defaultsBackup)
+            await RuleEngine.shared.setNetworkConditionsToolEnabled(true)
+        }
+    }
+
     // MARK: Private
 
     private struct RulesBackup {
         let diskData: Data?
         let engineRules: [ProxyRule]
     }
+
+    private static let networkConditionsToolEnabledKey = "networkConditionsToolEnabled"
 
     private static let rulesPath: URL = {
         let appSupport = FileManager.default.urls(
@@ -94,6 +176,18 @@ struct RuleSyncServiceTests {
             try? FileManager.default.removeItem(at: Self.rulesPath)
         }
         await RuleEngine.shared.replaceAll(backup.engineRules)
+    }
+
+    private func backupNetworkConditionsToolDefault() -> Bool? {
+        UserDefaults.standard.object(forKey: Self.networkConditionsToolEnabledKey) as? Bool
+    }
+
+    private func restoreNetworkConditionsToolDefault(_ value: Bool?) {
+        if let value {
+            UserDefaults.standard.set(value, forKey: Self.networkConditionsToolEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.networkConditionsToolEnabledKey)
+        }
     }
 
     /// Runs `body` between `RuleTestLock` acquire/release with shared rule state

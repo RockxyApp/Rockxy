@@ -12,9 +12,8 @@ struct PreviewTabStoreTests {
 
     @Test("Store initializes with empty tabs")
     func defaultInit() {
-        let store = PreviewTabStore()
-        // Clear any persisted state first
-        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabStorageKey)
+        clearDefaultsKey("previewTabs", fallback: TestIdentity.previewTabStorageKey)
+        clearDefaultsKey("previewAutoBeautify", fallback: TestIdentity.previewTabBeautifyKey)
         let freshStore = PreviewTabStore()
         #expect(freshStore.requestTabs.isEmpty)
         #expect(freshStore.responseTabs.isEmpty)
@@ -111,12 +110,12 @@ struct PreviewTabStoreTests {
 
     @Test("Persisted custom raw tabs are ignored")
     func persistedCustomTabsIgnored() throws {
-        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabBeautifyKey)
+        clearDefaultsKey("previewAutoBeautify", fallback: TestIdentity.previewTabBeautifyKey)
         let tabs = [
             PreviewTab(name: "Legacy Raw", renderMode: .raw, panel: .response, isBuiltIn: false),
             PreviewTab(renderMode: .raw, panel: .response),
         ]
-        UserDefaults.standard.set(try JSONEncoder().encode(tabs), forKey: TestIdentity.previewTabStorageKey)
+        UserDefaults.standard.set(try JSONEncoder().encode(tabs), forKey: currentDefaultsKey("previewTabs"))
 
         let store = PreviewTabStore()
 
@@ -140,8 +139,20 @@ struct PreviewTabStoreTests {
     // MARK: - Helpers
 
     private func makeCleanStore() -> PreviewTabStore {
-        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabStorageKey)
-        UserDefaults.standard.removeObject(forKey: TestIdentity.previewTabBeautifyKey)
+        clearDefaultsKey("previewTabs", fallback: TestIdentity.previewTabStorageKey)
+        clearDefaultsKey("previewAutoBeautify", fallback: TestIdentity.previewTabBeautifyKey)
         return PreviewTabStore()
+    }
+
+    private func clearDefaultsKey(_ key: String, fallback: String) {
+        let currentKey = currentDefaultsKey(key)
+        UserDefaults.standard.removeObject(forKey: currentKey)
+        if currentKey != fallback {
+            UserDefaults.standard.removeObject(forKey: fallback)
+        }
+    }
+
+    private func currentDefaultsKey(_ key: String) -> String {
+        RockxyIdentity.current.defaultsKey(key)
     }
 }

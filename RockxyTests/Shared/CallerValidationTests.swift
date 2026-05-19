@@ -141,6 +141,7 @@ struct CallerValidationTests {
 
     @Test("Configured allowlist contains expected Rockxy identifiers")
     func allowlistContainsExpectedIdentifiers() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let ids = RockxyIdentity.current.allowedCallerIdentifiers
         for expected in TestIdentity.expectedAllowedCallerIdentifiers {
             #expect(ids.contains(expected))

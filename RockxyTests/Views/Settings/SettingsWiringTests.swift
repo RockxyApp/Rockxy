@@ -72,7 +72,7 @@ struct SettingsWiringTests {
         let cleanup = installSettingsTestGuard()
         defer { cleanup() }
 
-        let key = TestIdentity.recordOnLaunchKey
+        let key = RockxyIdentity.current.defaultsKey("recordOnLaunch")
         UserDefaults.standard.set(true, forKey: key)
         UserDefaults.standard.synchronize()
         let settingsTrue = AppSettingsStorage.load()

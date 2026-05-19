@@ -31,6 +31,24 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.custom.uploadBandwidthKbps == nil)
     }
 
+    @Test("presets expose bandwidth labels and byte rates")
+    func presetBandwidthLabelsAndBytesPerSecond() {
+        #expect(NetworkConditionPreset.threeG.downloadBandwidthLabel == "< 780 kbps")
+        #expect(NetworkConditionPreset.threeG.uploadBandwidthLabel == "< 330 kbps")
+        #expect(NetworkConditionPreset.edge.downloadBandwidthLabel == "< 240 kbps")
+        #expect(NetworkConditionPreset.lte.downloadBandwidthLabel == "< 50 Mbps")
+        #expect(NetworkConditionPreset.wifi.uploadBandwidthLabel == "< 30 Mbps")
+        #expect(NetworkConditionPreset.custom.downloadBandwidthLabel == "Unlimited")
+        #expect(NetworkConditionPreset.custom.uploadBandwidthLabel == "Unlimited")
+
+        #expect(NetworkConditionPreset.threeG.downloadBytesPerSecond == 97_500)
+        #expect(NetworkConditionPreset.threeG.uploadBytesPerSecond == 41_250)
+        #expect(NetworkConditionPreset.edge.downloadBytesPerSecond == 30_000)
+        #expect(NetworkConditionPreset.lte.uploadBytesPerSecond == 1_250_000)
+        #expect(NetworkConditionPreset.custom.downloadBytesPerSecond == nil)
+        #expect(NetworkConditionPreset.custom.uploadBytesPerSecond == nil)
+    }
+
     @Test("packet loss stays disabled for all presets")
     func packetLossDisabled() {
         for preset in NetworkConditionPreset.allCases {

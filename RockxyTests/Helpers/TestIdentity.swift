@@ -1,4 +1,5 @@
 import Foundation
+@testable import Rockxy
 
 enum TestIdentity {
     static let familyNamespace = "com.amunx.rockxy"
@@ -49,4 +50,9 @@ enum TestIdentity {
         communityBundleIdentifier,
         familyNamespace,
     ]
+
+    static var isRunningUnderRawXCTestTool: Bool {
+        RockxyIdentity.current.appBundleIdentifier == "com.apple.dt.xctest.tool"
+            || RockxyIdentity.current.displayName == "xctest"
+    }
 }

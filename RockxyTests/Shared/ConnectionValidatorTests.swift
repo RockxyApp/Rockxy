@@ -16,6 +16,7 @@ struct ConnectionValidatorTests {
 
     @Test("ConnectionValidator reads the expected allowlist from RockxyIdentity")
     func allowlistMatchesIdentityConfig() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let ids = RockxyIdentity.current.allowedCallerIdentifiers
         for expected in TestIdentity.expectedAllowedCallerIdentifiers {
             #expect(ids.contains(expected))

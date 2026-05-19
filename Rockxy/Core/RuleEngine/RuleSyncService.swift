@@ -169,7 +169,9 @@ enum RuleSyncService {
     private static func syncAll() async {
         let allRules = await RuleEngine.shared.allRules
         await persistenceQueue.save(allRules)
-        NotificationCenter.default.post(name: .rulesDidChange, object: allRules)
+        await MainActor.run {
+            NotificationCenter.default.post(name: .rulesDidChange, object: allRules)
+        }
         logger.debug("Rules synced: \(allRules.count) rules")
     }
 }

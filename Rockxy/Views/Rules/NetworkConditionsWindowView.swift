@@ -4,24 +4,6 @@ import SwiftUI
 
 // Presents the network conditions window for rule editing and management.
 
-// MARK: - NetworkConditionsMatchMode
-
-private enum NetworkConditionsMatchMode: String, CaseIterable {
-    case exactPath
-    case includeSubpaths
-    case regexAdvanced
-
-    // MARK: Internal
-
-    var displayName: String {
-        switch self {
-        case .exactPath: "Exact Path"
-        case .includeSubpaths: "Subpaths"
-        case .regexAdvanced: "Regex"
-        }
-    }
-}
-
 // MARK: - NetworkConditionProfileMetadata
 
 struct NetworkConditionProfileMetadata: Equatable {
@@ -288,6 +270,11 @@ final class NetworkConditionsWindowViewModel {
     }
 
     private static func readableHost(from pattern: String) -> String {
+        let formattedHost = NetworkConditionsPatternFormatter.hostText(from: pattern)
+        if !formattedHost.isEmpty, formattedHost != pattern {
+            return formattedHost
+        }
+
         var value = pattern.trimmingCharacters(in: .whitespacesAndNewlines)
         value = value.replacingOccurrences(of: "^", with: "")
         value = value.replacingOccurrences(of: "$", with: "")
@@ -326,7 +313,7 @@ enum NetworkConditionsPatternFormatter {
         guard var value = pattern, !value.isEmpty else {
             return ""
         }
-        value = value.replacingOccurrences(of: "^https?://", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "^https?://", with: "")
         value = value.replacingOccurrences(of: "^", with: "")
         value = value.replacingOccurrences(of: "$", with: "")
         value = value.replacingOccurrences(of: "(?:/.*)?", with: "")
@@ -362,6 +349,60 @@ enum NetworkConditionsPatternFormatter {
             return false
         }
         return host[host.index(after: colonIndex)...].allSatisfy(\.isNumber)
+    }
+}
+
+// MARK: - NetworkConditionsRuleForm
+
+enum NetworkConditionsRuleForm {
+    static let defaultName = "Untitled"
+    static let defaultPreset = NetworkConditionPreset.threeG
+    static let defaultCustomLatencyMs = 500
+
+    static func effectiveLatencyMs(preset: NetworkConditionPreset, customLatencyMs: Int) -> Int {
+        preset == .custom ? customLatencyMs : preset.defaultLatencyMs
+    }
+
+    static func isValid(
+        name: String,
+        hostText: String,
+        applySystemWide: Bool,
+        preset: NetworkConditionPreset,
+        customLatencyMs: Int
+    )
+        -> Bool
+    {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs) > 0
+            && (applySystemWide || !hostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    static func makeRule(
+        existingID: UUID?,
+        name: String,
+        isEnabled: Bool,
+        hostText: String,
+        applySystemWide: Bool,
+        preset: NetworkConditionPreset,
+        customLatencyMs: Int
+    )
+        -> ProxyRule
+    {
+        let trimmedHost = hostText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let condition = RuleMatchCondition(
+            urlPattern: applySystemWide || trimmedHost.isEmpty ? nil : NetworkConditionsPatternFormatter
+                .hostScopedPattern(from: trimmedHost)
+        )
+        return ProxyRule(
+            id: existingID ?? UUID(),
+            name: name,
+            isEnabled: isEnabled,
+            matchCondition: condition,
+            action: .networkCondition(
+                preset: preset,
+                delayMs: effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs)
+            )
+        )
     }
 }
 
@@ -848,11 +889,11 @@ private struct NetworkConditionsEditSheet: View {
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
-    @State private var name = "Untitled"
+    @State private var name = NetworkConditionsRuleForm.defaultName
     @State private var hostText = ""
     @State private var applySystemWide = false
-    @State private var selectedPreset: NetworkConditionPreset = .threeG
-    @State private var customLatencyMs = 500
+    @State private var selectedPreset = NetworkConditionsRuleForm.defaultPreset
+    @State private var customLatencyMs = NetworkConditionsRuleForm.defaultCustomLatencyMs
     @State private var isEnabled = true
 
     private let draft: NetworkConditionsDraft?
@@ -866,13 +907,17 @@ private struct NetworkConditionsEditSheet: View {
     }
 
     private var effectiveLatencyMs: Int {
-        selectedPreset == .custom ? customLatencyMs : selectedPreset.defaultLatencyMs
+        NetworkConditionsRuleForm.effectiveLatencyMs(preset: selectedPreset, customLatencyMs: customLatencyMs)
     }
 
     private var isValid: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && effectiveLatencyMs > 0
-            && (applySystemWide || !hostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        NetworkConditionsRuleForm.isValid(
+            name: name,
+            hostText: hostText,
+            applySystemWide: applySystemWide,
+            preset: selectedPreset,
+            customLatencyMs: customLatencyMs
+        )
     }
 
     private var profileStats: some View {
@@ -943,17 +988,14 @@ private struct NetworkConditionsEditSheet: View {
     }
 
     private func saveRule() {
-        let trimmedHost = hostText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let condition = RuleMatchCondition(
-            urlPattern: applySystemWide || trimmedHost.isEmpty ? nil : NetworkConditionsPatternFormatter
-                .hostScopedPattern(from: trimmedHost)
-        )
-        let rule = ProxyRule(
-            id: existingID ?? UUID(),
+        let rule = NetworkConditionsRuleForm.makeRule(
+            existingID: existingID,
             name: name,
             isEnabled: isEnabled,
-            matchCondition: condition,
-            action: .networkCondition(preset: selectedPreset, delayMs: effectiveLatencyMs)
+            hostText: hostText,
+            applySystemWide: applySystemWide,
+            preset: selectedPreset,
+            customLatencyMs: customLatencyMs
         )
         onSave(rule)
         dismiss()

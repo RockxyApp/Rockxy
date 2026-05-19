@@ -192,6 +192,7 @@ struct SigningDiagnosticsClassifyTests {
 struct SigningDiagnosticsLiveTests {
     @Test("LiveEnvironment validates test host app signature successfully")
     func liveAppSignatureValid() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let env = SigningDiagnostics.LiveEnvironment()
         guard env.validateAppSignature() == nil else {
             return
@@ -203,6 +204,7 @@ struct SigningDiagnosticsLiveTests {
 
     @Test("LiveEnvironment resolves the bundled helper executable from the app package")
     func liveBundledHelperExecutableDetected() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let bundledHelperURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Library/HelperTools", isDirectory: true)
             .appendingPathComponent("RockxyHelperTool", isDirectory: false)
@@ -215,6 +217,7 @@ struct SigningDiagnosticsLiveTests {
 
     @Test("LiveEnvironment can extract app certificate chain from test host")
     func liveAppCertificateChainExtractable() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let env = SigningDiagnostics.LiveEnvironment()
         guard env.validateAppSignature() == nil else {
             return
@@ -227,6 +230,7 @@ struct SigningDiagnosticsLiveTests {
 
     @Test("LiveEnvironment handles helper certificate chain availability")
     func liveHelperCertificateChainAvailability() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let env = SigningDiagnostics.LiveEnvironment()
         guard env.validateAppSignature() == nil else {
             return
@@ -242,6 +246,7 @@ struct SigningDiagnosticsLiveTests {
 
     @Test("Live classify returns healthy or helperBinaryNotFound depending on helper install state")
     func liveClassifyContract() {
+        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
         let env = SigningDiagnostics.LiveEnvironment()
         guard env.validateAppSignature() == nil else {
             return

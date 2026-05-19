@@ -52,6 +52,7 @@ final class MapRemoteWindowViewModel {
     var isFilterVisible = false
     var isToolEnabled: Bool
     var errorMessage: String?
+    private var pendingRuleSyncTask: Task<Void, Never>?
 
     var mapRemoteRules: [ProxyRule] {
         allRules.filter { rule in
@@ -97,7 +98,9 @@ final class MapRemoteWindowViewModel {
 
     func setToolEnabled(_ enabled: Bool) {
         isToolEnabled = enabled
-        Task { await RulePolicyGate.shared.setMapRemoteToolEnabled(enabled) }
+        pendingRuleSyncTask = Task {
+            await RulePolicyGate.shared.setMapRemoteToolEnabled(enabled)
+        }
     }
 
     func toggleRule(id: UUID) {
@@ -105,7 +108,7 @@ final class MapRemoteWindowViewModel {
             return
         }
         allRules[index].isEnabled.toggle()
-        Task {
+        pendingRuleSyncTask = Task {
             let accepted = await RulePolicyGate.shared.toggleRule(id: id)
             if !accepted {
                 allRules = await RuleEngine.shared.allRules
@@ -120,7 +123,8 @@ final class MapRemoteWindowViewModel {
                 updated[index].isEnabled = true
             }
         }
-        Task {
+        allRules = updated
+        pendingRuleSyncTask = Task {
             await RulePolicyGate.shared.replaceAllRules(updated)
             allRules = await RuleEngine.shared.allRules
         }
@@ -134,13 +138,13 @@ final class MapRemoteWindowViewModel {
         allRules.removeAll { idsToRemove.contains($0.id) }
         selectedRuleIDs.removeAll()
         let updated = allRules
-        Task { await RulePolicyGate.shared.replaceAllRules(updated) }
+        pendingRuleSyncTask = Task { await RulePolicyGate.shared.replaceAllRules(updated) }
     }
 
     func removeRule(id: UUID) {
         allRules.removeAll { $0.id == id }
         selectedRuleIDs.remove(id)
-        Task { await RulePolicyGate.shared.removeRule(id: id) }
+        pendingRuleSyncTask = Task { await RulePolicyGate.shared.removeRule(id: id) }
     }
 
     func duplicateSelectedRule() {
@@ -156,12 +160,16 @@ final class MapRemoteWindowViewModel {
         )
         allRules.append(rule)
         selectedRuleIDs = [rule.id]
-        Task {
+        pendingRuleSyncTask = Task {
             let accepted = await RulePolicyGate.shared.addRule(rule)
             if !accepted {
                 allRules = await RuleEngine.shared.allRules
             }
         }
+    }
+
+    func waitForPendingRuleSync() async {
+        await pendingRuleSyncTask?.value
     }
 
     func methodLabel(for rule: ProxyRule) -> String {

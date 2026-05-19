@@ -11,7 +11,7 @@ struct AutoSelectPortMigrationTests {
         let cleanup = installSettingsTestGuard()
         defer { cleanup() }
 
-        UserDefaults.standard.removeObject(forKey: TestIdentity.autoSelectPortKey)
+        UserDefaults.standard.removeObject(forKey: autoSelectPortKey)
         let settings = AppSettingsStorage.load()
         #expect(settings.autoSelectPort == true)
     }
@@ -21,7 +21,7 @@ struct AutoSelectPortMigrationTests {
         let cleanup = installSettingsTestGuard()
         defer { cleanup() }
 
-        UserDefaults.standard.set(false, forKey: TestIdentity.autoSelectPortKey)
+        UserDefaults.standard.set(false, forKey: autoSelectPortKey)
         let settings = AppSettingsStorage.load()
         #expect(settings.autoSelectPort == false)
     }
@@ -31,8 +31,12 @@ struct AutoSelectPortMigrationTests {
         let cleanup = installSettingsTestGuard()
         defer { cleanup() }
 
-        UserDefaults.standard.set(true, forKey: TestIdentity.autoSelectPortKey)
+        UserDefaults.standard.set(true, forKey: autoSelectPortKey)
         let settings = AppSettingsStorage.load()
         #expect(settings.autoSelectPort == true)
+    }
+
+    private var autoSelectPortKey: String {
+        RockxyIdentity.current.defaultsKey("autoSelectPort")
     }
 }
