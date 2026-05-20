@@ -91,7 +91,7 @@ struct BreakpointWindowView: View {
     }
 
     private var queueTable: some View {
-        BreakpointQueueTableView(manager: manager)
+        BreakpointQueueTableView(manager: manager, centersEmptyState: layoutMode == .vertical)
     }
 
     private var editor: some View {
@@ -253,34 +253,42 @@ struct BreakpointWindowView: View {
 
 private struct BreakpointQueueTableView: View {
     @Bindable var manager: BreakpointManager
+    let centersEmptyState: Bool
 
-    private let columns: [(title: String, width: CGFloat)] = [
-        (String(localized: "ID"), 54),
-        (String(localized: "URL"), 300),
-        (String(localized: "Client"), 160),
-        (String(localized: "Method"), 94),
-        (String(localized: "Status"), 104),
-        (String(localized: "Code"), 72),
-        (String(localized: "Time"), 112),
-        (String(localized: "Duration"), 104),
-        (String(localized: "Request"), 92),
-        (String(localized: "Response"), 104),
-        (String(localized: "Query Name"), 150),
+    private struct Column {
+        let title: String
+        let minWidth: CGFloat
+        let preferredWidth: CGFloat
+    }
+
+    private let columns: [Column] = [
+        Column(title: String(localized: "ID"), minWidth: 44, preferredWidth: 54),
+        Column(title: String(localized: "URL"), minWidth: 220, preferredWidth: 360),
+        Column(title: String(localized: "Client"), minWidth: 90, preferredWidth: 150),
+        Column(title: String(localized: "Method"), minWidth: 70, preferredWidth: 86),
+        Column(title: String(localized: "Status"), minWidth: 74, preferredWidth: 96),
+        Column(title: String(localized: "Code"), minWidth: 52, preferredWidth: 64),
+        Column(title: String(localized: "Time"), minWidth: 78, preferredWidth: 102),
+        Column(title: String(localized: "Duration"), minWidth: 78, preferredWidth: 102),
+        Column(title: String(localized: "Request"), minWidth: 70, preferredWidth: 86),
+        Column(title: String(localized: "Response"), minWidth: 78, preferredWidth: 94),
+        Column(title: String(localized: "Query Name"), minWidth: 90, preferredWidth: 136),
     ]
 
     var body: some View {
         GeometryReader { geometry in
-            let contentWidth = max(tableWidth, geometry.size.width)
+            let columnWidths = effectiveColumnWidths(for: geometry.size.width)
+            let contentWidth = max(tableWidth(for: columnWidths), geometry.size.width)
             let contentHeight = max(geometry.size.height, headerHeight + 1)
 
             ScrollView([.horizontal, .vertical]) {
                 ZStack(alignment: .topLeading) {
                     VStack(spacing: 0) {
-                        headerRow
+                        headerRow(columnWidths: columnWidths)
                             .frame(width: contentWidth, alignment: .leading)
                         Divider()
                         ForEach(manager.pausedItems) { item in
-                            queueRow(item)
+                            queueRow(item, columnWidths: columnWidths)
                             Divider()
                         }
                     }
@@ -290,9 +298,9 @@ private struct BreakpointQueueTableView: View {
                     if manager.pausedItems.isEmpty {
                         emptyState
                             .frame(
-                                width: contentWidth,
+                                width: geometry.size.width,
                                 height: max(0, contentHeight - headerHeight - 1),
-                                alignment: .center
+                                alignment: centersEmptyState ? .center : .leading
                             )
                             .padding(.top, headerHeight + 1)
                     }
@@ -305,8 +313,27 @@ private struct BreakpointQueueTableView: View {
         .background(Color(nsColor: .textBackgroundColor))
     }
 
-    private var tableWidth: CGFloat {
-        columns.reduce(0) { $0 + $1.width }
+    private func tableWidth(for columnWidths: [CGFloat]) -> CGFloat {
+        columnWidths.reduce(0, +)
+    }
+
+    private func effectiveColumnWidths(for availableWidth: CGFloat) -> [CGFloat] {
+        let preferredTotal = columns.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
+        let minimumTotal = columns.reduce(CGFloat.zero) { $0 + $1.minWidth }
+
+        guard availableWidth < preferredTotal else {
+            return columns.map(\.preferredWidth)
+        }
+        guard availableWidth > minimumTotal else {
+            return columns.map(\.minWidth)
+        }
+
+        let flexibleTotal = preferredTotal - minimumTotal
+        let availableFlex = availableWidth - minimumTotal
+        return columns.map { column in
+            let columnFlex = column.preferredWidth - column.minWidth
+            return column.minWidth + (columnFlex / flexibleTotal * availableFlex)
+        }
     }
 
     private var headerHeight: CGFloat {
@@ -314,23 +341,24 @@ private struct BreakpointQueueTableView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: centersEmptyState ? .center : .leading, spacing: 8) {
             Text(String(localized: "No Breakpoints"))
                 .font(.title3.weight(.semibold))
             Text(String(localized: "Click \"Manage Rules\" button to create your first Breakpoint Rules"))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
+        .multilineTextAlignment(centersEmptyState ? .center : .leading)
+        .padding(.horizontal, centersEmptyState ? 24 : 16)
     }
 
-    private var headerRow: some View {
+    private func headerRow(columnWidths: [CGFloat]) -> some View {
         HStack(spacing: 0) {
-            ForEach(Array(columns.enumerated()), id: \.offset) { _, column in
+            ForEach(Array(columns.enumerated()), id: \.offset) { offset, column in
                 Text(column.title)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .frame(width: column.width, height: headerHeight, alignment: .leading)
+                    .frame(width: columnWidths[offset], height: headerHeight, alignment: .leading)
                     .padding(.leading, 8)
                     .overlay(alignment: .trailing) {
                         Divider().frame(height: 20)
@@ -340,27 +368,27 @@ private struct BreakpointQueueTableView: View {
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func queueRow(_ item: PausedBreakpointItem) -> some View {
+    private func queueRow(_ item: PausedBreakpointItem, columnWidths: [CGFloat]) -> some View {
         let isSelected = manager.selectedItemId == item.id
         return HStack(spacing: 0) {
             Group {
-                cell("\(item.sequenceNumber)", width: columns[0].width, monospaced: true)
-                cell(item.url, width: columns[1].width, monospaced: true, help: item.url)
-                cell(item.client, width: columns[2].width)
-                cell(item.method, width: columns[3].width, monospaced: true)
-                cell(String(localized: "Paused"), width: columns[4].width, color: .orange)
+                cell("\(item.sequenceNumber)", width: columnWidths[0], monospaced: true)
+                cell(item.url, width: columnWidths[1], monospaced: true, help: item.url)
+                cell(item.client, width: columnWidths[2])
+                cell(item.method, width: columnWidths[3], monospaced: true)
+                cell(String(localized: "Paused"), width: columnWidths[4], color: .orange)
                 cell(
                     item.statusCode.map(String.init) ?? "",
-                    width: columns[5].width,
+                    width: columnWidths[5],
                     color: statusColor(for: item.statusCode)
                 )
             }
             Group {
-                timeCell(item.createdAt, width: columns[6].width)
-                durationCell(item.createdAt, width: columns[7].width)
-                phaseCell(item.phase == .request ? "REQ" : "", width: columns[8].width)
-                phaseCell(item.phase == .response ? "RES" : "", width: columns[9].width)
-                cell(item.queryName, width: columns[10].width)
+                timeCell(item.createdAt, width: columnWidths[6])
+                durationCell(item.createdAt, width: columnWidths[7])
+                phaseCell(item.phase == .request ? "REQ" : "", width: columnWidths[8])
+                phaseCell(item.phase == .response ? "RES" : "", width: columnWidths[9])
+                cell(item.queryName, width: columnWidths[10])
             }
         }
         .frame(height: 28)
