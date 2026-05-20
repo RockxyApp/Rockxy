@@ -41,25 +41,14 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.20.0** — 2026-05-19
-
-### Added
-
-- Added a more capable rules workspace with smoother creation, editing, and management for Allow List, Block List, Map Local, Map Remote, Breakpoints, and Network Conditions.
-- Added breakpoint templates so repeated interception workflows can be reused faster.
-- Added stronger scripting workspace polish, including better script navigation, editor controls, and console handling for day-to-day automation.
+**v0.20.1** — 2026-05-20
 
 ### Fixed
 
-- Fixed inspector and script editor ruler clipping while scrolling.
-- Polished rule window controls and menus to reduce layout friction.
-- Tightened release validation around DMG layout, Settings License activation visibility, and the production license backend path.
-
-### Changed
-
-- Refined Map Local editing with a clearer message editor, better pattern formatting, and more predictable controls.
-- Improved Map Remote and Network Conditions workflows so rule setup, review, and activation feel more consistent across tools.
-- Improved rule persistence and validation for Allow List and Block List settings, making saved rule configurations more reliable across sessions.
+- Fixed Map Remote edge cases so rewritten requests preserve expected paths, queries, and upstream routing more reliably.
+- Preserved request table scroll position when selection changes, reducing jumpiness during review.
+- Improved Modify Headers editor contrast and persistence for clearer, more reliable rule editing.
+- Hardened Breakpoints queue handling, persistence, and table layout for smoother interception workflows.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

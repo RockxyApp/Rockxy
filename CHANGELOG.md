@@ -12,6 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+## [0.20.1] - 2026-05-20
+
+### Fixed
+
+- Fixed Map Remote edge cases so rewritten requests preserve expected paths, queries, and upstream routing more reliably.
+- Preserved request table scroll position when selection changes, reducing jumpiness during review.
+- Improved Modify Headers editor contrast and persistence for clearer, more reliable rule editing.
+- Hardened Breakpoints queue handling, persistence, and table layout for smoother interception workflows.
+
 ## [0.20.0] - 2026-05-19
 
 ### Added
