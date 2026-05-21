@@ -7,6 +7,12 @@ import SwiftUI
 
 @MainActor @Observable
 final class BreakpointRulesViewModel {
+    // MARK: Lifecycle
+
+    init(syncsChanges: Bool = !RockxyIdentity.isRunningTests) {
+        self.syncsChanges = syncsChanges
+    }
+
     // MARK: Internal
 
     var selectedRuleID: UUID?
@@ -58,6 +64,9 @@ final class BreakpointRulesViewModel {
     }
 
     func refreshFromEngine() async {
+        if await RuleEngine.shared.allRules.isEmpty {
+            await RuleSyncService.loadFromDisk()
+        }
         allRules = await RuleEngine.shared.allRules
     }
 
@@ -89,12 +98,17 @@ final class BreakpointRulesViewModel {
                     matchType: matchType,
                     includeSubpaths: includeSubpaths
                 ),
-                method: httpMethod.methodValue
+                method: httpMethod.methodValue,
+                matchType: matchType,
+                includeSubpaths: includeSubpaths
             ),
             action: .breakpoint(phase: Self.phase(request: phaseRequest, response: phaseResponse))
         )
         allRules.append(rule)
         selectedRuleID = rule.id
+        guard syncsChanges else {
+            return
+        }
         Task {
             let accepted = await RulePolicyGate.shared.addRule(rule)
             if !accepted {
@@ -129,12 +143,17 @@ final class BreakpointRulesViewModel {
             ),
             method: httpMethod.methodValue,
             headerName: rule.matchCondition.headerName,
-            headerValue: rule.matchCondition.headerValue
+            headerValue: rule.matchCondition.headerValue,
+            matchType: matchType,
+            includeSubpaths: includeSubpaths
         )
         rule.action = .breakpoint(phase: Self.phase(request: phaseRequest, response: phaseResponse))
         allRules[index] = rule
         selectedRuleID = rule.id
         let snapshot = rule
+        guard syncsChanges else {
+            return
+        }
         Task { await RulePolicyGate.shared.updateRule(snapshot) }
     }
 
@@ -144,6 +163,9 @@ final class BreakpointRulesViewModel {
         }
         allRules.removeAll { $0.id == id }
         selectedRuleID = nil
+        guard syncsChanges else {
+            return
+        }
         Task { await RulePolicyGate.shared.removeRule(id: id) }
     }
 
@@ -152,6 +174,9 @@ final class BreakpointRulesViewModel {
             return
         }
         allRules[index].isEnabled.toggle()
+        guard syncsChanges else {
+            return
+        }
         Task {
             let accepted = await RulePolicyGate.shared.toggleRule(id: id)
             if !accepted {
@@ -173,6 +198,9 @@ final class BreakpointRulesViewModel {
         )
         allRules.append(copy)
         selectedRuleID = copy.id
+        guard syncsChanges else {
+            return
+        }
         Task {
             let accepted = await RulePolicyGate.shared.addRule(copy)
             if !accepted {
@@ -223,6 +251,8 @@ final class BreakpointRulesViewModel {
     }
 
     // MARK: Private
+
+    private let syncsChanges: Bool
 
     private static func compilePattern(
         urlPattern: String,

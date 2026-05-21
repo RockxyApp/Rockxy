@@ -8,19 +8,7 @@ struct RuleStore {
     // MARK: Lifecycle
 
     init() {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            Self.logger.error("Application Support directory not found, using temporary directory")
-            let tempDir = RockxyIdentity.current.temporaryAppSupportDirectory()
-            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-            fileURL = tempDir.appendingPathComponent("rules.json")
-            return
-        }
-        fileURL = appSupport
-            .appendingPathComponent(RockxyIdentity.current.appSupportDirectoryName, isDirectory: true)
-            .appendingPathComponent("rules.json")
+        fileURL = RockxyIdentity.current.appSupportPath("rules.json")
     }
 
     // MARK: Internal

@@ -228,7 +228,9 @@ final class BlockListViewModel {
             name: displayName,
             matchCondition: RuleMatchCondition(
                 urlPattern: escapedPattern,
-                method: httpMethod.methodValue
+                method: httpMethod.methodValue,
+                matchType: matchType,
+                includeSubpaths: includeSubpaths
             ),
             action: .block(statusCode: blockAction.statusCode)
         )

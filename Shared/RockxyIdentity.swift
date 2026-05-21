@@ -93,9 +93,14 @@ struct RockxyIdentity {
     static let current = RockxyIdentity(bundle: .main)
 
     static var isRunningTests: Bool {
-        NSClassFromString("XCTestCase") != nil
-            || !(ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] ?? "").isEmpty
+        let environment = ProcessInfo.processInfo.environment
+        let arguments = ProcessInfo.processInfo.arguments
+        return NSClassFromString("XCTestCase") != nil
+            || NSClassFromString("XCTest.XCTestCase") != nil
             || NSClassFromString("Testing.Test") != nil
+            || !(environment["XCTestConfigurationFilePath"] ?? "").isEmpty
+            || environment.keys.contains { $0.hasPrefix("XCTest") }
+            || arguments.contains { $0.contains(".xctest") || $0.contains("XCTest") }
     }
 
     let displayName: String

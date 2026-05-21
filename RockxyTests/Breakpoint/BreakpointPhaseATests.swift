@@ -98,7 +98,7 @@ struct BreakpointPhaseATests {
     // BP_A4
     @Test("addButtonCommitsDraftToRuleList")
     func addButtonCommitsDraftToRuleList() {
-        let viewModel = BreakpointRulesViewModel()
+        let viewModel = BreakpointRulesViewModel(syncsChanges: false)
         viewModel.addBreakpointRule(
             ruleName: "Add Test",
             urlPattern: "httpbin.org/get",
@@ -130,6 +130,28 @@ struct BreakpointPhaseATests {
             #expect(loaded.matchCondition.method == "PATCH")
             #expect(loaded.matchCondition.urlPattern == rule.matchCondition.urlPattern)
             #expect(loaded.isEnabled == true)
+        }
+    }
+
+    @Test("breakpoint window refresh loads persisted rules after restart")
+    func breakpointWindowRefreshLoadsPersistedRulesAfterRestart() async throws {
+        try await BreakpointRuleTestIsolation.withSharedRuleState {
+            let rule = ProxyRule.breakpointTest(
+                name: "Persisted Breakpoint",
+                matchingRule: "httpbin.org/restart",
+                method: .get,
+                phases: .both,
+                includeSubpaths: true
+            )
+            try RuleStore().saveRules([rule])
+            await RuleEngine.shared.replaceAll([])
+
+            let viewModel = BreakpointRulesViewModel(syncsChanges: false)
+            await viewModel.refreshFromEngine()
+
+            #expect(viewModel.breakpointRules.count == 1)
+            #expect(viewModel.breakpointRules.first?.id == rule.id)
+            #expect(viewModel.breakpointRules.first?.name == "Persisted Breakpoint")
         }
     }
 
@@ -165,7 +187,7 @@ struct BreakpointPhaseATests {
     // BP_A8
     @Test("duplicateRuleCreatesIndependentCopy")
     func duplicateRuleCreatesIndependentCopy() {
-        let viewModel = BreakpointRulesViewModel()
+        let viewModel = BreakpointRulesViewModel(syncsChanges: false)
         viewModel.addBreakpointRule(
             ruleName: "Original",
             urlPattern: "httpbin.org/get",
@@ -203,7 +225,7 @@ struct BreakpointPhaseATests {
         phaseResponse: Bool = true,
         includeSubpaths: Bool = false
     ) -> ProxyRule {
-        let viewModel = BreakpointRulesViewModel()
+        let viewModel = BreakpointRulesViewModel(syncsChanges: false)
         viewModel.addBreakpointRule(
             ruleName: name,
             urlPattern: matchingRule,

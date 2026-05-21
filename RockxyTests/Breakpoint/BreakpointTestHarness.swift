@@ -287,15 +287,7 @@ struct BreakpointRuleStateBackup {
 enum BreakpointRuleTestIsolation {
     private static let breakpointToolEnabledKey = "breakpointToolEnabled"
 
-    private static let rulesPath: URL = {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return appSupport
-            .appendingPathComponent(TestIdentity.appSupportDirectoryName, isDirectory: true)
-            .appendingPathComponent(TestIdentity.rulesPathComponent)
-    }()
+    private static let rulesPath = RockxyIdentity.current.appSupportPath(TestIdentity.rulesPathComponent)
 
     static func withSharedRuleState(_ body: () async throws -> Void) async rethrows {
         await RuleTestLock.shared.acquire()
