@@ -16,12 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Improve compose history and fresh request flow
-- Normalize keyboard shortcuts
+- Improved Compose history so repeated request work is easier to resume and reuse.
+- Added a cleaner fresh-request flow in Compose for quickly starting over without carrying old request state forward.
+- Standardized keyboard shortcuts across capture, rules, breakpoints, Compose, scripting, and settings, with a searchable Help reference.
 
 ### Fixed
 
-- Persist breakpoint rules after restart
+- Fixed breakpoint rule persistence so saved interception rules remain available after restarting Rockxy.
 
 ## [0.20.1] - 2026-05-20
 

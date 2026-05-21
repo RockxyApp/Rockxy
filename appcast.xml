@@ -20,12 +20,13 @@
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Improve compose history and fresh request flow</li>
-  <li>Normalize keyboard shortcuts</li>
+  <li>Improved Compose history so repeated request work is easier to resume and reuse.</li>
+  <li>Added a cleaner fresh-request flow in Compose for quickly starting over without carrying old request state forward.</li>
+  <li>Standardized keyboard shortcuts across capture, rules, breakpoints, Compose, scripting, and settings, with a searchable Help reference.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Persist breakpoint rules after restart</li>
+  <li>Fixed breakpoint rule persistence so saved interception rules remain available after restarting Rockxy.</li>
 </ul>
       ]]></description>
     </item>
