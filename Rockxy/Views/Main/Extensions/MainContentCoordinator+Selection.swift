@@ -98,4 +98,20 @@ extension MainContentCoordinator {
         }
         deleteTransactions([selected])
     }
+
+    func selectFirstFilteredTransaction() {
+        guard let first = filteredTransactions.first else {
+            return
+        }
+        selectedTransactionIDs = [first.id]
+        selectTransaction(first)
+    }
+
+    func selectLastFilteredTransaction() {
+        guard let last = filteredTransactions.last else {
+            return
+        }
+        selectedTransactionIDs = [last.id]
+        selectTransaction(last)
+    }
 }

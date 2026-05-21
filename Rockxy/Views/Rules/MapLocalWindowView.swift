@@ -569,7 +569,7 @@ struct MapLocalWindowView: View {
             Button(String(localized: "New Folder")) {
                 viewModel.createNewFolderPlaceholder()
             }
-            .keyboardShortcut("n", modifiers: [.command, .option])
+            .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Button {
                 viewModel.errorMessage = String(localized: "Map Local checks rules from top to bottom and returns the first matching local response.")
@@ -597,7 +597,7 @@ struct MapLocalWindowView: View {
                         openEditor(for: rule)
                     }
                 }
-                .keyboardShortcut(.return, modifiers: .command)
+                .keyboardShortcut("e", modifiers: .command)
                 .disabled(viewModel.selectedRule == nil)
                 Button(String(localized: "Duplicate")) { viewModel.duplicateSelectedRule() }
                     .keyboardShortcut("d", modifiers: .command)
@@ -608,6 +608,13 @@ struct MapLocalWindowView: View {
                     }
                 }
                 .keyboardShortcut(.return, modifiers: [])
+                .disabled(viewModel.selectedRule == nil)
+                Button(String(localized: "Toggle")) {
+                    if let id = viewModel.selectedRuleIDs.first {
+                        viewModel.toggleRule(id: id)
+                    }
+                }
+                .keyboardShortcut(.space, modifiers: [])
                 .disabled(viewModel.selectedRule == nil)
                 Divider()
                 Button(String(localized: "Delete"), role: .destructive) {

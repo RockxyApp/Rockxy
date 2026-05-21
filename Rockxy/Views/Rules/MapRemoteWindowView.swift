@@ -457,7 +457,7 @@ struct MapRemoteWindowView: View {
                         openEditor(for: rule)
                     }
                 }
-                .keyboardShortcut(.return, modifiers: .command)
+                .keyboardShortcut("e", modifiers: .command)
                 .disabled(viewModel.selectedRule == nil)
                 Button(String(localized: "Duplicate")) { viewModel.duplicateSelectedRule() }
                     .keyboardShortcut("d", modifiers: .command)
@@ -468,6 +468,13 @@ struct MapRemoteWindowView: View {
                     }
                 }
                 .keyboardShortcut(.return, modifiers: [])
+                .disabled(viewModel.selectedRule == nil)
+                Button(String(localized: "Toggle")) {
+                    if let id = viewModel.selectedRuleIDs.first {
+                        viewModel.toggleRule(id: id)
+                    }
+                }
+                .keyboardShortcut(.space, modifiers: [])
                 .disabled(viewModel.selectedRule == nil)
                 Divider()
                 Button(String(localized: "Enable All")) { viewModel.enableAll() }

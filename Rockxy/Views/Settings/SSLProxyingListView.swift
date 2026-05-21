@@ -355,7 +355,7 @@ struct SSLProxyingListView: View {
             Button(String(localized: "Edit…")) {
                 viewModel.presentEditorForSelection()
             }
-            .keyboardShortcut(.return, modifiers: .command)
+            .keyboardShortcut("e", modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
 
             Divider()
@@ -365,6 +365,15 @@ struct SSLProxyingListView: View {
                     viewModel.toggleRule(id: id)
                 }
             }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(viewModel.selectedRuleID == nil)
+
+            Button(viewModel.enableDisableLabel) {
+                if let id = viewModel.selectedRuleID {
+                    viewModel.toggleRule(id: id)
+                }
+            }
+            .keyboardShortcut(.space, modifiers: [])
             .disabled(viewModel.selectedRuleID == nil)
 
             Button(String(localized: "Delete"), role: .destructive) {

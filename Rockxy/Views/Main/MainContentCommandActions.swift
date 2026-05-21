@@ -56,6 +56,16 @@ struct MainContentCommandActions {
         }
     }
 
+    func clearCaptureAndFilters() {
+        Task { @MainActor in
+            await coordinator.clearSession()
+            coordinator.filterCriteria = .empty
+            coordinator.filterCriteria.sidebarScope = .allTraffic
+            coordinator.filterRules = [FilterRule()]
+            coordinator.recomputeFilteredTransactions()
+        }
+    }
+
     func toggleRecording() {
         coordinator.toggleRecording()
     }
@@ -146,6 +156,11 @@ struct MainContentCommandActions {
         coordinator.recomputeFilteredTransactions()
     }
 
+    func focusSearchField() {
+        coordinator.filterCriteria.isSearchEnabled = true
+        NotificationCenter.default.post(name: .focusMainSearchField, object: nil)
+    }
+
     func toggleInspectorRight() {
         coordinator.toggleInspectorRight()
     }
@@ -168,6 +183,21 @@ struct MainContentCommandActions {
 
     func deleteSelected() {
         coordinator.deleteSelectedTransaction()
+    }
+
+    func selectFirstTransaction() {
+        coordinator.selectFirstFilteredTransaction()
+    }
+
+    func selectLastTransaction() {
+        coordinator.selectLastFilteredTransaction()
+    }
+
+    func addBreakpointRuleForSelection() {
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
+        coordinator.createBreakpointRule(for: transaction)
     }
 
     func compareSelected() {

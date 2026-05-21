@@ -505,6 +505,7 @@ struct BreakpointRulesWindowView: View {
             Button(String(localized: "Templates...")) {
                 openWindow(id: "breakpointTemplates")
             }
+            .keyboardShortcut("t", modifiers: .command)
 
             moreMenu
         }
@@ -534,7 +535,7 @@ struct BreakpointRulesWindowView: View {
                     openEditor(for: rule)
                 }
             }
-            .keyboardShortcut(.return, modifiers: .command)
+            .keyboardShortcut("e", modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
 
             Button(String(localized: "Duplicate")) {
@@ -550,6 +551,15 @@ struct BreakpointRulesWindowView: View {
                     viewModel.toggleRule(id: id)
                 }
             }
+            .keyboardShortcut(.return, modifiers: [])
+            .disabled(viewModel.selectedRuleID == nil)
+
+            Button(enableDisableLabel) {
+                if let id = viewModel.selectedRuleID {
+                    viewModel.toggleRule(id: id)
+                }
+            }
+            .keyboardShortcut(.space, modifiers: [])
             .disabled(viewModel.selectedRuleID == nil)
 
             Divider()

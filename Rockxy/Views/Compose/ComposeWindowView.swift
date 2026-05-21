@@ -35,6 +35,7 @@ struct ComposeWindowView: View {
         .frame(minWidth: 900, minHeight: 600)
         .onAppear {
             consumeDraftRequest()
+            isURLFocused = true
         }
         .onChange(of: ComposeStore.shared.draftVersion) {
             consumeDraftRequest()
@@ -53,6 +54,9 @@ struct ComposeWindowView: View {
         ) { result in
             importBodyFile(result)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusComposeURLField)) { _ in
+            isURLFocused = true
+        }
     }
 
     // MARK: Private
@@ -61,6 +65,7 @@ struct ComposeWindowView: View {
 
     @State private var viewModel = ComposeViewModel()
     @State private var isShowingBodyImporter = false
+    @FocusState private var isURLFocused: Bool
 
     private var composeBar: some View {
         HStack(spacing: 8) {
@@ -81,6 +86,7 @@ struct ComposeWindowView: View {
                 TextField(String(localized: "URL"), text: $viewModel.url)
                     .textFieldStyle(.plain)
                     .font(.system(.body, design: .monospaced))
+                    .focused($isURLFocused)
                     .onSubmit {
                         Task { await viewModel.send() }
                     }
@@ -178,6 +184,7 @@ struct ComposeWindowView: View {
                 .labelStyle(.titleAndIcon)
         }
         .menuStyle(.button)
+        .keyboardShortcut("t", modifiers: .command)
     }
 
     private var historyMenu: some View {
@@ -202,10 +209,16 @@ struct ComposeWindowView: View {
                 .labelStyle(.titleAndIcon)
         }
         .menuStyle(.button)
+        .keyboardShortcut("y", modifiers: .command)
     }
 
     private var settingsMenu: some View {
         Menu {
+            Button(String(localized: "Focus URL Field")) {
+                isURLFocused = true
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            Divider()
             Menu(String(localized: "Request Timeout")) {
                 ForEach(ComposeRequestTimeout.allCases) { timeout in
                     Button {
@@ -224,6 +237,12 @@ struct ComposeWindowView: View {
                 String(localized: "Automatically Follow Redirects"),
                 isOn: $viewModel.followsRedirects
             )
+            Divider()
+            Button(String(localized: "Reset to Fresh Request")) {
+                viewModel.resetDraft()
+                isURLFocused = true
+            }
+            .keyboardShortcut("0", modifiers: .command)
         } label: {
             Image(systemName: "ellipsis.circle")
                 .imageScale(.large)

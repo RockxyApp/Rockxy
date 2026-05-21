@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 @MainActor @Observable
 final class AppLifecycleState {
     var showWelcome = false
+    var showKeyboardShortcuts = false
 }
 
 // MARK: - RockxyApp
@@ -292,6 +293,12 @@ private struct MainWindowContent: View {
                     lifecycleState.showWelcome = false
                 })
             }
+            .sheet(isPresented: Binding(
+                get: { lifecycleState.showKeyboardShortcuts },
+                set: { lifecycleState.showKeyboardShortcuts = $0 }
+            )) {
+                KeyboardShortcutsView()
+            }
             .task {
                 guard !setupChecked else {
                     return
@@ -421,7 +428,6 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "New Session")) {
                 actions?.clearSession()
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Divider()
 
@@ -456,7 +462,7 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Copy URL")) {
                 actions?.copyURL()
             }
-            .keyboardShortcut("c", modifiers: [.command])
+            .keyboardShortcut("u", modifiers: [.command, .option])
             .disabled(actions?.hasSelectedTransaction != true)
 
             Button(String(localized: "Copy as cURL")) {
@@ -466,9 +472,14 @@ struct RockxyMenuCommands: Commands {
             .disabled(actions?.hasSelectedTransaction != true)
 
             Button(String(localized: "Focus on URL")) {
-                actions?.toggleFilterBar()
+                actions?.focusSearchField()
             }
             .keyboardShortcut("l", modifiers: [.command])
+
+            Button(String(localized: "Find in Capture")) {
+                actions?.focusSearchField()
+            }
+            .keyboardShortcut("f", modifiers: [.command])
         }
     }
 
@@ -516,6 +527,20 @@ struct RockxyMenuCommands: Commands {
                 actions?.previousWorkspaceTab()
             }
             .keyboardShortcut("[", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button(String(localized: "Jump to First Request")) {
+                actions?.selectFirstTransaction()
+            }
+            .keyboardShortcut(.upArrow, modifiers: [.command])
+            .disabled(actions?.hasSelectedTransaction != true)
+
+            Button(String(localized: "Jump to Last Request")) {
+                actions?.selectLastTransaction()
+            }
+            .keyboardShortcut(.downArrow, modifiers: [.command])
+            .disabled(actions?.hasSelectedTransaction != true)
         }
     }
 
@@ -531,13 +556,13 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Repeat")) {
                 actions?.replayRequest()
             }
-            .keyboardShortcut(.return, modifiers: [.command])
+            .keyboardShortcut("r", modifiers: [.command])
             .disabled(actions?.hasSelectedTransaction != true)
 
             Button(String(localized: "Edit and Repeat…")) {
                 actions?.editAndRepeat()
             }
-            .keyboardShortcut(.return, modifiers: [.command, .option])
+            .keyboardShortcut("e", modifiers: [.command])
             .disabled(actions?.hasSelectedTransaction != true)
 
             Divider()
@@ -558,7 +583,6 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Add Comment…")) {
                 actions?.addComment()
             }
-            .keyboardShortcut("l", modifiers: [.command])
             .disabled(actions?.hasSelectedTransaction != true)
 
             Menu(String(localized: "Highlight")) {
@@ -579,14 +603,19 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Clear Session")) {
                 actions?.clearSession()
             }
-            .keyboardShortcut(.delete, modifiers: [.command, .option, .shift])
+            .keyboardShortcut("k", modifiers: [.command])
+
+            Button(String(localized: "Clear Session and Filters")) {
+                actions?.clearCaptureAndFilters()
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
 
             Divider()
 
             Button(String(localized: "Delete")) {
                 actions?.deleteSelected()
             }
-            .keyboardShortcut(.delete, modifiers: [])
+            .keyboardShortcut(.delete, modifiers: [.command])
             .disabled(actions?.hasSelectedTransaction != true)
 
             Button(String(localized: "Delete All")) {
@@ -601,7 +630,6 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Start Proxy")) {
                 actions?.startProxy()
             }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
             .disabled(actions?.isProxyRunning == true)
 
             Button(String(localized: "Stop Proxy")) {
@@ -613,7 +641,7 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Toggle Recording")) {
                 actions?.toggleRecording()
             }
-            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .keyboardShortcut("p", modifiers: [.command])
 
             Button(String(localized: "Toggle System Proxy")) {
                 actions?.toggleSystemProxyOverride()
@@ -649,6 +677,12 @@ struct RockxyMenuCommands: Commands {
                 openWindow(id: "breakpointRules")
             }
             .keyboardShortcut("b", modifiers: [.command, .shift])
+
+            Button(String(localized: "Add Breakpoint Rule")) {
+                actions?.addBreakpointRuleForSelection()
+            }
+            .keyboardShortcut("b", modifiers: [.command])
+            .disabled(actions?.hasSelectedTransaction != true)
 
             Button(String(localized: "Breakpoint Queue…")) {
                 openWindow(id: "breakpoints")
@@ -691,7 +725,6 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Network Conditions…")) {
                 openWindow(id: "networkConditions")
             }
-            .keyboardShortcut("n", modifiers: [.command, .option])
 
             Divider()
 
@@ -887,6 +920,12 @@ struct RockxyMenuCommands: Commands {
                 openWindow(id: "main")
                 lifecycleState.showWelcome = true
             }
+
+            Button(String(localized: "Keyboard Shortcuts")) {
+                openWindow(id: "main")
+                lifecycleState.showKeyboardShortcuts = true
+            }
+            .keyboardShortcut("/", modifiers: [.command, .shift])
 
             Button(String(localized: "Debug My App…")) {
                 openWindow(id: "developerSetupHub")

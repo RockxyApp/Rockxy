@@ -99,12 +99,21 @@ struct BreakpointTemplateWindowView: View {
                 Button(String(localized: "New Request Template")) {
                     store.addTemplate(kind: .request)
                 }
+                .keyboardShortcut(
+                    store.selectedKind == .request ? "n" : "n",
+                    modifiers: store.selectedKind == .request ? .command : [.command, .shift]
+                )
                 Button(String(localized: "New Response Template")) {
                     store.addTemplate(kind: .response)
                 }
+                .keyboardShortcut(
+                    store.selectedKind == .response ? "n" : "n",
+                    modifiers: store.selectedKind == .response ? .command : [.command, .shift]
+                )
                 Button(String(localized: "Duplicate")) {
                     store.duplicateSelectedTemplate()
                 }
+                .keyboardShortcut("d", modifiers: .command)
                 .disabled(store.selectedTemplate == nil)
                 Button(String(localized: "Reset Raw Message")) {
                     store.resetSelectedTemplate()
@@ -114,6 +123,7 @@ struct BreakpointTemplateWindowView: View {
                 Button(String(localized: "Delete"), role: .destructive) {
                     store.removeSelectedTemplate()
                 }
+                .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(store.selectedTemplate == nil || store.templates.count <= 1)
             } label: {
                 HStack(spacing: 6) {
