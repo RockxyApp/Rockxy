@@ -144,6 +144,26 @@ struct RuleSyncServiceTests {
         }
     }
 
+    @Test("loadFromDisk does not overwrite persisted rules when decoding fails")
+    func loadFromDiskPreservesPersistedRulesOnDecodeFailure() async {
+        await withRuleTestLock { [self] in
+            let invalidData = Data(#"{"not":"a rule list"}"#.utf8)
+            try? FileManager.default.createDirectory(
+                at: Self.rulesPath.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? invalidData.write(to: Self.rulesPath, options: .atomic)
+            await RuleEngine.shared.replaceAll([])
+
+            await RuleSyncService.loadFromDisk()
+
+            let storedData = try? Data(contentsOf: Self.rulesPath)
+            let engineRules = await RuleEngine.shared.allRules
+            #expect(storedData == invalidData)
+            #expect(engineRules.isEmpty)
+        }
+    }
+
     @Test("setBreakpointToolEnabled persists UserDefaults and updates breakpoint matcher gate")
     func setBreakpointToolEnabledPersistsAndUpdatesGate() async {
         await withRuleTestLock { [self] in
@@ -190,15 +210,7 @@ struct RuleSyncServiceTests {
     private static let breakpointToolEnabledKey = "breakpointToolEnabled"
     private static let networkConditionsToolEnabledKey = "networkConditionsToolEnabled"
 
-    private static let rulesPath: URL = {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return appSupport
-            .appendingPathComponent(TestIdentity.appSupportDirectoryName, isDirectory: true)
-            .appendingPathComponent(TestIdentity.rulesPathComponent)
-    }()
+    private static let rulesPath = RockxyIdentity.current.appSupportPath(TestIdentity.rulesPathComponent)
 
     private func backupRules() async -> RulesBackup {
         let diskData = try? Data(contentsOf: Self.rulesPath)

@@ -9,19 +9,11 @@ struct ComposeRequestEditor: View {
     // MARK: Internal
 
     @Bindable var viewModel: ComposeViewModel
+    let onLoadFromFile: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                ForEach(ComposeRequestTab.allCases) { tab in
-                    Text(tab.title).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-
+            headerBar
             Divider()
 
             Group {
@@ -44,15 +36,78 @@ struct ComposeRequestEditor: View {
 
     @State private var selectedTab: ComposeRequestTab = .headers
 
+    private var headerBar: some View {
+        HStack(spacing: 14) {
+            Text(String(localized: "Request"))
+                .font(.headline)
+                .fontWeight(.semibold)
+
+            ForEach(ComposeRequestTab.primaryTabs) { tab in
+                Button {
+                    selectedTab = tab
+                } label: {
+                    Text(tab.title)
+                        .foregroundStyle(selectedTab == tab ? Color.accentColor : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Divider()
+                .frame(height: 18)
+
+            Button {
+                selectedTab = .raw
+            } label: {
+                Text(String(localized: "Raw"))
+                    .foregroundStyle(selectedTab == .raw ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            requestMenu
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 44)
+    }
+
+    private var requestMenu: some View {
+        Menu {
+            Button(String(localized: "Load from File...")) {
+                onLoadFromFile()
+                selectedTab = .body
+            }
+            Divider()
+            Button(String(localized: "JSON Prettier")) {
+                viewModel.prettifyJSONBody()
+                selectedTab = .body
+            }
+            Button(String(localized: "Prettify XML")) {
+                viewModel.prettifyXMLBody()
+                selectedTab = .body
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .imageScale(.large)
+        }
+        .menuStyle(.button)
+        .help(String(localized: "Request Body Options"))
+    }
+
     // MARK: - Headers Tab
 
     private var headersEditor: some View {
         ScrollView {
-            LazyVStack(spacing: 6) {
+            LazyVStack(spacing: 0) {
                 columnHeaders(name: "Name", value: "Value")
 
                 ForEach(viewModel.headers) { header in
                     HStack(spacing: 8) {
+                        Toggle("", isOn: headerEnabledBinding(for: header.id))
+                            .labelsHidden()
+                            .toggleStyle(.checkbox)
+                            .frame(width: 24)
+
                         TextField(
                             String(localized: "Header name"),
                             text: headerNameBinding(for: header.id)
@@ -71,6 +126,7 @@ struct ComposeRequestEditor: View {
                             viewModel.removeHeader(id: header.id)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
 
                 addButton(String(localized: "Add Header")) {
@@ -86,11 +142,13 @@ struct ComposeRequestEditor: View {
 
     private var queryEditor: some View {
         ScrollView {
-            LazyVStack(spacing: 6) {
+            LazyVStack(spacing: 0) {
                 columnHeaders(name: "Name", value: "Value")
 
                 ForEach(viewModel.queryItems) { item in
                     HStack(spacing: 8) {
+                        Color.clear.frame(width: 24)
+
                         TextField(
                             String(localized: "Parameter name"),
                             text: queryNameBinding(for: item.id)
@@ -109,6 +167,7 @@ struct ComposeRequestEditor: View {
                             viewModel.removeQueryItem(id: item.id)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
 
                 addButton(String(localized: "Add Parameter")) {
@@ -123,9 +182,21 @@ struct ComposeRequestEditor: View {
     // MARK: - Body Tab
 
     private var bodyEditor: some View {
-        TextEditor(text: $viewModel.body)
-            .font(.system(.body, design: .monospaced))
-            .padding(8)
+        VStack(spacing: 0) {
+            TextEditor(text: $viewModel.body)
+                .font(.system(.body, design: .monospaced))
+                .padding(8)
+
+            if let message = viewModel.lastFormattingError {
+                Divider()
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+            }
+        }
     }
 
     // MARK: - Raw Tab
@@ -144,6 +215,7 @@ struct ComposeRequestEditor: View {
 
     private func columnHeaders(name: String, value: String) -> some View {
         HStack {
+            Color.clear.frame(width: 24)
             Text(String(localized: String.LocalizationValue(name)))
                 .font(.caption)
                 .fontWeight(.semibold)
@@ -180,6 +252,17 @@ struct ComposeRequestEditor: View {
     }
 
     // MARK: - Bindings
+
+    private func headerEnabledBinding(for id: UUID) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.headers.first(where: { $0.id == id })?.isEnabled ?? true },
+            set: { newValue in
+                if let idx = viewModel.headers.firstIndex(where: { $0.id == id }) {
+                    viewModel.headers[idx].isEnabled = newValue
+                }
+            }
+        )
+    }
 
     private func headerNameBinding(for id: UUID) -> Binding<String> {
         Binding(
@@ -238,13 +321,15 @@ private enum ComposeRequestTab: String, CaseIterable, Identifiable {
 
     // MARK: Internal
 
+    static let primaryTabs: [ComposeRequestTab] = [.headers, .query, .body]
+
     var id: String {
         rawValue
     }
 
     var title: String {
         switch self {
-        case .headers: String(localized: "Headers")
+        case .headers: String(localized: "Header")
         case .query: String(localized: "Query")
         case .body: String(localized: "Body")
         case .raw: String(localized: "Raw")

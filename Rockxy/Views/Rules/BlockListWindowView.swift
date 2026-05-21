@@ -228,7 +228,9 @@ final class BlockListViewModel {
             name: displayName,
             matchCondition: RuleMatchCondition(
                 urlPattern: escapedPattern,
-                method: httpMethod.methodValue
+                method: httpMethod.methodValue,
+                matchType: matchType,
+                includeSubpaths: includeSubpaths
             ),
             action: .block(statusCode: blockAction.statusCode)
         )
@@ -457,13 +459,21 @@ struct BlockListWindowView: View {
             Button(String(localized: "Edit…")) {
                 openEditorForSelection()
             }
-            .keyboardShortcut(.return, modifiers: .command)
+            .keyboardShortcut("e", modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
 
             Button(String(localized: "Duplicate")) {
                 viewModel.duplicateSelected()
             }
             .keyboardShortcut("d", modifiers: .command)
+            .disabled(viewModel.selectedRuleID == nil)
+
+            Button(enableDisableLabel) {
+                if let id = viewModel.selectedRuleID {
+                    viewModel.toggleRule(id: id)
+                }
+            }
+            .keyboardShortcut(.return, modifiers: [])
             .disabled(viewModel.selectedRuleID == nil)
 
             Button(enableDisableLabel) {
@@ -515,13 +525,18 @@ struct BlockListWindowView: View {
         Button(String(localized: "Edit…")) {
             openEditorForRule(id)
         }
-        .keyboardShortcut(.return, modifiers: .command)
+        .keyboardShortcut("e", modifiers: .command)
 
         Button(String(localized: "Duplicate")) {
             viewModel.selectedRuleID = id
             viewModel.duplicateSelected()
         }
         .keyboardShortcut("d", modifiers: .command)
+
+        Button(enableDisableLabel(for: id)) {
+            viewModel.toggleRule(id: id)
+        }
+        .keyboardShortcut(.return, modifiers: [])
 
         Button(enableDisableLabel(for: id)) {
             viewModel.toggleRule(id: id)

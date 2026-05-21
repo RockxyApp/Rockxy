@@ -25,6 +25,7 @@ struct SearchFilterBar: View {
 
             TextField(String(localized: "Search..."), text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .focused($isSearchFocused)
 
             if !searchText.isEmpty {
                 Button {
@@ -40,5 +41,11 @@ struct SearchFilterBar: View {
         .padding(.vertical, 4)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
+        .onReceive(NotificationCenter.default.publisher(for: .focusMainSearchField)) { _ in
+            isEnabled = true
+            isSearchFocused = true
+        }
     }
+
+    @FocusState private var isSearchFocused: Bool
 }

@@ -119,8 +119,7 @@ extension MainContentCoordinator {
     }
 
     func editAndReplayTransaction(_ transaction: HTTPTransaction) {
-        ComposeStore.shared.pendingTransaction = transaction
-        ComposeStore.shared.draftVersion &+= 1
+        ComposeStore.shared.requestDraft(from: transaction)
         NotificationCenter.default.post(name: .openComposeWindow, object: nil)
     }
 

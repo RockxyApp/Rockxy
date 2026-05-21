@@ -214,10 +214,9 @@ struct ScriptEditorWindowView: View {
             Button {
                 viewModel.beautify()
             } label: {
-                Text("Beautify (⌘B)")
+                Text("Beautify")
             }
             .buttonStyle(.bordered)
-            .keyboardShortcut("b", modifiers: .command)
 
             Button {
                 // Snippet Code — deferred to v2. Insert a small header-mutation example for now.
@@ -228,6 +227,14 @@ struct ScriptEditorWindowView: View {
             .buttonStyle(.bordered)
 
             Spacer()
+
+            Button {
+                validateRule()
+            } label: {
+                Text("Validate")
+            }
+            .buttonStyle(.bordered)
+            .keyboardShortcut("r", modifiers: .command)
 
             Button {
                 Task { await viewModel.saveAndActivate() }
@@ -281,6 +288,7 @@ struct ScriptEditorWindowView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .keyboardShortcut("c", modifiers: [.command, .shift])
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
@@ -293,6 +301,7 @@ struct ScriptEditorWindowView: View {
         }
         Divider()
         Button("Toggle Console Log Panel") { viewModel.toggleConsolePanel() }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
         Divider()
         Button("Import JSON or Other File…") {} // deferred
         Divider()
@@ -332,5 +341,13 @@ struct ScriptEditorWindowView: View {
             Image(systemName: "chevron.down")
                 .font(.system(size: 9, weight: .semibold))
         }
+    }
+
+    private func validateRule() {
+        let sample = viewModel.sampleURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveSample = sample.isEmpty ? "https://api.example.com/path" : sample
+        viewModel.testRulePreview = viewModel.testRule(against: effectiveSample)
+            ? "Matches: \(effectiveSample)"
+            : "No match for: \(effectiveSample)"
     }
 }

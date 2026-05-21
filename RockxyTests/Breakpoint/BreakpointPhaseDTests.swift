@@ -8,11 +8,13 @@ struct BreakpointPhaseDTests {
     // BP_D1
     @Test("upstreamReceivesEditedRequest")
     func upstreamReceivesEditedRequest() async throws {
+        let upstream = try await BreakpointLocalHTTPServer.start()
+        defer { Task { await upstream.stop() } }
         let harness = try await BreakpointTestHarness.start()
-        await harness.addRule(.breakpointTest(matchingRule: "httpbin.org/headers", phases: .request))
+        await harness.addRule(.breakpointTest(matchingRule: await upstream.matchingRule("headers"), phases: .request))
         let session = try await harness.client()
         async let response = BreakpointTestHarness.dataWithRetry(
-            from: TestEndpoints.httpbinHTTP("headers"),
+            from: await upstream.url("headers"),
             session: session
         )
 
@@ -32,11 +34,13 @@ struct BreakpointPhaseDTests {
     // BP_D2
     @Test("captureRowReflectsEditedValues")
     func captureRowReflectsEditedValues() async throws {
+        let upstream = try await BreakpointLocalHTTPServer.start()
+        defer { Task { await upstream.stop() } }
         let harness = try await BreakpointTestHarness.start()
-        await harness.addRule(.breakpointTest(matchingRule: "httpbin.org/headers", phases: .request))
+        await harness.addRule(.breakpointTest(matchingRule: await upstream.matchingRule("headers"), phases: .request))
         let session = try await harness.client()
         async let response = BreakpointTestHarness.dataWithRetry(
-            from: TestEndpoints.httpbinHTTP("headers"),
+            from: await upstream.url("headers"),
             session: session
         )
         let item = try await harness.awaitNextPause(timeout: 8)
@@ -44,7 +48,7 @@ struct BreakpointPhaseDTests {
         await harness.resolve(item.id, decision: .execute)
         _ = try await response
         let capture = try #require(await harness.lastCapturedRow())
-        #expect(capture.request.url.absoluteString.contains("httpbin.org/headers"))
+        #expect(capture.request.url.absoluteString.contains(await upstream.matchingRule("headers")))
         await harness.stop()
     }
 

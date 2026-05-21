@@ -630,7 +630,7 @@ struct NetworkConditionsWindowView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .keyboardShortcut("-", modifiers: [])
+            .keyboardShortcut(.delete, modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
             .help(String(localized: "Delete Rule"))
         }
@@ -654,7 +654,7 @@ struct NetworkConditionsWindowView: View {
             Button(String(localized: "Edit…")) {
                 openEditorForSelection()
             }
-            .keyboardShortcut(.return, modifiers: .command)
+            .keyboardShortcut("e", modifiers: .command)
             .disabled(viewModel.selectedRule == nil)
 
             Button(String(localized: "Duplicate")) {
@@ -669,6 +669,13 @@ struct NetworkConditionsWindowView: View {
                 }
             }
             .keyboardShortcut(.return, modifiers: [])
+            .disabled(viewModel.selectedRule == nil)
+            Button(enableDisableLabel) {
+                if let id = viewModel.selectedRuleID {
+                    viewModel.toggleRule(id: id)
+                }
+            }
+            .keyboardShortcut(.space, modifiers: [])
             .disabled(viewModel.selectedRule == nil)
 
             Divider()

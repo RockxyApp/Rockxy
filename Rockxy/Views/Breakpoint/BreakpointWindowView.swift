@@ -49,11 +49,15 @@ struct BreakpointWindowView: View {
             actionBar
         }
         .frame(minWidth: 960, minHeight: 560)
+        .onExitCommand {
+            dismiss()
+        }
     }
 
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
     @AppStorage("breakpointQueueLayoutMode") private var layoutModeRaw = BreakpointQueueLayoutMode.horizontal.rawValue
 
     private let manager = BreakpointManager.shared
@@ -132,7 +136,6 @@ struct BreakpointWindowView: View {
             } label: {
                 Label(String(localized: "Continue"), systemImage: "play.fill")
             }
-            .keyboardShortcut(".", modifiers: .command)
             .disabled(!hasSelection)
 
             Button {
@@ -140,7 +143,7 @@ struct BreakpointWindowView: View {
             } label: {
                 Label(String(localized: "Abort"), systemImage: "xmark.octagon")
             }
-            .keyboardShortcut("\\", modifiers: .command)
+            .keyboardShortcut(".", modifiers: .command)
             .disabled(!hasSelection)
 
             Button {
@@ -157,7 +160,7 @@ struct BreakpointWindowView: View {
             } label: {
                 Label(String(localized: "Execute"), systemImage: "arrowshape.turn.up.right.fill")
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(!hasSelection)
         }
         .padding(.horizontal, 12)
@@ -170,7 +173,7 @@ struct BreakpointWindowView: View {
             Button(String(localized: "Execute")) {
                 resolveSelected(.execute)
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
             .disabled(!hasSelection)
 
             Button(String(localized: "Execute All")) {
@@ -184,7 +187,6 @@ struct BreakpointWindowView: View {
             Button(String(localized: "Continue")) {
                 resolveSelected(.cancel)
             }
-            .keyboardShortcut(".", modifiers: .command)
             .disabled(!hasSelection)
 
             Button(String(localized: "Continue All")) {
@@ -198,13 +200,27 @@ struct BreakpointWindowView: View {
             Button(String(localized: "Abort")) {
                 resolveSelected(.abort)
             }
-            .keyboardShortcut("\\", modifiers: .command)
+            .keyboardShortcut(".", modifiers: .command)
             .disabled(!hasSelection)
 
             Button(String(localized: "Abort All")) {
                 manager.resolveAll(decision: .abort)
             }
             .keyboardShortcut("\\", modifiers: [.command, .shift])
+            .disabled(!manager.hasPausedItems)
+
+            Divider()
+
+            Button(String(localized: "Previous Item")) {
+                manager.selectPreviousItem()
+            }
+            .keyboardShortcut("[", modifiers: .command)
+            .disabled(!manager.hasPausedItems)
+
+            Button(String(localized: "Next Item")) {
+                manager.selectNextItem()
+            }
+            .keyboardShortcut("]", modifiers: .command)
             .disabled(!manager.hasPausedItems)
 
             Divider()
@@ -223,7 +239,6 @@ struct BreakpointWindowView: View {
             Button(String(localized: "Add Rule")) {
                 openWindow(id: "breakpointRules")
             }
-            .keyboardShortcut("b", modifiers: .command)
         } label: {
             Label(String(localized: "More"), systemImage: "ellipsis.circle")
         }

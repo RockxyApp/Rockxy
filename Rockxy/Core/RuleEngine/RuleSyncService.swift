@@ -157,8 +157,13 @@ enum RuleSyncService {
             forKey: "networkConditionsToolEnabled"
         ) as? Bool ?? true
         await RuleEngine.shared.setNetworkConditionsToolEnabled(networkConditionsEnabled)
-        try? await RuleEngine.shared.loadRules(from: RuleStore())
-        await syncAll()
+        do {
+            try await RuleEngine.shared.loadRules(from: RuleStore())
+            await syncAll()
+        } catch {
+            logger.error("Failed to load rules from disk: \(error.localizedDescription)")
+            await publishAll()
+        }
     }
 
     // MARK: Private
@@ -169,10 +174,20 @@ enum RuleSyncService {
     private static func syncAll() async {
         let allRules = await RuleEngine.shared.allRules
         await persistenceQueue.save(allRules)
+        await publish(allRules)
+        logger.debug("Rules synced: \(allRules.count) rules")
+    }
+
+    private static func publishAll() async {
+        let allRules = await RuleEngine.shared.allRules
+        await publish(allRules)
+        logger.debug("Rules published without persistence: \(allRules.count) rules")
+    }
+
+    private static func publish(_ allRules: [ProxyRule]) async {
         await MainActor.run {
             NotificationCenter.default.post(name: .rulesDidChange, object: allRules)
         }
-        logger.debug("Rules synced: \(allRules.count) rules")
     }
 }
 

@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import NIOCore
+import NIOHTTP1
+import NIOPosix
 @testable import Rockxy
 import Testing
 
@@ -216,6 +219,145 @@ actor BreakpointTestHarness {
     }
 }
 
+// MARK: - BreakpointLocalHTTPServer
+
+actor BreakpointLocalHTTPServer {
+    static func start() async throws -> BreakpointLocalHTTPServer {
+        let server = BreakpointLocalHTTPServer()
+        try await server.start()
+        return server
+    }
+
+    func url(_ path: String) -> URL {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = host
+        components.port = port
+        components.path = "/\(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))"
+        guard let url = components.url else {
+            preconditionFailure("Breakpoint local test server produced an invalid URL.")
+        }
+        return url
+    }
+
+    func matchingRule(_ path: String) -> String {
+        "\(host):\(port)/\(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))"
+    }
+
+    func stop() async {
+        let channel = serverChannel
+        serverChannel = nil
+        if let channel {
+            try? await channel.close().get()
+        }
+        if let eventLoopGroup {
+            try? await eventLoopGroup.shutdownGracefully()
+        }
+        eventLoopGroup = nil
+        port = 0
+    }
+
+    private let host = "127.0.0.1"
+    private var port = 0
+    private var eventLoopGroup: MultiThreadedEventLoopGroup?
+    private var serverChannel: Channel?
+
+    private func start() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        eventLoopGroup = group
+
+        do {
+            let channel = try await ServerBootstrap(group: group)
+                .serverChannelOption(.backlog, value: 16)
+                .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+                .childChannelInitializer { channel in
+                    channel.pipeline.configureHTTPServerPipeline().flatMap {
+                        channel.pipeline.addHandler(BreakpointLocalHTTPHandler())
+                    }
+                }
+                .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
+                .bind(host: host, port: 0)
+                .get()
+
+            guard let boundPort = channel.localAddress?.port else {
+                try await channel.close().get()
+                throw BreakpointHarnessError.socket("Unable to inspect local test server port.")
+            }
+            serverChannel = channel
+            port = boundPort
+        } catch {
+            try? await group.shutdownGracefully()
+            eventLoopGroup = nil
+            throw error
+        }
+    }
+}
+
+private final class BreakpointLocalHTTPHandler: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        switch unwrapInboundIn(data) {
+        case let .head(head):
+            requestHead = head
+        case .body:
+            break
+        case .end:
+            respond(context: context)
+            requestHead = nil
+        }
+    }
+
+    private var requestHead: HTTPRequestHead?
+
+    private func respond(context: ChannelHandlerContext) {
+        let head = requestHead
+        let path = URLComponents(string: head?.uri ?? "/")?.path ?? "/"
+        let response = response(for: path, requestHeaders: head?.headers ?? HTTPHeaders())
+        var headers = response.headers
+        headers.add(name: "Content-Length", value: "\(response.body.readableBytes)")
+        headers.add(name: "Connection", value: "close")
+
+        let responseHead = HTTPResponseHead(version: .http1_1, status: response.status, headers: headers)
+        context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
+        context.write(wrapOutboundOut(.body(.byteBuffer(response.body))), promise: nil)
+        context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
+            context.close(promise: nil)
+        }
+    }
+
+    private func response(for path: String, requestHeaders: HTTPHeaders) -> (
+        status: HTTPResponseStatus,
+        headers: HTTPHeaders,
+        body: ByteBuffer
+    ) {
+        var buffer = ByteBufferAllocator().buffer(capacity: 256)
+        var headers = HTTPHeaders()
+
+        switch path {
+        case "/headers":
+            headers.add(name: "Content-Type", value: "application/json")
+            let echoedHeaders = Dictionary(requestHeaders.map { ($0.name, $0.value) }, uniquingKeysWith: { _, latest in latest })
+            let payload = (try? JSONSerialization.data(withJSONObject: ["headers": echoedHeaders])) ?? Data("{}".utf8)
+            buffer.writeBytes(payload)
+            return (.ok, headers, buffer)
+        case "/status/401":
+            headers.add(name: "Content-Type", value: "text/plain")
+            buffer.writeString("unauthorized")
+            return (.unauthorized, headers, buffer)
+        case "/delay/1", "/get":
+            headers.add(name: "Content-Type", value: "application/json")
+            buffer.writeString(#"{"ok":true}"#)
+            return (.ok, headers, buffer)
+        default:
+            headers.add(name: "Content-Type", value: "text/plain")
+            buffer.writeString("not found")
+            return (.notFound, headers, buffer)
+        }
+    }
+}
+
 private actor CaptureSink {
     private var transactions: [HTTPTransaction] = []
 
@@ -287,15 +429,7 @@ struct BreakpointRuleStateBackup {
 enum BreakpointRuleTestIsolation {
     private static let breakpointToolEnabledKey = "breakpointToolEnabled"
 
-    private static let rulesPath: URL = {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        )[0]
-        return appSupport
-            .appendingPathComponent(TestIdentity.appSupportDirectoryName, isDirectory: true)
-            .appendingPathComponent(TestIdentity.rulesPathComponent)
-    }()
+    private static let rulesPath = RockxyIdentity.current.appSupportPath(TestIdentity.rulesPathComponent)
 
     static func withSharedRuleState(_ body: () async throws -> Void) async rethrows {
         await RuleTestLock.shared.acquire()

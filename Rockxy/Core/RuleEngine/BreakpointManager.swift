@@ -121,12 +121,36 @@ final class BreakpointManager {
         transform(&pausedItems[index].editableDraft)
     }
 
+    func selectPreviousItem() {
+        selectAdjacentItem(offset: -1)
+    }
+
+    func selectNextItem() {
+        selectAdjacentItem(offset: 1)
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "BreakpointManager")
 
     private var continuations: [UUID: CheckedContinuation<(BreakpointDecision, BreakpointRequestData), Never>] = [:]
     private var nextSequenceNumber = 0
+
+    private func selectAdjacentItem(offset: Int) {
+        guard !pausedItems.isEmpty else {
+            selectedItemId = nil
+            return
+        }
+        guard let selectedItemId,
+              let index = pausedItems.firstIndex(where: { $0.id == selectedItemId }) else
+        {
+            selectedItemId = pausedItems.first?.id
+            return
+        }
+        let nextIndex = (index + offset + pausedItems.count) % pausedItems.count
+        self.selectedItemId = pausedItems[nextIndex].id
+        BreakpointWindowModel.shared.selectPausedItem(pausedItems[nextIndex].id)
+    }
 
     private static func displayURL(from urlString: String) -> String {
         guard let components = URLComponents(string: urlString) else {

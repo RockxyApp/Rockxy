@@ -335,6 +335,7 @@ struct ModifyHeaderWindowView: View {
                 Image(systemName: "plus")
             }
             .buttonStyle(.borderless)
+            .keyboardShortcut("n", modifiers: .command)
             .help(String(localized: "New Rule"))
 
             Button {
@@ -346,6 +347,7 @@ struct ModifyHeaderWindowView: View {
                 Image(systemName: "minus")
             }
             .buttonStyle(.borderless)
+            .keyboardShortcut(.delete, modifiers: .command)
             .disabled(viewModel.selectedRuleID == nil)
             .help(String(localized: "Delete Rule"))
 
@@ -370,7 +372,7 @@ struct ModifyHeaderWindowView: View {
         Button(String(localized: "Edit…")) {
             viewModel.presentEditorForSelection()
         }
-        .keyboardShortcut(.return, modifiers: .command)
+        .keyboardShortcut("e", modifiers: .command)
 
         Divider()
 

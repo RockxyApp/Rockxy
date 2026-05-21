@@ -34,6 +34,8 @@ extension Notification.Name {
     static let openBreakpointRulesWindow = identity.notificationName("openBreakpointRulesWindow")
     static let openScriptingListWindow = identity.notificationName("openScriptingListWindow")
     static let openScriptEditorWindow = identity.notificationName("openScriptEditorWindow")
+    static let focusMainSearchField = identity.notificationName("focusMainSearchField")
+    static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")
 }

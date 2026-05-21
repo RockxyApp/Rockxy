@@ -27,17 +27,19 @@ struct BreakpointPhaseGTests {
     // BP_G2
     @Test("nonMatchingRequestsFlowWhilePaused")
     func nonMatchingRequestsFlowWhilePaused() async throws {
+        let upstream = try await BreakpointLocalHTTPServer.start()
+        defer { Task { await upstream.stop() } }
         let harness = try await BreakpointTestHarness.start()
-        await harness.addRule(.breakpointTest(matchingRule: "httpbin.org/delay/1", phases: .request))
+        await harness.addRule(.breakpointTest(matchingRule: await upstream.matchingRule("delay/1"), phases: .request))
         let session = try await harness.client()
         async let paused = BreakpointTestHarness.dataWithRetry(
-            from: TestEndpoints.httpbinHTTP("delay/1"),
+            from: await upstream.url("delay/1"),
             session: session
         )
         let item = try await harness.awaitNextPause(timeout: 8)
 
         let (data, response) = try await BreakpointTestHarness.dataWithRetry(
-            from: TestEndpoints.httpbinHTTP("get"),
+            from: await upstream.url("get"),
             session: session
         )
         #expect((response as? HTTPURLResponse)?.statusCode == 200)
@@ -135,24 +137,19 @@ struct BreakpointPhaseGTests {
         _ = await task.value
     }
 
-    private func waitForQueueCount(_ count: Int, manager: BreakpointManager) async throws {
-        if manager.pausedItems.count >= count {
-            return
-        }
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { @MainActor in
-                for await _ in NotificationCenter.default.notifications(named: .breakpointHit) {
-                    if manager.pausedItems.count >= count {
-                        return
-                    }
-                }
+    private func waitForQueueCount(
+        _ count: Int,
+        manager: BreakpointManager,
+        timeout seconds: TimeInterval = 2
+    ) async throws {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if manager.pausedItems.count >= count {
+                return
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: 2_000_000_000)
-                throw BreakpointHarnessError.timeout("Timed out waiting for \(count) queued breakpoint items.")
-            }
-            try await group.next()
-            group.cancelAll()
+            try await Task.sleep(nanoseconds: 10_000_000)
+            await Task.yield()
         }
+        throw BreakpointHarnessError.timeout("Timed out waiting for \(count) queued breakpoint items.")
     }
 }

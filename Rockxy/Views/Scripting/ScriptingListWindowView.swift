@@ -224,7 +224,7 @@ struct ScriptingListWindowView: View {
                 Text("New Folder")
             }
             .buttonStyle(.bordered)
-            .keyboardShortcut("n", modifiers: [.command, .option])
+            .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Button {
                 // help button — opens docs in a future milestone; for now, no-op.
@@ -328,17 +328,24 @@ struct ScriptingListWindowView: View {
         }
         .keyboardShortcut("n", modifiers: .command)
         Button("New Folder") { viewModel.createNewFolder() }
-            .keyboardShortcut("n", modifiers: [.command, .option])
+            .keyboardShortcut("n", modifiers: [.command, .shift])
         Divider()
         Button("Edit") {
             viewModel.openEditorForSelection()
             openWindow(id: "scriptEditor")
         }
-        .keyboardShortcut(.return, modifiers: .command)
+        .keyboardShortcut("e", modifiers: .command)
         .disabled(!isScriptSelected)
         Button("Duplicate") { Task { await viewModel.duplicateSelection() } }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(!isScriptSelected)
+        Button("Enable Rule") {
+            if case let .script(id) = viewModel.selectedRowID {
+                Task { await viewModel.toggleScript(id: id) }
+            }
+        }
+        .keyboardShortcut(.return, modifiers: [])
+        .disabled(!isScriptSelected)
         Button("Enable Rule") {
             if case let .script(id) = viewModel.selectedRowID {
                 Task { await viewModel.toggleScript(id: id) }
@@ -438,7 +445,7 @@ struct ScriptingListWindowView: View {
                 viewModel.selectedRowID = previousSelection
             }
         }
-        .keyboardShortcut(.return, modifiers: .command)
+        .keyboardShortcut("e", modifiers: .command)
         .disabled({
             if case .script = row {
                 return false

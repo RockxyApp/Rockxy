@@ -71,10 +71,19 @@ struct ScriptCodeEditor: NSViewRepresentable {
     @Binding var text: String
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        guard let textView = scrollView.documentView as? NSTextView else {
-            return scrollView
-        }
+        let scrollView = NSScrollView()
+        let contentSize = scrollView.contentSize
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer(containerSize: NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = false
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = ScriptCodeTextView(frame: NSRect(origin: .zero, size: contentSize), textContainer: textContainer)
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -106,8 +115,10 @@ struct ScriptCodeEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         scrollView.drawsBackground = true
         scrollView.backgroundColor = .textBackgroundColor
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
+        scrollView.documentView = textView
 
         let ruler = ScriptCodeEditorRulerView(textView: textView)
         scrollView.verticalRulerView = ruler
@@ -132,6 +143,115 @@ struct ScriptCodeEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(text: $text)
+    }
+}
+
+// MARK: - ScriptCodeTextView
+
+final class ScriptCodeTextView: NSTextView {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard modifiers == .command,
+              let key = event.charactersIgnoringModifiers
+        else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch key {
+        case "/":
+            toggleLineComment()
+            return true
+        case "[":
+            outdentSelection()
+            return true
+        case "]":
+            indentSelection()
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    private func toggleLineComment() {
+        replaceSelectedLines { lines in
+            let codeLines = lines.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            let shouldUncomment = !codeLines.isEmpty && codeLines.allSatisfy {
+                $0.range(of: #"^[ \t]*//"#, options: .regularExpression) != nil
+            }
+
+            return lines.map { line in
+                guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
+                    return line
+                }
+                if shouldUncomment {
+                    return Self.uncommented(line)
+                }
+                return Self.commented(line)
+            }
+        }
+    }
+
+    private func indentSelection() {
+        replaceSelectedLines { lines in
+            lines.map { "  " + $0 }
+        }
+    }
+
+    private func outdentSelection() {
+        replaceSelectedLines { lines in
+            lines.map(Self.outdented)
+        }
+    }
+
+    private func replaceSelectedLines(_ transform: ([String]) -> [String]) {
+        let nsText = string as NSString
+        let selection = selectedRange()
+        let lineRange = nsText.lineRange(for: selection)
+        let original = nsText.substring(with: lineRange)
+        let hasTrailingNewline = original.hasSuffix("\n")
+        var lines = original.components(separatedBy: "\n")
+        if hasTrailingNewline {
+            lines.removeLast()
+        }
+
+        var replacement = transform(lines).joined(separator: "\n")
+        if hasTrailingNewline {
+            replacement += "\n"
+        }
+
+        guard shouldChangeText(in: lineRange, replacementString: replacement) else {
+            return
+        }
+        textStorage?.replaceCharacters(in: lineRange, with: replacement)
+        didChangeText()
+        setSelectedRange(NSRange(location: selection.location, length: 0))
+    }
+
+    private static func commented(_ line: String) -> String {
+        let prefix = line.prefix { $0 == " " || $0 == "\t" }
+        return String(prefix) + "// " + line.dropFirst(prefix.count)
+    }
+
+    private static func uncommented(_ line: String) -> String {
+        let prefix = line.prefix { $0 == " " || $0 == "\t" }
+        let remainder = line.dropFirst(prefix.count)
+        if remainder.hasPrefix("// ") {
+            return String(prefix) + remainder.dropFirst(3)
+        }
+        if remainder.hasPrefix("//") {
+            return String(prefix) + remainder.dropFirst(2)
+        }
+        return line
+    }
+
+    private static func outdented(_ line: String) -> String {
+        if line.hasPrefix("  ") {
+            return String(line.dropFirst(2))
+        }
+        if line.hasPrefix("\t") || line.hasPrefix(" ") {
+            return String(line.dropFirst())
+        }
+        return line
     }
 }
 

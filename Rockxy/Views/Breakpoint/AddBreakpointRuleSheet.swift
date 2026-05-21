@@ -139,7 +139,10 @@ struct AddBreakpointRuleSheet: View {
             return (true, true)
         }()
 
-        let (displayPattern, matchType, includeSubpaths) = decodePattern(rawPattern)
+        let fallbackPattern = decodePattern(rawPattern)
+        let matchType = rule.matchCondition.matchType ?? fallbackPattern.matchType
+        let includeSubpaths = rule.matchCondition.includeSubpaths ?? fallbackPattern.includeSubpaths
+        let displayPattern = rule.matchCondition.matchType == .regex ? rawPattern : fallbackPattern.displayPattern
 
         return Decoded(
             displayPattern: displayPattern,
@@ -272,7 +275,11 @@ struct AddBreakpointRuleSheet: View {
     /// To preserve round-trip fidelity we stage each wildcard substitution into
     /// Unicode private-use-area placeholders before collapsing escapes, then
     /// restore the original user-facing wildcard characters at the end.
-    private static func decodePattern(_ pattern: String) -> (String, RuleMatchType, Bool) {
+    private static func decodePattern(
+        _ pattern: String
+    )
+        -> (displayPattern: String, matchType: RuleMatchType, includeSubpaths: Bool)
+    {
         var working = pattern
         var includeSubpaths = true
 

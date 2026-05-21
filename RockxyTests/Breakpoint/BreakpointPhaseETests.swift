@@ -101,11 +101,13 @@ struct BreakpointPhaseETests {
     // BP_E6
     @Test("executeDeliversEditedResponseToClient")
     func executeDeliversEditedResponseToClient() async throws {
+        let upstream = try await BreakpointLocalHTTPServer.start()
+        defer { Task { await upstream.stop() } }
         let harness = try await BreakpointTestHarness.start()
-        await harness.addRule(.breakpointTest(matchingRule: "httpbin.org/status/401", phases: .response))
+        await harness.addRule(.breakpointTest(matchingRule: await upstream.matchingRule("status/401"), phases: .response))
         let session = try await harness.client()
         async let response = BreakpointTestHarness.dataWithRetry(
-            from: TestEndpoints.httpbinHTTP("status/401"),
+            from: await upstream.url("status/401"),
             session: session
         )
         let item = try await harness.awaitNextPause(timeout: 8)
