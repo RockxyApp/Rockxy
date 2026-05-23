@@ -49,7 +49,8 @@ struct UpstreamProxyStoreTests {
 
     @Test("setEnabled persists toggle state and posts notification")
     func setEnabledPersistsToggleState() throws {
-        let store = makeStore()
+        let defaults = makeDefaults()
+        let store = UpstreamProxyStore(userDefaults: defaults, credentialStorage: InMemoryCredentials())
         try store.saveConfiguration(UpstreamProxyConfiguration(
             isEnabled: false,
             type: .http,

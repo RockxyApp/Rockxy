@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import os
 import SwiftUI
 import UniformTypeIdentifiers
@@ -377,6 +378,46 @@ private enum ProjectLinks {
     }
 }
 
+// MARK: - ExternalProxyMenuState
+
+@MainActor
+private final class ExternalProxyMenuState: ObservableObject {
+    // MARK: Lifecycle
+
+    init(notificationCenter: NotificationCenter = .default) {
+        self.notificationCenter = notificationCenter
+        self.isEnabled = UpstreamProxyStore.shared.configuration.isEnabled
+        observer = notificationCenter.addObserver(
+            forName: .upstreamProxyConfigurationDidChange,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
+    }
+
+    deinit {
+        if let observer {
+            notificationCenter.removeObserver(observer)
+        }
+    }
+
+    // MARK: Internal
+
+    @Published private(set) var isEnabled: Bool
+
+    func refresh() {
+        isEnabled = UpstreamProxyStore.shared.configuration.isEnabled
+    }
+
+    // MARK: Private
+
+    private let notificationCenter: NotificationCenter
+    private var observer: NSObjectProtocol?
+}
+
 // MARK: - RockxyMenuCommands
 
 /// Defines Rockxy's full menu bar structure: File (session/export), Edit (copy as cURL),
@@ -408,7 +449,7 @@ struct RockxyMenuCommands: Commands {
     @ObservedObject private var updater = AppUpdater.shared
 
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
-    @State private var upstreamProxyStore = UpstreamProxyStore.shared
+    @StateObject private var externalProxyMenuState = ExternalProxyMenuState()
 
     private let certificateRouter = CertificateMenuActionRouter()
 
@@ -706,15 +747,11 @@ struct RockxyMenuCommands: Commands {
             .keyboardShortcut("b", modifiers: [.command, .option])
 
             Menu(String(localized: "Proxy Settings")) {
-                Button {
-                    setExternalProxyEnabled(!upstreamProxyStore.configuration.isEnabled)
-                } label: {
-                    Text(externalProxyMenuTitle)
-                }
-                .help(upstreamProxyStore.configuration.isEnabled
-                    ? String(localized: "External Proxy is on")
-                    : String(localized: "External Proxy is off"))
-                .keyboardShortcut("e", modifiers: [.command, .option])
+                Toggle(String(localized: "Use External Proxy"), isOn: externalProxyEnabledBinding)
+                    .help(externalProxyMenuState.isEnabled
+                        ? String(localized: "External Proxy is on")
+                        : String(localized: "External Proxy is off"))
+                    .keyboardShortcut("e", modifiers: [.command, .option])
 
                 Button(String(localized: "External Proxy Settings…")) {
                     openWindow(id: "externalProxySettings")
@@ -973,16 +1010,26 @@ struct RockxyMenuCommands: Commands {
         }
     }
 
-    private var externalProxyMenuTitle: String {
-        upstreamProxyStore.configuration.isEnabled
-            ? String(localized: "✓ Use External Proxy")
-            : String(localized: "Use External Proxy")
+    private var externalProxyEnabledBinding: Binding<Bool> {
+        Binding(
+            get: {
+                externalProxyMenuState.isEnabled
+            },
+            set: { isEnabled in
+                setExternalProxyEnabled(isEnabled)
+            }
+        )
     }
 
     private func setExternalProxyEnabled(_ isEnabled: Bool) {
         do {
-            try upstreamProxyStore.setEnabled(isEnabled)
+            try UpstreamProxyStore.shared.setEnabled(isEnabled)
+            externalProxyMenuState.refresh()
         } catch {
+            externalProxyMenuState.refresh()
+            if isEnabled {
+                openWindow(id: "externalProxySettings")
+            }
             Self.logger.error("Failed to toggle External Proxy: \(error.localizedDescription)")
         }
     }
