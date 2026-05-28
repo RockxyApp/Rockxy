@@ -6,6 +6,7 @@ struct InspectorURLBar: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         HStack(spacing: 8) {
@@ -75,7 +76,17 @@ struct InspectorURLBar: View {
         let urlString = transaction.request.url.absoluteString
         let host = transaction.request.host
 
-        return HStack(spacing: 0) {
+        if !highlightContext.isEmpty {
+            return AnyView(
+                HighlightedInspectorText(text: urlString, highlightContext: highlightContext)
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            )
+        }
+
+        return AnyView(HStack(spacing: 0) {
             if let hostRange = urlString.range(of: host), !host.isEmpty {
                 Text(urlString[urlString.startIndex ..< hostRange.lowerBound])
                     .font(.system(size: 11, design: .monospaced))
@@ -89,8 +100,8 @@ struct InspectorURLBar: View {
                     .font(.system(size: 11, design: .monospaced))
             }
         }
-        .lineLimit(1)
-        .truncationMode(.middle)
-        .textSelection(.enabled)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled))
     }
 }

@@ -50,6 +50,12 @@ struct FilterCriteria {
         if !statusCodes.isEmpty {
             count += 1
         }
+        if !contentTypes.isEmpty {
+            count += 1
+        }
+        if !domains.isEmpty {
+            count += 1
+        }
         if !activeProtocolFilters.isEmpty {
             count += 1
         }

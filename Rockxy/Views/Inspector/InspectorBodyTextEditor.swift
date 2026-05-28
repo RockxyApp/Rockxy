@@ -7,6 +7,7 @@ import SwiftUI
 struct InspectorBodyTextEditor: NSViewRepresentable {
     let text: String
     var fontSize: CGFloat = 12
+    var highlightContext: InspectorHighlightContext = .empty
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -27,6 +28,13 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
             let selectedRange = textView.selectedRange()
             apply(text, to: nsView, coordinator: context.coordinator)
             textView.setSelectedRange(clamped(range: selectedRange, length: (text as NSString).length))
+        } else if context.coordinator.lastHighlightIdentity != highlightContext.identity {
+            context.coordinator.scheduleHighlight(
+                text: text,
+                fontSize: fontSize,
+                highlightContext: highlightContext,
+                in: nsView
+            )
         }
     }
 
@@ -34,6 +42,7 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
 
     final class Coordinator {
         var highlightTask: Task<Void, Never>?
+        var lastHighlightIdentity = ""
         private var previewPopover: NSPopover?
 
         deinit {
@@ -52,13 +61,20 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         }
 
         @MainActor
-        func scheduleHighlight(text: String, fontSize: CGFloat, in scrollView: NSScrollView) {
+        func scheduleHighlight(
+            text: String,
+            fontSize: CGFloat,
+            highlightContext: InspectorHighlightContext,
+            in scrollView: NSScrollView
+        ) {
             highlightTask?.cancel()
+            lastHighlightIdentity = highlightContext.identity
 
             highlightTask = Task { [weak scrollView] in
                 let spans = await Task.detached(priority: .utility) {
                     Self.highlightSpans(for: text)
                 }.value
+                let matchRanges = highlightContext.matchRanges(in: text, limit: 500)
 
                 guard !Task.isCancelled,
                       let scrollView,
@@ -72,6 +88,10 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
                 let attributed = Self.baseAttributedString(text, fontSize: fontSize)
                 for span in spans where NSMaxRange(span.range) <= attributed.length {
                     attributed.addAttribute(.foregroundColor, value: span.role.color, range: span.range)
+                }
+                for range in matchRanges where NSMaxRange(range) <= attributed.length {
+                    attributed.addAttribute(.backgroundColor, value: Theme.Inspector.matchHighlightNS, range: range)
+                    attributed.addAttribute(.foregroundColor, value: Theme.Inspector.matchHighlightTextNS, range: range)
                 }
                 textView.textStorage?.setAttributedString(attributed)
                 textView.setSelectedRange(clamped(range: selectedRange, length: attributed.length))
@@ -224,7 +244,12 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         ]
 
         if let coordinator {
-            coordinator.scheduleHighlight(text: text, fontSize: fontSize, in: scrollView)
+            coordinator.scheduleHighlight(
+                text: text,
+                fontSize: fontSize,
+                highlightContext: highlightContext,
+                in: scrollView
+            )
         }
         (scrollView.verticalRulerView as? ScriptCodeEditorRulerView)?.invalidateLineNumbers()
     }
@@ -329,6 +354,7 @@ final class InspectorSelectableTextView: NSTextView {
 struct AsyncInspectorTextEditor: View {
     let renderID: String
     var fontSize: CGFloat = 12
+    var highlightContext: InspectorHighlightContext = .empty
     let render: @Sendable () -> InspectorTextRenderResult
 
     var body: some View {
@@ -351,7 +377,7 @@ struct AsyncInspectorTextEditor: View {
     private func loadedContent(_ result: InspectorTextRenderResult) -> some View {
         switch result {
         case let .text(text):
-            InspectorBodyTextEditor(text: text, fontSize: fontSize)
+            InspectorBodyTextEditor(text: text, fontSize: fontSize, highlightContext: highlightContext)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case let .unavailable(title, systemImage, description):
             InspectorEmptyStateView(title, systemImage: systemImage, description: description)

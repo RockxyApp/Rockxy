@@ -8,18 +8,21 @@ struct InspectorPanelView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let transaction = coordinator.selectedTransaction {
-                InspectorURLBar(transaction: transaction)
+                let highlightContext = coordinator.activeInspectorHighlightContext()
+                InspectorURLBar(transaction: transaction, highlightContext: highlightContext)
                 Divider()
                 HSplitView {
                     RequestInspectorView(
                         transaction: transaction,
-                        previewTabStore: coordinator.previewTabStore
+                        previewTabStore: coordinator.previewTabStore,
+                        highlightContext: highlightContext
                     )
                     .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     ResponseInspectorView(
                         transaction: transaction,
                         coordinator: coordinator,
-                        previewTabStore: coordinator.previewTabStore
+                        previewTabStore: coordinator.previewTabStore,
+                        highlightContext: highlightContext
                     )
                     .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }

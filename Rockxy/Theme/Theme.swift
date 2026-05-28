@@ -129,6 +129,11 @@ enum Theme {
         static let urlBarBackground = Color(nsColor: .controlBackgroundColor)
         static let tabActive = Color.primary
         static let tabInactive = Color.secondary
+        static let matchHighlight = Color(nsColor: matchHighlightNS)
+        static let matchHighlightText = Color(nsColor: matchHighlightTextNS)
+
+        static let matchHighlightNS = NSColor.systemYellow.withAlphaComponent(0.36)
+        static let matchHighlightTextNS = NSColor.labelColor
     }
 
     // MARK: - Plugin

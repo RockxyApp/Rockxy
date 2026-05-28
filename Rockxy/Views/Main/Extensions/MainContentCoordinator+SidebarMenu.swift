@@ -455,9 +455,15 @@ extension MainContentCoordinator {
         switch sidebarSelection {
         case let .domainNode(selectedDomain) where selectedDomain == domain && pathPrefix == nil:
             sidebarSelection = nil
+            filterCriteria.sidebarDomain = nil
+            filterCriteria.sidebarPathPrefix = nil
+            filterCriteria.sidebarScope = .allTraffic
         case let .domainPath(selectedDomain, selectedPath)
             where selectedDomain == domain && selectedPath == pathPrefix:
             sidebarSelection = nil
+            filterCriteria.sidebarDomain = nil
+            filterCriteria.sidebarPathPrefix = nil
+            filterCriteria.sidebarScope = .allTraffic
         default:
             break
         }
@@ -484,6 +490,8 @@ extension MainContentCoordinator {
         // Clear selection if it was this app
         if case .app(appName, _) = sidebarSelection {
             sidebarSelection = nil
+            filterCriteria.sidebarApp = nil
+            filterCriteria.sidebarScope = .allTraffic
         }
 
         recomputeFilteredTransactions()

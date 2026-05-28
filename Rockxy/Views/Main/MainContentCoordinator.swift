@@ -141,6 +141,7 @@ final class MainContentCoordinator {
     var workspaceStore: WorkspaceStore
     var previewTabStore = PreviewTabStore()
     var headerColumnStore = HeaderColumnStore()
+    var filterPresetStore = FilterPresetStore()
 
     // MARK: - UI State — Import/Export
 

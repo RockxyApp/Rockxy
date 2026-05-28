@@ -6,6 +6,7 @@ struct SetCookieInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         if let response = transaction.response {
@@ -38,10 +39,10 @@ struct SetCookieInspectorView: View {
 
     private func cookieRow(_ cookie: HTTPCookie) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(cookie.name)
+            HighlightedInspectorText(text: cookie.name, highlightContext: highlightContext)
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.bold)
-            Text(cookie.value)
+            HighlightedInspectorText(text: cookie.value, highlightContext: highlightContext)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
@@ -70,7 +71,7 @@ struct SetCookieInspectorView: View {
             Text(label + ":")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(value)
+            HighlightedInspectorText(text: value, highlightContext: highlightContext)
                 .font(.system(.caption2, design: .monospaced))
         }
     }

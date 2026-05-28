@@ -61,8 +61,8 @@ extension MainContentCoordinator {
     // MARK: - Filtered Transactions
 
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {
-        let hasActiveRules = isFilterBarVisible && filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
-        if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, !hasActiveRules,
+        let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
+        if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, activeRules.isEmpty,
            activeSortDescriptors.isEmpty
         {
             filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
@@ -85,8 +85,8 @@ extension MainContentCoordinator {
             transactions
         }
 
-        let hasActiveRules = isFilterBarVisible && filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
-        guard !filterCriteria.isEmpty || hasActiveRules else {
+        let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
+        guard !filterCriteria.isEmpty || !activeRules.isEmpty else {
             filteredTransactions = baseList.filter { !$0.isTLSFailure }
             deriveFilteredRows()
             return
@@ -127,6 +127,22 @@ extension MainContentCoordinator {
                     return false
                 }
             }
+            if !filterCriteria.contentTypes.isEmpty {
+                let requestType = transaction.request.contentType
+                let responseType = transaction.response?.contentType
+                guard requestType.map(filterCriteria.contentTypes.contains) == true
+                    || responseType.map(filterCriteria.contentTypes.contains) == true else
+                {
+                    return false
+                }
+            }
+            if !filterCriteria.domains.isEmpty {
+                guard filterCriteria.domains.contains(where: {
+                    DomainGrouping.host(transaction.request.host, matchesDomain: $0)
+                }) else {
+                    return false
+                }
+            }
             if !filterCriteria.activeProtocolFilters.isEmpty {
                 let contentFilters = filterCriteria.activeProtocolFilters.filter { !$0.isStatusFilter }
                 let statusFilters = filterCriteria.activeProtocolFilters.filter(\.isStatusFilter)
@@ -142,13 +158,8 @@ extension MainContentCoordinator {
                     }
                 }
             }
-            if hasActiveRules {
-                for rule in filterRules where rule.isEnabled && !rule.value.isEmpty {
-                    let fieldValue = fieldValue(for: rule.field, in: transaction)
-                    guard rule.filterOperator.matches(fieldValue, against: rule.value) else {
-                        return false
-                    }
-                }
+            if !activeRules.isEmpty, !FilterRuleEvaluator.matches(transaction, rules: activeRules) {
+                return false
             }
             return true
         }
@@ -156,29 +167,55 @@ extension MainContentCoordinator {
     }
 
     func fieldValue(for field: FilterField, in transaction: HTTPTransaction) -> String {
-        switch field {
-        case .url,
-             .contains: transaction.request.url.absoluteString
-        case .host: transaction.request.host
-        case .path: transaction.request.path
-        case .method: transaction.request.method
-        case .statusCode: transaction.response.map { String($0.statusCode) } ?? ""
-        case .requestHeader: transaction.request.headers.map { "\($0.name): \($0.value)" }.joined(separator: "\n")
-        case .responseHeader:
-            (transaction.response?.headers ?? []).map { "\($0.name): \($0.value)" }.joined(separator: "\n")
-        case .queryString: transaction.request.url.query ?? ""
-        case .comment: transaction.comment ?? ""
-        case .color: transaction.highlightColor?.rawValue ?? ""
+        FilterRuleEvaluator.fieldValue(for: field, in: transaction)
+    }
+
+    func activeInspectorHighlightContext() -> InspectorHighlightContext {
+        var literalTerms: [String] = []
+        var regexPatterns: [String] = []
+
+        func appendLiteral(_ value: String) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  !literalTerms.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) else
+            {
+                return
+            }
+            literalTerms.append(trimmed)
         }
+
+        if filterCriteria.isSearchEnabled {
+            appendLiteral(filterCriteria.searchText)
+        }
+
+        let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
+        for rule in activeRules where rule.filterOperator.contributesHighlight {
+            let trimmed = rule.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                continue
+            }
+            if rule.filterOperator == .regex {
+                regexPatterns.append(trimmed)
+            } else {
+                appendLiteral(trimmed)
+            }
+        }
+
+        return InspectorHighlightContext(
+            literalTerms: Array(literalTerms.prefix(20)),
+            regexPatterns: Array(regexPatterns.prefix(10))
+        )
     }
 
     // MARK: - Per-Workspace Filtering
 
     func appendFilteredTransactions(_ batch: [HTTPTransaction], to workspace: WorkspaceState) {
-        let hasActiveRules = workspace.isFilterBarVisible
-            && workspace.filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
+        let activeRules = FilterRuleEvaluator.activeRules(
+            in: workspace.filterRules,
+            isFilterBarVisible: workspace.isFilterBarVisible
+        )
         if workspace.filterCriteria.sidebarScope == .allTraffic,
-           workspace.filterCriteria.isEmpty, !hasActiveRules, workspace.activeSortDescriptors.isEmpty
+           workspace.filterCriteria.isEmpty, activeRules.isEmpty, workspace.activeSortDescriptors.isEmpty
         {
             workspace.filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
             workspace.lastDeriveWasAppendOnly = true
@@ -200,9 +237,11 @@ extension MainContentCoordinator {
             transactions
         }
 
-        let hasActiveRules = workspace.isFilterBarVisible
-            && workspace.filterRules.contains { $0.isEnabled && !$0.value.isEmpty }
-        guard !workspace.filterCriteria.isEmpty || hasActiveRules else {
+        let activeRules = FilterRuleEvaluator.activeRules(
+            in: workspace.filterRules,
+            isFilterBarVisible: workspace.isFilterBarVisible
+        )
+        guard !workspace.filterCriteria.isEmpty || !activeRules.isEmpty else {
             workspace.filteredTransactions = baseList.filter { !$0.isTLSFailure }
             deriveFilteredRows(for: workspace)
             return
@@ -243,6 +282,22 @@ extension MainContentCoordinator {
                     return false
                 }
             }
+            if !workspace.filterCriteria.contentTypes.isEmpty {
+                let requestType = transaction.request.contentType
+                let responseType = transaction.response?.contentType
+                guard requestType.map(workspace.filterCriteria.contentTypes.contains) == true
+                    || responseType.map(workspace.filterCriteria.contentTypes.contains) == true else
+                {
+                    return false
+                }
+            }
+            if !workspace.filterCriteria.domains.isEmpty {
+                guard workspace.filterCriteria.domains.contains(where: {
+                    DomainGrouping.host(transaction.request.host, matchesDomain: $0)
+                }) else {
+                    return false
+                }
+            }
             if !workspace.filterCriteria.activeProtocolFilters.isEmpty {
                 let contentFilters = workspace.filterCriteria.activeProtocolFilters.filter { !$0.isStatusFilter }
                 let statusFilters = workspace.filterCriteria.activeProtocolFilters.filter(\.isStatusFilter)
@@ -258,13 +313,8 @@ extension MainContentCoordinator {
                     }
                 }
             }
-            if hasActiveRules {
-                for rule in workspace.filterRules where rule.isEnabled && !rule.value.isEmpty {
-                    let fv = fieldValue(for: rule.field, in: transaction)
-                    guard rule.filterOperator.matches(fv, against: rule.value) else {
-                        return false
-                    }
-                }
+            if !activeRules.isEmpty, !FilterRuleEvaluator.matches(transaction, rules: activeRules) {
+                return false
             }
             return true
         }

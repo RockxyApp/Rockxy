@@ -6,6 +6,7 @@ struct CookiesInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         ScrollView {
@@ -47,28 +48,28 @@ struct CookiesInspectorView: View {
                 Text("Name")
                     .font(.system(.caption, design: .monospaced))
                     .fontWeight(.semibold)
-                Text(cookie.name)
+                HighlightedInspectorText(text: cookie.name, highlightContext: highlightContext)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Value")
                     .font(.system(.caption, design: .monospaced))
                     .fontWeight(.semibold)
-                Text(cookie.value)
+                HighlightedInspectorText(text: cookie.value, highlightContext: highlightContext)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Domain")
                     .font(.system(.caption, design: .monospaced))
                     .fontWeight(.semibold)
-                Text(cookie.domain)
+                HighlightedInspectorText(text: cookie.domain, highlightContext: highlightContext)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Path")
                     .font(.system(.caption, design: .monospaced))
                     .fontWeight(.semibold)
-                Text(cookie.path)
+                HighlightedInspectorText(text: cookie.path, highlightContext: highlightContext)
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
 

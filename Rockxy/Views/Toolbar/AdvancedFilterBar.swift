@@ -12,6 +12,7 @@ struct AdvancedFilterBar: View {
 
     @Binding var rules: [FilterRule]
 
+    var presetStore: FilterPresetStore
     var onSave: () -> Void = {}
 
     var body: some View {
@@ -44,17 +45,34 @@ struct AdvancedFilterBar: View {
     }
 
     private func filterRow(at index: Int, isFirst: Bool) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Toggle("", isOn: $rules[index].isEnabled)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .frame(width: Self.enableToggleWidth, alignment: .center)
+
+            if isFirst {
+                Text("Where")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: Self.connectorWidth, alignment: .leading)
+            } else {
+                Picker("", selection: $rules[index].connector) {
+                    ForEach(FilterLogicConnector.allCases, id: \.self) { connector in
+                        Text(connector.displayName).tag(connector)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+                .frame(width: Self.connectorWidth)
+            }
 
             Picker("", selection: $rules[index].field) {
-                ForEach(FilterField.allCases.filter { $0 != .contains }, id: \.self) { field in
+                ForEach(Self.advancedFields, id: \.self) { field in
                     Text(field.displayName).tag(field)
                 }
             }
-            .frame(width: 120)
+            .frame(width: 138)
 
             Picker("", selection: $rules[index].filterOperator) {
                 ForEach(FilterOperator.allCases, id: \.self) { op in
@@ -86,14 +104,13 @@ struct AdvancedFilterBar: View {
             .controlSize(.small)
 
             if isFirst {
-                Button(String(localized: "Save"), action: onSave)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                presetMenu
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, index == 0 ? 8 : 4)
         .padding(.bottom, 0)
+        .frame(minHeight: 30)
         .opacity(rules[index].isEnabled ? 1.0 : 0.5)
     }
 
@@ -107,5 +124,53 @@ struct AdvancedFilterBar: View {
             return
         }
         rules.remove(at: index)
+    }
+
+    private static let advancedFields: [FilterField] = [
+        .url, .method, .statusCode, .requestHeader, .responseHeader, .requestBody,
+        .responseBody, .clientApp, .domain, .contentType, .queryString, .cookies,
+        .comment, .color,
+    ]
+
+    private static let enableToggleWidth: CGFloat = 22
+    private static let connectorWidth: CGFloat = 76
+
+    private var presetMenu: some View {
+        Menu {
+            Button {
+                _ = presetStore.saveGeneratedPreset(rules: rules)
+                onSave()
+            } label: {
+                Label(String(localized: "Save Current Filter"), systemImage: "square.and.arrow.down")
+            }
+            .disabled(FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true).isEmpty)
+
+            if !presetStore.presets.isEmpty {
+                Divider()
+                ForEach(presetStore.presets) { preset in
+                    Button {
+                        rules = preset.rules.isEmpty ? [FilterRule()] : preset.rules
+                    } label: {
+                        Label(preset.name, systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                }
+
+                Divider()
+                Menu(String(localized: "Delete Preset")) {
+                    ForEach(presetStore.presets) { preset in
+                        Button(role: .destructive) {
+                            presetStore.deletePreset(id: preset.id)
+                        } label: {
+                            Text(preset.name)
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(String(localized: "Presets"), systemImage: "chevron.down")
+                .labelStyle(.titleAndIcon)
+        }
+        .menuStyle(.borderlessButton)
+        .controlSize(.small)
     }
 }

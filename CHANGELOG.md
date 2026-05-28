@@ -8,12 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Added a compact advanced filter builder with expanded request/response fields, AND/OR row connectors, saved presets, and inspector match highlighting for security/debugging workflows.
 - Added Upstream Proxy core support for routing outbound traffic through HTTP/HTTPS proxies, with Community caps for SOCKS5, authentication, and bypass-list size enforced by app policy.
 - Added WebSocket Protobuf heuristic decoding infrastructure for inspecting binary frame payloads without requiring schema uploads.
 - Added Tools menu windows for External Proxy Settings, SOCKS Proxy Settings, Protobuf mapping rules, and Protobuf schema list management.
 - Added an on-demand Protobuf view to the WebSocket frame inspector for heuristic field-tree rendering.
 
 ### Fixed
+
+- Improved sidebar grouping cleanup when selected domain/app groups disappear, keeping active filters and sidebar state aligned.
 
 ### Changed
 

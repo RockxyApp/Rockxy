@@ -3,6 +3,7 @@ import SwiftUI
 /// Parses and displays URL query parameters from the request URL in a name/value grid.
 struct QueryInspectorView: View {
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         let components = URLComponents(url: transaction.request.url, resolvingAgainstBaseURL: false)
@@ -30,10 +31,10 @@ struct QueryInspectorView: View {
                             .foregroundStyle(.secondary)
 
                         ForEach(Array(queryItems.enumerated()), id: \.offset) { _, item in
-                            Text(item.name)
+                            HighlightedInspectorText(text: item.name, highlightContext: highlightContext)
                                 .font(.system(.caption, design: .monospaced))
                                 .fontWeight(.semibold)
-                            Text(item.value ?? "")
+                            HighlightedInspectorText(text: item.value ?? "", highlightContext: highlightContext)
                                 .font(.system(.caption, design: .monospaced))
                                 .textSelection(.enabled)
                         }

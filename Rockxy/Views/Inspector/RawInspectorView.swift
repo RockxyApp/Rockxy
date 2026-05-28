@@ -6,12 +6,14 @@ struct RawInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
         AsyncInspectorTextEditor(
             renderID: "\(snapshot.id.uuidString)-full-raw-\(snapshot.response?.body?.count ?? 0)",
-            fontSize: 12
+            fontSize: 12,
+            highlightContext: highlightContext
         ) {
             var text = InspectorPayloadFormatter.rawRequest(snapshot.request)
             if let rawResponse = InspectorPayloadFormatter.rawResponse(snapshot.response) {

@@ -233,6 +233,30 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions[0].id == match.id)
     }
 
+    @Test("Filter rules support OR connectors")
+    func filterRulesORCombined() {
+        let coordinator = MainContentCoordinator()
+        let getUsers = TestFixtures.makeTransaction(method: "GET", url: "https://api.example.com/users")
+        let postOrders = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/orders")
+        let deleteOther = TestFixtures.makeTransaction(method: "DELETE", url: "https://api.example.com/admin")
+        coordinator.transactions = [getUsers, postOrders, deleteOther]
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .method, filterOperator: .is, value: "GET"),
+            FilterRule(
+                isEnabled: true,
+                connector: .or,
+                field: .method,
+                filterOperator: .is,
+                value: "POST"
+            ),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [getUsers.id, postOrders.id])
+    }
+
     @Test("Disabled rules are ignored")
     func disabledRulesIgnored() {
         let coordinator = makeCoordinator()
@@ -242,6 +266,87 @@ struct FilteringTests {
         ]
         coordinator.recomputeFilteredTransactions()
         #expect(coordinator.filteredTransactions.count == coordinator.transactions.count)
+    }
+
+    @Test("Request body filter matches decoded text")
+    func requestBodyRule() {
+        let coordinator = MainContentCoordinator()
+        let match = TestFixtures.makeTransaction(method: "POST")
+        match.request.body = Data("{\"token\":\"needle\"}".utf8)
+        let noMatch = TestFixtures.makeTransaction(method: "POST")
+        noMatch.request.body = Data("{\"token\":\"other\"}".utf8)
+        coordinator.transactions = [match, noMatch]
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .requestBody, filterOperator: .contains, value: "needle"),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [match.id])
+    }
+
+    @Test("Response body filter matches decoded text")
+    func responseBodyRule() {
+        let coordinator = MainContentCoordinator()
+        let match = TestFixtures.makeTransaction(statusCode: 200)
+        match.response = TestFixtures.makeResponse(body: Data("unsafe-inline".utf8))
+        let noMatch = TestFixtures.makeTransaction(statusCode: 200)
+        noMatch.response = TestFixtures.makeResponse(body: Data("safe".utf8))
+        coordinator.transactions = [match, noMatch]
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .responseBody, filterOperator: .contains, value: "unsafe-inline"),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [match.id])
+    }
+
+    @Test("No-result state keeps filtered rows empty")
+    func noResultStateForUnmatchedFilter() {
+        let coordinator = MainContentCoordinator()
+        coordinator.transactions = [
+            TestFixtures.makeTransaction(url: "https://api.example.com/users"),
+            TestFixtures.makeTransaction(url: "https://api.example.com/orders"),
+        ]
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .url, filterOperator: .contains, value: "missing-value"),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.isEmpty)
+        #expect(coordinator.filteredRows.isEmpty)
+    }
+
+    @Test("Client app, domain, content type, and cookie fields match")
+    func expandedDebugFields() {
+        let coordinator = MainContentCoordinator()
+        let match = TestFixtures.makeTransaction(url: "https://api.example.com/users")
+        match.clientApp = "Google Chrome"
+        match.request.contentType = .json
+        match.request.headers = [
+            HTTPHeader(name: "Content-Type", value: "application/json"),
+            HTTPHeader(name: "Cookie", value: "session=abc123"),
+        ]
+        let noMatch = TestFixtures.makeTransaction(url: "https://other.test/users")
+        noMatch.clientApp = "Safari"
+        noMatch.request.contentType = .text
+        coordinator.transactions = [match, noMatch]
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .clientApp, filterOperator: .contains, value: "Chrome"),
+            FilterRule(isEnabled: true, field: .domain, filterOperator: .contains, value: "example.com"),
+            FilterRule(isEnabled: true, field: .contentType, filterOperator: .contains, value: "json"),
+            FilterRule(isEnabled: true, field: .cookies, filterOperator: .contains, value: "abc123"),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [match.id])
     }
 
     @Test("Rules only apply when filter bar is visible")
@@ -272,6 +377,18 @@ struct FilteringTests {
         let value = coordinator.fieldValue(for: .requestHeader, in: transaction)
         #expect(value.contains("Content-Type"))
         #expect(value.contains("application/json"))
+    }
+
+    @Test("fieldValue for responseHeader returns joined headers")
+    func fieldValueResponseHeader() {
+        let coordinator = MainContentCoordinator()
+        let transaction = TestFixtures.makeTransaction()
+        transaction.response = TestFixtures.makeResponse(headers: [
+            HTTPHeader(name: "Content-Security-Policy", value: "script-src 'unsafe-inline'"),
+        ])
+        let value = coordinator.fieldValue(for: .responseHeader, in: transaction)
+        #expect(value.contains("Content-Security-Policy"))
+        #expect(value.contains("unsafe-inline"))
     }
 
     @Test("fieldValue for queryString returns query")
@@ -362,6 +479,24 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions.allSatisfy {
             $0.request.url.absoluteString.contains("users")
         })
+    }
+
+    @Test("Large traffic sessions keep filtered counts correct")
+    func largeTrafficSessionFiltering() {
+        let coordinator = MainContentCoordinator()
+        coordinator.transactions = (0 ..< 5_000).map { index in
+            let method = index.isMultiple(of: 2) ? "GET" : "POST"
+            return TestFixtures.makeTransaction(method: method, url: "https://api.example.com/items/\(index)")
+        }
+        coordinator.isFilterBarVisible = true
+        coordinator.filterRules = [
+            FilterRule(isEnabled: true, field: .method, filterOperator: .is, value: "POST"),
+        ]
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.count == 2_500)
+        #expect(coordinator.filteredRows.count == 2_500)
     }
 
     // MARK: - Sidebar Scope

@@ -4,12 +4,14 @@ import SwiftUI
 /// the byte count for binary payloads that cannot be decoded as text.
 struct BodyInspectorView: View {
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         if let body = transaction.response?.body {
             AsyncInspectorTextEditor(
                 renderID: "\(transaction.id.uuidString)-legacy-body-\(body.count)",
-                fontSize: 12
+                fontSize: 12,
+                highlightContext: highlightContext
             ) {
                 InspectorPayloadFormatter.requestBodyText(body)
             }

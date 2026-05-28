@@ -6,6 +6,7 @@ struct AuthInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         if let authHeader = findAuthHeader() {
@@ -54,7 +55,7 @@ struct AuthInspectorView: View {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(value)
+            HighlightedInspectorText(text: value, highlightContext: highlightContext)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
         }

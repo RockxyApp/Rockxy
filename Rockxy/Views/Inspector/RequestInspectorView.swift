@@ -8,6 +8,7 @@ struct RequestInspectorView: View {
 
     let transaction: HTTPTransaction
     var previewTabStore: PreviewTabStore
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         VStack(spacing: 0) {
@@ -106,11 +107,11 @@ struct RequestInspectorView: View {
         case .headers:
             requestHeadersView
         case .query:
-            QueryInspectorView(transaction: transaction)
+            QueryInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .body:
             requestBodyView
         case .cookies:
-            CookiesInspectorView(transaction: transaction)
+            CookiesInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .raw:
             requestRawView
         case .synopsis:
@@ -128,7 +129,7 @@ struct RequestInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(headers: transaction.request.headers)
+                HeaderKeyValueTable(headers: transaction.request.headers, highlightContext: highlightContext)
                     .padding()
             }
         }
@@ -138,7 +139,8 @@ struct RequestInspectorView: View {
         if let body = transaction.request.body {
             AsyncInspectorTextEditor(
                 renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
-                fontSize: 12
+                fontSize: 12,
+                highlightContext: highlightContext
             ) {
                 InspectorPayloadFormatter.requestBodyText(body)
             }
@@ -155,7 +157,8 @@ struct RequestInspectorView: View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
         return AsyncInspectorTextEditor(
             renderID: "\(snapshot.id.uuidString)-request-raw-\(snapshot.request.body?.count ?? 0)",
-            fontSize: 12
+            fontSize: 12,
+            highlightContext: highlightContext
         ) {
             .text(InspectorPayloadFormatter.rawRequest(snapshot.request))
         }

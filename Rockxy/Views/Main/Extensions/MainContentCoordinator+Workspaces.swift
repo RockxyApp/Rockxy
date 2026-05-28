@@ -100,7 +100,53 @@ extension MainContentCoordinator {
             updateAppNodes(for: transaction, in: workspace)
         }
         refreshDomainTree(for: workspace)
+        pruneSidebarSelectionIfNeeded(in: workspace)
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+    }
+
+    func pruneSidebarSelectionIfNeeded(in workspace: WorkspaceState) {
+        guard let selection = workspace.sidebarSelection else {
+            return
+        }
+
+        let isValid: Bool = switch selection {
+        case let .domainNode(domain):
+            workspace.domainTree.contains { $0.selectionDomain == domain }
+        case let .domainPath(domain, pathPrefix):
+            workspace.domainTree.contains { nodeContainsPath($0, domain: domain, pathPrefix: pathPrefix) }
+        case let .app(name, _):
+            workspace.appNodeIndexMap[name] != nil
+        case let .pinnedTransaction(id):
+            allPinnedTransactions.contains { $0.id == id }
+        case let .savedTransaction(id):
+            allSavedTransactions.contains { $0.id == id }
+        case .allApps,
+             .allDomains,
+             .allPinned,
+             .allSaved:
+            true
+        case .filter,
+             .ruleGroup,
+             .savedSession,
+             .logStream:
+            true
+        }
+
+        guard !isValid else {
+            return
+        }
+        workspace.sidebarSelection = nil
+        workspace.filterCriteria.sidebarDomain = nil
+        workspace.filterCriteria.sidebarPathPrefix = nil
+        workspace.filterCriteria.sidebarApp = nil
+        workspace.filterCriteria.sidebarScope = .allTraffic
+    }
+
+    private func nodeContainsPath(_ node: DomainNode, domain: String, pathPrefix: String) -> Bool {
+        if node.selectionDomain == domain, node.pathPrefix == pathPrefix {
+            return true
+        }
+        return node.children.contains { nodeContainsPath($0, domain: domain, pathPrefix: pathPrefix) }
     }
 
     // MARK: - Eviction Across Workspaces

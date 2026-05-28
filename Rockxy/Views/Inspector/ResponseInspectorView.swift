@@ -16,6 +16,7 @@ struct ResponseInspectorView: View {
     let transaction: HTTPTransaction
     let coordinator: MainContentCoordinator
     var previewTabStore: PreviewTabStore
+    var highlightContext: InspectorHighlightContext = .empty
 
     var body: some View {
         VStack(spacing: 0) {
@@ -324,9 +325,9 @@ struct ResponseInspectorView: View {
             case .body:
                 responseBodyView(response: response)
             case .setCookie:
-                SetCookieInspectorView(transaction: transaction)
+                SetCookieInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .auth:
-                AuthInspectorView(transaction: transaction)
+                AuthInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .timeline:
                 TimingInspectorView(transaction: transaction)
             }
@@ -348,7 +349,7 @@ struct ResponseInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(headers: response.headers)
+                HeaderKeyValueTable(headers: response.headers, highlightContext: highlightContext)
                     .padding()
             }
         }
@@ -394,7 +395,8 @@ struct ResponseInspectorView: View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
         AsyncInspectorTextEditor(
             renderID: "\(snapshot.id.uuidString)-response-raw-\(snapshot.response?.body?.count ?? 0)",
-            fontSize: bodyFontSize
+            fontSize: bodyFontSize,
+            highlightContext: highlightContext
         ) {
             if let text = InspectorPayloadFormatter.rawResponse(snapshot.response) {
                 return .text(text)
@@ -412,7 +414,8 @@ struct ResponseInspectorView: View {
         let sortedKeys = sortJSONKeys
         AsyncInspectorTextEditor(
             renderID: "\(transaction.id.uuidString)-response-json-\(sortedKeys)-\(body.count)",
-            fontSize: bodyFontSize
+            fontSize: bodyFontSize,
+            highlightContext: highlightContext
         ) {
             if let text = InspectorPayloadFormatter.responseDisplayText(body: body, sortedKeys: sortedKeys) {
                 return .text(text)

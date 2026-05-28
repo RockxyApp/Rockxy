@@ -452,6 +452,22 @@ struct RequestTableRefreshTests {
         #expect(coordinator.domainTree.first?.domain == "other.com")
     }
 
+    @Test("Deleting selected sidebar domain clears stale sidebar filter")
+    func deleteSelectedSidebarDomainClearsFilter() {
+        let coordinator = MainContentCoordinator()
+        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/test")
+        coordinator.transactions = [transaction]
+        coordinator.rebuildSidebarIndexes()
+        coordinator.selectSidebarItem(.domainNode(domain: "example.com"))
+
+        coordinator.removeDomainFromSidebar("example.com")
+
+        #expect(coordinator.sidebarSelection == nil)
+        #expect(coordinator.filterCriteria.sidebarDomain == nil)
+        #expect(coordinator.filterCriteria.sidebarPathPrefix == nil)
+        #expect(coordinator.filterCriteria.sidebarScope == .allTraffic)
+    }
+
     @Test("Delete updates sidebar app state")
     func deleteUpdatessSidebarApp() {
         let coordinator = MainContentCoordinator()
@@ -471,6 +487,22 @@ struct RequestTableRefreshTests {
         // Sidebar rebuilt after delete — only Chrome remains
         #expect(coordinator.appNodes.count == 1)
         #expect(coordinator.appNodes.first?.name == "Chrome")
+    }
+
+    @Test("Deleting selected sidebar app clears stale app filter")
+    func deleteSelectedSidebarAppClearsFilter() {
+        let coordinator = MainContentCoordinator()
+        let transaction = TestFixtures.makeTransaction()
+        transaction.clientApp = "Chrome"
+        coordinator.transactions = [transaction]
+        coordinator.rebuildSidebarIndexes()
+        coordinator.selectSidebarItem(.app(name: "Chrome", bundleId: nil))
+
+        coordinator.removeAppFromSidebar("Chrome")
+
+        #expect(coordinator.sidebarSelection == nil)
+        #expect(coordinator.filterCriteria.sidebarApp == nil)
+        #expect(coordinator.filterCriteria.sidebarScope == .allTraffic)
     }
 
     @Test("selectedTransactionIDs is pruned after delete")

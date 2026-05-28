@@ -2,7 +2,7 @@ import Foundation
 
 /// String comparison operators used by `FilterRule` in the advanced filter builder.
 /// All comparisons are case-insensitive.
-enum FilterOperator: String, CaseIterable {
+enum FilterOperator: String, CaseIterable, Codable, Hashable {
     case contains
     case `is`
     case startsWith
@@ -26,6 +26,9 @@ enum FilterOperator: String, CaseIterable {
     }
 
     func matches(_ fieldValue: String, against text: String) -> Bool {
+        guard !text.isEmpty else {
+            return true
+        }
         let lowerField = fieldValue.lowercased()
         let lowerText = text.lowercased()
         switch self {
@@ -41,6 +44,20 @@ enum FilterOperator: String, CaseIterable {
             }
             let range = NSRange(fieldValue.startIndex..., in: fieldValue)
             return pattern.firstMatch(in: fieldValue, range: range) != nil
+        }
+    }
+
+    var contributesHighlight: Bool {
+        switch self {
+        case .doesNotContain,
+             .notEqual:
+            false
+        case .contains,
+             .is,
+             .startsWith,
+             .endsWith,
+             .regex:
+            true
         }
     }
 }
