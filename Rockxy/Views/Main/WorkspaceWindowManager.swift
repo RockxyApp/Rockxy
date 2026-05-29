@@ -822,7 +822,9 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     }
 
     private func drawTabBackground(in frame: NSRect, isActive: Bool, isHovered: Bool) {
-        let rect = frame.insetBy(dx: 0.5, dy: 0)
+        let leadingOverlap: CGFloat = frame.minX <= WorkspaceTabBarMetrics.leftInset + 0.5 ? 8 : 0
+        let rect = NSRect(x: frame.minX - leadingOverlap, y: frame.minY, width: frame.width + leadingOverlap, height: frame.height)
+            .insetBy(dx: 0.5, dy: 0)
         let path = NSBezierPath(roundedRect: rect, xRadius: 14, yRadius: 14)
         if isActive {
             NSGraphicsContext.saveGraphicsState()
