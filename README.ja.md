@@ -75,24 +75,175 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## 機能
 
-**トラフィックキャプチャ** — SwiftNIO ベースのプロキシ。CONNECT トンネル対応、ホストごとの TLS 証明書自動生成、WebSocket フレームキャプチャ、GraphQL オペレーション自動検出。
+ブラウザの DevTools では足りないときに手を伸ばす道具たち。Mac と iOS の作業向けのコアな通信デバッグ — macOS ネイティブ、公開リリース、ローカルファーストのワークフロー。
 
-**あらゆるものを検査** — JSON ツリービュー、16 進インスペクタ、タイミングウォーターフォール（DNS/TCP/TLS/TTFB/Transfer）、ヘッダー、Cookie、クエリパラメータ、認証情報 — すべてタブ式インスペクタに集約。
+### トラフィックキャプチャ
 
-**モックと変更** — Map Local（ローカルファイルからレスポンス提供）、Map Remote（別サーバーへリダイレクト）、Breakpoints（途中で一時停止して編集）、Block、Throttle、Modify Headers、Allow List、Bypass Proxy。
+<img src="docs/images/features/TrafficCapture.png" alt="Rockxy capturing HTTP, HTTPS, WebSocket, and GraphQL traffic with a timing waterfall" width="820" />
 
-**ログ相関** — macOS システムログ（OSLog）をキャプチャし、タイムスタンプでネットワークリクエストと相関。各リクエストを発行したアプリを確認。
+あらゆる Mac アプリ、CLI、iOS デバイスからの HTTP、HTTPS、WebSocket、GraphQL トラフィックを検査します。ブラウザの DevTools はブラウザで終わりですが、Rockxy はスタックの残りも見えます。
 
-**プラグインで拡張** — サンドボックス化された JavaScriptCore ランタイムでの JavaScript スクリプティング。カスタムフックでトラフィックを検査、変更、自動化。
+`HTTP / HTTPS` · `WebSocket` · `GraphQL` · `iOS Device & Simulator` · `Filter by Process ID` · `Timing Waterfall`
 
-**大規模対応** — NSTableView の仮想スクロールで 100k+ リクエストに対応。リングバッファ淘汰、ディスクへの Body オフロード、バッチ UI 更新。遅延なし。
+### 高度なフィルタと検索
 
-**Developer Setup Hub** — ランタイム、ブラウザ、デバイス、フレームワーク、環境ごとのセットアップを、コピー可能なスニペット、検証プローブ、トラブルシュートノート付きで案内します。
+<img src="docs/images/features/DemoAdvancedFilterSearch.png" alt="Rockxy advanced filtering with multi-field filters and full-text search across a session" width="820" />
 
-**Local MCP Bridge** — 内蔵の Model Context Protocol サーバーにより、ローカル MCP クライアントからライブトラフィック、ルール、プロキシ状態をクエリできます。ローカル専用、トークン認証、機密データはデフォルトでマスキング。
+数千件のキャプチャ要求を数秒で絞り込みます。method、host、status、header、body、プロセスのフィルタを組み合わせるか、セッション全体に対して全文検索を実行します。
+
+`Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
+
+### AI アシスタント向け MCP サーバー
+
+<img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
+
+Claude Desktop や Cursor にローカル MCP サーバー経由でキャプチャしたトラフィックを読み込ませます。ヘッダーをチャットに貼る代わりに「なぜこれが 500 になった?」と直接聞けます。無料の MCP サーバー — 有料 AI アドオンや上位プランの押し売りはなく、利用上限もありません。
+
+`Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
+
+### Developer Setup Hub
+
+<img src="docs/images/features/DemoDevHub.png" alt="Rockxy Developer Setup Hub with copy-paste proxy snippets and one-click verify" width="820" />
+
+Python、Node.js、Go、Rust、cURL、Docker、ブラウザ向けのプロキシ用スニペットをコピペし、Run Test をクリックして実際にトラフィックが流れていることを確認します。
+
+`Python` · `Node.js` · `Go / Rust / Java` · `cURL / Docker` · `One-Click Verify` · `Trust Diagnostics`
+
+### HTTPS デバッグ用の証明書管理
+
+<img src="docs/images/features/CertManagement.png" alt="Rockxy certificate management with a P-256 ECDSA root CA sealed in the Keychain" width="820" />
+
+初回起動時に生成される P-256 ECDSA ルート CA を Keychain に封印します。HTTPS を一発で復号化し、ピン留めされたホストは自動的にバイパスされます。
+
+`P-256 ECDSA Root CA` · `Keychain-Sealed Key` · `Per-Host Leaf Certs` · `Trust Wizard` · `Pinned-Host Passthrough` · `Rotate / Reset`
+
+### SSL プロキシと HTTPS 復号化
+
+<img src="docs/images/features/DemoSSLProxy.png" alt="Rockxy SSL proxy settings showing per-host TLS decryption rules with wildcard patterns and allow list" width="820" />
+
+どのホストを TLS 復号化するかを選びます。復号化されたトラフィックは生の header と JSON を表示し、それ以外は暗号化されたまま通過します。ワイルドカードルールでワンクリックでドメイン単位にスコープできます。
+
+`Per-Host Decryption` · `Wildcard Rules` · `Allow / Deny List` · `TLS 1.2 / 1.3` · `Pinned Host Passthrough`
+
+### Bypass Proxy
+
+<img src="docs/images/features/DemoByPassProxy.png" alt="Rockxy bypass proxy list skipping cert-pinned apps and noisy telemetry hosts" width="820" />
+
+特定のホストをスキップし、証明書ピン留めアプリ、社内サービス、ノイズの多いテレメトリがキャプチャに混じらないようにします。ワイルドカードでリストを短く保ち、要求ログを本当に気になるものに集中させます。
+
+`Per-Host Bypass` · `Wildcard Patterns` · `Skip Pinned Hosts` · `Mute Telemetry` · `Reduce Noise` · `Toggle Anytime`
+
+### Block List
+
+<img src="docs/images/features/DemoBlockList.png" alt="Rockxy block list dropping ad networks and flaky dependencies to simulate outages" width="820" />
+
+任意のホストを失敗させます。広告ネットワーク、サードパーティトラッカー、不安定な依存関係を落として、それが消えたときにアプリがどう劣化するかを確認できます — コードは一行も変えずに。
+
+`Per-Host Block` · `Wildcard Match` · `Simulate Outage` · `Test Fallbacks` · `Strip Trackers` · `Toggle Anytime`
+
+### Map Local
+
+<img src="docs/images/features/DemoMapLocal.png" alt="Rockxy Map Local serving a saved file or directory tree in place of a live response" width="820" />
+
+ライブ応答の代わりに、保存ファイルやディレクトリツリーを返します。JSON ペイロードを差し替え、スナップショットをリプレイし、デバッグ中だけ不安定なサードパーティ API をローカルコピーに固定できます。
+
+`File or Directory` · `Response Snapshot` · `Regex Patterns`
+
+### Map Remote
+
+<img src="docs/images/features/DemoMapRemote.png" alt="Rockxy Map Remote rewriting a request destination from production to staging" width="820" />
+
+アプリのコードや /etc/hosts に触らずに、キャプチャ要求の宛先を書き換えます。本番トラフィックをステージング、開発サーバー、同僚のマシンへ向けて、再現性のあるバグ repro を作ります。
+
+`Host Rewrite` · `Regex Patterns` · `Preserve Host Header`
+
+### ブレークポイントとルール
+
+<img src="docs/images/features/DemoBreakpoint.png" alt="Rockxy breakpoints pausing a request to edit method, headers, body, or status mid-flight" width="820" />
+
+要求や応答を一時停止し、method、header、body、status を編集してから続行できます。「API が 401 を返したらどうなる?」をバックエンドに触らずにテストする最速の方法です。
+
+`Request Breakpoints` · `Response Breakpoints` · `Block` · `Throttle` · `Regex / Wildcard Match` · `Inject Failure States`
+
+### ヘッダー変更
+
+<img src="docs/images/features/DemoModifyHeader.png" alt="Rockxy modifying request and response headers per host with CORS and auth presets" width="820" />
+
+再デプロイなしで任意のホストの header を追加、削除、置換します。組み込みプリセットで CORS、認証、キャッシュの変更を数秒でテストできます。
+
+`Add / Remove / Replace` · `CORS Presets` · `Auth Stripping` · `Request Phase` · `Response Phase` · `URL Pattern Scope`
+
+### カスタム要求/応答ヘッダー
+
+<img src="docs/images/features/DemoCustomRequestResponseHeader.png" alt="Rockxy custom request and response header rules injecting tokens and stripping cookies" width="820" />
+
+ホスト単位で、両方のフェーズを完全に制御しながら header を上書きできます。送信要求に認証トークンを注入し、応答から Set-Cookie を取り除き、カスタム User-Agent を固定 — いつでも切り替えできる名前付きルールとして保存できます。
+
+`Per-Host Override` · `Request Phase` · `Response Phase` · `Auth Token Inject` · `Cookie Strip` · `Named Rules`
+
+### ネットワーク条件
+
+<img src="docs/images/features/DemoNetworkConnection.png" alt="Rockxy network conditions throttling traffic to 3G, EDGE, LTE, or custom latency" width="820" />
+
+3G、EDGE、LTE、WiFi、またはカスタム遅延にスロットルします。あなたのノート PC は光ファイバーですが、ユーザーはそうではありません — 400 ms RTT での UX をユーザーより先に確認できます。
+
+`3G` · `EDGE` · `LTE` · `WiFi` · `Very Bad Network` · `Custom Latency`
+
+### Compose — 編集とリプレイ
+
+<img src="docs/images/features/DemoCompose.png" alt="Rockxy Compose editing and replaying a captured HTTP request without leaving the app" width="820" />
+
+キャプチャした HTTP 要求を再構成 — method、URL、header、クエリパラメータ、body を変更 — して Rockxy を離れずに再送します。Postman、Insomnia、curl のコピペループは不要です。LLM プロンプトを反復、認証境界をファジング、OpenAI、Anthropic、Cohere エンドポイントの失敗ケースを数秒で再現します。
+
+`Edit Headers` · `Edit Body` · `Edit Query` · `Edit Method` · `LLM Prompt Iteration` · `Postman Alternative` · `OAuth Flow Debug` · `Webhook Replay`
+
+### 比較
+
+<img src="docs/images/features/DemoDiff.png" alt="Rockxy comparing two captured responses side-by-side with JSON, header, and body diff" width="820" />
+
+キャプチャ済みの 2 つの応答を並べて比較し、反転したすべてのフィールドを見つけます — status、header、JSON キー、body バイト。サードパーティの diff ツールにデータを送ることなく、静かな API リグレッション、非決定的な LLM 出力、プロンプトドリフトを捉えます。Side-by-side diff は差分を強調表示し、深い JSON 比較はキー順序を無視します。
+
+`Diff Compare` · `Side-by-Side` · `JSON Diff` · `Header Diff` · `Body Diff` · `LLM Output Compare` · `Non-determinism` · `API Regression` · `Schema Drift`
+
+### カスタムプレビュータブ
+
+<img src="docs/images/features/DemoCustomPreviewerTab.png" alt="Rockxy custom inspector previewer tabs for JSON, GraphQL, JWT, and image bodies" width="820" />
+
+要求と応答 body を望む形でレンダリングします。JSON、GraphQL、JWT、画像、または独自フォーマット用のタブをインスペクタにピン留め — どのキャプチャ要求でも再利用できます。
+
+`JSON` · `GraphQL` · `JWT Decoder` · `Image / Hex` · `Custom Format` · `Pinned per Inspector`
+
+### セッションとエクスポート
+
+<img src="docs/images/features/DemoSessionExport.png" alt="Rockxy session export to HAR, cURL, and JSON with secret redaction before sharing" width="820" />
+
+セッションを保存し、HAR を import/export してツール間で受け渡し、任意の要求を cURL または JSON にコピーします。共有前に authorization header、cookie、bearer token を redact — 秘密情報を漏らさずに、動作するバグ repro をチームメイトに渡せます。
+
+`.rockxysession` · `HAR Import / Export` · `Copy as cURL` · `Copy as JSON` · `Raw HTTP` · `Secret Redaction` · `Token Sanitize` · `Privacy-Safe Share`
+
+### マルチタブワークスペース
+
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+
+独立したキャプチャセッションを並行して実行 — 1 タブはステージング、1 タブは本番、1 タブは iOS デバイスビルド向け。各タブは独自のフィルタ、選択、インスペクタ状態を保ちます。コンテキストスイッチのコストはほぼゼロです。
+
+`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+
+### JavaScript スクリプティング
+
+<img src="docs/images/features/DemoScripting.png" alt="Rockxy JavaScript scripting with request and response hooks and inline error feedback" width="820" />
+
+静的ルールでは対応できないケースに、要求と応答に JS フックをかけます — PII を redact、トークンを署名、ペイロードを書き換え。エラーはトラフィックを壊さずインラインで表示されます。
+
+`Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
+
+### チーム共有とコラボレーション `近日公開`
+
+キャプチャしたセッションをワンクリックでチームメイトに送ります。失敗した要求にインラインで注釈を付け、誰が何を見ているかリアルタイムで確認し、画面共有なしで HTTPS トラフィックをペアデバッグできます。将来のリリースを目標にしています。
+
+`Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% ネイティブ macOS。Electron なし。Web ビューなし。SwiftUI + AppKit + SwiftNIO。
-
 ## クイックスタート
 
 ```bash

@@ -75,24 +75,175 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Tính Năng
 
-**Chặn bắt lưu lượng** — Proxy SwiftNIO với CONNECT tunnel, tự động tạo chứng chỉ TLS cho từng host, bắt frame WebSocket, và tự động phát hiện truy vấn GraphQL.
+Những công cụ bạn cần khi browser DevTools không còn đủ. Debug lưu lượng cốt lõi cho công việc Mac và iOS — native trên macOS, có public release và quy trình ưu tiên local.
 
-**Kiểm tra mọi thứ** — JSON tree viewer, hex inspector, biểu đồ thời gian (DNS/TCP/TLS/TTFB/Transfer), headers, cookies, query params, auth — tất cả trong inspector dạng tab.
+### Chặn Bắt Lưu Lượng
 
-**Mock & Chỉnh sửa** — Map Local (phục vụ từ file), Map Remote (chuyển hướng sang server khác), Breakpoints (tạm dừng và chỉnh sửa giữa chừng), Block, Throttle, Modify Headers, Allow List, Bypass Proxy.
+<img src="docs/images/features/TrafficCapture.png" alt="Rockxy capturing HTTP, HTTPS, WebSocket, and GraphQL traffic with a timing waterfall" width="820" />
 
-**Tương quan Log** — Bắt log hệ thống macOS (OSLog) và tương quan với các request mạng theo thời gian. Xem ứng dụng nào gửi từng request.
+Kiểm tra lưu lượng HTTP, HTTPS, WebSocket và GraphQL từ bất kỳ ứng dụng Mac, CLI hay thiết bị iOS nào. Browser DevTools dừng lại ở trình duyệt — Rockxy nhìn thấy phần còn lại của stack.
 
-**Mở rộng bằng Plugin** — Scripting JavaScript trong môi trường JavaScriptCore sandbox. Kiểm tra, chỉnh sửa và tự động hóa lưu lượng bằng hook tùy chỉnh.
+`HTTP / HTTPS` · `WebSocket` · `GraphQL` · `iOS Device & Simulator` · `Filter by Process ID` · `Timing Waterfall`
 
-**Xây dựng cho quy mô lớn** — NSTableView virtual scrolling xử lý 100k+ request. Ring buffer eviction, lưu body lớn ra đĩa, cập nhật UI theo batch. Không giật lag.
+### Lọc & Tìm Kiếm Nâng Cao
 
-**Developer Setup Hub** — Thiết lập theo runtime, browser, device, framework và environment với snippet có thể copy, validation probe, và troubleshooting note.
+<img src="docs/images/features/DemoAdvancedFilterSearch.png" alt="Rockxy advanced filtering with multi-field filters and full-text search across a session" width="820" />
 
-**Local MCP Bridge** — Máy chủ Model Context Protocol tích hợp sẵn cho phép các MCP client cục bộ truy vấn traffic trực tiếp, rule và trạng thái proxy. Chỉ chạy cục bộ, xác thực bằng token, dữ liệu nhạy cảm được che giấu mặc định.
+Thu hẹp hàng nghìn request đã bắt trong vài giây. Kết hợp filter theo method, host, status, header, body và process — hoặc chạy full-text search trên toàn bộ session.
+
+`Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
+
+### MCP Server cho AI Assistants
+
+<img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
+
+Để Claude Desktop hoặc Cursor đọc traffic đã bắt qua một MCP server local. Hỏi "tại sao request này 500?" thay vì dán headers vào chat. MCP server miễn phí — không có add-on AI trả phí, không giới hạn sử dụng.
+
+`Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
+
+### Developer Setup Hub
+
+<img src="docs/images/features/DemoDevHub.png" alt="Rockxy Developer Setup Hub with copy-paste proxy snippets and one-click verify" width="820" />
+
+Copy-paste snippet proxy cho Python, Node.js, Go, Rust, cURL, Docker và browser, sau đó bấm Run Test để xác nhận traffic thực sự đang chạy qua.
+
+`Python` · `Node.js` · `Go / Rust / Java` · `cURL / Docker` · `One-Click Verify` · `Trust Diagnostics`
+
+### Quản Lý Chứng Chỉ cho HTTPS Debugging
+
+<img src="docs/images/features/CertManagement.png" alt="Rockxy certificate management with a P-256 ECDSA root CA sealed in the Keychain" width="820" />
+
+Root CA P-256 ECDSA tạo ngay lần khởi động đầu tiên, niêm trong Keychain. Giải mã HTTPS ngay lần thử đầu; các host bị pin tự động đi qua không can thiệp.
+
+`P-256 ECDSA Root CA` · `Keychain-Sealed Key` · `Per-Host Leaf Certs` · `Trust Wizard` · `Pinned-Host Passthrough` · `Rotate / Reset`
+
+### SSL Proxy & Giải Mã HTTPS
+
+<img src="docs/images/features/DemoSSLProxy.png" alt="Rockxy SSL proxy settings showing per-host TLS decryption rules with wildcard patterns and allow list" width="820" />
+
+Chọn host nào được giải mã TLS. Traffic được giải mã hiển thị header và JSON thật; phần còn lại đi qua dạng mã hoá. Quy tắc wildcard cho phép scope theo domain chỉ với một cú click.
+
+`Per-Host Decryption` · `Wildcard Rules` · `Allow / Deny List` · `TLS 1.2 / 1.3` · `Pinned Host Passthrough`
+
+### Bypass Proxy
+
+<img src="docs/images/features/DemoByPassProxy.png" alt="Rockxy bypass proxy list skipping cert-pinned apps and noisy telemetry hosts" width="820" />
+
+Bỏ qua một số host để app pin chứng chỉ, dịch vụ nội bộ, hay telemetry ồn ào không bao giờ lọt vào capture. Wildcard giữ list ngắn gọn và log request tập trung đúng cái bạn quan tâm.
+
+`Per-Host Bypass` · `Wildcard Patterns` · `Skip Pinned Hosts` · `Mute Telemetry` · `Reduce Noise` · `Toggle Anytime`
+
+### Block List
+
+<img src="docs/images/features/DemoBlockList.png" alt="Rockxy block list dropping ad networks and flaky dependencies to simulate outages" width="820" />
+
+Khiến bất kỳ host nào fail. Cắt mạng quảng cáo, tracker bên thứ ba, hay dependency hay lỗi để xem app xuống cấp thế nào khi nó biến mất — không cần đổi một dòng code.
+
+`Per-Host Block` · `Wildcard Match` · `Simulate Outage` · `Test Fallbacks` · `Strip Trackers` · `Toggle Anytime`
+
+### Map Local
+
+<img src="docs/images/features/DemoMapLocal.png" alt="Rockxy Map Local serving a saved file or directory tree in place of a live response" width="820" />
+
+Phục vụ một file đã lưu hoặc một cây thư mục thay cho response thực. Đổi một payload JSON, replay một snapshot, hoặc pin một API bên thứ ba hay lỗi về bản local trong khi debug.
+
+`File or Directory` · `Response Snapshot` · `Regex Patterns`
+
+### Map Remote
+
+<img src="docs/images/features/DemoMapRemote.png" alt="Rockxy Map Remote rewriting a request destination from production to staging" width="820" />
+
+Đổi đích đến của request đã bắt mà không cần chạm vào code app hay /etc/hosts. Trỏ traffic production sang staging, dev server của bạn, hoặc máy đồng nghiệp để tái hiện bug có thể lặp lại.
+
+`Host Rewrite` · `Regex Patterns` · `Preserve Host Header`
+
+### Breakpoint & Rules
+
+<img src="docs/images/features/DemoBreakpoint.png" alt="Rockxy breakpoints pausing a request to edit method, headers, body, or status mid-flight" width="820" />
+
+Tạm dừng request hoặc response, sửa method, header, body hay status, rồi tiếp tục. Cách nhanh nhất để thử "điều gì xảy ra nếu API trả 401?" mà không phải đụng backend.
+
+`Request Breakpoints` · `Response Breakpoints` · `Block` · `Throttle` · `Regex / Wildcard Match` · `Inject Failure States`
+
+### Modify Headers
+
+<img src="docs/images/features/DemoModifyHeader.png" alt="Rockxy modifying request and response headers per host with CORS and auth presets" width="820" />
+
+Thêm, gỡ hoặc thay header trên bất kỳ host nào mà không cần redeploy. Test thay đổi CORS, auth hay cache trong vài giây với preset có sẵn.
+
+`Add / Remove / Replace` · `CORS Presets` · `Auth Stripping` · `Request Phase` · `Response Phase` · `URL Pattern Scope`
+
+### Custom Request & Response Headers
+
+<img src="docs/images/features/DemoCustomRequestResponseHeader.png" alt="Rockxy custom request and response header rules injecting tokens and stripping cookies" width="820" />
+
+Override header theo từng host với toàn quyền điều khiển cả hai phase. Inject auth token vào request đi ra, gỡ Set-Cookie ở response, hoặc pin một User-Agent tuỳ chỉnh — lưu lại dưới dạng named rule có thể bật/tắt bất cứ lúc nào.
+
+`Per-Host Override` · `Request Phase` · `Response Phase` · `Auth Token Inject` · `Cookie Strip` · `Named Rules`
+
+### Network Conditions
+
+<img src="docs/images/features/DemoNetworkConnection.png" alt="Rockxy network conditions throttling traffic to 3G, EDGE, LTE, or custom latency" width="820" />
+
+Throttle về 3G, EDGE, LTE, WiFi hoặc delay tuỳ chỉnh. Laptop của bạn dùng fiber; người dùng thì không — xem UX ở 400 ms RTT trước khi họ thấy.
+
+`3G` · `EDGE` · `LTE` · `WiFi` · `Very Bad Network` · `Custom Latency`
+
+### Compose — Sửa & Replay
+
+<img src="docs/images/features/DemoCompose.png" alt="Rockxy Compose editing and replaying a captured HTTP request without leaving the app" width="820" />
+
+Dựng lại bất kỳ request HTTP đã bắt — đổi method, URL, header, query param hay body — rồi gửi lại mà không cần rời Rockxy. Không cần vòng lặp copy-paste qua Postman, Insomnia hay curl. Iterate prompt LLM, fuzz biên auth, hoặc tái hiện một case lỗi cho OpenAI, Anthropic, Cohere endpoint trong vài giây.
+
+`Edit Headers` · `Edit Body` · `Edit Query` · `Edit Method` · `LLM Prompt Iteration` · `Postman Alternative` · `OAuth Flow Debug` · `Webhook Replay`
+
+### So Sánh
+
+<img src="docs/images/features/DemoDiff.png" alt="Rockxy comparing two captured responses side-by-side with JSON, header, and body diff" width="820" />
+
+Xếp hai response đã bắt cạnh nhau và bắt được mọi trường đã đổi — status, headers, JSON keys, body bytes. Bắt được regression API âm thầm, output LLM không deterministic và prompt drift mà không cần đẩy dữ liệu sang công cụ diff bên thứ ba. Side-by-side diff highlight phần đã đổi; deep JSON compare bỏ qua thứ tự key.
+
+`Diff Compare` · `Side-by-Side` · `JSON Diff` · `Header Diff` · `Body Diff` · `LLM Output Compare` · `Non-determinism` · `API Regression` · `Schema Drift`
+
+### Custom Previewer Tabs
+
+<img src="docs/images/features/DemoCustomPreviewerTab.png" alt="Rockxy custom inspector previewer tabs for JSON, GraphQL, JWT, and image bodies" width="820" />
+
+Render body request và response theo cách bạn muốn. Pin thêm tab vào inspector cho JSON, GraphQL, JWT, image hay format riêng — dùng lại được trên mọi request đã bắt.
+
+`JSON` · `GraphQL` · `JWT Decoder` · `Image / Hex` · `Custom Format` · `Pinned per Inspector`
+
+### Sessions & Export
+
+<img src="docs/images/features/DemoSessionExport.png" alt="Rockxy session export to HAR, cURL, and JSON with secret redaction before sharing" width="820" />
+
+Lưu session, import/export HAR cho handoff đa công cụ, copy bất kỳ request nào ra cURL hay JSON. Redact header authorization, cookie và bearer token trước khi chia sẻ — đưa cho đồng đội bug repro hoạt động được mà không lộ secret.
+
+`.rockxysession` · `HAR Import / Export` · `Copy as cURL` · `Copy as JSON` · `Raw HTTP` · `Secret Redaction` · `Token Sanitize` · `Privacy-Safe Share`
+
+### Multi-Tab Workspaces
+
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+
+Chạy các session capture độc lập song song — một tab cho staging, một cho prod, một cho build iOS device. Mỗi tab giữ filter, selection và state inspector riêng, nên chuyển context không tốn gì.
+
+`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+
+### JavaScript Scripting
+
+<img src="docs/images/features/DemoScripting.png" alt="Rockxy JavaScript scripting with request and response hooks and inline error feedback" width="820" />
+
+Hook JS lên request và response cho các case mà rule tĩnh không phủ được — redact PII, ký token, viết lại payload. Lỗi hiện ra inline thay vì làm hỏng traffic.
+
+`Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
+
+### Chia Sẻ & Cộng Tác Theo Team `Sắp Ra Mắt`
+
+Gửi một session đã bắt cho đồng đội chỉ với một cú click. Annotate request lỗi inline, thấy ai đang xem cái gì real-time, và pair-debug traffic HTTPS mà không cần share màn hình. Đặt mục tiêu cho một release tương lai.
+
+`Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% native macOS. Không Electron. Không web view. SwiftUI + AppKit + SwiftNIO.
-
 ## Bắt Đầu Nhanh
 
 ```bash

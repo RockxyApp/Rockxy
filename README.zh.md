@@ -75,24 +75,175 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## 功能特性
 
-**流量捕获** — 基于 SwiftNIO 的代理，支持 CONNECT 隧道、自动为每个主机生成 TLS 证书、WebSocket 帧捕获，以及自动检测 GraphQL 操作。
+当浏览器 DevTools 已经不够用时,你会伸手去拿的工具。面向 Mac 与 iOS 工作的核心流量调试 — 原生 macOS,公开发布,以本地优先的工作流。
 
-**全面检查** — JSON 树形视图、十六进制检查器、时序瀑布图（DNS/TCP/TLS/TTFB/Transfer）、headers、cookies、查询参数、认证信息 — 全部集成在标签式检查器中。
+### 流量捕获
 
-**Mock 与修改** — Map Local（从本地文件提供响应）、Map Remote（重定向到其他服务器）、Breakpoints（中途暂停并编辑）、Block、Throttle、Modify Headers、Allow List、Bypass Proxy。
+<img src="docs/images/features/TrafficCapture.png" alt="Rockxy capturing HTTP, HTTPS, WebSocket, and GraphQL traffic with a timing waterfall" width="820" />
 
-**日志关联** — 捕获 macOS 系统日志（OSLog）并按时间戳与网络请求关联。查看每个请求来自哪个应用。
+检查来自任意 Mac 应用、CLI 或 iOS 设备的 HTTP、HTTPS、WebSocket 和 GraphQL 流量。浏览器 DevTools 止步于浏览器 — Rockxy 看见你整个技术栈的其余部分。
 
-**插件扩展** — 在沙箱化的 JavaScriptCore 运行时中使用 JavaScript 脚本。通过自定义 hook 检查、修改和自动化流量。
+`HTTP / HTTPS` · `WebSocket` · `GraphQL` · `iOS Device & Simulator` · `Filter by Process ID` · `Timing Waterfall`
 
-**为大规模而生** — NSTableView 虚拟滚动处理 100k+ 请求。环形缓冲区淘汰、磁盘 body 卸载、批量 UI 更新。零延迟。
+### 高级筛选与搜索
 
-**Developer Setup Hub** — 面向运行时、浏览器、设备、框架与环境的引导式配置中心，提供可复制片段、验证探针和故障排查说明。
+<img src="docs/images/features/DemoAdvancedFilterSearch.png" alt="Rockxy advanced filtering with multi-field filters and full-text search across a session" width="820" />
 
-**Local MCP Bridge** — 内置 Model Context Protocol 服务器，让本地 MCP 客户端查询实时流量、规则和代理状态。仅本地运行，使用 token 认证，敏感数据默认脱敏。
+在几秒内将数千条捕获请求收窄到你需要的那几条。组合 method、host、status、header、body 和进程过滤器 — 或者在整个会话上跑全文搜索。
+
+`Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
+
+### 面向 AI 助手的 MCP 服务器
+
+<img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
+
+让 Claude Desktop 或 Cursor 通过本地 MCP 服务器读取你捕获的流量。直接问 "为什么这条请求 500 了?",不用再把 header 粘进聊天框。免费的 MCP 服务器 — 没有付费 AI 附加项或追售,没有用量上限。
+
+`Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
+
+### Developer Setup Hub
+
+<img src="docs/images/features/DemoDevHub.png" alt="Rockxy Developer Setup Hub with copy-paste proxy snippets and one-click verify" width="820" />
+
+为 Python、Node.js、Go、Rust、cURL、Docker 和浏览器复制粘贴代理片段,然后点击 Run Test 确认流量确实经过 Rockxy。
+
+`Python` · `Node.js` · `Go / Rust / Java` · `cURL / Docker` · `One-Click Verify` · `Trust Diagnostics`
+
+### HTTPS 调试的证书管理
+
+<img src="docs/images/features/CertManagement.png" alt="Rockxy certificate management with a P-256 ECDSA root CA sealed in the Keychain" width="820" />
+
+首次启动时生成的 P-256 ECDSA 根 CA,密封在你的 Keychain 中。第一次就能解密 HTTPS;被 pin 的主机自动放行通过。
+
+`P-256 ECDSA Root CA` · `Keychain-Sealed Key` · `Per-Host Leaf Certs` · `Trust Wizard` · `Pinned-Host Passthrough` · `Rotate / Reset`
+
+### SSL 代理与 HTTPS 解密
+
+<img src="docs/images/features/DemoSSLProxy.png" alt="Rockxy SSL proxy settings showing per-host TLS decryption rules with wildcard patterns and allow list" width="820" />
+
+挑选哪些主机需要 TLS 解密。解密后的流量显示真实的 header 与 JSON;其余仍以加密形式通过。通配符规则让你一键按域名圈定范围。
+
+`Per-Host Decryption` · `Wildcard Rules` · `Allow / Deny List` · `TLS 1.2 / 1.3` · `Pinned Host Passthrough`
+
+### Bypass Proxy
+
+<img src="docs/images/features/DemoByPassProxy.png" alt="Rockxy bypass proxy list skipping cert-pinned apps and noisy telemetry hosts" width="820" />
+
+跳过特定主机,让证书 pin 应用、内部服务或嘈杂的 telemetry 永远不会进入捕获。通配符让列表保持精简,请求日志聚焦于真正关心的内容。
+
+`Per-Host Bypass` · `Wildcard Patterns` · `Skip Pinned Hosts` · `Mute Telemetry` · `Reduce Noise` · `Toggle Anytime`
+
+### Block List
+
+<img src="docs/images/features/DemoBlockList.png" alt="Rockxy block list dropping ad networks and flaky dependencies to simulate outages" width="820" />
+
+让任何主机失败。切掉广告网络、第三方追踪器或不稳定的依赖,看看缺了它你的应用如何降级 — 不用改一行代码。
+
+`Per-Host Block` · `Wildcard Match` · `Simulate Outage` · `Test Fallbacks` · `Strip Trackers` · `Toggle Anytime`
+
+### Map Local
+
+<img src="docs/images/features/DemoMapLocal.png" alt="Rockxy Map Local serving a saved file or directory tree in place of a live response" width="820" />
+
+用一个已保存的文件或目录树替代真实响应。换掉一个 JSON payload、replay 一个快照,或者在调试时把不稳定的第三方 API 钉到本地副本上。
+
+`File or Directory` · `Response Snapshot` · `Regex Patterns`
+
+### Map Remote
+
+<img src="docs/images/features/DemoMapRemote.png" alt="Rockxy Map Remote rewriting a request destination from production to staging" width="820" />
+
+重写一条捕获请求的目的地,不需要碰应用代码或 /etc/hosts。把生产流量指向 staging、你的开发服务器,或同事的机器,做出可重复的 bug 复现。
+
+`Host Rewrite` · `Regex Patterns` · `Preserve Host Header`
+
+### 断点与规则
+
+<img src="docs/images/features/DemoBreakpoint.png" alt="Rockxy breakpoints pausing a request to edit method, headers, body, or status mid-flight" width="820" />
+
+暂停某个请求或响应,编辑 method、header、body 或 status 后继续。测试 "如果 API 返回 401 会怎样?" 最快的方式 — 完全不用碰后端。
+
+`Request Breakpoints` · `Response Breakpoints` · `Block` · `Throttle` · `Regex / Wildcard Match` · `Inject Failure States`
+
+### 修改 Header
+
+<img src="docs/images/features/DemoModifyHeader.png" alt="Rockxy modifying request and response headers per host with CORS and auth presets" width="820" />
+
+在任何主机上添加、删除或替换 header,不用重新部署。借助内置预设,几秒内测试 CORS、auth 或 cache 的修改。
+
+`Add / Remove / Replace` · `CORS Presets` · `Auth Stripping` · `Request Phase` · `Response Phase` · `URL Pattern Scope`
+
+### 自定义请求与响应 Header
+
+<img src="docs/images/features/DemoCustomRequestResponseHeader.png" alt="Rockxy custom request and response header rules injecting tokens and stripping cookies" width="820" />
+
+按主机覆盖 header,对两端 phase 都有完整控制。给出站请求注入 auth token,从响应中剥掉 Set-Cookie,或固定一个自定义 User-Agent — 保存为命名规则,随时切换。
+
+`Per-Host Override` · `Request Phase` · `Response Phase` · `Auth Token Inject` · `Cookie Strip` · `Named Rules`
+
+### 网络条件
+
+<img src="docs/images/features/DemoNetworkConnection.png" alt="Rockxy network conditions throttling traffic to 3G, EDGE, LTE, or custom latency" width="820" />
+
+限速到 3G、EDGE、LTE、WiFi 或自定义延迟。你笔记本走的是光纤;你的用户不是 — 在他们之前感受 400 ms RTT 下的体验。
+
+`3G` · `EDGE` · `LTE` · `WiFi` · `Very Bad Network` · `Custom Latency`
+
+### Compose — 编辑并重放
+
+<img src="docs/images/features/DemoCompose.png" alt="Rockxy Compose editing and replaying a captured HTTP request without leaving the app" width="820" />
+
+重建任何捕获到的 HTTP 请求 — 修改 method、URL、header、查询参数或 body — 不离开 Rockxy 即可重发。不用再走 Postman、Insomnia 或 curl 的复制粘贴循环。在几秒内迭代 LLM prompt、模糊 auth 边界,或为 OpenAI、Anthropic、Cohere 端点复现一个失败用例。
+
+`Edit Headers` · `Edit Body` · `Edit Query` · `Edit Method` · `LLM Prompt Iteration` · `Postman Alternative` · `OAuth Flow Debug` · `Webhook Replay`
+
+### 比较
+
+<img src="docs/images/features/DemoDiff.png" alt="Rockxy comparing two captured responses side-by-side with JSON, header, and body diff" width="820" />
+
+把两条捕获响应并排叠放,捕捉每一个翻转的字段 — status、header、JSON 键、body 字节。识别静默的 API 回归、不确定的 LLM 输出和 prompt drift,不用把任何东西塞进第三方 diff 工具。并排 diff 突出差异;深度 JSON 比较忽略键顺序。
+
+`Diff Compare` · `Side-by-Side` · `JSON Diff` · `Header Diff` · `Body Diff` · `LLM Output Compare` · `Non-determinism` · `API Regression` · `Schema Drift`
+
+### 自定义预览标签
+
+<img src="docs/images/features/DemoCustomPreviewerTab.png" alt="Rockxy custom inspector previewer tabs for JSON, GraphQL, JWT, and image bodies" width="820" />
+
+按你想要的方式渲染请求与响应 body。给 inspector 钉上额外的标签页,用于 JSON、GraphQL、JWT、图片或你自己的格式 — 在所有捕获请求上复用。
+
+`JSON` · `GraphQL` · `JWT Decoder` · `Image / Hex` · `Custom Format` · `Pinned per Inspector`
+
+### 会话与导出
+
+<img src="docs/images/features/DemoSessionExport.png" alt="Rockxy session export to HAR, cURL, and JSON with secret redaction before sharing" width="820" />
+
+保存会话,在不同工具间用 HAR 互通,把任意请求复制为 cURL 或 JSON。在分享前对 authorization header、cookie 和 bearer token 做脱敏 — 给同事一个能跑的 bug 复现,而不泄漏 secret。
+
+`.rockxysession` · `HAR Import / Export` · `Copy as cURL` · `Copy as JSON` · `Raw HTTP` · `Secret Redaction` · `Token Sanitize` · `Privacy-Safe Share`
+
+### 多标签工作区
+
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+
+并排运行独立的捕获会话 — 一个标签给 staging,一个给 prod,一个给 iOS 设备 build。每个标签都有自己的过滤器、选择和 inspector 状态,所以切换上下文几乎零成本。
+
+`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+
+### JavaScript 脚本
+
+<img src="docs/images/features/DemoScripting.png" alt="Rockxy JavaScript scripting with request and response hooks and inline error feedback" width="820" />
+
+在请求与响应上用 JS hook 处理静态规则覆盖不到的情况 — 脱敏 PII、签发 token、改写 payload。错误以 inline 方式出现,而不是把流量弄坏。
+
+`Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
+
+### 团队分享与协作 `即将推出`
+
+一键把捕获会话发给同事。对失败请求做 inline 注释,实时看到谁在看什么,无需共享屏幕也能 pair-debug HTTPS 流量。规划在未来版本中推出。
+
+`Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% 原生 macOS。没有 Electron。没有 Web 视图。SwiftUI + AppKit + SwiftNIO。
-
 ## 快速开始
 
 ```bash

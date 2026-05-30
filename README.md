@@ -78,26 +78,175 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Features
 
-**Traffic Capture** — SwiftNIO proxy with CONNECT tunnel, auto-generated per-host TLS certificates, WebSocket frame capture, and automatic GraphQL operation detection.
+The tools you reach for when browser DevTools are not enough. Core traffic debugging for Mac and iOS work — native on macOS, with public releases and a local-first workflow.
 
-**Inspect Everything** — JSON tree viewer, hex inspector, timing waterfall (DNS/TCP/TLS/TTFB/Transfer), headers, cookies, query params, auth — all in a tabbed inspector.
+### Traffic Capture
 
-**Mock & Modify** — Map Local (serve from files), Map Remote (redirect to another server), Breakpoints (pause and edit mid-flight), Block, Throttle, Modify Headers, Allow List, Bypass Proxy.
+<img src="docs/images/features/TrafficCapture.png" alt="Rockxy capturing HTTP, HTTPS, WebSocket, and GraphQL traffic with a timing waterfall" width="820" />
 
-**Log Correlation** — Capture macOS logs (OSLog) and correlate them with network requests by timestamp. See which app made each request.
+Inspect HTTP, HTTPS, WebSocket, and GraphQL traffic from any Mac app, CLI, or iOS device. Browser DevTools end at the browser — Rockxy sees the rest of your stack.
 
-**Extend with Plugins** — JavaScript scripting in a sandboxed JavaScriptCore runtime. Inspect, modify, and automate traffic with custom hooks.
+`HTTP / HTTPS` · `WebSocket` · `GraphQL` · `iOS Device & Simulator` · `Filter by Process ID` · `Timing Waterfall`
 
-**Built for Scale** — NSTableView virtual scrolling handles 100k+ requests. Ring buffer eviction, disk body offloading, batched UI updates. Zero lag.
+### Advanced Filter & Search
 
-**Developer Setup Hub** — Guided setup per runtime, browser, device, framework, and environment with copyable snippets, validation probes, and troubleshooting notes.
+<img src="docs/images/features/DemoAdvancedFilterSearch.png" alt="Rockxy advanced filtering with multi-field filters and full-text search across a session" width="820" />
 
-**Upstream Proxy** — Chain captured traffic through HTTP/HTTPS upstream proxies or a PAC URL for automatic proxy configuration in team, VPN-adjacent, and lab networks.
+Narrow thousands of captured requests in seconds. Combine method, host, status, header, body, and process filters — or run a full-text search across the whole session.
 
-**Local MCP Bridge** — Bundled Model Context Protocol server lets local MCP clients query live traffic, rules, and proxy status. Local-only, token-authenticated, sensitive data redacted by default.
+`Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
+
+### MCP Server for AI Assistants
+
+<img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
+
+Let Claude Desktop or Cursor read your captured traffic through a local MCP server. Ask "why did this 500?" instead of pasting headers into chat. Free MCP server — no paid AI add-on or upsell, no usage cap.
+
+`Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
+
+### Developer Setup Hub
+
+<img src="docs/images/features/DemoDevHub.png" alt="Rockxy Developer Setup Hub with copy-paste proxy snippets and one-click verify" width="820" />
+
+Copy-paste proxy snippets for Python, Node.js, Go, Rust, cURL, Docker, and browsers, then click Run Test to confirm traffic is actually flowing.
+
+`Python` · `Node.js` · `Go / Rust / Java` · `cURL / Docker` · `One-Click Verify` · `Trust Diagnostics`
+
+### Certificate Management for HTTPS Debugging
+
+<img src="docs/images/features/CertManagement.png" alt="Rockxy certificate management with a P-256 ECDSA root CA sealed in the Keychain" width="820" />
+
+A P-256 ECDSA root CA generated on first launch, sealed in your Keychain. Decrypt HTTPS on the first try; pinned hosts pass through automatically.
+
+`P-256 ECDSA Root CA` · `Keychain-Sealed Key` · `Per-Host Leaf Certs` · `Trust Wizard` · `Pinned-Host Passthrough` · `Rotate / Reset`
+
+### SSL Proxy & HTTPS Decryption
+
+<img src="docs/images/features/DemoSSLProxy.png" alt="Rockxy SSL proxy settings showing per-host TLS decryption rules with wildcard patterns and allow list" width="820" />
+
+Pick which hosts get TLS decryption. Decrypted traffic shows real headers and JSON; everything else passes through encrypted. Wildcard rules let you scope by domain in one click.
+
+`Per-Host Decryption` · `Wildcard Rules` · `Allow / Deny List` · `TLS 1.2 / 1.3` · `Pinned Host Passthrough`
+
+### Bypass Proxy
+
+<img src="docs/images/features/DemoByPassProxy.png" alt="Rockxy bypass proxy list skipping cert-pinned apps and noisy telemetry hosts" width="820" />
+
+Skip specific hosts so cert-pinned apps, internal services, or noisy telemetry never enter the capture. Wildcards keep the list short and your request log focused on what you actually care about.
+
+`Per-Host Bypass` · `Wildcard Patterns` · `Skip Pinned Hosts` · `Mute Telemetry` · `Reduce Noise` · `Toggle Anytime`
+
+### Block List
+
+<img src="docs/images/features/DemoBlockList.png" alt="Rockxy block list dropping ad networks and flaky dependencies to simulate outages" width="820" />
+
+Make any host fail. Drop ad networks, third-party trackers, or a flaky dependency to see how your app degrades when it's gone — without changing a line of code.
+
+`Per-Host Block` · `Wildcard Match` · `Simulate Outage` · `Test Fallbacks` · `Strip Trackers` · `Toggle Anytime`
+
+### Map Local
+
+<img src="docs/images/features/DemoMapLocal.png" alt="Rockxy Map Local serving a saved file or directory tree in place of a live response" width="820" />
+
+Serve a saved file or a directory tree in place of a live response. Swap a JSON payload, replay a snapshot, or pin a flaky third-party API to a local copy while you debug.
+
+`File or Directory` · `Response Snapshot` · `Regex Patterns`
+
+### Map Remote
+
+<img src="docs/images/features/DemoMapRemote.png" alt="Rockxy Map Remote rewriting a request destination from production to staging" width="820" />
+
+Rewrite the destination of a captured request without touching app code or /etc/hosts. Point production traffic at staging, your dev server, or a colleague's machine for a reproducible bug repro.
+
+`Host Rewrite` · `Regex Patterns` · `Preserve Host Header`
+
+### Breakpoints & Rules
+
+<img src="docs/images/features/DemoBreakpoint.png" alt="Rockxy breakpoints pausing a request to edit method, headers, body, or status mid-flight" width="820" />
+
+Pause a request or response, edit method, headers, body, or status, then continue. The fastest way to test "what if the API returns 401?" without touching the backend.
+
+`Request Breakpoints` · `Response Breakpoints` · `Block` · `Throttle` · `Regex / Wildcard Match` · `Inject Failure States`
+
+### Modify Headers
+
+<img src="docs/images/features/DemoModifyHeader.png" alt="Rockxy modifying request and response headers per host with CORS and auth presets" width="820" />
+
+Add, remove, or replace headers on any host without redeploying. Test CORS, auth, or cache changes in seconds with built-in presets.
+
+`Add / Remove / Replace` · `CORS Presets` · `Auth Stripping` · `Request Phase` · `Response Phase` · `URL Pattern Scope`
+
+### Custom Request & Response Headers
+
+<img src="docs/images/features/DemoCustomRequestResponseHeader.png" alt="Rockxy custom request and response header rules injecting tokens and stripping cookies" width="820" />
+
+Override headers per host with full control over both phases. Inject auth tokens on outgoing requests, strip Set-Cookie on responses, or pin a custom User-Agent — saved as named rules you can toggle anytime.
+
+`Per-Host Override` · `Request Phase` · `Response Phase` · `Auth Token Inject` · `Cookie Strip` · `Named Rules`
+
+### Network Conditions
+
+<img src="docs/images/features/DemoNetworkConnection.png" alt="Rockxy network conditions throttling traffic to 3G, EDGE, LTE, or custom latency" width="820" />
+
+Throttle to 3G, EDGE, LTE, WiFi, or a custom delay. Your laptop is on fiber; your users aren't — see the UX at 400 ms RTT before they do.
+
+`3G` · `EDGE` · `LTE` · `WiFi` · `Very Bad Network` · `Custom Latency`
+
+### Compose — Edit & Replay
+
+<img src="docs/images/features/DemoCompose.png" alt="Rockxy Compose editing and replaying a captured HTTP request without leaving the app" width="820" />
+
+Rebuild any captured HTTP request — change method, URL, headers, query params, or body — and re-send without leaving Rockxy. No Postman, Insomnia, or curl copy-paste loop. Iterate on LLM prompts, fuzz auth boundaries, or reproduce a failing case for OpenAI, Anthropic, and Cohere endpoints in seconds.
+
+`Edit Headers` · `Edit Body` · `Edit Query` · `Edit Method` · `LLM Prompt Iteration` · `Postman Alternative` · `OAuth Flow Debug` · `Webhook Replay`
+
+### Compare
+
+<img src="docs/images/features/DemoDiff.png" alt="Rockxy comparing two captured responses side-by-side with JSON, header, and body diff" width="820" />
+
+Stack two captured responses side-by-side and spot every field that flipped — status, headers, JSON keys, body bytes. Catch silent API regressions, non-deterministic LLM outputs, and prompt drift without piping anything into a third-party diff tool. Side-by-side diff highlights what changed; deep JSON compare ignores key ordering.
+
+`Diff Compare` · `Side-by-Side` · `JSON Diff` · `Header Diff` · `Body Diff` · `LLM Output Compare` · `Non-determinism` · `API Regression` · `Schema Drift`
+
+### Custom Previewer Tabs
+
+<img src="docs/images/features/DemoCustomPreviewerTab.png" alt="Rockxy custom inspector previewer tabs for JSON, GraphQL, JWT, and image bodies" width="820" />
+
+Render request and response bodies the way you want. Pin extra tabs to the inspector for JSON, GraphQL, JWT, image, or your own format — reusable across every captured request.
+
+`JSON` · `GraphQL` · `JWT Decoder` · `Image / Hex` · `Custom Format` · `Pinned per Inspector`
+
+### Sessions & Export
+
+<img src="docs/images/features/DemoSessionExport.png" alt="Rockxy session export to HAR, cURL, and JSON with secret redaction before sharing" width="820" />
+
+Save sessions, import/export HAR for cross-tool handoff, copy any request as cURL or JSON. Redact authorization headers, cookies, and bearer tokens before sharing — hand a teammate a working bug repro without leaking secrets.
+
+`.rockxysession` · `HAR Import / Export` · `Copy as cURL` · `Copy as JSON` · `Raw HTTP` · `Secret Redaction` · `Token Sanitize` · `Privacy-Safe Share`
+
+### Multi-Tab Workspaces
+
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+
+Run independent capture sessions side-by-side — one tab for staging, one for prod, one for the iOS device build. Each tab has its own filters, selection, and inspector state, so context switching costs nothing.
+
+`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+
+### JavaScript Scripting
+
+<img src="docs/images/features/DemoScripting.png" alt="Rockxy JavaScript scripting with request and response hooks and inline error feedback" width="820" />
+
+JS hooks on requests and responses for the cases a static rule can't cover — redact PII, sign tokens, rewrite payloads. Errors surface inline instead of corrupting traffic.
+
+`Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
+
+### Team Sharing & Collaboration `Coming Soon`
+
+Send a captured session to a teammate with one click. Annotate failing requests inline, see who's looking at what in real time, and pair-debug HTTPS traffic without screen-sharing. Targeted for a future release.
+
+`Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% native macOS. No Electron. No web views. SwiftUI + AppKit + SwiftNIO.
-
 ## Quick Start
 
 ```bash
