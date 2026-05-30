@@ -185,7 +185,7 @@ struct MacCertificateSetupGuideView: View {
                     .lineLimit(1)
             }
 
-            if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/wiki") {
+            if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/blob/main/docs/installation.mdx#trust-the-root-certificate") {
                 HelpLink(destination: helpURL)
             }
         }

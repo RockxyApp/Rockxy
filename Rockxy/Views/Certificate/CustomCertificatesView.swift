@@ -89,7 +89,7 @@ struct CustomCertificatesView: View {
                 .disabled(currentEntries.isEmpty)
 
             Button(String(localized: "How to generate self-signed certificates")) {
-                if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/wiki") {
+                if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/blob/main/docs/troubleshooting/certificates-and-https-issues.mdx") {
                     NSWorkspace.shared.open(helpURL)
                 }
             }
@@ -97,7 +97,7 @@ struct CustomCertificatesView: View {
 
             Spacer()
 
-            if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/wiki") {
+            if let helpURL = URL(string: "https://github.com/RockxyApp/Rockxy/blob/main/docs/troubleshooting/certificates-and-https-issues.mdx") {
                 HelpLink(destination: helpURL)
             }
 
