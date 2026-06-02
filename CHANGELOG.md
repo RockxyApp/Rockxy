@@ -20,6 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+## [0.24.0] - 2026-06-02
+
+### Fixed
+
+- Fixed capture startup so Rockxy begins capturing reliably after launch.
+- Fixed pinned and saved requests opened in a new tab so Rockxy shows the exact selected request, even when multiple requests share the same URL.
+- Kept full request URLs out of the visible search field when opening pinned or saved requests in a new tab.
+
 ## [0.23.0] - 2026-05-29
 
 ### Added
