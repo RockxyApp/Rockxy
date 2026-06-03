@@ -22,7 +22,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/cla.json'
-          path-to-document: 'https://github.com/LocNguyenHuu/Rockxy/blob/main/CLA.md'
+          path-to-document: 'https://github.com/RockxyApp/Rockxy/blob/main/CLA.md'
           branch: 'main'
           allowlist: 'bot*,dependabot[bot],renovate[bot],github-actions[bot]'
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'

@@ -7,7 +7,7 @@ By participating in this project, you agree to abide by our [Code of Conduct](CO
 You'll need macOS 14.0+, Xcode 16+, [SwiftLint](https://github.com/realm/SwiftLint), and [SwiftFormat](https://github.com/nicklockwood/SwiftFormat).
 
 ```bash
-git clone https://github.com/LocNguyenHuu/Rockxy.git
+git clone https://github.com/RockxyApp/Rockxy.git
 cd Rockxy
 git checkout develop
 ```
@@ -85,7 +85,7 @@ docs/                  # Mintlify docs site
 
 ## Reporting Bugs
 
-Open a [GitHub issue](https://github.com/LocNguyenHuu/Rockxy/issues) with your macOS version, Rockxy version, and reproduction steps.
+Open a [GitHub issue](https://github.com/RockxyApp/Rockxy/issues) with your macOS version, Rockxy version, and reproduction steps.
 
 ## Contributor License Agreement
 
