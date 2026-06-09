@@ -10,7 +10,6 @@ struct BodyInspectorView: View {
         if let body = transaction.response?.body {
             AsyncInspectorTextEditor(
                 renderID: "\(transaction.id.uuidString)-legacy-body-\(body.count)",
-                fontSize: 12,
                 highlightContext: highlightContext
             ) {
                 InspectorPayloadFormatter.requestBodyText(body)

@@ -25,6 +25,7 @@ struct SearchFilterBar: View {
 
             TextField(String(localized: "Search..."), text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .font(metrics.swiftUIFont())
                 .focused($isSearchFocused)
 
             if !searchText.isEmpty {
@@ -38,7 +39,7 @@ struct SearchFilterBar: View {
             }
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.vertical, max(4, (metrics.fontSize - 10) / 3))
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
         .onReceive(NotificationCenter.default.publisher(for: .focusMainSearchField)) { _ in
@@ -48,4 +49,5 @@ struct SearchFilterBar: View {
     }
 
     @FocusState private var isSearchFocused: Bool
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

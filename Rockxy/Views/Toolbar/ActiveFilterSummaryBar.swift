@@ -99,19 +99,21 @@ struct ActiveFilterSummaryBar: View {
                     Button(String(localized: "Clear All")) {
                         clearAllFilters()
                     }
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: metrics.secondaryFontSize, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .buttonStyle(.borderless)
                 }
                 .padding(.horizontal, 8)
             }
-            .frame(height: 26)
+            .frame(height: metrics.filterBarHeight)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
             .overlay(alignment: .bottom) { Divider() }
         }
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasActiveFilters: Bool {
         coordinator.filterCriteria.sidebarDomain != nil
@@ -145,12 +147,12 @@ private struct FilterChip: View {
     var body: some View {
         HStack(spacing: 4) {
             Text(label)
-                .font(.system(size: 11))
+                .font(.system(size: metrics.secondaryFontSize))
                 .lineLimit(1)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 10))
+                    .font(.system(size: metrics.badgeFontSize))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
@@ -166,4 +168,6 @@ private struct FilterChip: View {
                 )
         )
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

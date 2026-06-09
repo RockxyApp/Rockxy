@@ -133,7 +133,12 @@ enum Theme {
         static let matchHighlightText = Color(nsColor: matchHighlightTextNS)
 
         static let matchHighlightNS = NSColor.systemYellow.withAlphaComponent(0.36)
-        static let matchHighlightTextNS = NSColor.labelColor
+        static let matchHighlightTextNS = NSColor(name: nil) { appearance in
+            let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
+            return bestMatch == .darkAqua
+                ? NSColor(calibratedWhite: 1.0, alpha: 1.0)
+                : NSColor(calibratedWhite: 0.0, alpha: 1.0)
+        }
     }
 
     // MARK: - Plugin

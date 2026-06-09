@@ -305,8 +305,7 @@ struct WebSocketInspectorView: View {
         {
             let payload = frame.payload
             AsyncInspectorTextEditor(
-                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)",
-                fontSize: 11
+                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)"
             ) {
                 if let text = String(data: payload, encoding: .utf8) {
                     return .text(text)

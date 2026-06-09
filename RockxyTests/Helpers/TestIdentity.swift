@@ -23,6 +23,15 @@ enum TestIdentity {
         "onlyListenOnLocalhost",
         "listenIPv6",
         "autoSelectPort",
+        "appTheme",
+        "appearance.fontSize",
+        "appearance.tabWidth",
+        "appearance.useMonospacedFont",
+        "appearance.bodyWordWrap",
+        "appearance.bodyShowInvisibles",
+        "appearance.bodyShowMinimap",
+        "appearance.bodyScrollBeyondLastLine",
+        "appearance.useAlternatingRowBackgroundColors",
         "certificate.lastExportedRootCAPath",
     ].map { "\(defaultsPrefix).\($0)" }
 

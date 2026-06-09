@@ -13,7 +13,7 @@ struct RequestInspectorView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(String(localized: "Request"))
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: metrics.fontSize, weight: .bold))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -31,6 +31,7 @@ struct RequestInspectorView: View {
     @State private var selectedPreviewTab: PreviewTab?
 
     @State private var showPreviewPopover = false
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var inspectorTabBar: some View {
         InspectorTabStrip {
@@ -139,7 +140,6 @@ struct RequestInspectorView: View {
         if let body = transaction.request.body {
             AsyncInspectorTextEditor(
                 renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
-                fontSize: 12,
                 highlightContext: highlightContext
             ) {
                 InspectorPayloadFormatter.requestBodyText(body)
@@ -157,7 +157,6 @@ struct RequestInspectorView: View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
         return AsyncInspectorTextEditor(
             renderID: "\(snapshot.id.uuidString)-request-raw-\(snapshot.request.body?.count ?? 0)",
-            fontSize: 12,
             highlightContext: highlightContext
         ) {
             .text(InspectorPayloadFormatter.rawRequest(snapshot.request))

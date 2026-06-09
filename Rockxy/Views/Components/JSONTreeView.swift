@@ -58,6 +58,7 @@ struct JSONTreeView: View {
     @State private var selectedMatchPath: String?
 
     @FocusState private var isSearchFocused: Bool
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var queryTaskID: String {
         switch state {
@@ -75,7 +76,7 @@ struct JSONTreeView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(String(localized: "Parsing JSON..."))
-                    .font(.system(size: 12))
+                    .font(metrics.swiftUIFont())
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -90,7 +91,7 @@ struct JSONTreeView: View {
 
         case let .text(text):
             Text(text)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: metrics.fontSize, design: .monospaced))
                 .textSelection(.enabled)
 
         case .unavailable:
@@ -122,12 +123,12 @@ struct JSONTreeView: View {
             .frame(width: 118)
 
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+                .font(.system(size: metrics.fontSize))
                 .foregroundStyle(.secondary)
 
             TextField(filterMode.placeholder, text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: metrics.fontSize, design: .monospaced))
                 .focused($isSearchFocused)
                 .onSubmit {
                     advanceSelection()
@@ -148,7 +149,7 @@ struct JSONTreeView: View {
                 .frame(height: 14)
 
             Text(statusText)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: metrics.secondaryFontSize, weight: .medium))
                 .foregroundStyle(queryError == nil ? Color.secondary : Color.red)
                 .frame(minWidth: 86, alignment: .trailing)
         }
@@ -394,6 +395,7 @@ private struct JSONTreeNodeView: View {
     private static let indentWidth: CGFloat = 16
 
     @State private var isExpanded = true
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var effectiveExpanded: Bool {
         filter == nil ? isExpanded : true
@@ -406,10 +408,10 @@ private struct JSONTreeNodeView: View {
     @ViewBuilder private var keyLabel: some View {
         if let key = node.key {
             Text("\"\(key)\"")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.system(size: metrics.fontSize, weight: .medium, design: .monospaced))
                 .foregroundStyle(Theme.JSON.key)
             Text(": ")
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: metrics.fontSize, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
     }
@@ -421,7 +423,7 @@ private struct JSONTreeNodeView: View {
             }
         } label: {
             Image(systemName: effectiveExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 9))
+                .font(.system(size: metrics.badgeFontSize))
                 .foregroundStyle(.secondary)
                 .frame(width: 16, height: 16)
         }
@@ -455,11 +457,11 @@ private struct JSONTreeNodeView: View {
                 disclosureButton
                 keyLabel
                 Text(effectiveExpanded ? openBracket : "\(openBracket)...\(closeBracket)\(comma)")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: metrics.fontSize, design: .monospaced))
                     .foregroundStyle(Theme.JSON.bracket)
                 if !effectiveExpanded {
                     Text(" // \(count) items")
-                        .font(.system(size: 11))
+                        .font(.system(size: metrics.secondaryFontSize))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -472,7 +474,7 @@ private struct JSONTreeNodeView: View {
 
                 HStack(spacing: 0) {
                     Text("\(closeBracket)\(comma)")
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: metrics.fontSize, design: .monospaced))
                         .foregroundStyle(Theme.JSON.bracket)
                 }
                 .padding(.leading, CGFloat(depth) * Self.indentWidth)
@@ -490,10 +492,10 @@ private struct JSONTreeNodeView: View {
                 .frame(width: 16)
             keyLabel
             valueContent()
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: metrics.fontSize, design: .monospaced))
                 .textSelection(.enabled)
             Text(comma)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: metrics.fontSize, design: .monospaced))
                 .foregroundStyle(Theme.JSON.bracket)
         }
         .padding(.leading, CGFloat(depth) * Self.indentWidth)

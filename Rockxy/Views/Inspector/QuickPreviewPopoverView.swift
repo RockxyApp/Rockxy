@@ -19,6 +19,7 @@ struct QuickPreviewPopoverView: View {
     }
 
     @State private var copied = false
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var title: String {
         switch result {
@@ -54,7 +55,7 @@ struct QuickPreviewPopoverView: View {
         switch result {
         case let .json(_, text),
              let .text(_, text):
-            InspectorBodyTextEditor(text: text, fontSize: 12)
+            InspectorBodyTextEditor(text: text, editorSettings: metrics.inspectorTextEditorSettings)
                 .frame(minHeight: 220)
         case let .keyValue(_, rows):
             ScrollView {
@@ -62,10 +63,10 @@ struct QuickPreviewPopoverView: View {
                     ForEach(rows) { row in
                         HStack(alignment: .top, spacing: 8) {
                             Text(row.key)
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .font(.system(size: metrics.fontSize, weight: .semibold, design: .monospaced))
                                 .frame(width: 150, alignment: .topLeading)
                             Text(row.value)
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(.system(size: metrics.fontSize, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .topLeading)
                         }
@@ -115,11 +116,14 @@ struct QuickPreviewPopoverView: View {
             }
 
             TabView {
-                InspectorBodyTextEditor(text: preview.headerText, fontSize: 12)
+                InspectorBodyTextEditor(text: preview.headerText, editorSettings: metrics.inspectorTextEditorSettings)
                     .tabItem { Text(String(localized: "Header")) }
-                InspectorBodyTextEditor(text: preview.payloadText, fontSize: 12)
+                InspectorBodyTextEditor(text: preview.payloadText, editorSettings: metrics.inspectorTextEditorSettings)
                     .tabItem { Text(String(localized: "Payload")) }
-                InspectorBodyTextEditor(text: preview.signaturePreview, fontSize: 12)
+                InspectorBodyTextEditor(
+                    text: preview.signaturePreview,
+                    editorSettings: metrics.inspectorTextEditorSettings
+                )
                     .tabItem { Text(String(localized: "Signature")) }
             }
             .frame(minHeight: 210)

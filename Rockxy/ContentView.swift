@@ -141,6 +141,7 @@ struct ContentView: View {
                 }
             }
         }
+        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.settings.appUI))
     }
 
     // MARK: Private
@@ -149,6 +150,7 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Bindable private var coordinator: MainContentCoordinator
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool
     private let representedWorkspaceID: UUID?
 

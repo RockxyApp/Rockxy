@@ -42,19 +42,21 @@ struct ProtocolFilterBar: View {
                         activeFilters.removeAll()
                     }
                     .buttonStyle(.borderless)
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 8)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, max(4, (metrics.fontSize - 10) / 3))
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottom) { Divider() }
         .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private func isActive(_ filter: ProtocolFilter) -> Bool {
         if filter == .all {

@@ -29,7 +29,7 @@ struct JSONPathEvaluator: Sendable {
             try Task.checkCancellation()
             nodes = try apply(segment, to: nodes, visited: &visited)
             if nodes.count > limits.maxResultNodes {
-                nodes = Array(nodes.prefix(limits.maxResultNodes))
+                nodes = Array(nodes.prefix(limits.maxResultNodes + 1))
                 break
             }
         }
@@ -84,8 +84,8 @@ struct JSONPathEvaluator: Sendable {
                 for selector in selectors {
                     try Task.checkCancellation()
                     results.append(contentsOf: try apply(selector, to: candidate))
-                    if results.count >= limits.maxResultNodes {
-                        return Array(results.prefix(limits.maxResultNodes))
+                    if results.count > limits.maxResultNodes {
+                        return Array(results.prefix(limits.maxResultNodes + 1))
                     }
                 }
             }
@@ -287,7 +287,7 @@ private extension JSONPathEvaluator {
         case .subsetof:
             let lhs = Set(arrayValues(left))
             let rhs = Set(arrayValues(right))
-            return .bool(lhs.isSubset(of: rhs))
+            return .bool(!lhs.isEmpty && lhs.isSubset(of: rhs))
         case .anyof:
             let lhs = Set(arrayValues(left))
             let rhs = Set(arrayValues(right))

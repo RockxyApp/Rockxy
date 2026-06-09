@@ -14,14 +14,14 @@ struct FilterPillButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                .font(.system(size: metrics.secondaryFontSize, weight: isActive ? .semibold : .regular))
                 .foregroundStyle(
                     isActive
                         ? Theme.FilterPill.activeForeground
                         : Theme.FilterPill.inactiveForeground
                 )
                 .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.vertical, max(3, (metrics.fontSize - 10) / 3))
                 .background(
                     isActive
                         ? Theme.FilterPill.activeBackground
@@ -31,4 +31,6 @@ struct FilterPillButton: View {
         }
         .buttonStyle(.borderless)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

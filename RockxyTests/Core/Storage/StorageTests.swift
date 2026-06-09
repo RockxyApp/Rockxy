@@ -108,6 +108,17 @@ struct AppSettingsStorageTests {
         settings.onlyListenOnLocalhost = false
         settings.listenIPv6 = true
         settings.autoSelectPort = true
+        settings.appTheme = .dark
+        settings.appUI = AppUISettings(
+            fontSize: 20,
+            tabWidth: 4,
+            useMonospacedFont: true,
+            bodyWordWrap: false,
+            bodyShowInvisibles: true,
+            bodyShowMinimap: true,
+            bodyScrollBeyondLastLine: true
+        )
+        settings.appUI.useAlternatingRowBackgroundColors = false
         settings.lastExportedRootCAPath = "/tmp/RockxyRootCA.pem"
 
         AppSettingsStorage.save(settings)
@@ -119,6 +130,15 @@ struct AppSettingsStorageTests {
         #expect(loaded.onlyListenOnLocalhost == false)
         #expect(loaded.listenIPv6 == true)
         #expect(loaded.autoSelectPort == true)
+        #expect(loaded.appTheme == .dark)
+        #expect(loaded.appUI.fontSize == 20)
+        #expect(loaded.appUI.tabWidth == 4)
+        #expect(loaded.appUI.useMonospacedFont == true)
+        #expect(loaded.appUI.bodyWordWrap == false)
+        #expect(loaded.appUI.bodyShowInvisibles == true)
+        #expect(loaded.appUI.bodyShowMinimap == true)
+        #expect(loaded.appUI.bodyScrollBeyondLastLine == true)
+        #expect(loaded.appUI.useAlternatingRowBackgroundColors == false)
         #expect(loaded.lastExportedRootCAPath == "/tmp/RockxyRootCA.pem")
 
         settings.lastExportedRootCAPath = nil
@@ -136,7 +156,57 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.autoStartProxy == false)
         #expect(defaultSettings.listenIPv6 == false)
         #expect(defaultSettings.autoSelectPort == true)
+        #expect(defaultSettings.appTheme == .system)
+        #expect(defaultSettings.appUI == .default)
         #expect(defaultSettings.lastExportedRootCAPath == nil)
+    }
+
+    @Test("appearance settings reject invalid stored menu values")
+    func invalidAppearanceStoredValuesFallBackToDefaults() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
+        let defaults = UserDefaults.standard
+        defaults.set("neon", forKey: RockxyIdentity.current.defaultsKey("appTheme"))
+        defaults.set(99, forKey: RockxyIdentity.current.defaultsKey("appearance.fontSize"))
+        defaults.set(3, forKey: RockxyIdentity.current.defaultsKey("appearance.tabWidth"))
+
+        let loaded = AppSettingsStorage.load()
+
+        #expect(loaded.appTheme == .system)
+        #expect(loaded.appUI.fontSize == AppUISettings.defaultFontSize)
+        #expect(loaded.appUI.tabWidth == AppUISettings.defaultTabWidth)
+    }
+
+    @MainActor
+    @Test("restore appearance defaults resets only appearance values")
+    func restoreAppearanceDefaults() {
+        let cleanup = installSettingsTestGuard()
+        defer {
+            AppSettingsManager.shared.settings = AppSettingsStorage.load()
+            cleanup()
+        }
+
+        var settings = AppSettings()
+        settings.proxyPort = 8_181
+        settings.appTheme = .dark
+        settings.appUI = AppUISettings(
+            fontSize: 24,
+            tabWidth: 4,
+            useMonospacedFont: true,
+            bodyWordWrap: false,
+            bodyShowInvisibles: true,
+            bodyShowMinimap: true,
+            bodyScrollBeyondLastLine: true
+        )
+        settings.appUI.useAlternatingRowBackgroundColors = false
+        AppSettingsManager.shared.settings = settings
+
+        AppSettingsManager.shared.restoreAppearanceDefaults()
+
+        #expect(AppSettingsManager.shared.settings.proxyPort == 8_181)
+        #expect(AppSettingsManager.shared.settings.appTheme == .system)
+        #expect(AppSettingsManager.shared.settings.appUI == .default)
     }
 
     // MARK: Private

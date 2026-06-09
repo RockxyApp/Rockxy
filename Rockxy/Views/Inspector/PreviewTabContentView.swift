@@ -105,6 +105,7 @@ private struct AsyncPreviewTabRenderView: View {
     }
 
     @State private var state: AsyncPreviewLoadState = .loading
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     @ViewBuilder
     private func loadedContent(_ result: AsyncPreviewResult) -> some View {
@@ -113,8 +114,20 @@ private struct AsyncPreviewTabRenderView: View {
             if mode == .htmlPreview {
                 HTMLPreviewView(html: text, baseURL: baseURL)
             } else {
-                InspectorBodyTextEditor(text: text, fontSize: 12)
+                let editorSettings = metrics.inspectorTextEditorSettings
+                HStack(spacing: 0) {
+                    InspectorBodyTextEditor(
+                        text: text,
+                        editorID: renderID,
+                        editorSettings: editorSettings
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if editorSettings.showMinimap {
+                        InspectorTextMinimapView(text: text, editorID: renderID)
+                            .frame(width: 48)
+                    }
+                }
             }
         case let .hex(text):
             HexDumpView(hexText: text)

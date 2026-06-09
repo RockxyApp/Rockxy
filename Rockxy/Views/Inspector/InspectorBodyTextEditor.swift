@@ -6,8 +6,29 @@ import SwiftUI
 /// horizontal scrolling, and lightweight syntax coloring.
 struct InspectorBodyTextEditor: NSViewRepresentable {
     let text: String
-    var fontSize: CGFloat = 12
+    var editorID: String = UUID().uuidString
+    var editorSettings = InspectorTextEditorSettings()
     var highlightContext: InspectorHighlightContext = .empty
+
+    init(
+        text: String,
+        editorID: String = UUID().uuidString,
+        editorSettings: InspectorTextEditorSettings = InspectorTextEditorSettings(),
+        highlightContext: InspectorHighlightContext = .empty
+    ) {
+        self.text = text
+        self.editorID = editorID
+        self.editorSettings = editorSettings
+        self.highlightContext = highlightContext
+    }
+
+    init(text: String, fontSize: CGFloat, highlightContext: InspectorHighlightContext = .empty) {
+        self.init(
+            text: text,
+            editorSettings: InspectorTextEditorSettings(fontSize: Int(fontSize)),
+            highlightContext: highlightContext
+        )
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -15,6 +36,8 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = makeScrollView(context: context)
+        context.coordinator.editorID = editorID
+        context.coordinator.scrollView = scrollView
         configure(scrollView)
         apply(text, to: scrollView, coordinator: context.coordinator)
         return scrollView
@@ -24,14 +47,17 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         guard let textView = nsView.documentView as? NSTextView else {
             return
         }
-        if textView.string != text || textView.font?.pointSize != fontSize {
+        context.coordinator.editorID = editorID
+        context.coordinator.scrollView = nsView
+        applyEditorSettings(to: nsView)
+        if textView.string != text || context.coordinator.lastEditorSettings != editorSettings {
             let selectedRange = textView.selectedRange()
             apply(text, to: nsView, coordinator: context.coordinator)
             textView.setSelectedRange(clamped(range: selectedRange, length: (text as NSString).length))
         } else if context.coordinator.lastHighlightIdentity != highlightContext.identity {
             context.coordinator.scheduleHighlight(
                 text: text,
-                fontSize: fontSize,
+                editorSettings: editorSettings,
                 highlightContext: highlightContext,
                 in: nsView
             )
@@ -43,10 +69,29 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
     final class Coordinator {
         var highlightTask: Task<Void, Never>?
         var lastHighlightIdentity = ""
+        var lastEditorSettings = InspectorTextEditorSettings()
+        var editorID = ""
+        weak var scrollView: NSScrollView?
+        private var scrollObserver: NSObjectProtocol?
         private var previewPopover: NSPopover?
+
+        init() {
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: .inspectorTextMinimapScrollRequested,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                Task { @MainActor in
+                    self?.handleMinimapScroll(notification)
+                }
+            }
+        }
 
         deinit {
             highlightTask?.cancel()
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
         }
 
         @MainActor
@@ -63,12 +108,13 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         @MainActor
         func scheduleHighlight(
             text: String,
-            fontSize: CGFloat,
+            editorSettings: InspectorTextEditorSettings,
             highlightContext: InspectorHighlightContext,
             in scrollView: NSScrollView
         ) {
             highlightTask?.cancel()
             lastHighlightIdentity = highlightContext.identity
+            lastEditorSettings = editorSettings
 
             highlightTask = Task { [weak scrollView] in
                 let spans = await Task.detached(priority: .utility) {
@@ -85,7 +131,7 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
                 }
 
                 let selectedRange = textView.selectedRange()
-                let attributed = Self.baseAttributedString(text, fontSize: fontSize)
+                let attributed = Self.baseAttributedString(text, editorSettings: editorSettings)
                 for span in spans where NSMaxRange(span.range) <= attributed.length {
                     attributed.addAttribute(.foregroundColor, value: span.role.color, range: span.range)
                 }
@@ -99,15 +145,44 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
             }
         }
 
-        private static func baseAttributedString(_ text: String, fontSize: CGFloat) -> NSMutableAttributedString {
+        private static func baseAttributedString(
+            _ text: String,
+            editorSettings: InspectorTextEditorSettings
+        )
+            -> NSMutableAttributedString
+        {
             NSMutableAttributedString(
                 string: text,
                 attributes: [
-                    .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+                    .font: editorSettings.appKitFont,
                     .foregroundColor: NSColor.textColor,
                     .backgroundColor: NSColor.textBackgroundColor,
+                    .paragraphStyle: paragraphStyle(for: editorSettings),
                 ]
             )
+        }
+
+        private static func paragraphStyle(for editorSettings: InspectorTextEditorSettings) -> NSParagraphStyle {
+            let style = NSMutableParagraphStyle()
+            style.defaultTabInterval = editorSettings.tabInterval
+            return style
+        }
+
+        @MainActor
+        private func handleMinimapScroll(_ notification: Notification) {
+            guard let requestedID = notification.userInfo?["editorID"] as? String,
+                  requestedID == editorID,
+                  let fraction = notification.userInfo?["fraction"] as? CGFloat,
+                  let scrollView,
+                  let documentView = scrollView.documentView else
+            {
+                return
+            }
+            let visibleHeight = scrollView.contentView.bounds.height
+            let maxY = max(0, documentView.bounds.height - visibleHeight + scrollView.contentInsets.bottom)
+            let y = min(max(0, fraction), 1) * maxY
+            scrollView.contentView.scroll(to: NSPoint(x: scrollView.contentView.bounds.origin.x, y: y))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
         nonisolated private static func highlightSpans(for text: String) -> [HighlightSpan] {
@@ -185,25 +260,17 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
-        textView.textContainerInset = NSSize(width: 8, height: 8)
-        textView.isHorizontallyResizable = true
         textView.isVerticallyResizable = true
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
 
         let ruler = ScriptCodeEditorRulerView(textView: textView)
         scrollView.verticalRulerView = ruler
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
+        applyEditorSettings(to: scrollView)
     }
 
     private func makeScrollView(context: Context) -> NSScrollView {
@@ -234,24 +301,96 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
             return
         }
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        applyEditorSettings(to: scrollView)
+        textView.font = editorSettings.appKitFont
         textView.textColor = .textColor
         textView.backgroundColor = .textBackgroundColor
         textView.typingAttributes = [
-            .font: NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular),
+            .font: editorSettings.appKitFont,
             .foregroundColor: NSColor.textColor,
             .backgroundColor: NSColor.textBackgroundColor,
+            .paragraphStyle: paragraphStyle(for: editorSettings),
         ]
 
         if let coordinator {
             coordinator.scheduleHighlight(
                 text: text,
-                fontSize: fontSize,
+                editorSettings: editorSettings,
                 highlightContext: highlightContext,
                 in: scrollView
             )
         }
         (scrollView.verticalRulerView as? ScriptCodeEditorRulerView)?.invalidateLineNumbers()
+    }
+
+    private func applyEditorSettings(to scrollView: NSScrollView) {
+        Self.applyEditorSettings(editorSettings, to: scrollView)
+    }
+
+    static func applyEditorSettings(_ editorSettings: InspectorTextEditorSettings, to scrollView: NSScrollView) {
+        guard let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+        scrollView.hasHorizontalScroller = !editorSettings.wordWrap
+        scrollView.contentInsets = NSEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: editorSettings.scrollBeyondLastLine ? 160 : 0,
+            right: 0
+        )
+
+        textView.font = editorSettings.appKitFont
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.isHorizontallyResizable = !editorSettings.wordWrap
+        textView.autoresizingMask = editorSettings.wordWrap ? [.width] : []
+        textView.layoutManager?.showsInvisibleCharacters = editorSettings.showInvisibles
+        textView.layoutManager?.showsControlCharacters = editorSettings.showInvisibles
+
+        if editorSettings.wordWrap {
+            textView.frame.size.width = max(scrollView.contentSize.width, 1)
+            textView.textContainer?.containerSize = NSSize(
+                width: max(scrollView.contentSize.width, 0),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.textContainer?.widthTracksTextView = true
+        } else {
+            textView.frame.size.width = max(textView.frame.width, scrollView.contentSize.width)
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            textView.textContainer?.widthTracksTextView = false
+        }
+        applyTextStorageSettings(editorSettings, to: textView)
+        textView.layoutManager?.invalidateLayout(forCharacterRange: NSRange(location: 0, length: textView.string.utf16.count), actualCharacterRange: nil)
+        textView.needsDisplay = true
+    }
+
+    private static func applyTextStorageSettings(_ editorSettings: InspectorTextEditorSettings, to textView: NSTextView) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.defaultTabInterval = editorSettings.tabInterval
+        let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+        textView.typingAttributes = [
+            .font: editorSettings.appKitFont,
+            .foregroundColor: NSColor.textColor,
+            .backgroundColor: NSColor.textBackgroundColor,
+            .paragraphStyle: paragraphStyle,
+        ]
+        guard fullRange.length > 0, let textStorage = textView.textStorage else {
+            return
+        }
+        textStorage.beginEditing()
+        textStorage.addAttributes([
+            .font: editorSettings.appKitFont,
+            .paragraphStyle: paragraphStyle,
+        ], range: fullRange)
+        textStorage.endEditing()
+    }
+
+    private func paragraphStyle(for editorSettings: InspectorTextEditorSettings) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.defaultTabInterval = editorSettings.tabInterval
+        return style
     }
 
     private struct HighlightSpan: Sendable {
@@ -353,7 +492,6 @@ final class InspectorSelectableTextView: NSTextView {
 
 struct AsyncInspectorTextEditor: View {
     let renderID: String
-    var fontSize: CGFloat = 12
     var highlightContext: InspectorHighlightContext = .empty
     let render: @Sendable () -> InspectorTextRenderResult
 
@@ -371,14 +509,29 @@ struct AsyncInspectorTextEditor: View {
         }
     }
 
+    @Environment(\.appUIDisplayMetrics) private var metrics
     @State private var state: InspectorTextLoadState = .loading
 
     @ViewBuilder
     private func loadedContent(_ result: InspectorTextRenderResult) -> some View {
         switch result {
         case let .text(text):
-            InspectorBodyTextEditor(text: text, fontSize: fontSize, highlightContext: highlightContext)
+            let editorSettings = metrics.inspectorTextEditorSettings
+            HStack(spacing: 0) {
+                InspectorBodyTextEditor(
+                    text: text,
+                    editorID: renderID,
+                    editorSettings: editorSettings,
+                    highlightContext: highlightContext
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if editorSettings.showMinimap {
+                    InspectorTextMinimapView(text: text, editorID: renderID)
+                        .frame(width: 48)
+                        .transition(.opacity)
+                }
+            }
         case let .unavailable(title, systemImage, description):
             InspectorEmptyStateView(title, systemImage: systemImage, description: description)
         }
@@ -395,6 +548,69 @@ struct AsyncInspectorTextEditor: View {
         }
         state = .loaded(result)
     }
+}
+
+// MARK: - InspectorTextMinimapView
+
+struct InspectorTextMinimapView: View {
+    let text: String
+    let editorID: String
+
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let lines = sampledLines
+                guard !lines.isEmpty else {
+                    return
+                }
+                let rowHeight = max(1, size.height / CGFloat(lines.count))
+                for (index, line) in lines.enumerated() {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    let ratio = min(1, CGFloat(trimmed.count) / 120)
+                    let width = max(6, ratio * (size.width - 10))
+                    let rect = CGRect(
+                        x: 5,
+                        y: CGFloat(index) * rowHeight,
+                        width: width,
+                        height: max(1, rowHeight * 0.55)
+                    )
+                    context.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(.secondary.opacity(0.36)))
+                }
+            }
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.48))
+            .overlay(alignment: .leading) {
+                Divider()
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let fraction = min(max(value.location.y / max(proxy.size.height, 1), 0), 1)
+                        NotificationCenter.default.post(
+                            name: .inspectorTextMinimapScrollRequested,
+                            object: nil,
+                            userInfo: ["editorID": editorID, "fraction": fraction]
+                        )
+                    }
+            )
+            .help(String(localized: "Click or drag to scroll body text"))
+        }
+    }
+
+    private var sampledLines: [String] {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard lines.count > Self.maxLines else {
+            return lines
+        }
+        let step = max(1, lines.count / Self.maxLines)
+        return stride(from: 0, to: lines.count, by: step).map { lines[$0] }
+    }
+
+    private static let maxLines = 900
+}
+
+private extension Notification.Name {
+    static let inspectorTextMinimapScrollRequested = Notification.Name("InspectorTextMinimapScrollRequested")
 }
 
 // MARK: - AsyncHexDumpView

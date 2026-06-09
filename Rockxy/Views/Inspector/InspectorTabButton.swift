@@ -10,7 +10,7 @@ struct InspectorTabButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 11, weight: isActive ? .bold : .regular))
+                .font(.system(size: metrics.secondaryFontSize, weight: isActive ? .bold : .regular))
                 .foregroundStyle(isActive ? Theme.Inspector.tabActive : Theme.Inspector.tabInactive)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
@@ -19,4 +19,6 @@ struct InspectorTabButton: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

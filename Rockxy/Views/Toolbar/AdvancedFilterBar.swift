@@ -38,7 +38,7 @@ struct AdvancedFilterBar: View {
             Text("On/Off: ⌘B")
             Text("Hide: ESC")
         }
-        .font(.system(size: 10.5))
+        .font(.system(size: max(10.5, metrics.secondaryFontSize - 0.5)))
         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -53,7 +53,7 @@ struct AdvancedFilterBar: View {
 
             if isFirst {
                 Text("Where")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: metrics.secondaryFontSize, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(width: Self.connectorWidth, alignment: .leading)
             } else {
@@ -83,7 +83,7 @@ struct AdvancedFilterBar: View {
 
             TextField(String(localized: "Text"), text: $rules[index].value)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .font(metrics.swiftUIFont())
 
             Button {
                 removeRule(at: index)
@@ -110,7 +110,7 @@ struct AdvancedFilterBar: View {
         .padding(.horizontal, 12)
         .padding(.top, index == 0 ? 8 : 4)
         .padding(.bottom, 0)
-        .frame(minHeight: 30)
+        .frame(minHeight: max(30, metrics.fontSize + 18))
         .opacity(rules[index].isEnabled ? 1.0 : 0.5)
     }
 
@@ -134,6 +134,8 @@ struct AdvancedFilterBar: View {
 
     private static let enableToggleWidth: CGFloat = 22
     private static let connectorWidth: CGFloat = 76
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var presetMenu: some View {
         Menu {

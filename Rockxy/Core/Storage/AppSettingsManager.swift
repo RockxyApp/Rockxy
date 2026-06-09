@@ -32,6 +32,33 @@ final class AppSettingsManager {
         save()
     }
 
+    func updateAppTheme(_ theme: AppTheme) {
+        settings.appTheme = theme
+        save()
+        AppThemeApplier.apply(theme.rawValue)
+    }
+
+    func updateAppUI(_ appUI: AppUISettings) {
+        var validated = appUI
+        validated.fontSize = AppUISettings.validFontSize(appUI.fontSize)
+        validated.tabWidth = AppUISettings.validTabWidth(appUI.tabWidth)
+        settings.appUI = validated
+        save()
+    }
+
+    func updateAppUI(_ update: (inout AppUISettings) -> Void) {
+        var appUI = settings.appUI
+        update(&appUI)
+        updateAppUI(appUI)
+    }
+
+    func restoreAppearanceDefaults() {
+        settings.appTheme = .system
+        settings.appUI = .default
+        save()
+        AppThemeApplier.apply(AppTheme.system.rawValue)
+    }
+
     func updateMCPServerEnabled(_ enabled: Bool) {
         settings.mcpServerEnabled = enabled
         save()

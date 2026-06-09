@@ -199,7 +199,7 @@ private struct FooterToolingChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.caption2.weight(.semibold))
+            .font(.system(size: metrics.badgeFontSize, weight: .semibold))
             .foregroundStyle(Color.white)
             .lineLimit(1)
             .padding(.horizontal, 9)
@@ -207,6 +207,8 @@ private struct FooterToolingChrome: ViewModifier {
             .background(backgroundColor, in: Capsule())
             .opacity(isEnabled ? 1 : 0.45)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var backgroundColor: Color {
         if isActive {
@@ -229,7 +231,7 @@ private struct FooterPrimaryButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.callout)
+                .font(metrics.swiftUIFont())
                 .foregroundStyle(isActive ? Color.accentColor : Color(nsColor: .labelColor))
                 .lineLimit(1)
                 .padding(.horizontal, 16)
@@ -243,6 +245,7 @@ private struct FooterPrimaryButton: View {
     // MARK: Private
 
     @State private var isHovered = false
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var backgroundColor: Color {
         if isActive {
@@ -295,7 +298,7 @@ struct StatusBarView: View {
             rightStats
         }
         .padding(.horizontal, 12)
-        .frame(height: 34)
+        .frame(height: metrics.statusBarHeight)
         .background(Theme.StatusBar.background)
         .overlay(alignment: .top) {
             Divider()
@@ -340,13 +343,13 @@ struct StatusBarView: View {
         Group {
             if let provenance = sessionProvenance {
                 Text(provenance.displayText)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: metrics.secondaryFontSize, weight: .medium))
                     .foregroundStyle(Color.accentColor)
                     .lineLimit(1)
                     .truncationMode(.middle)
             } else {
                 Text(statusText)
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             }
         }
@@ -356,7 +359,7 @@ struct StatusBarView: View {
         HStack(spacing: 8) {
             if let selectedRequestInfo {
                 Text(selectedRequestInfo)
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                     .lineLimit(1)
 
@@ -367,9 +370,9 @@ struct StatusBarView: View {
             if errorCount > 0 {
                 HStack(spacing: 3) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 9))
+                        .font(.system(size: metrics.badgeFontSize))
                     Text(String(localized: "\(errorCount) errors"))
-                        .font(.system(size: 11))
+                        .font(.system(size: metrics.secondaryFontSize))
                 }
                 .foregroundStyle(Color(nsColor: .systemRed))
             }
@@ -379,17 +382,17 @@ struct StatusBarView: View {
             }
 
             Text("\(formattedDataSize) total")
-                .font(.system(size: 11))
+                .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                 .help("Total captured payload bytes")
 
             Text("↑ \(formattedSpeed(uploadSpeed))")
-                .font(.system(size: 11))
+                .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(Color(nsColor: .systemGreen))
                 .help("Captured upload throughput")
 
             Text("↓ \(formattedSpeed(downloadSpeed))")
-                .font(.system(size: 11))
+                .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(Color.accentColor)
                 .help("Captured download throughput")
 
@@ -418,6 +421,7 @@ struct StatusBarView: View {
     }
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     @ViewBuilder
     private var toolingButtons: some View {
@@ -442,7 +446,7 @@ struct StatusBarView: View {
 
     private func statusPill(_ title: String, color: Color) -> some View {
         Text(title)
-            .font(.caption2.weight(.semibold))
+            .font(.system(size: metrics.badgeFontSize, weight: .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .padding(.horizontal, 9)
@@ -483,9 +487,9 @@ private struct SessionDurationView: View {
     var body: some View {
         HStack(spacing: 3) {
             Image(systemName: "clock")
-                .font(.system(size: 9))
+                .font(.system(size: metrics.badgeFontSize))
             Text(formattedDuration)
-                .font(.system(size: 11).monospacedDigit())
+                .font(.system(size: metrics.secondaryFontSize).monospacedDigit())
         }
         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         .onReceive(timer) { tick in
@@ -496,6 +500,7 @@ private struct SessionDurationView: View {
     // MARK: Private
 
     @State private var now = Date()
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 

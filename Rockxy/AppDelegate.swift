@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let defaults = UserDefaults.standard
-        let theme = defaults.string(forKey: Self.identity.defaultsKey("appTheme")) ?? "system"
+        let theme = AppSettingsStorage.load().appTheme.rawValue
         AppThemeApplier.apply(theme)
 
         defaults.register(defaults: [

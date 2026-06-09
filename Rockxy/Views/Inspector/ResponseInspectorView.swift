@@ -21,7 +21,7 @@ struct ResponseInspectorView: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(String(localized: "Response"))
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: metrics.fontSize, weight: .bold))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -45,10 +45,10 @@ struct ResponseInspectorView: View {
     @State private var selectionIntent: ResponseSelectionIntent = .automatic
     @State private var bodyDisplayMode: ResponseBodyDisplayMode = .json
     @State private var sortJSONKeys = true
-    @State private var bodyFontSize: CGFloat = 12
 
     @State private var showPreviewPopover = false
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasProtocolTab: Bool {
         transaction.webSocketConnection != nil || transaction.graphQLInfo != nil
@@ -202,14 +202,6 @@ struct ResponseInspectorView: View {
 
             Menu(String(localized: "Settings")) {
                 Toggle(String(localized: "Sort JSON Keys"), isOn: $sortJSONKeys)
-                Menu(String(localized: "Font Size")) {
-                    Button("11") { bodyFontSize = 11 }
-                    Button("12") { bodyFontSize = 12 }
-                    Button("13") { bodyFontSize = 13 }
-                    Button("14") { bodyFontSize = 14 }
-                }
-                Button(String(localized: "Theme…")) {}
-                    .disabled(true)
             }
 
             Menu(String(localized: "Format with")) {
@@ -267,9 +259,9 @@ struct ResponseInspectorView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(bodyDisplayMode.displayName)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: metrics.secondaryFontSize, weight: .medium))
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: metrics.badgeFontSize, weight: .semibold))
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
             }
             .padding(.horizontal, 7)
@@ -395,7 +387,6 @@ struct ResponseInspectorView: View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
         AsyncInspectorTextEditor(
             renderID: "\(snapshot.id.uuidString)-response-raw-\(snapshot.response?.body?.count ?? 0)",
-            fontSize: bodyFontSize,
             highlightContext: highlightContext
         ) {
             if let text = InspectorPayloadFormatter.rawResponse(snapshot.response) {
@@ -414,7 +405,6 @@ struct ResponseInspectorView: View {
         let sortedKeys = sortJSONKeys
         AsyncInspectorTextEditor(
             renderID: "\(transaction.id.uuidString)-response-json-\(sortedKeys)-\(body.count)",
-            fontSize: bodyFontSize,
             highlightContext: highlightContext
         ) {
             if let text = InspectorPayloadFormatter.responseDisplayText(body: body, sortedKeys: sortedKeys) {

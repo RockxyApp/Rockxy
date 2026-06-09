@@ -15,27 +15,27 @@ struct SidebarBottomBar: View {
                 isAddFavoritePresented = true
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13))
+                    .font(.system(size: metrics.fontSize))
             }
             .buttonStyle(.borderless)
             .help(String(localized: "Add favorite app or domain"))
 
             HStack(spacing: 4) {
                 Image(systemName: "line.3.horizontal.decrease.circle")
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                 TextField(
                     String(localized: "Filter (\u{2318}\u{21E7}F)"),
                     text: $filterText
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: 11))
+                .font(metrics.swiftUIFont())
                 if !filterText.isEmpty {
                     Button {
                         filterText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
+                            .font(.system(size: metrics.badgeFontSize))
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
@@ -51,4 +51,6 @@ struct SidebarBottomBar: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .top) { Divider() }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

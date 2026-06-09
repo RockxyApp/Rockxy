@@ -1,5 +1,51 @@
 import Foundation
 
+// MARK: - AppTheme
+
+enum AppTheme: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: String(localized: "System")
+        case .light: String(localized: "Light")
+        case .dark: String(localized: "Dark")
+        }
+    }
+}
+
+// MARK: - AppUISettings
+
+struct AppUISettings: Equatable {
+    var fontSize: Int = Self.defaultFontSize
+    var tabWidth: Int = Self.defaultTabWidth
+    var useMonospacedFont = false
+    var bodyWordWrap = true
+    var bodyShowInvisibles = false
+    var bodyShowMinimap = false
+    var bodyScrollBeyondLastLine = false
+    var useAlternatingRowBackgroundColors = true
+
+    static let defaultFontSize = 12
+    static let defaultTabWidth = 2
+    static let allowedFontSizes = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 28]
+    static let allowedTabWidths = [2, 4]
+
+    static let `default` = AppUISettings()
+
+    static func validFontSize(_ value: Int) -> Int {
+        allowedFontSizes.contains(value) ? value : defaultFontSize
+    }
+
+    static func validTabWidth(_ value: Int) -> Int {
+        allowedTabWidths.contains(value) ? value : defaultTabWidth
+    }
+}
+
 /// In-memory representation of user preferences, backed by `AppSettingsStorage` (UserDefaults).
 /// Default values match the settings UI's initial state.
 struct AppSettings {
@@ -12,6 +58,8 @@ struct AppSettings {
     var onlyListenOnLocalhost: Bool = true
     var listenIPv6: Bool = false
     var autoSelectPort: Bool = true
+    var appTheme: AppTheme = .system
+    var appUI: AppUISettings = .default
 
     /// Master toggle for the Scripting List window. When false, scripts are loaded
     /// but not executed in the proxy pipeline. Default true for backward compat.

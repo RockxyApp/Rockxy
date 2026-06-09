@@ -43,6 +43,32 @@ struct RequestTableSelectionScrollTests {
         #expect(scrollView.contentView.bounds.origin.y == preservedOrigin.y)
     }
 
+    @Test("Request table applies appearance display metrics")
+    func requestTableAppliesAppearanceDisplayMetrics() {
+        var selectedIDs = Set<UUID>()
+        var appUI = AppUISettings()
+        appUI.fontSize = 24
+        appUI.useAlternatingRowBackgroundColors = false
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: [],
+            refreshToken: 0,
+            isAppendOnly: false,
+            displayMetricsOverride: AppUIDisplayMetrics(settings: appUI),
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        let coordinator = RequestTableView.Coordinator(parent: parent)
+        let tableView = makeTableView(rowCount: 1, coordinator: coordinator)
+
+        coordinator.applyDisplayMetrics(to: tableView)
+
+        #expect(tableView.rowHeight == 40)
+        #expect(tableView.usesAlternatingRowBackgroundColors == false)
+    }
+
     private func makeScrollView(documentView: NSTableView) -> NSScrollView {
         let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 480, height: 120))
         scrollView.hasVerticalScroller = true

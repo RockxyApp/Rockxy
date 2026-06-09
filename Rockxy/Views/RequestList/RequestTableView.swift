@@ -19,7 +19,9 @@ struct RequestTableView: NSViewRepresentable {
     let rows: [RequestListRow]
     let refreshToken: Int
     let isAppendOnly: Bool
+    var displayMetricsOverride: AppUIDisplayMetrics?
     @Binding var selectedIDs: Set<UUID>
+    @Environment(\.appUIDisplayMetrics) private var displayMetrics
 
     var onSelectionChanged: ((Set<UUID>) -> Void)?
     var onDoubleClick: ((HTTPTransaction) -> Void)?
@@ -38,7 +40,6 @@ struct RequestTableView: NSViewRepresentable {
         tableView.allowsColumnReordering = true
         tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         tableView.intercellSpacing = NSSize(width: 4, height: 0)
-        tableView.rowHeight = 28
         tableView.headerView = NSTableHeaderView()
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
@@ -97,6 +98,7 @@ struct RequestTableView: NSViewRepresentable {
         scrollView.autoresizingMask = [.width, .height]
         tableView.sizeLastColumnToFit()
         context.coordinator.tableView = tableView
+        context.coordinator.applyDisplayMetrics(to: tableView)
 
         return scrollView
     }
@@ -118,7 +120,12 @@ struct RequestTableView: NSViewRepresentable {
         coordinator.lastRefreshToken = newToken
         coordinator.lastWorkspaceID = workspaceID
 
-        if workspaceChanged || newToken != oldToken {
+        let displayChanged = coordinator.applyDisplayMetrics(to: tableView)
+
+        if displayChanged {
+            tableView.reloadData()
+            coordinator.previousRowCount = rows.count
+        } else if workspaceChanged || newToken != oldToken {
             let newCount = rows.count
             if !workspaceChanged,
                isAppendOnly,
@@ -172,6 +179,10 @@ struct RequestTableView: NSViewRepresentable {
     }
 
     // MARK: Private
+
+    private var effectiveDisplayMetrics: AppUIDisplayMetrics {
+        displayMetricsOverride ?? displayMetrics
+    }
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -257,6 +268,7 @@ extension RequestTableView {
         var lastClickedColumn: String?
         var lastRefreshToken: Int = 0
         var previousRowCount: Int = 0
+        var lastAppliedDisplayMetrics: AppUIDisplayMetrics?
 
         /// Guard flag to prevent feedback loops: when we programmatically update NSTableView
         /// selection from SwiftUI state, we suppress the delegate callback that would
@@ -273,6 +285,22 @@ extension RequestTableView {
 
         func numberOfRows(in tableView: NSTableView) -> Int {
             rows.count
+        }
+
+        @discardableResult
+        func applyDisplayMetrics(to tableView: NSTableView) -> Bool {
+            let metrics = parent.effectiveDisplayMetrics
+            guard lastAppliedDisplayMetrics != metrics else {
+                return false
+            }
+            tableView.rowHeight = metrics.tableRowHeight
+            tableView.usesAlternatingRowBackgroundColors = metrics.settings.useAlternatingRowBackgroundColors
+            for column in tableView.tableColumns {
+                column.headerCell.font = .systemFont(ofSize: metrics.secondaryFontSize, weight: .medium)
+            }
+            lastAppliedDisplayMetrics = metrics
+            hasAutoSizedColumns = false
+            return true
         }
 
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
@@ -389,6 +417,7 @@ extension RequestTableView {
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             let start = max(0, visibleRange.location)
             let end = min(rows.count, visibleRange.location + visibleRange.length)
+            let metrics = parent.effectiveDisplayMetrics
 
             for rowIdx in start ..< end {
                 let rowData = rows[rowIdx]
@@ -398,35 +427,35 @@ extension RequestTableView {
                 switch columnID {
                 case "url":
                     text = rowData.host + rowData.path
-                    font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+                    font = metrics.appKitFont(monospaced: true)
                 case "client":
                     text = rowData.clientApp ?? ""
-                    font = .systemFont(ofSize: 12)
+                    font = metrics.appKitFont()
                 case "method":
                     text = rowData.method
-                    font = .systemFont(ofSize: 12, weight: .semibold)
+                    font = metrics.appKitFont(weight: .semibold)
                 case "state":
                     text = errorStatusBadgeTitle(for: rowData) ?? rowData.displayStatus
                     font = isErrorStatus(rowData)
-                        ? .systemFont(ofSize: 12, weight: .bold)
-                        : .systemFont(ofSize: 12, weight: .medium)
+                        ? metrics.appKitFont(weight: .bold)
+                        : metrics.appKitFont(weight: .medium)
                 case "code":
                     text = rowData.statusCode.map { "\($0)" } ?? ""
-                    font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+                    font = .monospacedDigitSystemFont(ofSize: metrics.fontSize, weight: .medium)
                 case "time":
                     text = RequestTableView.timeFormatter.string(from: rowData.timestamp)
-                    font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                    font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 case "duration":
                     text = rowData.totalDuration.map {
                         DurationFormatter.format(seconds: $0)
                     } ?? "—"
-                    font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                    font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 case "requestSize":
                     text = rowData.requestSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
-                    font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                    font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 case "responseSize":
                     text = rowData.responseSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
-                    font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                    font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 case "queryName":
                     // Unified display: WS rows show frame count, others show GraphQL op name
                     if rowData.isWebSocket {
@@ -435,14 +464,14 @@ extension RequestTableView {
                     } else {
                         text = rowData.graphQLOpName ?? ""
                     }
-                    font = .systemFont(ofSize: 12)
+                    font = metrics.appKitFont()
                 default:
                     if columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.") {
                         text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
-                        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+                        font = metrics.appKitFont(monospaced: true)
                     } else {
                         text = ""
-                        font = .systemFont(ofSize: 12)
+                        font = metrics.appKitFont()
                     }
                 }
 
@@ -1445,7 +1474,6 @@ extension RequestTableView {
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_status")
             let dotSize: CGFloat = 9
-            let rowHeight: CGFloat = 28
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
                let imageView = existing.subviews.first as? NSImageView
@@ -1457,18 +1485,20 @@ extension RequestTableView {
             let container = NSView()
             container.identifier = cellID
 
-            let imageView = NSImageView(frame: NSRect(
-                x: (22 - dotSize) / 2,
-                y: (rowHeight - dotSize) / 2,
-                width: dotSize,
-                height: dotSize
-            ))
+            let imageView = NSImageView()
+            imageView.translatesAutoresizingMaskIntoConstraints = false
 
             if let image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
                 imageView.image = image
             }
             imageView.contentTintColor = statusDotColor(for: row)
             container.addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: dotSize),
+                imageView.heightAnchor.constraint(equalToConstant: dotSize),
+            ])
             return container
         }
 
@@ -1480,7 +1510,6 @@ extension RequestTableView {
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_ssl")
             let iconSize: CGFloat = 12
-            let rowHeight: CGFloat = 28
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
                let imageView = existing.subviews.first as? NSImageView
@@ -1493,8 +1522,8 @@ extension RequestTableView {
             let container = NSView()
             container.identifier = cellID
 
-            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize, height: rowHeight))
-            imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize, height: iconSize))
+            imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: parent.effectiveDisplayMetrics.secondaryFontSize, weight: .medium)
             configureSSLImageView(imageView, row: row)
             container.addSubview(imageView)
             centerSSLImageView(imageView, in: container)
@@ -1569,7 +1598,6 @@ extension RequestTableView {
 
                 label = NSTextField(labelWithString: "")
                 label.alignment = .center
-                label.font = .systemFont(ofSize: 12, weight: .bold)
                 label.textColor = .white
                 label.lineBreakMode = .byTruncatingTail
                 label.wantsLayer = true
@@ -1582,10 +1610,11 @@ extension RequestTableView {
                     label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
                     label.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -4),
                     label.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                    label.heightAnchor.constraint(equalToConstant: 18),
+                    label.heightAnchor.constraint(greaterThanOrEqualToConstant: 18),
                 ])
             }
 
+            label.font = parent.effectiveDisplayMetrics.appKitFont(weight: .bold)
             label.stringValue = errorStatusBadgeTitle(for: row) ?? row.displayStatus
             label.layer?.backgroundColor = NSColor.systemRed.cgColor
             return container
@@ -1670,9 +1699,8 @@ extension RequestTableView {
         {
             let iconSize: CGFloat = 16
             let gap: CGFloat = 4
-            let rowHeight: CGFloat = 28
+            let rowHeight = parent.effectiveDisplayMetrics.tableRowHeight
             let iconY = (rowHeight - iconSize) / 2
-            let labelHeight: CGFloat = 18
 
             // Reuse existing cell: subviews order is [imageView, fallbackView, nameLabel]
             if let existing = tableView.makeView(withIdentifier: identifier, owner: nil),
@@ -1683,6 +1711,7 @@ extension RequestTableView {
                 let nameLabel = existing.subviews[2] as? NSTextField
 
                 nameLabel?.stringValue = appName
+                nameLabel?.font = parent.effectiveDisplayMetrics.appKitFont()
                 if let icon = appIcon(for: appName) {
                     imageView?.image = icon
                     imageView?.isHidden = false
@@ -1721,7 +1750,7 @@ extension RequestTableView {
 
             // Subview 2: app name label
             let nameLabel = NSTextField(labelWithString: "")
-            nameLabel.font = .systemFont(ofSize: 12)
+            nameLabel.font = parent.effectiveDisplayMetrics.appKitFont()
             nameLabel.textColor = .secondaryLabelColor
             nameLabel.lineBreakMode = .byTruncatingTail
             nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1731,7 +1760,6 @@ extension RequestTableView {
                 nameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: iconSize + gap),
                 nameLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
                 nameLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                nameLabel.heightAnchor.constraint(equalToConstant: labelHeight),
             ])
 
             // Populate content
@@ -1754,10 +1782,9 @@ extension RequestTableView {
             let container = NSView()
             container.identifier = identifier
 
-            let textHeight: CGFloat = 17
             let field = NSTextField(labelWithString: "")
             field.lineBreakMode = .byTruncatingTail
-            field.font = .systemFont(ofSize: 12)
+            field.font = parent.effectiveDisplayMetrics.appKitFont()
             field.textColor = .labelColor
             field.isBordered = false
             field.drawsBackground = false
@@ -1768,7 +1795,6 @@ extension RequestTableView {
                 field.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
                 field.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
                 field.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                field.heightAnchor.constraint(equalToConstant: textHeight),
             ])
 
             return container
@@ -1780,21 +1806,22 @@ extension RequestTableView {
             row: Int,
             rowData: RequestListRow
         ) {
+            let metrics = parent.effectiveDisplayMetrics
             cell.stringValue = ""
             cell.textColor = .labelColor
             cell.alignment = .left
-            cell.font = .systemFont(ofSize: 12)
+            cell.font = metrics.appKitFont()
 
             switch column {
             case "row":
                 cell.stringValue = "\(rowData.sequenceNumber)"
                 cell.alignment = .right
-                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "url":
                 cell.stringValue = rowData.host + rowData.path
-                cell.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+                cell.font = metrics.appKitFont(monospaced: true)
                 cell.textColor = .labelColor
 
             case "method":
@@ -1805,7 +1832,7 @@ extension RequestTableView {
                     string: method,
                     attributes: [
                         .foregroundColor: color,
-                        .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                        .font: metrics.appKitFont(weight: .semibold),
                     ]
                 )
 
@@ -1813,7 +1840,7 @@ extension RequestTableView {
                 cell.alignment = .left
                 cell.stringValue = rowData.displayStatus
                 cell.textColor = statusTextColor(for: rowData.state)
-                cell.font = .systemFont(ofSize: 12, weight: .medium)
+                cell.font = metrics.appKitFont(weight: .medium)
 
             case "code":
                 cell.alignment = .center
@@ -1823,18 +1850,18 @@ extension RequestTableView {
                         string: "\(code)",
                         attributes: [
                             .foregroundColor: color,
-                            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+                            .font: NSFont.monospacedDigitSystemFont(ofSize: metrics.fontSize, weight: .medium),
                         ]
                     )
                 } else {
                     cell.stringValue = stateLabel(for: rowData.state)
                     cell.textColor = .tertiaryLabelColor
-                    cell.font = .systemFont(ofSize: 11)
+                    cell.font = metrics.appKitFont()
                 }
 
             case "time":
                 cell.stringValue = RequestTableView.timeFormatter.string(from: rowData.timestamp)
-                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "duration":
@@ -1844,7 +1871,7 @@ extension RequestTableView {
                 } else {
                     cell.stringValue = "—"
                 }
-                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "requestSize":
@@ -1854,7 +1881,7 @@ extension RequestTableView {
                 } else {
                     cell.stringValue = "—"
                 }
-                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "responseSize":
@@ -1864,7 +1891,7 @@ extension RequestTableView {
                 } else {
                     cell.stringValue = "—"
                 }
-                cell.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
             case "queryName":
@@ -1880,7 +1907,7 @@ extension RequestTableView {
             default:
                 if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
                     cell.stringValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
-                    cell.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+                    cell.font = metrics.appKitFont(monospaced: true)
                     cell.textColor = .secondaryLabelColor
                 } else {
                     cell.stringValue = ""

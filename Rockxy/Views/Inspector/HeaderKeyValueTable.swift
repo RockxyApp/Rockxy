@@ -27,17 +27,19 @@ struct HeaderKeyValueTable: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 
+    @Environment(\.appUIDisplayMetrics) private var metrics
+
     private var headerRow: some View {
         HStack(spacing: 0) {
             Text(String(localized: "Key"))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: metrics.fontSize, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 180, alignment: .leading)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
             Divider()
             Text(String(localized: "Value"))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: metrics.fontSize, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 10)
@@ -49,7 +51,7 @@ struct HeaderKeyValueTable: View {
     private func row(_ header: HTTPHeader) -> some View {
         HStack(spacing: 0) {
             HighlightedInspectorText(text: header.name, highlightContext: highlightContext)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .fontWeight(.semibold)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
@@ -60,13 +62,13 @@ struct HeaderKeyValueTable: View {
             Divider()
             HStack(alignment: .top, spacing: 6) {
                 HighlightedInspectorText(text: header.value, highlightContext: highlightContext)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 if let badge = HeaderDebugBadge.classify(header.name) {
                     Text(badge.title)
-                        .font(.caption2.weight(.semibold))
+                        .font(.system(size: metrics.badgeFontSize, weight: .semibold))
                         .foregroundStyle(badge.foreground)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 2)
