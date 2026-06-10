@@ -30,7 +30,7 @@ struct AppearanceSettingsTab: View {
                 .padding(.top, 12)
                 .padding(.bottom, 24)
         }
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.settings.appUI))
+        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
     }
 
     // MARK: Private
@@ -38,11 +38,11 @@ struct AppearanceSettingsTab: View {
     private let settingsManager = AppSettingsManager.shared
 
     private var appUI: AppUISettings {
-        settingsManager.settings.appUI
+        settingsManager.appUI
     }
 
     private var appTheme: AppTheme {
-        settingsManager.settings.appTheme
+        settingsManager.appTheme
     }
 
     private var appUISection: some View {

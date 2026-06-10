@@ -9,14 +9,24 @@ final class AppSettingsManager {
     // MARK: Lifecycle
 
     private init() {
-        settings = AppSettingsStorage.load()
+        let loadedSettings = AppSettingsStorage.load()
+        settings = loadedSettings
+        appUI = loadedSettings.appUI
+        appTheme = loadedSettings.appTheme
     }
 
     // MARK: Internal
 
     static let shared = AppSettingsManager()
 
-    var settings: AppSettings
+    var settings: AppSettings {
+        didSet {
+            syncAppearanceStateFromSettings()
+        }
+    }
+
+    var appUI: AppUISettings
+    var appTheme: AppTheme
 
     func save() {
         AppSettingsStorage.save(settings)
@@ -33,8 +43,12 @@ final class AppSettingsManager {
     }
 
     func updateAppTheme(_ theme: AppTheme) {
+        guard theme != appTheme else {
+            return
+        }
+        appTheme = theme
         settings.appTheme = theme
-        save()
+        AppSettingsStorage.saveAppearance(appTheme: appTheme, appUI: appUI)
         AppThemeApplier.apply(theme.rawValue)
     }
 
@@ -42,20 +56,31 @@ final class AppSettingsManager {
         var validated = appUI
         validated.fontSize = AppUISettings.validFontSize(appUI.fontSize)
         validated.tabWidth = AppUISettings.validTabWidth(appUI.tabWidth)
+        guard validated != self.appUI else {
+            return
+        }
+        self.appUI = validated
         settings.appUI = validated
-        save()
+        AppSettingsStorage.saveAppearance(appTheme: appTheme, appUI: validated)
     }
 
     func updateAppUI(_ update: (inout AppUISettings) -> Void) {
-        var appUI = settings.appUI
+        var appUI = appUI
         update(&appUI)
         updateAppUI(appUI)
     }
 
     func restoreAppearanceDefaults() {
+        let defaultTheme = AppTheme.system
+        let defaultUI = AppUISettings.default
+        guard appTheme != defaultTheme || appUI != defaultUI else {
+            return
+        }
+        appTheme = defaultTheme
+        appUI = defaultUI
         settings.appTheme = .system
         settings.appUI = .default
-        save()
+        AppSettingsStorage.saveAppearance(appTheme: defaultTheme, appUI: defaultUI)
         AppThemeApplier.apply(AppTheme.system.rawValue)
     }
 
@@ -111,4 +136,13 @@ final class AppSettingsManager {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "AppSettingsManager")
+
+    private func syncAppearanceStateFromSettings() {
+        if appUI != settings.appUI {
+            appUI = settings.appUI
+        }
+        if appTheme != settings.appTheme {
+            appTheme = settings.appTheme
+        }
+    }
 }

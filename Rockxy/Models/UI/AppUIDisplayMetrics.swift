@@ -280,3 +280,20 @@ extension View {
         environment(\.appUIDisplayMetrics, metrics)
     }
 }
+
+// MARK: - AppUIDisplayMetricsProvider
+
+struct AppUIDisplayMetricsProvider<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
+    }
+
+    private let settingsManager = AppSettingsManager.shared
+}

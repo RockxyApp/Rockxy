@@ -120,6 +120,7 @@ struct RequestTableView: NSViewRepresentable {
         coordinator.lastRefreshToken = newToken
         coordinator.lastWorkspaceID = workspaceID
 
+        let scrollAnchor = !workspaceChanged ? coordinator.makeScrollAnchor(in: tableView) : nil
         let displayChange = coordinator.applyDisplayMetrics(to: tableView)
 
         if workspaceChanged || newToken != oldToken {
@@ -132,6 +133,9 @@ struct RequestTableView: NSViewRepresentable {
                 // Append-only fast path: coordinator confirmed rows were only appended
                 let newIndexes = IndexSet(integersIn: coordinator.previousRowCount ..< newCount)
                 tableView.insertRows(at: newIndexes, withAnimation: [])
+                if displayChange?.reloadVisibleRows == true {
+                    coordinator.reloadVisibleRows(in: tableView)
+                }
             } else {
                 tableView.reloadData()
             }
@@ -140,18 +144,7 @@ struct RequestTableView: NSViewRepresentable {
             coordinator.reloadVisibleRows(in: tableView)
         }
 
-        if !coordinator.hasAutoSizedColumns, rows.count > 10 {
-            coordinator.hasAutoSizedColumns = true
-            DispatchQueue.main.async {
-                for (index, column) in tableView.tableColumns.enumerated() {
-                    let colID = column.identifier.rawValue
-                    if colID == "client" || colID == "url" {
-                        let width = coordinator.tableView(tableView, sizeToFitWidthOfColumn: index)
-                        column.width = width
-                    }
-                }
-            }
-        }
+        coordinator.scheduleInitialAutosizeIfNeeded(in: tableView)
 
         coordinator.syncHeaderColumns(in: tableView)
         coordinator.syncSelection(to: selectedIDs, in: tableView)
@@ -171,6 +164,12 @@ struct RequestTableView: NSViewRepresentable {
             from: mainCoordinator?.activeSortDescriptors ?? [],
             into: tableView
         )
+
+        if displayChange?.rowHeightChanged == true,
+           let scrollAnchor
+        {
+            coordinator.restoreScrollAnchor(scrollAnchor, in: tableView)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -243,6 +242,48 @@ private struct ColumnSpec {
     let minWidth: CGFloat
 }
 
+// MARK: - FixedIconCellView
+
+private final class FixedIconCellView: NSView {
+    let imageView = NSImageView()
+
+    private var widthConstraint: NSLayoutConstraint?
+    private var heightConstraint: NSLayoutConstraint?
+
+    init(identifier: NSUserInterfaceItemIdentifier) {
+        super.init(frame: .zero)
+        self.identifier = identifier
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+
+        let widthConstraint = imageView.widthAnchor.constraint(equalToConstant: 0)
+        let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 0)
+        self.widthConstraint = widthConstraint
+        self.heightConstraint = heightConstraint
+
+        NSLayoutConstraint.activate([
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            widthConstraint,
+            heightConstraint,
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func updateIconSize(_ size: CGFloat) {
+        if widthConstraint?.constant != size {
+            widthConstraint?.constant = size
+        }
+        if heightConstraint?.constant != size {
+            heightConstraint?.constant = size
+        }
+    }
+}
+
 // MARK: - RequestTableAppliedMetrics
 
 private struct RequestTableAppliedMetrics: Equatable {
@@ -296,6 +337,7 @@ extension RequestTableView {
         var lastRefreshToken: Int = 0
         var previousRowCount: Int = 0
         var lastAppliedDisplayMetrics: AppUIDisplayMetrics?
+        private var autosizeGeneration = 0
         private var lastAppliedRequestTableMetrics: RequestTableAppliedMetrics?
 
         /// Guard flag to prevent feedback loops: when we programmatically update NSTableView
@@ -318,6 +360,14 @@ extension RequestTableView {
         struct DisplayMetricsChange: Equatable {
             let reloadVisibleRows: Bool
             let autosizeContentColumns: Bool
+            let rowHeightChanged: Bool
+            let contentMetricsChanged: Bool
+        }
+
+        struct ScrollAnchor: Equatable {
+            let row: Int
+            let intraRowOffset: CGFloat
+            let xOffset: CGFloat
         }
 
         @discardableResult
@@ -343,16 +393,70 @@ extension RequestTableView {
             let contentMetricsChanged = previousTableMetrics?.contentMetrics != tableMetrics.contentMetrics
             let rowHeightChanged = previousTableMetrics?.rowHeight != tableMetrics.rowHeight
             let reloadVisibleRows = previousTableMetrics == nil || contentMetricsChanged || rowHeightChanged
-            let autosizeContentColumns = previousTableMetrics == nil || contentMetricsChanged
-
-            if autosizeContentColumns {
-                hasAutoSizedColumns = false
-            }
+            let autosizeContentColumns = previousTableMetrics == nil
 
             return DisplayMetricsChange(
                 reloadVisibleRows: reloadVisibleRows,
-                autosizeContentColumns: autosizeContentColumns
+                autosizeContentColumns: autosizeContentColumns,
+                rowHeightChanged: rowHeightChanged,
+                contentMetricsChanged: contentMetricsChanged
             )
+        }
+
+        func makeScrollAnchor(in tableView: NSTableView) -> ScrollAnchor? {
+            let visibleRect = tableView.visibleRect
+            let visibleRange = tableView.rows(in: visibleRect)
+            guard visibleRange.location != NSNotFound,
+                  visibleRange.location >= 0,
+                  visibleRange.location < rows.count else
+            {
+                return nil
+            }
+            let rowRect = tableView.rect(ofRow: visibleRange.location)
+            let intraRowOffset = max(0, visibleRect.minY - rowRect.minY)
+            return ScrollAnchor(
+                row: visibleRange.location,
+                intraRowOffset: intraRowOffset,
+                xOffset: visibleRect.minX
+            )
+        }
+
+        func restoreScrollAnchor(_ anchor: ScrollAnchor, in tableView: NSTableView) {
+            guard let scrollView = tableView.enclosingScrollView,
+                  anchor.row >= 0,
+                  anchor.row < rows.count else
+            {
+                return
+            }
+            let rowRect = tableView.rect(ofRow: anchor.row)
+            let maxY = max(0, tableView.bounds.height - scrollView.contentView.bounds.height)
+            let restoredY = min(max(0, rowRect.minY + anchor.intraRowOffset), maxY)
+            scrollView.contentView.scroll(to: NSPoint(x: anchor.xOffset, y: restoredY))
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+
+        func scheduleInitialAutosizeIfNeeded(in tableView: NSTableView) {
+            guard !hasAutoSizedColumns, rows.count > 10 else {
+                return
+            }
+            hasAutoSizedColumns = true
+            autosizeGeneration += 1
+            let generation = autosizeGeneration
+            DispatchQueue.main.async { [weak self, weak tableView] in
+                guard let self,
+                      let tableView,
+                      self.autosizeGeneration == generation else
+                {
+                    return
+                }
+                for (index, column) in tableView.tableColumns.enumerated() {
+                    let colID = column.identifier.rawValue
+                    if colID == "client" || colID == "url" {
+                        let width = self.tableView(tableView, sizeToFitWidthOfColumn: index)
+                        column.width = width
+                    }
+                }
+            }
         }
 
         func reloadVisibleRows(in tableView: NSTableView) {
@@ -975,6 +1079,13 @@ extension RequestTableView {
         // MARK: - Client Cell with App Icons
 
         private static var appIconCache: [String: NSImage] = [:]
+        private static var resizedAppIconCache: [AppIconCacheKey: NSImage] = [:]
+        private static var missingAppIconNames: Set<String> = []
+
+        private struct AppIconCacheKey: Hashable {
+            let appName: String
+            let iconSize: Int
+        }
 
         private static let bundleIDByAppName: [String: String] = [
             "Chrome": "com.google.Chrome",
@@ -1544,26 +1655,14 @@ extension RequestTableView {
             let cellID = NSUserInterfaceItemIdentifier("Cell_status")
             let dotSize = parent.effectiveDisplayMetrics.tableStatusDotSize
 
-            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
-               let imageView = existing.subviews.first as? NSImageView
+            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView
             {
-                imageView.contentTintColor = statusDotColor(for: row)
-                applyFixedSize(dotSize, to: imageView, in: existing)
+                configureStatusDotCell(existing, row: row, dotSize: dotSize)
                 return existing
             }
 
-            let container = NSView()
-            container.identifier = cellID
-
-            let imageView = NSImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-
-            if let image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) {
-                imageView.image = image
-            }
-            imageView.contentTintColor = statusDotColor(for: row)
-            container.addSubview(imageView)
-            applyFixedSize(dotSize, to: imageView, in: container)
+            let container = FixedIconCellView(identifier: cellID)
+            configureStatusDotCell(container, row: row, dotSize: dotSize)
             return container
         }
 
@@ -1576,22 +1675,29 @@ extension RequestTableView {
             let cellID = NSUserInterfaceItemIdentifier("Cell_ssl")
             let iconSize = parent.effectiveDisplayMetrics.tableSSLIconSize
 
-            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil),
-               let imageView = existing.subviews.first as? NSImageView
+            if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView
             {
-                configureSSLImageView(imageView, row: row)
-                applyFixedSize(iconSize, to: imageView, in: existing)
+                configureSSLImageView(existing.imageView, row: row)
+                existing.updateIconSize(iconSize)
                 return existing
             }
 
-            let container = NSView()
-            container.identifier = cellID
-
-            let imageView = NSImageView(frame: NSRect(x: 0, y: 0, width: iconSize, height: iconSize))
-            configureSSLImageView(imageView, row: row)
-            container.addSubview(imageView)
-            applyFixedSize(iconSize, to: imageView, in: container)
+            let container = FixedIconCellView(identifier: cellID)
+            configureSSLImageView(container.imageView, row: row)
+            container.updateIconSize(iconSize)
             return container
+        }
+
+        private func configureStatusDotCell(
+            _ cell: FixedIconCellView,
+            row: RequestListRow,
+            dotSize: CGFloat
+        ) {
+            cell.imageView.imageScaling = .scaleProportionallyUpOrDown
+            cell.imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: dotSize, weight: .regular)
+            cell.imageView.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
+            cell.imageView.contentTintColor = statusDotColor(for: row)
+            cell.updateIconSize(dotSize)
         }
 
         private func statusDotColor(for row: RequestListRow) -> NSColor {
@@ -1707,34 +1813,27 @@ extension RequestTableView {
             imageView.contentTintColor = tintColor
         }
 
-        private func applyFixedSize(_ size: CGFloat, to imageView: NSImageView, in container: NSView) {
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.deactivate(container.constraints.filter { constraint in
-                constraint.firstItem as AnyObject? === imageView || constraint.secondItem as AnyObject? === imageView
-            })
-            NSLayoutConstraint.deactivate(imageView.constraints.filter { constraint in
-                constraint.firstAttribute == .width || constraint.firstAttribute == .height
-            })
-            NSLayoutConstraint.activate([
-                imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: size),
-                imageView.heightAnchor.constraint(equalToConstant: size),
-            ])
-        }
-
         private func appIcon(for appName: String) -> NSImage? {
+            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
+            let cacheKey = AppIconCacheKey(appName: appName, iconSize: Int(iconSize.rounded()))
+            if let cached = Self.resizedAppIconCache[cacheKey] {
+                return cached
+            }
             guard let source = appIconSource(for: appName),
-                  let icon = source.copy() as? NSImage else
-            {
+                  let icon = source.copy() as? NSImage else {
                 return nil
             }
-            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
             icon.size = NSSize(width: iconSize, height: iconSize)
+            Self.resizedAppIconCache[cacheKey] = icon
             return icon
         }
 
         private func appIconSource(for appName: String) -> NSImage? {
+            guard !appName.isEmpty,
+                  !Self.missingAppIconNames.contains(appName) else
+            {
+                return nil
+            }
             if let cached = Self.appIconCache[appName] {
                 return cached
             }
@@ -1766,6 +1865,7 @@ extension RequestTableView {
                 }
             }
 
+            Self.missingAppIconNames.insert(appName)
             return nil
         }
 
@@ -1882,11 +1982,20 @@ extension RequestTableView {
             iconSize: CGFloat,
             gap: CGFloat
         ) {
-            NSLayoutConstraint.deactivate(container.constraints.filter { constraint in
-                constraint.firstItem as AnyObject? === nameLabel || constraint.secondItem as AnyObject? === nameLabel
-            })
+            let leadingConstant = iconSize + gap
+            if let leadingConstraint = container.constraints.first(where: { constraint in
+                constraint.firstItem as AnyObject? === nameLabel
+                    && constraint.firstAttribute == .leading
+                    && constraint.secondItem as AnyObject? === container
+            }) {
+                if leadingConstraint.constant != leadingConstant {
+                    leadingConstraint.constant = leadingConstant
+                }
+                return
+            }
+
             NSLayoutConstraint.activate([
-                nameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: iconSize + gap),
+                nameLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: leadingConstant),
                 nameLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -2),
                 nameLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             ])

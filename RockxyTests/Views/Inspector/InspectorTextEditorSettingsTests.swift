@@ -76,6 +76,53 @@ struct InspectorTextEditorSettingsTests {
         #expect(textView.layoutManager?.showsControlCharacters == true)
     }
 
+    @Test("Inspector editor style-only update preserves content selection and scroll without highlighting")
+    func styleOnlyUpdatePreservesEditorStateWithoutHighlighting() throws {
+        let text = (0 ..< 300).map { "line \($0): alpha beta gamma" }.joined(separator: "\n")
+        let scrollView = makeEditorScrollView(text: text)
+        let textView = try #require(scrollView.documentView as? NSTextView)
+        textView.frame.size.height = 4_000
+        textView.setSelectedRange(NSRange(location: 20, length: 8))
+        let visibleOrigin = NSPoint(x: 0, y: 120)
+        scrollView.contentView.scroll(to: visibleOrigin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        let coordinator = InspectorBodyTextEditor.Coordinator()
+        coordinator.lastEditorSettings = InspectorTextEditorSettings(fontSize: 13)
+        coordinator.lastHighlightIdentity = InspectorHighlightContext.empty.identity
+        let editor = InspectorBodyTextEditor(
+            text: text,
+            editorSettings: InspectorTextEditorSettings(fontSize: 20, useMonospacedFont: true)
+        )
+
+        editor.applyUpdate(to: scrollView, coordinator: coordinator)
+
+        let font = try #require(textView.textStorage?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        #expect(textView.string == text)
+        #expect(textView.selectedRange() == NSRange(location: 20, length: 8))
+        #expect(scrollView.contentView.bounds.origin.y == visibleOrigin.y)
+        #expect(font.pointSize == 20)
+        #expect(font.fontDescriptor.symbolicTraits.contains(.monoSpace))
+        #expect(coordinator.highlightTask == nil)
+        #expect(coordinator.lastEditorSettings == InspectorTextEditorSettings(fontSize: 20, useMonospacedFont: true))
+    }
+
+    @Test("Inspector editor no-op update does not schedule highlighting")
+    func noOpUpdateDoesNotScheduleHighlighting() throws {
+        let text = "alpha beta"
+        let scrollView = makeEditorScrollView(text: text)
+        let coordinator = InspectorBodyTextEditor.Coordinator()
+        let settings = InspectorTextEditorSettings(fontSize: 13)
+        coordinator.lastEditorSettings = settings
+        coordinator.lastHighlightIdentity = InspectorHighlightContext.empty.identity
+
+        InspectorBodyTextEditor(text: text, editorSettings: settings)
+            .applyUpdate(to: scrollView, coordinator: coordinator)
+
+        #expect(coordinator.highlightTask == nil)
+        #expect(coordinator.lastEditorSettings == settings)
+    }
+
     @Test("Inspector editor keeps ruler and wrapped text contained inside the scroll view")
     func editorRulerAndWrappedTextStayContained() throws {
         let scrollView = makeEditorScrollView(text: "GET /very/long/request/path HTTP/1.1")

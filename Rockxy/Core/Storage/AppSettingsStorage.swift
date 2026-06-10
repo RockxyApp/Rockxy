@@ -77,17 +77,7 @@ enum AppSettingsStorage {
         defaults.set(settings.listenIPv6, forKey: listenIPv6Key)
         defaults.set(settings.autoSelectPort, forKey: autoSelectPortKey)
         defaults.set(settings.appTheme.rawValue, forKey: appThemeKey)
-        defaults.set(settings.appUI.fontSize, forKey: appUIFontSizeKey)
-        defaults.set(settings.appUI.tabWidth, forKey: appUITabWidthKey)
-        defaults.set(settings.appUI.useMonospacedFont, forKey: appUIUseMonospacedFontKey)
-        defaults.set(settings.appUI.bodyWordWrap, forKey: appUIBodyWordWrapKey)
-        defaults.set(settings.appUI.bodyShowInvisibles, forKey: appUIBodyShowInvisiblesKey)
-        defaults.set(settings.appUI.bodyShowMinimap, forKey: appUIBodyShowMinimapKey)
-        defaults.set(settings.appUI.bodyScrollBeyondLastLine, forKey: appUIBodyScrollBeyondLastLineKey)
-        defaults.set(
-            settings.appUI.useAlternatingRowBackgroundColors,
-            forKey: appUIUseAlternatingRowBackgroundColorsKey
-        )
+        saveAppUI(settings.appUI, to: defaults)
         defaults.set(settings.scriptingToolEnabled, forKey: scriptingToolEnabledKey)
         defaults.set(settings.allowSystemEnvVars, forKey: allowSystemEnvVarsKey)
         defaults.set(settings.allowMultipleScriptsPerRequest, forKey: allowMultipleScriptsPerRequestKey)
@@ -101,6 +91,13 @@ enum AppSettingsStorage {
         defaults.set(settings.githubGistCopyURLToClipboard, forKey: githubGistCopyURLToClipboardKey)
         defaults.set(settings.lastExportedRootCAPath, forKey: lastExportedRootCAPathKey)
         logger.info("Settings saved")
+    }
+
+    static func saveAppearance(appTheme: AppTheme, appUI: AppUISettings) {
+        let defaults = UserDefaults.standard
+        defaults.set(appTheme.rawValue, forKey: appThemeKey)
+        saveAppUI(appUI, to: defaults)
+        logger.info("Appearance settings saved")
     }
 
     // MARK: Private
@@ -140,4 +137,18 @@ enum AppSettingsStorage {
     private static let githubGistCopyURLToClipboardKey = RockxyIdentity.current
         .defaultsKey("github.gist.copyURLToClipboard")
     private static let lastExportedRootCAPathKey = RockxyIdentity.current.defaultsKey("certificate.lastExportedRootCAPath")
+
+    private static func saveAppUI(_ appUI: AppUISettings, to defaults: UserDefaults) {
+        defaults.set(appUI.fontSize, forKey: appUIFontSizeKey)
+        defaults.set(appUI.tabWidth, forKey: appUITabWidthKey)
+        defaults.set(appUI.useMonospacedFont, forKey: appUIUseMonospacedFontKey)
+        defaults.set(appUI.bodyWordWrap, forKey: appUIBodyWordWrapKey)
+        defaults.set(appUI.bodyShowInvisibles, forKey: appUIBodyShowInvisiblesKey)
+        defaults.set(appUI.bodyShowMinimap, forKey: appUIBodyShowMinimapKey)
+        defaults.set(appUI.bodyScrollBeyondLastLine, forKey: appUIBodyScrollBeyondLastLineKey)
+        defaults.set(
+            appUI.useAlternatingRowBackgroundColors,
+            forKey: appUIUseAlternatingRowBackgroundColorsKey
+        )
+    }
 }

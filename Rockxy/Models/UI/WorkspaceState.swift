@@ -58,6 +58,7 @@ final class WorkspaceState: Identifiable {
 
     // Sidebar (per-workspace view of captured data)
     var domainTree: [DomainNode] = []
+    var totalDomainCount = 0
     var domainIndexMap: [String: Int] = [:]
     var domainGroupingIndex = DomainGroupingIndex()
     var appNodes: [AppInfo] = []
@@ -72,6 +73,7 @@ final class WorkspaceState: Identifiable {
         selectedLogEntry = nil
         selectedTransactionIDs.removeAll()
         domainTree.removeAll()
+        totalDomainCount = 0
         domainIndexMap.removeAll()
         domainGroupingIndex.removeAll()
         appNodes.removeAll()

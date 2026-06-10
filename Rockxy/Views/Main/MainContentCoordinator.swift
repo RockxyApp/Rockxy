@@ -60,6 +60,18 @@ final class MainContentCoordinator {
         let generation: UInt
     }
 
+    struct SidebarFavoritesCacheKey: Equatable {
+        let transactionCount: Int
+        let persistedFavoriteCount: Int
+        let sessionGeneration: UInt
+    }
+
+    struct SidebarFavoritesCache {
+        let key: SidebarFavoritesCacheKey
+        let pinned: [HTTPTransaction]
+        let saved: [HTTPTransaction]
+    }
+
     static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MainContentCoordinator")
 
     let policy: any AppPolicy
@@ -88,6 +100,7 @@ final class MainContentCoordinator {
 
     var transactions: [HTTPTransaction] = []
     var persistedFavorites: [HTTPTransaction] = []
+    @ObservationIgnored private var sidebarFavoritesCache: SidebarFavoritesCache?
     var isProxyRunning = false
     var isProxyStarting = false
     var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
@@ -276,17 +289,46 @@ final class MainContentCoordinator {
     // MARK: - Sidebar Favorites (live + persisted, deduplicated)
 
     var allPinnedTransactions: [HTTPTransaction] {
-        let live = transactions.filter(\.isPinned)
-        let persisted = persistedFavorites.filter(\.isPinned)
-        let liveIds = Set(live.map(\.id))
-        return live + persisted.filter { !liveIds.contains($0.id) }
+        sidebarFavoriteTransactions().pinned
     }
 
     var allSavedTransactions: [HTTPTransaction] {
-        let live = transactions.filter(\.isSaved)
-        let persisted = persistedFavorites.filter(\.isSaved)
-        let liveIds = Set(live.map(\.id))
-        return live + persisted.filter { !liveIds.contains($0.id) }
+        sidebarFavoriteTransactions().saved
+    }
+
+    var totalDomainCount: Int {
+        activeWorkspace.totalDomainCount
+    }
+
+    func invalidateSidebarFavoriteCache() {
+        sidebarFavoritesCache = nil
+    }
+
+    private func sidebarFavoriteTransactions() -> SidebarFavoritesCache {
+        let key = SidebarFavoritesCacheKey(
+            transactionCount: transactions.count,
+            persistedFavoriteCount: persistedFavorites.count,
+            sessionGeneration: sessionGeneration
+        )
+        if let cache = sidebarFavoritesCache,
+           cache.key == key
+        {
+            return cache
+        }
+
+        let livePinned = transactions.filter(\.isPinned)
+        let persistedPinned = persistedFavorites.filter(\.isPinned)
+        let livePinnedIds = Set(livePinned.map(\.id))
+        let liveSaved = transactions.filter(\.isSaved)
+        let persistedSaved = persistedFavorites.filter(\.isSaved)
+        let liveSavedIds = Set(liveSaved.map(\.id))
+        let cache = SidebarFavoritesCache(
+            key: key,
+            pinned: livePinned + persistedPinned.filter { !livePinnedIds.contains($0.id) },
+            saved: liveSaved + persistedSaved.filter { !liveSavedIds.contains($0.id) }
+        )
+        sidebarFavoritesCache = cache
+        return cache
     }
 
     /// Configure shared policy gates. Called once from the app's main
@@ -373,6 +415,7 @@ final class MainContentCoordinator {
                 do {
                     let persisted = try await store.loadPinnedAndSavedTransactions()
                     self.persistedFavorites = persisted
+                    self.invalidateSidebarFavoriteCache()
                     // Assign deterministic sequence numbers starting from current counter
                     // to avoid collisions with live rows assigned while the load suspended
                     let base = self.nextSequenceNumber

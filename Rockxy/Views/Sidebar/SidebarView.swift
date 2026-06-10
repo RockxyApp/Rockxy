@@ -18,12 +18,10 @@ private struct AppIconView: View {
                 .resizable()
                 .interpolation(.high)
                 .frame(width: iconSize, height: iconSize)
-                .id(iconSize)
         } else {
             RoundedRectangle(cornerRadius: 5)
                 .fill(gradient)
                 .frame(width: iconSize, height: iconSize)
-                .id(iconSize)
                 .overlay {
                     Text(letter)
                         .font(.system(size: max(11, metrics.sidebarSecondaryFontSize), weight: .bold, design: .rounded))
@@ -41,6 +39,13 @@ private struct AppIconView: View {
     }
 
     private static var iconCache: [String: NSImage] = [:]
+    private static var resizedIconCache: [IconCacheKey: NSImage] = [:]
+    private static var missingIconNames: Set<String> = []
+
+    private struct IconCacheKey: Hashable {
+        let name: String
+        let size: Int
+    }
 
     private static let bundleIDMap: [String: String] = [
         "Chrome": "com.google.Chrome",
@@ -71,16 +76,26 @@ private struct AppIconView: View {
     }
 
     private static func resolvedIcon(for name: String, size: CGFloat) -> NSImage? {
+        let cacheKey = IconCacheKey(name: name, size: Int(size.rounded()))
+        if let cached = resizedIconCache[cacheKey] {
+            return cached
+        }
         guard let source = resolveIconSource(for: name),
               let icon = source.copy() as? NSImage else
         {
             return nil
         }
         icon.size = NSSize(width: size, height: size)
+        resizedIconCache[cacheKey] = icon
         return icon
     }
 
     private static func resolveIconSource(for name: String) -> NSImage? {
+        guard !name.isEmpty,
+              !missingIconNames.contains(name) else
+        {
+            return nil
+        }
         if let cached = iconCache[name] {
             return cached
         }
@@ -108,6 +123,7 @@ private struct AppIconView: View {
             }
         }
 
+        missingIconNames.insert(name)
         return nil
     }
 }
@@ -165,10 +181,6 @@ struct SidebarView: View {
 
     private var appNodes: [AppInfo] {
         coordinator.appNodes
-    }
-
-    private var totalDomainCount: Int {
-        coordinator.domainTree.reduce(0) { $0 + $1.requestCount }
     }
 
     // MARK: - Sections
@@ -292,7 +304,7 @@ struct SidebarView: View {
                 }
             } label: {
                 Label(String(localized: "Domains"), systemImage: "globe")
-                    .badge(totalDomainCount)
+                    .badge(coordinator.totalDomainCount)
                     .tag(SidebarItem.allDomains)
                     .frame(minHeight: metrics.sidebarRowHeight)
                     .contentShape(Rectangle())

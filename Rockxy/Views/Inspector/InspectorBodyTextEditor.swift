@@ -44,18 +44,37 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
+        applyUpdate(to: nsView, coordinator: context.coordinator)
+    }
+
+    // MARK: Internal
+
+    func applyUpdate(to nsView: NSScrollView, coordinator: Coordinator) {
         guard let textView = nsView.documentView as? NSTextView else {
             return
         }
-        context.coordinator.editorID = editorID
-        context.coordinator.scrollView = nsView
-        applyEditorSettings(to: nsView)
-        if textView.string != text || context.coordinator.lastEditorSettings != editorSettings {
+        coordinator.editorID = editorID
+        coordinator.scrollView = nsView
+
+        let textChanged = textView.string != text
+        let settingsChanged = coordinator.lastEditorSettings != editorSettings
+        let highlightChanged = coordinator.lastHighlightIdentity != highlightContext.identity
+
+        if textChanged {
             let selectedRange = textView.selectedRange()
-            apply(text, to: nsView, coordinator: context.coordinator)
+            let visibleOrigin = nsView.contentView.bounds.origin
+            apply(text, to: nsView, coordinator: coordinator)
             textView.setSelectedRange(clamped(range: selectedRange, length: (text as NSString).length))
-        } else if context.coordinator.lastHighlightIdentity != highlightContext.identity {
-            context.coordinator.scheduleHighlight(
+            restoreVisibleOrigin(visibleOrigin, in: nsView)
+        } else if settingsChanged {
+            let selectedRange = textView.selectedRange()
+            let visibleOrigin = nsView.contentView.bounds.origin
+            applyEditorSettings(to: nsView)
+            coordinator.lastEditorSettings = editorSettings
+            textView.setSelectedRange(clamped(range: selectedRange, length: (text as NSString).length))
+            restoreVisibleOrigin(visibleOrigin, in: nsView)
+        } else if highlightChanged {
+            coordinator.scheduleHighlight(
                 text: text,
                 editorSettings: editorSettings,
                 highlightContext: highlightContext,
@@ -63,8 +82,6 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
             )
         }
     }
-
-    // MARK: Internal
 
     final class Coordinator {
         var highlightTask: Task<Void, Never>?
@@ -399,6 +416,18 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         let style = NSMutableParagraphStyle()
         style.defaultTabInterval = editorSettings.tabInterval
         return style
+    }
+
+    private func restoreVisibleOrigin(_ origin: NSPoint, in scrollView: NSScrollView) {
+        let clipView = scrollView.contentView
+        let documentHeight = scrollView.documentView?.bounds.height ?? clipView.bounds.height
+        let maxY = max(0, documentHeight - clipView.bounds.height + scrollView.contentInsets.bottom)
+        let restoredOrigin = NSPoint(
+            x: max(0, origin.x),
+            y: min(max(0, origin.y), maxY)
+        )
+        clipView.scroll(to: restoredOrigin)
+        scrollView.reflectScrolledClipView(clipView)
     }
 
     private struct HighlightSpan: Sendable {

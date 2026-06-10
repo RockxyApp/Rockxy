@@ -203,6 +203,63 @@ struct AppSettingsStorageTests {
         #expect(loaded.appUI.tabWidth == AppUISettings.defaultTabWidth)
     }
 
+    @Test("appearance persistence updates only appearance values")
+    func appearancePersistenceUpdatesOnlyAppearanceValues() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
+        var settings = AppSettings()
+        settings.proxyPort = 8_181
+        settings.recordOnLaunch = false
+        settings.githubGistAskBeforePublishing = false
+        AppSettingsStorage.save(settings)
+
+        var appUI = AppUISettings.default
+        appUI.fontSize = 20
+        appUI.tabWidth = 4
+        appUI.useMonospacedFont = true
+        AppSettingsStorage.saveAppearance(appTheme: .dark, appUI: appUI)
+
+        let loaded = AppSettingsStorage.load()
+
+        #expect(loaded.proxyPort == 8_181)
+        #expect(loaded.recordOnLaunch == false)
+        #expect(loaded.githubGistAskBeforePublishing == false)
+        #expect(loaded.appTheme == .dark)
+        #expect(loaded.appUI.fontSize == 20)
+        #expect(loaded.appUI.tabWidth == 4)
+        #expect(loaded.appUI.useMonospacedFont == true)
+    }
+
+    @MainActor
+    @Test("appearance manager split state stays coherent with settings snapshot")
+    func appearanceManagerSplitStateStaysCoherentWithSettingsSnapshot() {
+        let cleanup = installSettingsTestGuard()
+        let originalSettings = AppSettingsManager.shared.settings
+        defer {
+            AppSettingsManager.shared.settings = originalSettings
+            cleanup()
+        }
+
+        var settings = AppSettings()
+        settings.appTheme = .light
+        settings.appUI.fontSize = 12
+        AppSettingsManager.shared.settings = settings
+
+        #expect(AppSettingsManager.shared.appTheme == .light)
+        #expect(AppSettingsManager.shared.appUI.fontSize == 12)
+
+        var updatedUI = AppSettingsManager.shared.appUI
+        updatedUI.fontSize = 20
+        AppSettingsManager.shared.updateAppUI(updatedUI)
+        AppSettingsManager.shared.updateAppTheme(.dark)
+
+        #expect(AppSettingsManager.shared.appUI.fontSize == 20)
+        #expect(AppSettingsManager.shared.settings.appUI.fontSize == 20)
+        #expect(AppSettingsManager.shared.appTheme == .dark)
+        #expect(AppSettingsManager.shared.settings.appTheme == .dark)
+    }
+
     @MainActor
     @Test("restore appearance defaults resets only appearance values")
     func restoreAppearanceDefaults() {

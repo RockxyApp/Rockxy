@@ -60,6 +60,7 @@ extension MainContentCoordinator {
 
     func refreshDomainTree(for workspace: WorkspaceState, alphabetical: Bool = false) {
         workspace.domainTree = workspace.domainGroupingIndex.makeTree(alphabetical: alphabetical)
+        workspace.totalDomainCount = workspace.domainTree.reduce(0) { $0 + $1.requestCount }
         workspace.domainIndexMap.removeAll(keepingCapacity: true)
         for (index, node) in workspace.domainTree.enumerated() {
             workspace.domainIndexMap[node.selectionDomain] = index

@@ -289,6 +289,94 @@ struct RequestTableSelectionScrollTests {
         #expect(tableView.usesAlternatingRowBackgroundColors == false)
     }
 
+    @Test("Request table font metric changes reload visible rows without rescheduling autosize")
+    func requestTableFontMetricChangesReloadVisibleRowsWithoutReschedulingAutosize() {
+        var selectedIDs = Set<UUID>()
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: [],
+            refreshToken: 0,
+            isAppendOnly: false,
+            displayMetricsOverride: AppUIDisplayMetrics(settings: .default),
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        let coordinator = RequestTableView.Coordinator(parent: parent)
+        let tableView = makeTableView(rowCount: 1, coordinator: coordinator)
+        _ = coordinator.applyDisplayMetrics(to: tableView)
+
+        var appUI = AppUISettings.default
+        appUI.fontSize = 20
+        coordinator.parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: [],
+            refreshToken: 0,
+            isAppendOnly: false,
+            displayMetricsOverride: AppUIDisplayMetrics(settings: appUI),
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+
+        let change = coordinator.applyDisplayMetrics(to: tableView)
+
+        #expect(change?.reloadVisibleRows == true)
+        #expect(change?.contentMetricsChanged == true)
+        #expect(change?.rowHeightChanged == true)
+        #expect(change?.autosizeContentColumns == false)
+    }
+
+    @Test("Request table row-height metric changes preserve top visible row anchor")
+    func requestTableRowHeightChangesPreserveTopVisibleRowAnchor() throws {
+        var selectedIDs = Set<UUID>()
+        let rows = TestFixtures.makeBulkTransactions(count: 80).map {
+            RequestListRow(from: $0, sslState: .insecure)
+        }
+        var appUI = AppUISettings.default
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: rows,
+            refreshToken: 0,
+            isAppendOnly: false,
+            displayMetricsOverride: AppUIDisplayMetrics(settings: appUI),
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        let coordinator = RequestTableView.Coordinator(parent: parent)
+        coordinator.rows = rows
+        let tableView = makeTableView(rowCount: rows.count, coordinator: coordinator)
+        let scrollView = makeScrollView(documentView: tableView)
+        _ = coordinator.applyDisplayMetrics(to: tableView)
+        tableView.reloadData()
+        tableView.frame.size.height = CGFloat(rows.count) * tableView.rowHeight
+
+        tableView.scrollRowToVisible(25)
+        let anchor = try #require(coordinator.makeScrollAnchor(in: tableView))
+
+        appUI.fontSize = 20
+        coordinator.parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: rows,
+            refreshToken: 1,
+            isAppendOnly: false,
+            displayMetricsOverride: AppUIDisplayMetrics(settings: appUI),
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        _ = coordinator.applyDisplayMetrics(to: tableView)
+        tableView.frame.size.height = CGFloat(rows.count) * tableView.rowHeight
+        coordinator.restoreScrollAnchor(anchor, in: tableView)
+
+        #expect(tableView.rows(in: scrollView.contentView.bounds).location == anchor.row)
+    }
+
     @Test("Request table scales row height after default size")
     func requestTableScalesRowHeightAfterDefaultSize() {
         var selectedIDs = Set<UUID>()
@@ -539,13 +627,16 @@ struct RequestTableSelectionScrollTests {
 
         #expect(fixedConstraintConstant(.width, for: statusImageView) == expected.tableStatusDotSize)
         #expect(fixedConstraintConstant(.height, for: statusImageView) == expected.tableStatusDotSize)
+        #expect(fixedConstraintCount(for: statusImageView) == 2)
         #expect(fixedConstraintConstant(.width, for: sslImageView) == expected.tableSSLIconSize)
         #expect(fixedConstraintConstant(.height, for: sslImageView) == expected.tableSSLIconSize)
+        #expect(fixedConstraintCount(for: sslImageView) == 2)
         #expect(clientImageView.frame.size.width == expected.tableClientIconSize)
         #expect(clientImageView.frame.size.height == expected.tableClientIconSize)
         #expect(fallbackView.frame.size.width == expected.tableClientIconSize)
         #expect(fallbackView.frame.size.height == expected.tableClientIconSize)
         #expect(leadingConstraintConstant(for: nameLabel, in: clientView) == expected.tableClientIconSize + 4)
+        #expect(leadingConstraintCount(for: nameLabel, in: clientView) == 1)
     }
 
     private func makeScrollView(documentView: NSTableView) -> NSScrollView {
@@ -627,11 +718,27 @@ struct RequestTableSelectionScrollTests {
         }?.constant
     }
 
+    private func fixedConstraintCount(for imageView: NSImageView) -> Int {
+        imageView.constraints.filter { constraint in
+            constraint.firstItem as AnyObject? === imageView
+                && constraint.secondItem == nil
+                && (constraint.firstAttribute == .width || constraint.firstAttribute == .height)
+        }.count
+    }
+
     private func leadingConstraintConstant(for textField: NSTextField, in container: NSView) -> CGFloat? {
         container.constraints.first { constraint in
             constraint.firstItem as AnyObject? === textField
                 && constraint.secondItem as AnyObject? === container
                 && constraint.firstAttribute == .leading
         }?.constant
+    }
+
+    private func leadingConstraintCount(for textField: NSTextField, in container: NSView) -> Int {
+        container.constraints.filter { constraint in
+            constraint.firstItem as AnyObject? === textField
+                && constraint.secondItem as AnyObject? === container
+                && constraint.firstAttribute == .leading
+        }.count
     }
 }
