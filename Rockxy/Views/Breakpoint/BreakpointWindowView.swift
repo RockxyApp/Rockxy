@@ -48,6 +48,7 @@ struct BreakpointWindowView: View {
             Divider()
             actionBar
         }
+        .font(toolMetrics.font())
         .frame(minWidth: 960, minHeight: 560)
         .onExitCommand {
             dismiss()
@@ -58,6 +59,7 @@ struct BreakpointWindowView: View {
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @AppStorage("breakpointQueueLayoutMode") private var layoutModeRaw = BreakpointQueueLayoutMode.horizontal.rawValue
 
     private let manager = BreakpointManager.shared
@@ -120,7 +122,7 @@ struct BreakpointWindowView: View {
             .help(layoutMode.help)
 
             Divider()
-                .frame(height: 22)
+                .frame(height: toolMetrics.footerControlHeight - 4)
 
             moreMenu
         }
@@ -262,11 +264,17 @@ struct BreakpointWindowView: View {
             layoutModeRaw = BreakpointQueueLayoutMode.horizontal.rawValue
         }
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }
 
 // MARK: - BreakpointQueueTableView
 
 private struct BreakpointQueueTableView: View {
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     @Bindable var manager: BreakpointManager
     let centersEmptyState: Bool
 
@@ -352,14 +360,15 @@ private struct BreakpointQueueTableView: View {
     }
 
     private var headerHeight: CGFloat {
-        32
+        max(32, toolMetrics.tableRowHeight)
     }
 
     private var emptyState: some View {
         VStack(alignment: centersEmptyState ? .center : .leading, spacing: 8) {
             Text(String(localized: "No Breakpoints"))
-                .font(.title3.weight(.semibold))
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .semibold))
             Text(String(localized: "Click \"Manage Rules\" button to create your first Breakpoint Rules"))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -371,12 +380,12 @@ private struct BreakpointQueueTableView: View {
         HStack(spacing: 0) {
             ForEach(Array(columns.enumerated()), id: \.offset) { offset, column in
                 Text(column.title)
-                    .font(.caption.weight(.semibold))
+                    .font(toolMetrics.tableHeaderFont())
                     .foregroundStyle(.primary)
                     .frame(width: columnWidths[offset], height: headerHeight, alignment: .leading)
                     .padding(.leading, 8)
                     .overlay(alignment: .trailing) {
-                        Divider().frame(height: 20)
+                        Divider().frame(height: max(20, toolMetrics.tableRowHeight - 8))
                     }
             }
         }
@@ -406,7 +415,7 @@ private struct BreakpointQueueTableView: View {
                 cell(item.queryName, width: columnWidths[10])
             }
         }
-        .frame(height: 28)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(isSelected ? Color.accentColor.opacity(0.18) : rowBackground(for: item))
         .contentShape(Rectangle())
         .onTapGesture {
@@ -424,7 +433,7 @@ private struct BreakpointQueueTableView: View {
         -> some View
     {
         Text(value)
-            .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
+            .font(monospaced ? toolMetrics.secondaryFont(monospaced: true) : toolMetrics.secondaryFont())
             .foregroundStyle(color)
             .lineLimit(1)
             .help(help ?? value)
@@ -434,7 +443,7 @@ private struct BreakpointQueueTableView: View {
 
     private func timeCell(_ date: Date, width: CGFloat) -> some View {
         Text(date, format: .dateTime.hour().minute().second())
-            .font(.system(.caption, design: .monospaced))
+            .font(toolMetrics.secondaryFont(monospaced: true))
             .monospacedDigit()
             .frame(width: width, alignment: .leading)
             .padding(.leading, 8)
@@ -448,15 +457,18 @@ private struct BreakpointQueueTableView: View {
 
     private func phaseText(_ value: String) -> some View {
         Text(value)
-            .font(.system(.body, design: .monospaced).weight(.semibold))
+            .font(toolMetrics.font(weight: .semibold, monospaced: true))
             .foregroundStyle(value == "REQ" ? Color.green : Color.blue)
     }
 
     private func phaseCell(_ value: String, width: CGFloat) -> some View {
         phaseText(value)
-            .font(.system(.caption, design: .monospaced).weight(.semibold))
             .frame(width: width, alignment: .leading)
             .padding(.leading, 8)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private func rowBackground(for item: PausedBreakpointItem) -> Color {

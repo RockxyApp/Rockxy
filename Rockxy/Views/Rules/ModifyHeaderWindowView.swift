@@ -189,7 +189,11 @@ struct ModifyHeaderWindowView: View {
             Divider()
             bottomBar
         }
-        .frame(width: 860, height: 620)
+        .font(toolMetrics.font())
+        .frame(
+            minWidth: max(860, toolMetrics.bodyFontSize * 28 + 496),
+            minHeight: max(620, toolMetrics.bodyFontSize * 18 + 386)
+        )
         .task { await viewModel.refreshFromEngine() }
         .onReceive(NotificationCenter.default.publisher(for: .rulesDidChange)) { notification in
             viewModel.handleRulesDidChange(notification)
@@ -219,36 +223,38 @@ struct ModifyHeaderWindowView: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     private var toolbar: some View {
         HStack {
             Text(String(localized: "Modify Headers"))
-                .font(.headline)
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .semibold))
             Spacer()
             TextField(String(localized: "Search"), text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 180)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.vertical, toolMetrics.headerBottomPadding)
     }
 
     @ViewBuilder private var content: some View {
         if viewModel.modifyHeaderRules.isEmpty {
             VStack(alignment: .center, spacing: 8) {
                 Image(systemName: "list.bullet.header")
-                    .font(.system(size: 20))
+                    .font(.system(size: max(20, toolMetrics.bodyFontSize + 7)))
                     .foregroundStyle(.tertiary)
                 Text(String(localized: "No Modify Header Rules"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(toolMetrics.font(weight: .medium))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Add rules to modify HTTP request and response headers."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.formVerticalPadding)
         } else {
             VStack(spacing: 0) {
                 columnHeader
@@ -277,35 +283,36 @@ struct ModifyHeaderWindowView: View {
     }
 
     private var columnHeader: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Spacer().frame(width: 24)
             Text(String(localized: "Name"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 190, alignment: .leading)
             Text(String(localized: "Method"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 70, alignment: .leading)
             Text(String(localized: "Matching Rule"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(String(localized: "Ops"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 42, alignment: .trailing)
             Text(String(localized: "Phase"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
             Text(String(localized: "Summary"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 150, alignment: .leading)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.vertical, toolMetrics.controlSpacing)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(.background.tertiary)
     }
 
@@ -318,17 +325,17 @@ struct ModifyHeaderWindowView: View {
                     localized: "Set, add, or remove HTTP headers on matching requests and responses. Each rule can have multiple header operations."
                 )
             )
-            .font(.caption)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.vertical, toolMetrics.controlSpacing)
         .background(.quaternary.opacity(0.5))
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Button {
                 viewModel.presentNewRuleEditor()
             } label: {
@@ -352,20 +359,20 @@ struct ModifyHeaderWindowView: View {
             .help(String(localized: "Delete Rule"))
 
             Divider()
-                .frame(height: 16)
+                .frame(height: max(16, toolMetrics.footerControlHeight - 10))
 
             Text(
                 "\(viewModel.ruleCount) \(viewModel.ruleCount == 1 ? String(localized: "rule") : String(localized: "rules"))"
             )
-            .font(.caption)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
 
             Spacer()
 
             presetsMenu
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.vertical, toolMetrics.footerTopPadding)
     }
 
     @ViewBuilder private var contextMenuItems: some View {
@@ -398,9 +405,13 @@ struct ModifyHeaderWindowView: View {
         } label: {
             Text(String(localized: "Presets"))
             Image(systemName: "chevron.down")
-                .font(.caption2)
+                .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
         }
         .menuStyle(.borderlessButton)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -414,7 +425,7 @@ private struct ModifyHeaderRuleRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Toggle("", isOn: Binding(
                 get: { rule.isEnabled },
                 set: { _ in onToggle() }
@@ -424,18 +435,18 @@ private struct ModifyHeaderRuleRow: View {
             .controlSize(.small)
 
             Text(rule.name)
-                .font(.system(size: 12, weight: .medium))
+                .font(toolMetrics.font(weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: 190, alignment: .leading)
 
             Text(rule.matchCondition.method ?? "ANY")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 .frame(width: 70, alignment: .leading)
 
             Text(rule.matchCondition.urlPattern ?? ".*")
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -443,12 +454,12 @@ private struct ModifyHeaderRuleRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("\(operationCount)")
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(.secondary)
                 .frame(width: 42, alignment: .trailing)
 
             Text(phaseSummary)
-                .font(.caption.weight(.medium))
+                .font(toolMetrics.metadataFont(weight: .medium))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .background(Color.green.opacity(0.12))
@@ -457,15 +468,22 @@ private struct ModifyHeaderRuleRow: View {
                 .frame(width: 72, alignment: .leading)
 
             Text(operationSummary)
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(operationSummary)
                 .frame(width: 150, alignment: .leading)
         }
+        .frame(minHeight: toolMetrics.tableRowHeight)
         .padding(.vertical, 2)
         .opacity(rule.isEnabled ? 1.0 : 0.5)
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -515,7 +533,7 @@ private struct ModifyHeaderEditSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Layout.sectionSpacing) {
+            VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing) {
                 formRow(String(localized: "Name:")) {
                     TextField("", text: $name, prompt: Text(String(localized: "Untitled")))
                         .textFieldStyle(.roundedBorder)
@@ -524,7 +542,7 @@ private struct ModifyHeaderEditSheet: View {
                 formRow(String(localized: "Matching Rule:")) {
                     TextField("", text: $urlPattern, prompt: Text("https://example.com/api/*"))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                 }
 
                 methodAndMatchRow
@@ -533,7 +551,7 @@ private struct ModifyHeaderEditSheet: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(String(localized: "Header Operations"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(toolMetrics.font(weight: .medium))
                     ScrollView {
                         ModifyHeaderEditorView(operations: $operations)
                             .padding(10)
@@ -544,12 +562,12 @@ private struct ModifyHeaderEditSheet: View {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                     }
-                    .frame(maxHeight: 300)
+                    .frame(minHeight: max(300, toolMetrics.bodyFontSize * 12 + 144))
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.top, toolMetrics.formVerticalPadding)
+            .padding(.bottom, toolMetrics.formVerticalPadding)
 
             Divider()
             HStack {
@@ -576,18 +594,18 @@ private struct ModifyHeaderEditSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValid || isSaving)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.vertical, toolMetrics.controlSpacing)
         }
-        .frame(width: 680)
+        .font(toolMetrics.font())
+        .frame(minWidth: max(720, toolMetrics.bodyFontSize * 24 + 408))
         .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
-    private static let labelWidth: CGFloat = 110
-
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     @State private var name = ""
     @State private var urlPattern = ""
@@ -618,10 +636,14 @@ private struct ModifyHeaderEditSheet: View {
             && operations.allSatisfy(\.isValid)
     }
 
+    private var labelWidth: CGFloat {
+        max(122, toolMetrics.formLabelWidth)
+    }
+
     private var methodAndMatchRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Spacer()
-                .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                .frame(width: labelWidth + toolMetrics.controlSpacing)
             Picker("", selection: $httpMethod) {
                 ForEach(HTTPMethodFilter.allCases, id: \.self) { method in
                     Text(method.rawValue).tag(method)
@@ -630,7 +652,7 @@ private struct ModifyHeaderEditSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "HTTP Method"))
-            .frame(width: 90)
+            .frame(width: toolMetrics.menuWidth(90))
 
             Picker("", selection: $matchType) {
                 ForEach(RuleMatchType.allCases, id: \.self) { type in
@@ -640,24 +662,25 @@ private struct ModifyHeaderEditSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "Match Type"))
-            .frame(width: 175)
+            .frame(width: toolMetrics.menuWidth(175))
 
             if matchType == .wildcard {
                 Text(String(localized: "Support wildcard * and ?."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     @ViewBuilder private var conditionalFields: some View {
         if matchType == .wildcard {
-            HStack(spacing: 8) {
+            HStack(spacing: toolMetrics.controlSpacing) {
                 Spacer()
-                    .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                    .frame(width: labelWidth + toolMetrics.controlSpacing)
                 Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
         }
     }
@@ -668,14 +691,20 @@ private struct ModifyHeaderEditSheet: View {
     )
         -> some View
     {
-        HStack(alignment: .top, spacing: Theme.Layout.sectionSpacing) {
+        HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
             Text(label)
-                .font(.system(size: 13))
-                .frame(width: Self.labelWidth, alignment: .trailing)
+                .font(toolMetrics.font())
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .trailing)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 4) {
                 content()
             }
+            .frame(minHeight: toolMetrics.formControlHeight)
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

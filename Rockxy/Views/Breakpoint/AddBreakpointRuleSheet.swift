@@ -53,7 +53,7 @@ struct AddBreakpointRuleSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Layout.sectionSpacing) {
+            VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing) {
                 provenanceBanner
 
                 formRow(String(localized: "Name:")) {
@@ -64,7 +64,7 @@ struct AddBreakpointRuleSheet: View {
                 formRow(String(localized: "Matching Rule:")) {
                     TextField("", text: $urlPattern, prompt: Text("https://example.com"))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                 }
 
                 methodAndMatchRow
@@ -74,18 +74,18 @@ struct AddBreakpointRuleSheet: View {
                 formRow(String(localized: "Breakpoint:")) {
                     Toggle(String(localized: "Request"), isOn: $breakpointRequest)
                         .toggleStyle(.checkbox)
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     Toggle(String(localized: "Response"), isOn: $breakpointResponse)
                         .toggleStyle(.checkbox)
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     Text(String(localized: "Select at least one phase to intercept."))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.top, toolMetrics.formVerticalPadding)
+            .padding(.bottom, toolMetrics.formVerticalPadding)
 
             Divider()
 
@@ -111,10 +111,11 @@ struct AddBreakpointRuleSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(urlPattern.isEmpty || (!breakpointRequest && !breakpointResponse))
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.vertical, toolMetrics.controlSpacing)
         }
-        .frame(width: 600)
+        .font(toolMetrics.font())
+        .frame(minWidth: max(640, toolMetrics.bodyFontSize * 20 + 380))
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -156,9 +157,8 @@ struct AddBreakpointRuleSheet: View {
 
     // MARK: Private
 
-    private static let labelWidth: CGFloat = 110
-
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var ruleName: String
     @State private var urlPattern: String
     @State private var httpMethod: HTTPMethodFilter
@@ -167,11 +167,15 @@ struct AddBreakpointRuleSheet: View {
     @State private var breakpointResponse: Bool
     @State private var includeSubpaths: Bool
 
+    private var labelWidth: CGFloat {
+        max(122, toolMetrics.formLabelWidth)
+    }
+
     @ViewBuilder private var provenanceBanner: some View {
         if let context = editorContext {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                 Group {
                     switch context.origin {
@@ -193,7 +197,7 @@ struct AddBreakpointRuleSheet: View {
                         Text(String(localized: "Created from domain: \(context.sourceHost)"))
                     }
                 }
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -205,9 +209,9 @@ struct AddBreakpointRuleSheet: View {
     }
 
     private var methodAndMatchRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Spacer()
-                .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                .frame(width: labelWidth + toolMetrics.controlSpacing)
             Picker("", selection: $httpMethod) {
                 ForEach(HTTPMethodFilter.allCases, id: \.self) { method in
                     Text(method.rawValue).tag(method)
@@ -216,7 +220,7 @@ struct AddBreakpointRuleSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "HTTP Method"))
-            .frame(width: 90)
+            .frame(width: toolMetrics.menuWidth(90))
 
             Picker("", selection: $matchType) {
                 ForEach(RuleMatchType.allCases, id: \.self) { type in
@@ -226,12 +230,13 @@ struct AddBreakpointRuleSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "Match Type"))
-            .frame(width: 175)
+            .frame(width: toolMetrics.menuWidth(175))
 
             if matchType == .wildcard {
                 Text(String(localized: "Support wildcard * and ?."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -240,10 +245,10 @@ struct AddBreakpointRuleSheet: View {
         if matchType == .wildcard {
             HStack(spacing: 8) {
                 Spacer()
-                    .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                    .frame(width: labelWidth + toolMetrics.controlSpacing)
                 Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
         }
     }
@@ -254,15 +259,21 @@ struct AddBreakpointRuleSheet: View {
     )
         -> some View
     {
-        HStack(alignment: .top, spacing: Theme.Layout.sectionSpacing) {
+        HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
             Text(label)
-                .font(.system(size: 13))
-                .frame(width: Self.labelWidth, alignment: .trailing)
+                .font(toolMetrics.font())
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .trailing)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 4) {
                 content()
             }
+            .frame(minHeight: toolMetrics.formControlHeight)
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     /// Attempts to recover a wildcard pattern from a regex-escaped pattern produced by

@@ -6,25 +6,28 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.25.0 (build 38)</title>
-      <pubDate>Tue, 09 Jun 2026 00:00:00 +0000</pubDate>
+      <title>Version 0.26.0 (build 39)</title>
+      <pubDate>Wed, 10 Jun 2026 00:00:00 +0000</pubDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.25.0/Rockxy-0.25.0-38.dmg"
-        sparkle:version="38"
-        sparkle:shortVersionString="0.25.0"
-        sparkle:edSignature="/xBoToKWKmwMrkCgjbfJ1jQdniFTaIIH+P2WlwUl3kYgWRp/bYIcEmO+8r1c9H7OkU3vslDeBJ91+L7oQjLmBQ=="
-        length="27734629"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.26.0/Rockxy-0.26.0-39.dmg"
+        sparkle:version="39"
+        sparkle:shortVersionString="0.26.0"
+        sparkle:edSignature="m8pwQOFdXNlzy4+dwVpuoD1iBcQCmmWCUmBoc0DL1pUMD1QJKgFKEGOJSQM9+iXO+Vn84jOFH8F6FMm0fXGjBg=="
+        length="27824658"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.25.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.26.0</sparkle:releaseNotesLink>
       <description><![CDATA[
-<h3>Added</h3>
+<h3>Fixed</h3>
 <ul>
-  <li>Added Appearance controls for text size, row density, body text wrapping, and preview spacing, making long sessions easier to read.</li>
+  <li>Fixed stale AppKit icon, request-table header, visible row, and workspace-tab sizing after repeated or rapid font-size changes.</li>
+  <li>Kept request-table density and saved column sizing stable while Appearance metrics refresh.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
-  <li>Improved readability across request tables, inspectors, JSON trees, filters, and status bars so the workspace stays clearer at different display settings.</li>
+  <li>Set the default Appearance font size to 13 pt so fresh installs and reset settings start from a more readable baseline.</li>
+  <li>Improved Appearance font-size scaling across the request table, inspectors, sidebar, timeline, toolbar/status surfaces, and Developer Setup views.</li>
+  <li>Reduced live Appearance update churn so font-size changes preserve inspector editor contents and avoid unnecessary request-table autosizing.</li>
 </ul>
       ]]></description>
     </item>

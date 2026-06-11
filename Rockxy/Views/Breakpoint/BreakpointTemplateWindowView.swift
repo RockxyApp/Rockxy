@@ -11,19 +11,24 @@ struct BreakpointTemplateWindowView: View {
             Divider()
             editor
         }
-        .frame(width: 802, height: 631)
+        .font(toolMetrics.font())
+        .frame(
+            minWidth: max(802, toolMetrics.bodyFontSize * 28 + 438),
+            minHeight: max(631, toolMetrics.bodyFontSize * 18 + 397)
+        )
     }
 
     // MARK: Private
 
     @State private var store = BreakpointTemplateStore.shared
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(String(localized: "Breakpoint Templates"))
-                .font(.system(size: 13))
-                .padding(.top, 20)
-                .padding(.horizontal, 20)
+                .font(toolMetrics.font(weight: .medium))
+                .padding(.top, toolMetrics.headerTopPadding)
+                .padding(.horizontal, toolMetrics.contentHorizontalPadding)
 
             List(selection: $store.selectedTemplateID) {
                 templateSection(kind: .request)
@@ -44,12 +49,12 @@ struct BreakpointTemplateWindowView: View {
         Section {
             ForEach(store.templates(for: kind)) { template in
                 Text(template.name.isEmpty ? String(localized: "Untitled") : template.name)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                     .tag(template.id)
             }
         } header: {
             Label(kind.groupTitle, systemImage: "folder")
-                .font(.system(size: 13))
+                .font(toolMetrics.font(weight: .medium))
                 .foregroundStyle(.primary)
         }
     }
@@ -61,21 +66,21 @@ struct BreakpointTemplateWindowView: View {
                     store.addTemplate()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12))
-                        .frame(width: 20, height: 20)
+                        .font(.system(size: toolMetrics.compactIconFontSize))
+                        .frame(width: toolMetrics.compactButtonSize - 3, height: toolMetrics.compactButtonSize - 3)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("n", modifiers: .command)
 
                 Divider()
-                    .frame(height: 18)
+                    .frame(height: max(18, toolMetrics.footerControlHeight - 8))
 
                 Button {
                     store.removeSelectedTemplate()
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 12))
-                        .frame(width: 20, height: 20)
+                        .font(.system(size: toolMetrics.compactIconFontSize))
+                        .frame(width: toolMetrics.compactButtonSize - 3, height: toolMetrics.compactButtonSize - 3)
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut(.delete, modifiers: .command)
@@ -83,7 +88,7 @@ struct BreakpointTemplateWindowView: View {
             }
             .background(Color(nsColor: .controlBackgroundColor))
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-            .frame(width: 42, height: 22)
+            .frame(width: max(42, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
 
             Button {
                 NSSound.beep()
@@ -129,15 +134,15 @@ struct BreakpointTemplateWindowView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "More"))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
             .buttonStyle(.bordered)
             .fixedSize()
         }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     @ViewBuilder private var editor: some View {
@@ -146,8 +151,8 @@ struct BreakpointTemplateWindowView: View {
                 Text(template.kind == .request
                     ? String(localized: "Request Template")
                     : String(localized: "Response Template"))
-                    .font(.system(size: 13))
-                    .padding(.top, 20)
+                    .font(toolMetrics.font(weight: .medium))
+                    .padding(.top, toolMetrics.headerTopPadding)
 
                 HStack(spacing: 8) {
                     Text(String(localized: "Name:"))
@@ -165,7 +170,7 @@ struct BreakpointTemplateWindowView: View {
                 Text(template.kind == .request
                     ? String(localized: "Request Raw Message")
                     : String(localized: "Response Raw Message"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font(weight: .medium))
                     .padding(.top, 2)
 
                 rawEditor(template: template)
@@ -176,13 +181,13 @@ struct BreakpointTemplateWindowView: View {
                         "To apply Breakpoint Template: In the Breakpoint Window -> Select Raw Tab -> Template"
                     )
                 )
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 18)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.bottom, toolMetrics.footerBottomPadding)
         } else {
             ContentUnavailableView(
                 String(localized: "No Template Selected"),
@@ -197,7 +202,7 @@ struct BreakpointTemplateWindowView: View {
         let validation = BreakpointRawMessage.validation(for: template.rawMessage, kind: template.kind)
         return VStack(alignment: .leading, spacing: 8) {
             Label(validation.message, systemImage: "circle.fill")
-                .font(.system(size: 12))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(validation.isValid ? Color.green : Color.red)
                 .labelStyle(.titleAndIcon)
 
@@ -208,10 +213,14 @@ struct BreakpointTemplateWindowView: View {
             .frame(minHeight: 382)
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor).opacity(0.45)))
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 12)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.top, toolMetrics.footerTopPadding)
+        .padding(.bottom, toolMetrics.formVerticalPadding)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

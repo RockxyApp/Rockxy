@@ -22,13 +22,14 @@ struct AdvancedSettingsTab: View {
                         HStack(spacing: 8) {
                             Image(systemName: helperStatusIcon)
                                 .foregroundStyle(helperStatusColor)
-                                .font(.system(size: 16))
+                                .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3)))
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(helperStatusText)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(settingsMetrics.font(weight: .medium))
                                 Text(helperStatusSubtitle)
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
 
@@ -36,31 +37,31 @@ struct AdvancedSettingsTab: View {
                         Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 4) {
                             GridRow {
                                 Text(String(localized: "Bundled:"))
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(.secondary)
                                     .gridColumnAlignment(.trailing)
                                 Text(helperManager.bundledHelperVersion)
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(settingsMetrics.secondaryFont(monospaced: true))
                             }
                             GridRow {
                                 Text(String(localized: "Installed:"))
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(.secondary)
                                 Text(helperManager.installedInfo?.binaryVersion ?? "\u{2014}")
-                                    .font(.system(size: 11, design: .monospaced))
+                                    .font(settingsMetrics.secondaryFont(monospaced: true))
                                     .foregroundStyle(installedVersionColor)
                             }
                             GridRow {
                                 Text(String(localized: "Registration:"))
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(.secondary)
                                 Text(helperManager.registrationStatus)
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(registrationColor)
                             }
                             GridRow {
                                 Text(String(localized: "XPC:"))
-                                    .font(.system(size: 11))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(.secondary)
                                 Text(
                                     helperManager.status == .notInstalled
@@ -69,7 +70,7 @@ struct AdvancedSettingsTab: View {
                                             ? String(localized: "Reachable")
                                             : String(localized: "Unreachable"))
                                 )
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                                 .foregroundStyle(xpcColor)
                             }
                         }
@@ -77,7 +78,7 @@ struct AdvancedSettingsTab: View {
                         // Error detail
                         if let errorMessage = helperManager.lastErrorMessage {
                             Text(errorMessage)
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(settingsMetrics.metadataFont(monospaced: true))
                                 .foregroundStyle(.red)
                                 .padding(6)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -188,18 +189,18 @@ struct AdvancedSettingsTab: View {
                 Divider()
 
                 Text(String(localized: "UPDATES"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(settingsMetrics.secondaryFont(weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 176)
+                    .padding(.leading, settingsMetrics.rowLeading)
 
                 updatesSection
 
                 Divider()
 
                 Text(String(localized: "MISCELLANEOUS"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(settingsMetrics.secondaryFont(weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 176)
+                    .padding(.leading, settingsMetrics.rowLeading)
 
                 checkboxRow(
                     title: String(localized: "Show alert when quitting Rockxy"),
@@ -208,9 +209,10 @@ struct AdvancedSettingsTab: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, settingsMetrics.contentPadding)
             .padding(.top, 20)
         }
+        .font(settingsMetrics.font())
     }
 
     // MARK: Private
@@ -220,9 +222,14 @@ struct AdvancedSettingsTab: View {
     @State private var helperManager = HelperManager.shared
     @State private var showUninstallConfirmation = false
     @ObservedObject private var updater = AppUpdater.shared
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     @AppStorage(RockxyIdentity.current.defaultsKey("showAlertOnQuit")) private var showAlertOnQuit =
         true // WIRED: AppDelegate.applicationShouldTerminate
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     // MARK: - Helper Tool Status
 
@@ -342,8 +349,8 @@ struct AdvancedSettingsTab: View {
     {
         HStack(alignment: .top, spacing: 0) {
             Text(label)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 160, alignment: .trailing)
+                .font(settingsMetrics.font(weight: .medium))
+                .frame(width: settingsMetrics.labelWidth, alignment: .trailing)
                 .padding(.trailing, 16)
                 .padding(.top, 2)
             content()
@@ -352,7 +359,7 @@ struct AdvancedSettingsTab: View {
 
     private func checkboxRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Color.clear.frame(width: 176)
+            Color.clear.frame(width: settingsMetrics.rowLeading)
             Toggle(title, isOn: isOn)
                 .toggleStyle(.checkbox)
         }
@@ -364,33 +371,34 @@ struct AdvancedSettingsTab: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: updater.supportsManualChecks ? "checkmark.shield.fill" : "icloud.slash")
-                            .font(.system(size: 16))
+                            .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3)))
                             .foregroundStyle(updater.supportsManualChecks ? Color.accentColor : Color.secondary)
                             .frame(width: 20)
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(localized: "Update Controls"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(settingsMetrics.font(weight: .medium))
                             Text(updater.updateAvailabilitySummary)
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
                         GridRow {
                             Text(String(localized: "Current:"))
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                                 .foregroundStyle(.secondary)
                             Text(updater.currentVersionSummary)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(settingsMetrics.secondaryFont(monospaced: true))
                         }
                         GridRow {
                             Text(String(localized: "Last Checked:"))
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                                 .foregroundStyle(.secondary)
                             Text(updater.lastCheckedDescription)
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                         }
                     }
                 }
@@ -441,15 +449,16 @@ struct AdvancedSettingsTab: View {
                             localized: "When enabled, Rockxy downloads signed updates ahead of time so install prompts are faster."
                         )
                     )
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack(alignment: .top, spacing: 10) {
                     Text(String(localized: "Check Frequency"))
-                        .font(.system(size: 11))
+                        .font(settingsMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
-                        .frame(width: 120, alignment: .leading)
+                        .frame(width: settingsMetrics.fieldWidth(120), alignment: .leading)
 
                     Picker(
                         String(localized: "Check Frequency"),
@@ -463,7 +472,7 @@ struct AdvancedSettingsTab: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 180)
+                    .frame(width: settingsMetrics.menuWidth(180))
                     .disabled(!updater.supportsAutomaticChecks || !updater.automaticallyChecksForUpdates)
                 }
 
@@ -485,8 +494,9 @@ struct AdvancedSettingsTab: View {
                             """
                         )
                     )
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }

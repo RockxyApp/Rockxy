@@ -12,20 +12,23 @@ struct ScriptConsolePanel: View {
 
     var body: some View {
         content
-        .frame(maxHeight: .infinity)
+            .font(toolMetrics.font())
+            .frame(maxHeight: .infinity)
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     @ViewBuilder private var content: some View {
         let visible = viewModel.consoleEntries.filter { viewModel.consoleFilter.contains($0.level) }
         if visible.isEmpty {
             VStack(spacing: 6) {
                 Text("Empty Console")
-                    .font(.system(size: 16))
+                    .font(.system(size: max(16, toolMetrics.bodyFontSize + 3), weight: .medium))
                     .foregroundStyle(.primary)
                 Text("Use console.log() to log events")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -48,6 +51,10 @@ struct ScriptConsolePanel: View {
             }
         }
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }
 
 // MARK: - ScriptConsoleEntryRow
@@ -60,16 +67,18 @@ private struct ScriptConsoleEntryRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
             Text(Self.formatter.string(from: entry.timestamp))
-                .font(.system(size: 10, design: .monospaced))
+                .font(toolMetrics.metadataFont(monospaced: true))
                 .foregroundStyle(.tertiary)
             Text(entry.message)
-                .font(.system(size: 11, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(colorFor(level: entry.level))
                 .textSelection(.enabled)
         }
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private static let formatter: DateFormatter = {
         let f = DateFormatter()
@@ -84,5 +93,9 @@ private struct ScriptConsoleEntryRow: View {
         case .userLogs: .primary
         case .system: .secondary
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

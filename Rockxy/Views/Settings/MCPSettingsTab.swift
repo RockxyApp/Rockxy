@@ -20,7 +20,7 @@ struct MCPSettingsTab: View {
                 aboutSection
                 Spacer()
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, settingsMetrics.contentPadding)
             .padding(.top, 24)
             .padding(.bottom, 24)
         }
@@ -45,9 +45,14 @@ struct MCPSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.serverEnabled")) private var mcpEnabled = false
 
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.redactSensitiveData")) private var mcpRedactSensitiveData = true
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var mcpCoordinator: MCPServerCoordinator {
         MCPServerCoordinator.shared
+    }
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 
     // MARK: - Helpers
@@ -94,7 +99,7 @@ struct MCPSettingsTab: View {
     private var mcpServerSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "MCP Server"))
-                .font(.system(size: 15, weight: .bold))
+                .font(settingsMetrics.font(weight: .bold))
 
             Toggle(
                 String(localized: "Enable MCP Server"),
@@ -107,8 +112,9 @@ struct MCPSettingsTab: View {
                     localized: "Start a local HTTP server for Model Context Protocol (MCP) communication with compatible tools."
                 )
             )
-            .font(.system(size: 11))
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             if mcpCoordinator.isRunning, let port = mcpCoordinator.activePort {
                 HStack(spacing: 8) {
@@ -116,7 +122,7 @@ struct MCPSettingsTab: View {
                         .fill(.green)
                         .frame(width: 10, height: 10)
                     Text(String(localized: "Running on port \(port)"))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(settingsMetrics.secondaryFont(weight: .medium))
                         .foregroundStyle(.green)
                 }
                 .padding(.leading, 4)
@@ -128,8 +134,9 @@ struct MCPSettingsTab: View {
                         .fill(.red)
                         .frame(width: 10, height: 10)
                     Text(error)
-                        .font(.system(size: 12))
+                        .font(settingsMetrics.secondaryFont())
                         .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.leading, 4)
             }
@@ -142,7 +149,7 @@ struct MCPSettingsTab: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(String(localized: "MCP Configuration"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(settingsMetrics.secondaryFont(weight: .medium))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button {
@@ -150,15 +157,15 @@ struct MCPSettingsTab: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
+                            .font(settingsMetrics.metadataFont())
                         Text(String(localized: "Copy"))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(settingsMetrics.secondaryFont(weight: .medium))
                     }
                 }
             }
 
             Text(configJSON)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(settingsMetrics.secondaryFont(monospaced: true))
                 .lineSpacing(4)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -176,8 +183,9 @@ struct MCPSettingsTab: View {
                     localized: "Add this to your MCP-compatible tool configuration file."
                 )
             )
-            .font(.system(size: 11))
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -186,7 +194,7 @@ struct MCPSettingsTab: View {
     private var privacySection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "Privacy"))
-                .font(.system(size: 15, weight: .bold))
+                .font(settingsMetrics.font(weight: .bold))
 
             Toggle(
                 String(localized: "Redact Sensitive Data Before Sending to AI"),
@@ -199,8 +207,9 @@ struct MCPSettingsTab: View {
                     localized: "Automatically redact sensitive information before sending to MCP clients."
                 )
             )
-            .font(.system(size: 11))
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -209,7 +218,7 @@ struct MCPSettingsTab: View {
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "About MCP Integration"))
-                .font(.system(size: 12, weight: .semibold))
+                .font(settingsMetrics.secondaryFont(weight: .semibold))
                 .foregroundStyle(.tertiary)
 
             Text(
@@ -221,9 +230,10 @@ struct MCPSettingsTab: View {
                     """
                 )
             )
-            .font(.system(size: 11))
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.tertiary)
             .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 

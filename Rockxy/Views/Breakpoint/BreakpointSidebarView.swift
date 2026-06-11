@@ -11,17 +11,23 @@ struct BreakpointSidebarView: View {
 
     let windowModel: BreakpointWindowModel
     let manager: BreakpointManager
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     var body: some View {
         VStack(spacing: 0) {
             if manager.pausedItems.isEmpty {
                 VStack(spacing: 4) {
                     Image(systemName: "pause.circle")
-                        .font(.title2).foregroundStyle(.secondary)
+                        .font(.system(size: max(18, toolMetrics.bodyFontSize + 5)))
+                        .foregroundStyle(.secondary)
                     Text(String(localized: "No paused items."))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(toolMetrics.secondaryFont())
+                        .foregroundStyle(.secondary)
                     Text(String(localized: "Manage breakpoint rules from Tools → Breakpoint Rules."))
-                        .font(.caption2).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+                        .font(toolMetrics.metadataFont())
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -54,5 +60,9 @@ struct BreakpointSidebarView: View {
             "^[\(count) paused item](inflect: true)",
             comment: "Section header showing how many paused items are in the breakpoint queue"
         )
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

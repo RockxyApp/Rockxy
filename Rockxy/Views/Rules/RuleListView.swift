@@ -30,6 +30,7 @@ struct RuleListView: View {
             Divider()
             bottomBar
         }
+        .font(toolMetrics.font())
         .sheet(isPresented: $showAddSheet) {
             RuleEditSheet { newRule in
                 coordinator.addRule(newRule)
@@ -47,6 +48,7 @@ struct RuleListView: View {
     @State private var editingRule: ProxyRule?
     @State private var searchText = ""
     @State private var filterAction: RuleActionType?
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var rules: [ProxyRule] {
         coordinator.rules
@@ -166,11 +168,15 @@ struct RuleListView: View {
             Text(String(localized: "Priority"))
                 .frame(width: 60, alignment: .trailing)
         }
-        .font(.caption)
+        .font(toolMetrics.secondaryFont())
         .fontWeight(.semibold)
         .foregroundStyle(.secondary)
         .padding(.vertical, 4)
         .padding(.horizontal, 4)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     // MARK: - Bottom Bar
@@ -178,7 +184,7 @@ struct RuleListView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             Text(String(localized: "\(filteredRules.count) rules"))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
 
             Spacer()
@@ -322,6 +328,7 @@ private struct RuleGridRow: View {
 
     let rule: ProxyRule
     let onToggle: () -> Void
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     var body: some View {
         HStack(spacing: 0) {
@@ -340,7 +347,7 @@ private struct RuleGridRow: View {
                 .frame(minWidth: 120, alignment: .leading)
 
             Text(rule.matchCondition.urlPattern ?? "--")
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -353,7 +360,7 @@ private struct RuleGridRow: View {
                 .frame(width: 140, alignment: .center)
 
             Text("\(rule.priority)")
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .foregroundStyle(.tertiary)
                 .frame(width: 60, alignment: .trailing)
         }
@@ -367,7 +374,7 @@ private struct RuleGridRow: View {
     @ViewBuilder private var actionBadge: some View {
         let (label, color) = actionInfo(rule.action)
         Text(label)
-            .font(.caption2)
+            .font(toolMetrics.metadataFont(weight: .medium))
             .fontWeight(.medium)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -397,6 +404,10 @@ private struct RuleGridRow: View {
             return ("Network \u{00B7} \(preset.displayName)", .cyan)
         }
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }
 
 // MARK: - RuleEditSheet
@@ -405,6 +416,7 @@ private struct RuleEditSheet: View {
     // MARK: Internal
 
     let onSave: (ProxyRule) -> Void
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     var body: some View {
         VStack(spacing: 0) {
@@ -415,7 +427,7 @@ private struct RuleEditSheet: View {
 
                 Section(String(localized: "Match Condition")) {
                     TextField("URL Pattern (regex)", text: $urlPattern)
-                        .font(.system(.body, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                     TextField("HTTP Method", text: $method)
                         .textCase(.uppercase)
                 }
@@ -482,8 +494,8 @@ private struct RuleEditSheet: View {
             .padding()
         }
         .frame(
-            width: selectedAction == .modifyHeader ? 620 : 420,
-            height: selectedAction == .modifyHeader ? 520 : 380
+            width: selectedAction == .modifyHeader ? toolMetrics.fieldWidth(620) : toolMetrics.fieldWidth(420),
+            height: selectedAction == .modifyHeader ? toolMetrics.fieldWidth(520) : toolMetrics.fieldWidth(380)
         )
         .animation(.easeInOut(duration: 0.2), value: selectedAction)
     }
@@ -529,6 +541,10 @@ private struct RuleEditSheet: View {
         case .networkCondition:
             preconditionFailure("Network conditions are created via the dedicated window, not the generic rule editor")
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

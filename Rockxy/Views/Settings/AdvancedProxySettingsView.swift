@@ -26,8 +26,9 @@ struct AdvancedProxySettingsView: View {
 
             footerSection
         }
+        .font(toolMetrics.font())
         .padding(24)
-        .frame(width: 480, alignment: .leading)
+        .frame(width: toolMetrics.fieldWidth(480), alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
             settings = AppSettingsManager.shared.settings
@@ -71,6 +72,11 @@ struct AdvancedProxySettingsView: View {
     @State private var portText: String = ""
     @State private var helperManager = HelperManager.shared
     @State private var showingUninstallConfirmation = false
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     // MARK: - Helper Status Mappings
 
@@ -215,12 +221,12 @@ struct AdvancedProxySettingsView: View {
     private var systemProxySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "System Proxy:"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(toolMetrics.font(weight: .semibold))
 
             HStack(spacing: 8) {
                 Image(systemName: systemProxyActive ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(systemProxyActive ? .green : .secondary)
-                    .font(.system(size: 16))
+                    .font(.system(size: max(16, toolMetrics.bodyFontSize + 3)))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(
@@ -228,11 +234,11 @@ struct AdvancedProxySettingsView: View {
                             ? String(localized: "Overridden by Rockxy")
                             : String(localized: "Not Active")
                     )
-                    .font(.system(size: 13, weight: .medium))
+                    .font(toolMetrics.font(weight: .medium))
 
                     if systemProxyActive {
                         Text("IP=\(settings.effectiveListenAddress) Port=\(settings.proxyPort)")
-                            .font(.system(size: 12, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -250,7 +256,7 @@ struct AdvancedProxySettingsView: View {
                     toggleSystemProxy()
                 }
                 Text("\u{2325}\u{2318}O")
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(toolMetrics.secondaryFont(monospaced: true))
                     .foregroundStyle(.tertiary)
             }
         }
@@ -262,11 +268,13 @@ struct AdvancedProxySettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 Text(String(localized: "Port Number:"))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(toolMetrics.font(weight: .semibold))
 
                 TextField("", text: $portText)
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 100)
+                    .font(toolMetrics.font(monospaced: true))
+                    .frame(width: toolMetrics.fieldWidth(100))
+                    .frame(minHeight: toolMetrics.formControlHeight)
                     .onChange(of: portText) {
                         if let newPort = Int(portText), newPort > 0, newPort <= 65_535 {
                             settings.proxyPort = newPort
@@ -278,10 +286,11 @@ struct AdvancedProxySettingsView: View {
             Toggle(isOn: $settings.autoSelectPort) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Auto Select Available Port At Launch"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     Text(String(localized: "Automatically select new available port if it's occupied at launch."))
-                        .font(.system(size: 11))
+                        .font(toolMetrics.metadataFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox)
@@ -294,15 +303,16 @@ struct AdvancedProxySettingsView: View {
     private var advancedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "Advanced:"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(toolMetrics.font(weight: .semibold))
 
             Toggle(isOn: $settings.onlyListenOnLocalhost) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Only Listen on localhost"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     Text(String(localized: "Listen on 127.0.0.1 (localhost) instead of 0.0.0.0"))
-                        .font(.system(size: 11))
+                        .font(toolMetrics.metadataFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox)
@@ -311,10 +321,11 @@ struct AdvancedProxySettingsView: View {
             Toggle(isOn: $settings.listenIPv6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "Listen on IPv4 & IPv6"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     Text(String(localized: "Listen on 0.0.0.0 (IPv4) & ::0 (IPv6)"))
-                        .font(.system(size: 11))
+                        .font(toolMetrics.metadataFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox)
@@ -328,7 +339,7 @@ struct AdvancedProxySettingsView: View {
     private var helperToolSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "Privileged Helper Tool:"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(toolMetrics.font(weight: .semibold))
 
             // Zone A: Summary row
             helperSummaryRow
@@ -352,13 +363,14 @@ struct AdvancedProxySettingsView: View {
         HStack(spacing: 10) {
             Image(systemName: helperStatusIcon)
                 .foregroundStyle(helperStatusColor)
-                .font(.title2)
+                .font(.system(size: max(20, toolMetrics.bodyFontSize + 7)))
             VStack(alignment: .leading, spacing: 2) {
                 Text(helperStatusTitle)
-                    .font(.headline)
+                    .font(toolMetrics.font(weight: .semibold))
                 Text(helperStatusSubtitle)
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
@@ -373,34 +385,34 @@ struct AdvancedProxySettingsView: View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
             GridRow {
                 Text(String(localized: "Bundled Version:"))
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                     .gridColumnAlignment(.trailing)
                 Text(helperManager.bundledHelperVersion)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(toolMetrics.metadataFont(monospaced: true))
             }
             GridRow {
                 Text(String(localized: "Installed Version:"))
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                 Text(helperManager.installedInfo?.binaryVersion ?? "\u{2014}")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(toolMetrics.metadataFont(monospaced: true))
                     .foregroundStyle(installedVersionColor)
             }
             GridRow {
                 Text(String(localized: "Registration:"))
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                 Text(helperManager.registrationStatus)
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(registrationColor)
             }
             GridRow {
                 Text(String(localized: "XPC Reachability:"))
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                 Text(xpcReachabilityLabel)
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(xpcReachabilityColor)
             }
         }
@@ -520,11 +532,11 @@ struct AdvancedProxySettingsView: View {
         GroupBox {
             VStack(alignment: .leading, spacing: 4) {
                 Text(String(localized: "Last Error"))
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(toolMetrics.metadataFont(weight: .semibold))
                 Text(errorMessage)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(toolMetrics.metadataFont(monospaced: true))
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

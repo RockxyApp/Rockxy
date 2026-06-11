@@ -41,15 +41,18 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.25.0** — 2026-06-09
+**v0.26.0** — 2026-06-10
 
-### Added
+### Fixed
 
-- Added Appearance controls for text size, row density, body text wrapping, and preview spacing, making long sessions easier to read.
+- Fixed stale AppKit icon, request-table header, visible row, and workspace-tab sizing after repeated or rapid font-size changes.
+- Kept request-table density and saved column sizing stable while Appearance metrics refresh.
 
 ### Changed
 
-- Improved readability across request tables, inspectors, JSON trees, filters, and status bars so the workspace stays clearer at different display settings.
+- Set the default Appearance font size to 13 pt so fresh installs and reset settings start from a more readable baseline.
+- Improved Appearance font-size scaling across the request table, inspectors, sidebar, timeline, toolbar/status surfaces, and Developer Setup views.
+- Reduced live Appearance update churn so font-size changes preserve inspector editor contents and avoid unnecessary request-table autosizing.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

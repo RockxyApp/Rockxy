@@ -80,7 +80,7 @@ struct ModifyHeaderEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             helperText
 
             if operations.isEmpty {
@@ -97,18 +97,36 @@ struct ModifyHeaderEditorView: View {
 
     // MARK: Private
 
-    private static let phaseWidth: CGFloat = 92
-    private static let operationWidth: CGFloat = 104
     private static let minFieldWidth: CGFloat = 150
-    private static let removeWidth: CGFloat = 24
-    private static let rowSpacing: CGFloat = 8
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var phaseWidth: CGFloat {
+        toolMetrics.menuWidth(92)
+    }
+
+    private var operationWidth: CGFloat {
+        toolMetrics.menuWidth(104)
+    }
+
+    private var fieldMinWidth: CGFloat {
+        toolMetrics.fieldWidth(Self.minFieldWidth)
+    }
+
+    private var removeWidth: CGFloat {
+        max(24, toolMetrics.compactButtonSize)
+    }
+
+    private var rowSpacing: CGFloat {
+        toolMetrics.controlSpacing
+    }
 
     private var helperText: some View {
         HStack(spacing: 6) {
             Image(systemName: "info.circle")
                 .foregroundStyle(Color.accentColor)
             Text(String(localized: "Operations are applied in order. Later rows can overwrite earlier rows."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(Color(nsColor: .labelColor).opacity(0.72))
             Spacer()
         }
@@ -118,7 +136,7 @@ struct ModifyHeaderEditorView: View {
         HStack {
             Spacer()
             Text(String(localized: "No operations. Add at least one header operation."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -145,19 +163,19 @@ struct ModifyHeaderEditorView: View {
     }
 
     private var headerRow: some View {
-        HStack(spacing: Self.rowSpacing) {
+        HStack(spacing: rowSpacing) {
             Text(String(localized: "Phase"))
-                .frame(width: Self.phaseWidth, alignment: .leading)
+                .frame(width: phaseWidth, alignment: .leading)
             Text(String(localized: "Operation"))
-                .frame(width: Self.operationWidth, alignment: .leading)
+                .frame(width: operationWidth, alignment: .leading)
             Text(String(localized: "Header Name"))
-                .frame(minWidth: Self.minFieldWidth, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: fieldMinWidth, maxWidth: .infinity, alignment: .leading)
             Text(String(localized: "Header Value"))
-                .frame(minWidth: Self.minFieldWidth, maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: fieldMinWidth, maxWidth: .infinity, alignment: .leading)
             Spacer()
-                .frame(width: Self.removeWidth)
+                .frame(width: removeWidth)
         }
-        .font(.caption)
+        .font(toolMetrics.tableHeaderFont())
         .fontWeight(.semibold)
         .foregroundStyle(Color(nsColor: .labelColor))
         .padding(.horizontal, 12)
@@ -190,7 +208,7 @@ struct ModifyHeaderEditorView: View {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(invalidOps, id: \.0) { index, message in
                     Text(String(localized: "Row \(index + 1): \(message)"))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.red)
                 }
             }
@@ -199,7 +217,7 @@ struct ModifyHeaderEditorView: View {
     }
 
     private func operationRow(_ operation: EditableHeaderOperation) -> some View {
-        HStack(spacing: Self.rowSpacing) {
+        HStack(spacing: rowSpacing) {
             Picker("", selection: Binding(
                 get: { operation.phase },
                 set: { operation.phase = $0 }
@@ -210,7 +228,7 @@ struct ModifyHeaderEditorView: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(width: Self.phaseWidth)
+            .frame(width: phaseWidth)
             .controlSize(.small)
 
             Picker("", selection: Binding(
@@ -223,7 +241,7 @@ struct ModifyHeaderEditorView: View {
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .frame(width: Self.operationWidth)
+            .frame(width: operationWidth)
             .controlSize(.small)
 
             TextField(
@@ -233,10 +251,10 @@ struct ModifyHeaderEditorView: View {
                     set: { operation.headerName = $0 }
                 )
             )
-            .font(.system(.body, design: .monospaced))
+            .font(toolMetrics.font(monospaced: true))
             .textFieldStyle(.roundedBorder)
             .controlSize(.small)
-            .frame(minWidth: Self.minFieldWidth)
+            .frame(minWidth: fieldMinWidth, minHeight: toolMetrics.formControlHeight)
 
             headerValueField(for: operation)
 
@@ -246,21 +264,21 @@ struct ModifyHeaderEditorView: View {
                 }
             } label: {
                 Image(systemName: "trash")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
             .help(String(localized: "Remove operation"))
-            .frame(width: Self.removeWidth)
+            .frame(width: removeWidth)
         }
     }
 
     @ViewBuilder private func headerValueField(for operation: EditableHeaderOperation) -> some View {
         if operation.type == .remove {
             Text(String(localized: "Not used"))
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: Self.minFieldWidth, minHeight: 22, alignment: .leading)
+                .frame(minWidth: fieldMinWidth, minHeight: toolMetrics.formControlHeight, alignment: .leading)
                 .padding(.horizontal, 7)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
@@ -272,11 +290,15 @@ struct ModifyHeaderEditorView: View {
                     set: { operation.headerValue = $0 }
                 )
             )
-            .font(.system(.body, design: .monospaced))
+            .font(toolMetrics.font(monospaced: true))
             .textFieldStyle(.roundedBorder)
             .controlSize(.small)
-            .frame(minWidth: Self.minFieldWidth)
+            .frame(minWidth: fieldMinWidth, minHeight: toolMetrics.formControlHeight)
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

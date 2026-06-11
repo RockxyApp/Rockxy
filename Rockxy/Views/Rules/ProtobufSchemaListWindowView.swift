@@ -13,6 +13,7 @@ struct ProtobufSchemaListWindowView: View {
             consoleSection
             footer
         }
+        .font(toolMetrics.font())
         .frame(width: 1_000, height: 860)
         .fileImporter(
             isPresented: $showImporter,
@@ -32,14 +33,15 @@ struct ProtobufSchemaListWindowView: View {
     @State private var selectedSchemaID: UUID?
     @State private var showImporter = false
     @State private var consoleLines: [String] = []
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "Protobuf File Descriptor List"))
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .medium))
 
             Text(String(localized: "List of *.proto files used to define the structure of protocol buffer data."))
-                .font(.system(size: 15))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2)))
                 .foregroundStyle(.secondary)
 
             Text(
@@ -47,7 +49,7 @@ struct ProtobufSchemaListWindowView: View {
                     localized: "Schema files are required for named, human-readable fields. Heuristic decoding does not require schema files."
                 )
             )
-            .font(.system(size: 15))
+            .font(.system(size: max(15, toolMetrics.bodyFontSize + 2)))
             .foregroundStyle(.secondary)
 
             if !schemaStore.canUploadSchema {
@@ -90,7 +92,7 @@ struct ProtobufSchemaListWindowView: View {
 
             if schemaStore.schemas.isEmpty {
                 Text(String(localized: "Click \"+\" or ⌘N to import Protobuf Schema (*.proto)"))
-                    .font(.system(size: 14))
+                    .font(.system(size: toolMetrics.emptyStateFontSize))
                     .foregroundStyle(.secondary)
             }
         }
@@ -102,20 +104,20 @@ struct ProtobufSchemaListWindowView: View {
     private var consoleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "Protobuf Console Log"))
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .medium))
 
             ZStack(alignment: .bottomTrailing) {
                 ScrollView {
                     if consoleLines.isEmpty {
                         Text(String(localized: "Empty Console Log"))
-                            .font(.system(size: 14))
+                            .font(.system(size: toolMetrics.emptyStateFontSize))
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 154)
                     } else {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(consoleLines, id: \.self) { line in
                                 Text(line)
-                                    .font(.system(size: 12, design: .monospaced))
+                                    .font(toolMetrics.font(monospaced: true))
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
@@ -173,7 +175,7 @@ struct ProtobufSchemaListWindowView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "ellipsis.circle")
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
@@ -189,8 +191,8 @@ struct ProtobufSchemaListWindowView: View {
                 showImporter = true
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13))
-                    .frame(width: 21, height: 21)
+                    .font(.system(size: toolMetrics.compactIconFontSize))
+                    .frame(width: toolMetrics.compactButtonSize, height: toolMetrics.compactButtonSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -206,18 +208,22 @@ struct ProtobufSchemaListWindowView: View {
                 removeSelectedSchema()
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13))
+                    .font(.system(size: toolMetrics.compactIconFontSize))
                     .foregroundStyle(selectedSchemaID == nil ? .tertiary : .primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize, height: toolMetrics.compactButtonSize)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(selectedSchemaID == nil)
             .help(String(localized: "Delete Protobuf Schema"))
         }
-        .frame(height: 23)
+        .frame(height: toolMetrics.footerControlHeight)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder

@@ -235,6 +235,7 @@ final class MapRemoteWindowViewModel {
 // MARK: - MapRemoteWindowView
 
 struct MapRemoteWindowView: View {
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
     @State var viewModel = MapRemoteWindowViewModel()
 
@@ -246,6 +247,7 @@ struct MapRemoteWindowView: View {
             shortcutStrip
             bottomBar
         }
+        .font(toolMetrics.font())
         .frame(width: 1_202, height: 640)
         .task { await viewModel.refreshFromEngine() }
         .onAppear { consumePendingDraftIfNeeded() }
@@ -271,25 +273,25 @@ struct MapRemoteWindowView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Toggle(isOn: Binding(
                 get: { viewModel.isToolEnabled },
                 set: { viewModel.setToolEnabled($0) }
             )) {
                 Text(String(localized: "Enable Map Remote Tool"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
             .toggleStyle(.checkbox)
-            .padding(.top, 16)
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Map Requests to different Host, Path, Post. Useful to map from Localhost ↔ Production."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
             Text(String(localized: "Each request is checked against the rules from top to bottom, stopping when a match is found."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
 
             if viewModel.isFilterVisible {
-                HStack(spacing: 8) {
+                HStack(spacing: toolMetrics.controlSpacing) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField(String(localized: "Filter Map Remote rules"), text: $viewModel.searchText)
@@ -305,8 +307,8 @@ struct MapRemoteWindowView: View {
                 }
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 10)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var tableContent: some View {
@@ -350,7 +352,7 @@ struct MapRemoteWindowView: View {
                         .help(viewModel.destinationLabel(for: rule))
                     if viewModel.preservesHost(for: rule) {
                         Text("H")
-                            .font(.caption2)
+                            .font(toolMetrics.metadataFont(weight: .semibold))
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
                     }
@@ -372,39 +374,39 @@ struct MapRemoteWindowView: View {
         .overlay {
             if viewModel.filteredRules.isEmpty {
                 Text(String(localized: "Click \"+\" or ⌘N to add new entry"))
-                    .font(.system(size: 13))
+                    .font(.system(size: toolMetrics.emptyStateFontSize))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var localhostHint: some View {
         Text(String(localized: "If your `localhost` requests don't show on Proxyman, please set domain aliases on /etc/hosts file"))
-            .font(.system(size: 11))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 22)
-            .padding(.top, 8)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
     }
 
     private var shortcutStrip: some View {
         Text("New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ↵")
-            .font(.system(size: 11))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 22)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             HStack(spacing: 0) {
                 Button {
                     openNewEditor()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -418,8 +420,8 @@ struct MapRemoteWindowView: View {
                     viewModel.removeSelectedRules()
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -429,7 +431,7 @@ struct MapRemoteWindowView: View {
             .foregroundStyle(.primary)
             .background(Color(nsColor: .controlBackgroundColor))
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-            .frame(width: 43, height: 25)
+            .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
 
             Button {
                 viewModel.errorMessage = String(localized: "Map Remote checks rules from top to bottom and rewrites the first matching request to the configured destination.")
@@ -488,15 +490,19 @@ struct MapRemoteWindowView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "More"))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
             .buttonStyle(.bordered)
             .fixedSize()
         }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder
@@ -763,19 +769,21 @@ final class MapRemoteEditorViewModel {
 
 struct MapRemoteEditorWindowView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var editorStore = MapRemoteEditorStore.shared
     @State var viewModel = MapRemoteEditorViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: toolMetrics.formVerticalPadding + 2) {
             matchingRuleSection
             mapToSection
             actionBar
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 16)
-        .padding(.bottom, 14)
-        .frame(width: 834)
+        .font(toolMetrics.font())
+        .padding(.horizontal, toolMetrics.formHorizontalPadding)
+        .padding(.top, toolMetrics.headerTopPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
+        .frame(minWidth: 834, minHeight: max(560, toolMetrics.bodyFontSize * 17 + 340))
         .navigationTitle(viewModel.windowTitle)
         .onAppear { viewModel.load(context: editorStore.context) }
         .onChange(of: editorStore.draftVersion) { _, _ in
@@ -799,32 +807,33 @@ struct MapRemoteEditorWindowView: View {
     private var matchingRuleSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(String(localized: "Matching Rule"))
-                .font(.system(size: 15))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: toolMetrics.controlSpacing) {
                 labeledTextField(String(localized: "Name:"), placeholder: String(localized: "Untitled"), text: $viewModel.name)
 
                 labeledTextField(String(localized: "Rule:"), placeholder: "/v1/*", text: $viewModel.urlText)
 
-                HStack(spacing: 8) {
-                    Spacer().frame(width: 70)
+                HStack(spacing: toolMetrics.controlSpacing) {
+                    Spacer().frame(width: compactLabelWidth)
                     methodMenu
                     matchTypeMenu
                     Text(String(localized: "Support wildcard * and ?."))
-                        .font(.system(size: 12))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(String(localized: "Test your Rule")) {}
                         .buttonStyle(.link)
                 }
 
                 HStack {
-                    Spacer().frame(width: 70)
+                    Spacer().frame(width: compactLabelWidth)
                     Toggle(String(localized: "Include all subpaths of this URL"), isOn: $viewModel.includeSubpaths)
                         .toggleStyle(.checkbox)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding - 2)
+            .padding(.vertical, toolMetrics.formVerticalPadding - 2)
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -833,12 +842,13 @@ struct MapRemoteEditorWindowView: View {
     private var mapToSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(String(localized: "Map To"))
-                .font(.system(size: 15))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: toolMetrics.controlSpacing) {
                 HStack {
                     Text(String(localized: "Protocol:"))
-                        .frame(width: 64, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     schemeMenu
                 }
 
@@ -849,48 +859,58 @@ struct MapRemoteEditorWindowView: View {
 
                 HStack {
                     Text(String(localized: "Port:"))
-                        .frame(width: 64, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     TextField("443", text: $viewModel.destPort)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 60)
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(width: toolMetrics.fieldWidth(60))
                 }
 
                 labeledTextField(String(localized: "Path:"), placeholder: "v2/api", text: $viewModel.destPath)
                 labeledTextField(String(localized: "Query:"), placeholder: "id=123", text: $viewModel.destQuery)
 
                 Text(String(localized: "Leave textfields blank to keep it unchanged from matched requests. Wildcard/Regex is not allowed."))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(String(localized: "Hint: Paste your URL to the Host textfield to auto-parse each components (Host, Port, Path, Query)."))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Divider()
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
                     .padding(.vertical, 4)
 
                 Text(String(localized: "Advanced Settings:"))
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.leading, 78)
+                    .font(toolMetrics.font(weight: .semibold))
+                    .padding(.leading, fieldLeading)
 
                 Toggle(String(localized: "Preserve the Original URL after matching with Map Remote"), isOn: $viewModel.preserveOriginalURL)
                     .toggleStyle(.checkbox)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
                 Text(String(localized: "The Request URL will be replaced with a new Map Remote URL."))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Toggle(String(localized: "Preserve Host Header"), isOn: $viewModel.preserveHost)
                     .toggleStyle(.checkbox)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
                     .padding(.top, 2)
                 Text(String(localized: "The `Host` header of Requests are not changed."))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 78)
+                    .padding(.leading, fieldLeading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.system(size: 13))
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .font(toolMetrics.font())
+            .padding(.horizontal, toolMetrics.formHorizontalPadding - 2)
+            .padding(.vertical, toolMetrics.formVerticalPadding - 2)
             .background(Color(nsColor: .controlBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 10))
         }
@@ -900,13 +920,13 @@ struct MapRemoteEditorWindowView: View {
         HStack {
             Spacer()
             Button(String(localized: "Cancel")) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-                .frame(width: 100)
+            .keyboardShortcut(.cancelAction)
+                .frame(width: toolMetrics.footerButtonWidth)
             Button(viewModel.existingID == nil ? String(localized: "Add (⌘↩)") : String(localized: "Save (⌘↩)")) {
                 saveAndClose()
             }
             .keyboardShortcut(.defaultAction)
-            .frame(width: 100)
+            .frame(width: toolMetrics.footerButtonWidth)
             .disabled(!viewModel.isSaveEnabled)
         }
         .padding(.top, 2)
@@ -925,7 +945,7 @@ struct MapRemoteEditorWindowView: View {
                 }
             }
         } label: {
-            menuLabel(viewModel.method.rawValue, minWidth: 86)
+            menuLabel(viewModel.method.rawValue, minWidth: toolMetrics.menuWidth(86))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
@@ -940,7 +960,7 @@ struct MapRemoteEditorWindowView: View {
                 }
             }
         } label: {
-            menuLabel(viewModel.matchType.displayName, minWidth: 128)
+            menuLabel(viewModel.matchType.displayName, minWidth: toolMetrics.menuWidth(128))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
@@ -960,7 +980,7 @@ struct MapRemoteEditorWindowView: View {
                 menuCheckmarkLabel("https", isSelected: viewModel.destScheme == "https")
             }
         } label: {
-            menuLabel(viewModel.destScheme.isEmpty ? "http/https" : viewModel.destScheme, minWidth: 80)
+            menuLabel(viewModel.destScheme.isEmpty ? "http/https" : viewModel.destScheme, minWidth: toolMetrics.menuWidth(80))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
@@ -970,9 +990,12 @@ struct MapRemoteEditorWindowView: View {
     private func labeledTextField(_ label: String, placeholder: String, text: Binding<String>) -> some View {
         HStack {
             Text(label)
-                .frame(width: 70, alignment: .trailing)
+                .lineLimit(1)
+                .frame(width: compactLabelWidth, alignment: .trailing)
             TextField(placeholder, text: text)
                 .textFieldStyle(.roundedBorder)
+                .font(toolMetrics.font())
+                .frame(minHeight: toolMetrics.formControlHeight)
         }
     }
 
@@ -994,6 +1017,14 @@ struct MapRemoteEditorWindowView: View {
         .frame(minWidth: minWidth)
     }
 
+    private var compactLabelWidth: CGFloat {
+        toolMetrics.formCompactLabelWidth
+    }
+
+    private var fieldLeading: CGFloat {
+        compactLabelWidth + toolMetrics.controlSpacing
+    }
+
     private func saveAndClose() {
         guard let rule = viewModel.makeRule() else {
             return
@@ -1004,6 +1035,10 @@ struct MapRemoteEditorWindowView: View {
             Task { await RulePolicyGate.shared.updateRule(rule) }
         }
         dismiss()
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

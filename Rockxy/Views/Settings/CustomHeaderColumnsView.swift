@@ -8,12 +8,13 @@ struct CustomHeaderColumnsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "Custom Header Columns"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(settingsMetrics.font(weight: .semibold))
             Text(
                 String(localized: "Get Value of Request/Response Headers and display it as a Column on the Flow Table.")
             )
-            .font(.system(size: 11))
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .top, spacing: 12) {
                 headerPanel(
@@ -31,11 +32,13 @@ struct CustomHeaderColumnsView: View {
             }
 
             Text(String(localized: "To manage the default columns, please Right-click on the Header Column."))
-                .font(.system(size: 10))
+                .font(settingsMetrics.metadataFont())
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(16)
-        .frame(width: 560)
+        .font(settingsMetrics.font())
+        .frame(width: settingsMetrics.fieldWidth(560))
         .onAppear {
             store.reload()
         }
@@ -49,6 +52,11 @@ struct CustomHeaderColumnsView: View {
     @State private var showAddRequest = false
     @State private var showAddResponse = false
     @State private var newHeaderName = ""
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     @ViewBuilder
     private func headerPanel(
@@ -63,7 +71,7 @@ struct CustomHeaderColumnsView: View {
 
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 12, weight: .medium))
+                .font(settingsMetrics.secondaryFont(weight: .medium))
 
             VStack(spacing: 0) {
                 ScrollView {
@@ -83,7 +91,7 @@ struct CustomHeaderColumnsView: View {
                                     }
                                 } label: {
                                     Image(systemName: isChecked ? "checkmark.square.fill" : "square")
-                                        .font(.system(size: 13))
+                                        .font(settingsMetrics.font())
                                         .foregroundStyle(
                                             isChecked
                                                 ? Color.accentColor
@@ -93,7 +101,7 @@ struct CustomHeaderColumnsView: View {
                                 .buttonStyle(.plain)
 
                                 Text(name)
-                                    .font(.system(size: 12))
+                                    .font(settingsMetrics.secondaryFont())
                                     .foregroundStyle(isChecked ? .primary : .secondary)
                             }
                             .padding(.horizontal, 8)
@@ -124,8 +132,8 @@ struct CustomHeaderColumnsView: View {
                         showAdd.wrappedValue = true
                     } label: {
                         Image(systemName: "plus")
-                            .font(.system(size: 11))
-                            .frame(width: 24, height: 20)
+                            .font(settingsMetrics.secondaryFont())
+                            .frame(width: settingsMetrics.controlHeight, height: settingsMetrics.controlHeight)
                     }
                     .buttonStyle(.plain)
                     .popover(isPresented: showAdd) {
@@ -136,8 +144,9 @@ struct CustomHeaderColumnsView: View {
                                     text: $newHeaderName
                                 )
                                 .textFieldStyle(.roundedBorder)
-                                .font(.system(size: 11))
-                                .frame(width: 150)
+                                .font(settingsMetrics.font())
+                                .frame(width: settingsMetrics.fieldWidth(150))
+                                .frame(minHeight: settingsMetrics.controlHeight)
                                 Button(String(localized: "Add")) {
                                     let name = newHeaderName
                                         .trimmingCharacters(in: .whitespaces)
@@ -159,7 +168,8 @@ struct CustomHeaderColumnsView: View {
                             }
                         }
                         .padding(12)
-                        .frame(width: 220)
+                        .font(settingsMetrics.font())
+                        .frame(width: settingsMetrics.fieldWidth(220))
                     }
 
                     Button {
@@ -169,8 +179,8 @@ struct CustomHeaderColumnsView: View {
                         }
                     } label: {
                         Image(systemName: "minus")
-                            .font(.system(size: 11))
-                            .frame(width: 24, height: 20)
+                            .font(settingsMetrics.secondaryFont())
+                            .frame(width: settingsMetrics.controlHeight, height: settingsMetrics.controlHeight)
                     }
                     .buttonStyle(.plain)
                     .disabled(selectedID.wrappedValue == nil)

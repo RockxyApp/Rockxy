@@ -6,6 +6,20 @@ rss: true
 
 # Changelog
 
+<Update label="June 2026" description="v0.26.0">
+  ### Fixed
+
+  - Fixed stale AppKit icon, request-table header, visible row, and workspace-tab sizing after repeated or rapid font-size changes.
+  - Kept request-table density and saved column sizing stable while Appearance metrics refresh.
+
+  ### Changed
+
+  - Set the default Appearance font size to 13 pt so fresh installs and reset settings start from a more readable baseline.
+  - Improved Appearance font-size scaling across the request table, inspectors, sidebar, timeline, toolbar/status surfaces, and Developer Setup views.
+  - Reduced live Appearance update churn so font-size changes preserve inspector editor contents and avoid unnecessary request-table autosizing.
+
+</Update>
+
 <Update label="June 2026" description="v0.25.0">
   ### Added
 

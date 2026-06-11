@@ -381,6 +381,7 @@ final class MapLocalViewModel {
 // MARK: - MapLocalWindowView
 
 struct MapLocalWindowView: View {
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
     @State var viewModel = MapLocalViewModel()
 
@@ -391,6 +392,7 @@ struct MapLocalWindowView: View {
             shortcutStrip
             bottomBar
         }
+        .font(toolMetrics.font())
         .frame(width: 1_024, height: 570)
         .task { await viewModel.refreshFromEngine() }
         .onAppear { consumePendingDraftIfNeeded() }
@@ -416,25 +418,25 @@ struct MapLocalWindowView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Toggle(isOn: Binding(
                 get: { viewModel.isToolEnabled },
                 set: { viewModel.setToolEnabled($0) }
             )) {
                 Text(String(localized: "Enable Map Local Tool"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
             .toggleStyle(.checkbox)
-            .padding(.top, 16)
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Map a Response with a Local File or Directory. Support Status Code, Headers and Body."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
             Text(String(localized: "Each request is checked against the rules from top to bottom, stopping when a match is found."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
 
             if viewModel.isFilterVisible {
-                HStack(spacing: 8) {
+                HStack(spacing: toolMetrics.controlSpacing) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField(String(localized: "Filter Map Local rules"), text: $viewModel.searchText)
@@ -450,8 +452,8 @@ struct MapLocalWindowView: View {
                 }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 10)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var tableContent: some View {
@@ -490,7 +492,7 @@ struct MapLocalWindowView: View {
                         .help(viewModel.filePath(for: rule))
                     if !viewModel.delayLabel(for: rule).isEmpty {
                         Text(viewModel.delayLabel(for: rule))
-                            .font(.caption2)
+                            .font(toolMetrics.metadataFont(weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -516,27 +518,27 @@ struct MapLocalWindowView: View {
                 )
             }
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var shortcutStrip: some View {
         Text("New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ↵")
-            .font(.system(size: 11))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             HStack(spacing: 0) {
                 Button {
                     openNewEditor()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -550,8 +552,8 @@ struct MapLocalWindowView: View {
                     viewModel.removeSelectedRules()
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -564,7 +566,7 @@ struct MapLocalWindowView: View {
                 Rectangle()
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
             )
-            .frame(width: 37, height: 19)
+            .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
 
             Button(String(localized: "New Folder")) {
                 viewModel.createNewFolderPlaceholder()
@@ -626,15 +628,19 @@ struct MapLocalWindowView: View {
                 HStack(spacing: 6) {
                     Text(String(localized: "More"))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
             .buttonStyle(.bordered)
             .fixedSize()
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder
@@ -941,18 +947,20 @@ private extension Result where Success == NSRegularExpression, Failure == RegexV
 
 struct MapLocalEditorWindowView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var editorStore = MapLocalEditorStore.shared
     @State var viewModel = MapLocalEditorViewModel()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: toolMetrics.formVerticalPadding) {
             matchingRuleSection
             mapToSection
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 28)
-        .padding(.bottom, 14)
-        .frame(width: 1_024, height: 720)
+        .font(toolMetrics.font())
+        .padding(.horizontal, toolMetrics.formHorizontalPadding)
+        .padding(.top, toolMetrics.formVerticalPadding + 12)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
+        .frame(minWidth: 1_024, minHeight: max(720, toolMetrics.bodyFontSize * 22 + 440))
         .navigationTitle(viewModel.windowTitle)
         .onAppear { viewModel.load(context: editorStore.context) }
         .onChange(of: editorStore.draftVersion) { _, _ in
@@ -976,50 +984,59 @@ struct MapLocalEditorWindowView: View {
     private var matchingRuleSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(String(localized: "Matching Rule"))
-                .font(.system(size: 15))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(String(localized: "Name:"))
-                        .frame(width: 70, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     TextField(String(localized: "Untitled"), text: $viewModel.name)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        .frame(minHeight: toolMetrics.formControlHeight)
                 }
 
                 HStack {
                     Text(String(localized: "URL:"))
-                        .frame(width: 70, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     TextField("api.proxyman.com/v1/*", text: $viewModel.urlText)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
                 }
 
                 HStack(spacing: 10) {
-                    Spacer().frame(width: 70)
+                    Spacer().frame(width: compactLabelWidth)
                     methodMenu
                     matchTypeMenu
                     Text(String(localized: "Support wildcard * and ?."))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(String(localized: "Test your Rule")) {}
                         .buttonStyle(.link)
                 }
 
                 HStack {
-                    Spacer().frame(width: 70)
+                    Spacer().frame(width: compactLabelWidth)
                     Toggle(String(localized: "Include all subpaths of this URL"), isOn: $viewModel.includeSubpaths)
                         .toggleStyle(.checkbox)
                 }
 
                 Divider()
-                    .padding(.leading, 70)
+                    .padding(.leading, compactLabelWidth)
 
                 HStack(spacing: 12) {
-                    Spacer().frame(width: 70)
+                    Spacer().frame(width: compactLabelWidth)
                     Text(String(localized: "Advanced Settings:"))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(toolMetrics.font(weight: .semibold))
                 }
                 HStack(spacing: 10) {
                     Text(String(localized: "Delay Response:"))
-                        .frame(width: 140, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: advancedLabelWidth, alignment: .trailing)
                     delayMenu
                     if viewModel.delayPreset == .custom {
                         Stepper(
@@ -1027,7 +1044,7 @@ struct MapLocalEditorWindowView: View {
                             value: $viewModel.customDelaySeconds,
                             in: 0 ... 300
                         )
-                        .frame(width: 160)
+                        .frame(width: toolMetrics.fieldWidth(160))
                     }
                 }
             }
@@ -1041,7 +1058,7 @@ struct MapLocalEditorWindowView: View {
     private var mapToSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(String(localized: "Map To"))
-                .font(.system(size: 15))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
@@ -1065,7 +1082,7 @@ struct MapLocalEditorWindowView: View {
                     Text(MapLocalTargetMode.localDirectory.displayName).tag(MapLocalTargetMode.localDirectory)
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 240)
+                .frame(width: toolMetrics.menuWidth(240))
                 .background(
                     Color(nsColor: .controlBackgroundColor)
                         .padding(.horizontal, -8)
@@ -1100,9 +1117,9 @@ struct MapLocalEditorWindowView: View {
             HStack(spacing: 10) {
                 Button(String(localized: "Select Local File")) { viewModel.choosePath() }
                 Text(String(localized: "Accept HTTP Message Format or Local File"))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.9)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button {
                     viewModel.errorMessage = String(localized: """
                     Paste an HTTP response message or plain body. Rockxy saves the body to the local file and uses the status line for the response code.
@@ -1127,8 +1144,11 @@ struct MapLocalEditorWindowView: View {
 
             HStack {
                 Text(String(localized: "Directory Path:"))
+                    .lineLimit(1)
                 TextField("", text: $viewModel.directoryPath)
                     .textFieldStyle(.roundedBorder)
+                    .font(toolMetrics.font())
+                    .frame(minHeight: toolMetrics.formControlHeight)
             }
 
             HStack(spacing: 8) {
@@ -1140,19 +1160,21 @@ struct MapLocalEditorWindowView: View {
                     : String(localized: "Directory Not Found!"))
                 .foregroundStyle(.secondary)
             }
-            .padding(.leading, 205)
+            .padding(.leading, directoryLeading)
 
             HStack(spacing: 12) {
-                Spacer().frame(width: 200)
+                Spacer().frame(width: directoryLeading)
                 Button(String(localized: "Select Directory")) { viewModel.choosePath() }
                 Button(String(localized: "Show in Finder")) { viewModel.showSelectedPathInFinder() }
                     .disabled(!viewModel.isDirectoryValid)
             }
 
             HStack(spacing: 12) {
-                Spacer().frame(width: 200)
+                Spacer().frame(width: directoryLeading)
                 Text(String(localized: "Support map from Root or Sub-Directories"))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button {
                     viewModel.errorMessage = String(localized: """
                     Directory mode maps request subpaths into the selected local directory. Root requests fall back to index.html when present.
@@ -1248,7 +1270,7 @@ struct MapLocalEditorWindowView: View {
             HStack(spacing: 8) {
                 Image(systemName: "gearshape.fill")
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
             .frame(minWidth: 50)
         }
@@ -1270,9 +1292,25 @@ struct MapLocalEditorWindowView: View {
         HStack(spacing: 6) {
             Text(title)
             Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
         }
-        .frame(minWidth: minWidth)
+        .frame(minWidth: toolMetrics.menuWidth(minWidth))
+    }
+
+    private var compactLabelWidth: CGFloat {
+        toolMetrics.formCompactLabelWidth
+    }
+
+    private var advancedLabelWidth: CGFloat {
+        toolMetrics.menuWidth(140)
+    }
+
+    private var directoryLeading: CGFloat {
+        toolMetrics.menuWidth(200)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private func saveAndClose() {

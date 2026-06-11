@@ -11,7 +11,7 @@ struct PluginsSettingsTab: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 pluginListPanel
-                    .frame(width: 240)
+                    .frame(width: settingsMetrics.fieldWidth(240))
 
                 Divider()
 
@@ -28,6 +28,7 @@ struct PluginsSettingsTab: View {
 
             bottomBar
         }
+        .font(settingsMetrics.font())
         .task { await viewModel.loadPlugins() }
         .alert(
             String(localized: "Plugin Error"),
@@ -49,6 +50,11 @@ struct PluginsSettingsTab: View {
     // MARK: Private
 
     @State private var viewModel = PluginSettingsViewModel()
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var pluginListPanel: some View {
         VStack(spacing: 0) {
@@ -57,6 +63,8 @@ struct PluginsSettingsTab: View {
                     .foregroundStyle(.secondary)
                 TextField(String(localized: "Search Plugins"), text: $viewModel.searchText)
                     .textFieldStyle(.plain)
+                    .font(settingsMetrics.font())
+                    .frame(minHeight: settingsMetrics.controlHeight)
             }
             .padding(8)
 
@@ -116,11 +124,11 @@ struct PluginsSettingsTab: View {
             Spacer()
 
             Text(String(localized: "\(viewModel.plugins.count) plugins"))
-                .font(.system(size: 11))
+                .font(settingsMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 12)
-        .frame(height: 36)
+        .frame(minHeight: settingsMetrics.footerHeight)
     }
 
     private func categoryPill(_ title: String, category: PluginType?) -> some View {
@@ -129,7 +137,7 @@ struct PluginsSettingsTab: View {
             viewModel.selectedCategory = category
         } label: {
             Text(title)
-                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
+                .font(settingsMetrics.secondaryFont(weight: isActive ? .semibold : .regular))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(isActive ? Color.accentColor.opacity(0.15) : Color.clear)

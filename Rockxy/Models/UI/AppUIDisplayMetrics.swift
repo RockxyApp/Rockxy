@@ -237,6 +237,244 @@ struct DeveloperSetupDisplayMetrics: Equatable {
     }
 }
 
+// MARK: - ToolWindowDisplayMetrics
+
+struct ToolWindowDisplayMetrics: Equatable {
+    let appMetrics: AppUIDisplayMetrics
+
+    init(appMetrics: AppUIDisplayMetrics = AppUIDisplayMetrics()) {
+        self.appMetrics = appMetrics
+    }
+
+    var bodyFontSize: CGFloat {
+        appMetrics.primaryFontSize
+    }
+
+    var secondaryFontSize: CGFloat {
+        max(10, appMetrics.primaryFontSize - 1)
+    }
+
+    var metadataFontSize: CGFloat {
+        max(10, appMetrics.primaryFontSize - 2)
+    }
+
+    var tableHeaderFontSize: CGFloat {
+        max(12, appMetrics.primaryFontSize - 1)
+    }
+
+    var tableRowHeight: CGFloat {
+        max(28, appMetrics.primaryFontSize + 15)
+    }
+
+    var shortcutFontSize: CGFloat {
+        secondaryFontSize
+    }
+
+    var footerControlHeight: CGFloat {
+        max(26, appMetrics.primaryFontSize + 13)
+    }
+
+    var compactButtonSize: CGFloat {
+        max(23, appMetrics.primaryFontSize + 10)
+    }
+
+    var compactIconFontSize: CGFloat {
+        max(12, appMetrics.primaryFontSize)
+    }
+
+    var smallIconFontSize: CGFloat {
+        max(10, appMetrics.primaryFontSize - 3)
+    }
+
+    var emptyStateFontSize: CGFloat {
+        bodyFontSize
+    }
+
+    var contentHorizontalPadding: CGFloat {
+        18
+    }
+
+    var headerTopPadding: CGFloat {
+        16
+    }
+
+    var headerBottomPadding: CGFloat {
+        10
+    }
+
+    var headerSpacing: CGFloat {
+        10
+    }
+
+    var controlSpacing: CGFloat {
+        8
+    }
+
+    var shortcutTopPadding: CGFloat {
+        8
+    }
+
+    var shortcutBottomPadding: CGFloat {
+        4
+    }
+
+    var footerTopPadding: CGFloat {
+        8
+    }
+
+    var footerBottomPadding: CGFloat {
+        14
+    }
+
+    var tableCellHorizontalPadding: CGFloat {
+        12
+    }
+
+    var formHorizontalPadding: CGFloat {
+        18
+    }
+
+    var formVerticalPadding: CGFloat {
+        12
+    }
+
+    var formRowSpacing: CGFloat {
+        9
+    }
+
+    var formLabelWidth: CGFloat {
+        110
+    }
+
+    var formCompactLabelWidth: CGFloat {
+        92
+    }
+
+    var formWideLabelWidth: CGFloat {
+        150
+    }
+
+    var formControlHeight: CGFloat {
+        max(24, bodyFontSize + 12)
+    }
+
+    var footerButtonWidth: CGFloat {
+        max(100, bodyFontSize + 88)
+    }
+
+    func menuWidth(_ baseWidth: CGFloat) -> CGFloat {
+        baseWidth
+    }
+
+    func fieldWidth(_ baseWidth: CGFloat) -> CGFloat {
+        baseWidth
+    }
+
+    func font(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: bodyFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: bodyFontSize, weight: weight)
+    }
+
+    func secondaryFont(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: secondaryFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: secondaryFontSize, weight: weight)
+    }
+
+    func metadataFont(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: metadataFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: metadataFontSize, weight: weight)
+    }
+
+    func tableHeaderFont(weight: Font.Weight = .medium) -> Font {
+        .system(size: tableHeaderFontSize, weight: weight)
+    }
+}
+
+// MARK: - SettingsDisplayMetrics
+
+struct SettingsDisplayMetrics: Equatable {
+    var appMetrics: AppUIDisplayMetrics
+
+    var bodyFontSize: CGFloat {
+        appMetrics.primaryFontSize
+    }
+
+    var secondaryFontSize: CGFloat {
+        max(10, appMetrics.primaryFontSize - 1)
+    }
+
+    var metadataFontSize: CGFloat {
+        max(10, appMetrics.primaryFontSize - 2)
+    }
+
+    var windowWidth: CGFloat {
+        820
+    }
+
+    var windowHeight: CGFloat {
+        600
+    }
+
+    var contentPadding: CGFloat {
+        28
+    }
+
+    var labelWidth: CGFloat {
+        160
+    }
+
+    var wideLabelWidth: CGFloat {
+        182
+    }
+
+    var rowLeading: CGFloat {
+        labelWidth + 16
+    }
+
+    var controlHeight: CGFloat {
+        max(24, bodyFontSize + 12)
+    }
+
+    var footerHeight: CGFloat {
+        max(36, bodyFontSize + 24)
+    }
+
+    func fieldWidth(_ baseWidth: CGFloat) -> CGFloat {
+        baseWidth
+    }
+
+    func menuWidth(_ baseWidth: CGFloat) -> CGFloat {
+        baseWidth
+    }
+
+    func font(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: bodyFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: bodyFontSize, weight: weight)
+    }
+
+    func secondaryFont(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: secondaryFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: secondaryFontSize, weight: weight)
+    }
+
+    func metadataFont(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        if monospaced || appMetrics.settings.useMonospacedFont {
+            return .system(size: metadataFontSize, weight: weight, design: .monospaced)
+        }
+        return .system(size: metadataFontSize, weight: weight)
+    }
+}
+
 // MARK: - InspectorTextEditorSettings
 
 struct InspectorTextEditorSettings: Equatable, Sendable {
@@ -328,4 +566,41 @@ struct AppUIDisplayMetricsProvider<Content: View>: View {
     }
 
     private let settingsManager = AppSettingsManager.shared
+}
+
+// MARK: - ToolWindowDisplayMetricsProvider
+
+struct ToolWindowDisplayMetricsProvider<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        AppUIDisplayMetricsProvider {
+            ToolWindowReadableContent {
+                content
+            }
+        }
+    }
+}
+
+private struct ToolWindowReadableContent<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .font(toolMetrics.font())
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }

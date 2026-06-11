@@ -10,17 +10,18 @@ struct PrivacySettingsTab: View {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(localized: "Local Traffic Storage"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(settingsMetrics.font(weight: .medium))
                             Text(
                                 String(
                                     localized: "All captured HTTP/HTTPS requests, responses, headers, and bodies are stored in an unencrypted SQLite database on your Mac."
                                 )
                             )
-                            .font(.system(size: 11))
+                            .font(settingsMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                             Text("~" + "/Library/Application Support/" + RockxyIdentity.current
                                 .appSupportDirectoryName + "/rockxy.sqlite3")
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(settingsMetrics.secondaryFont(monospaced: true))
                                 .foregroundStyle(.blue)
                                 .textSelection(.enabled)
                         }
@@ -33,13 +34,14 @@ struct PrivacySettingsTab: View {
                     Label {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(localized: "Large Response Bodies"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(settingsMetrics.font(weight: .medium))
                             Text(String(localized: "Responses larger than 1 MB are saved as separate files."))
-                                .font(.system(size: 11))
+                                .font(settingsMetrics.secondaryFont())
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text("~" + "/Library/Application Support/" + RockxyIdentity.current
                                 .appSupportDirectoryName + "/bodies/")
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(settingsMetrics.secondaryFont(monospaced: true))
                                 .foregroundStyle(.blue)
                                 .textSelection(.enabled)
                         }
@@ -55,7 +57,7 @@ struct PrivacySettingsTab: View {
                 Label {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(String(localized: "Exports Contain Full Traffic Data"))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(settingsMetrics.font(weight: .medium))
                         Text(
                             String(
                                 localized: """
@@ -65,8 +67,9 @@ struct PrivacySettingsTab: View {
                                 """
                             )
                         )
-                        .font(.system(size: 11))
+                        .font(settingsMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 } icon: {
                     Image(systemName: "square.and.arrow.up")
@@ -80,9 +83,9 @@ struct PrivacySettingsTab: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
                             Text(String(localized: "No Telemetry"))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(settingsMetrics.font(weight: .medium))
                             Text(String(localized: "No Data Collected"))
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(settingsMetrics.metadataFont(weight: .semibold))
                                 .foregroundStyle(.green)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -96,8 +99,9 @@ struct PrivacySettingsTab: View {
                                 """
                             )
                         )
-                        .font(.system(size: 11))
+                        .font(settingsMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 } icon: {
                     Image(systemName: "lock.shield")
@@ -114,5 +118,12 @@ struct PrivacySettingsTab: View {
             .buttonStyle(.link)
         }
         .formStyle(.grouped)
+        .font(settingsMetrics.font())
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 }

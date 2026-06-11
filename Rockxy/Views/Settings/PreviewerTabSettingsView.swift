@@ -8,10 +8,11 @@ struct PreviewerTabSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(String(localized: "Body Previewer Tabs"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(settingsMetrics.font(weight: .semibold))
             Text(String(localized: "Select tabs to render body content as a specific format"))
-                .font(.system(size: 11))
+                .font(settingsMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(alignment: .top, spacing: 12) {
                 panelColumn(title: String(localized: "Request Panel"), panel: .request)
@@ -23,26 +24,33 @@ struct PreviewerTabSettingsView: View {
             Toggle(isOn: $store.autoBeautify) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(String(localized: "Auto beautify minified content"))
-                        .font(.system(size: 12))
+                        .font(settingsMetrics.font())
                     Text(String(localized: "Only applies to HTML, CSS, and JavaScript"))
-                        .font(.system(size: 10))
+                        .font(settingsMetrics.metadataFont())
                         .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .toggleStyle(.checkbox)
         }
         .padding(12)
-        .frame(width: 480)
+        .font(settingsMetrics.font())
+        .frame(width: settingsMetrics.fieldWidth(480))
     }
 
     // MARK: Private
 
     @State private var store = PreviewTabStore()
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private func panelColumn(title: String, panel: PreviewPanel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .font(settingsMetrics.secondaryFont(weight: .medium))
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -58,7 +66,7 @@ struct PreviewerTabSettingsView: View {
                         }
                     ))
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 12))
+                    .font(settingsMetrics.font())
                 }
             }
             .padding(8)

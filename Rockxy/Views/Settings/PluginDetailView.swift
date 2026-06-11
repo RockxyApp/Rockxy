@@ -15,8 +15,9 @@ struct PluginDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 headerSection
                 Text(plugin.manifest.description)
-                    .font(.system(size: 13))
+                    .font(settingsMetrics.font())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Divider()
                 badgesSection
@@ -31,27 +32,33 @@ struct PluginDetailView: View {
             }
             .padding(20)
         }
+        .font(settingsMetrics.font())
     }
 
     // MARK: Private
 
     @State private var showUninstallConfirmation = false
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var headerSection: some View {
         HStack(spacing: 12) {
             pluginIcon
             VStack(alignment: .leading, spacing: 2) {
                 Text(plugin.manifest.name)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3), weight: .semibold))
                 Text("v\(plugin.manifest.version)")
-                    .font(.system(size: 13))
+                    .font(settingsMetrics.font())
                     .foregroundStyle(.secondary)
                 if let urlString = plugin.manifest.author.url, let url = URL(string: urlString) {
                     Link(plugin.manifest.author.name, destination: url)
-                        .font(.system(size: 13))
+                        .font(settingsMetrics.font())
                 } else {
                     Text(plugin.manifest.author.name)
-                        .font(.system(size: 13))
+                        .font(settingsMetrics.font())
                         .foregroundStyle(.secondary)
                 }
             }
@@ -82,7 +89,7 @@ struct PluginDetailView: View {
             HStack(spacing: 6) {
                 ForEach(plugin.manifest.types, id: \.rawValue) { type in
                     Text(type.rawValue.capitalized)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(settingsMetrics.secondaryFont(weight: .medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
                         .background(Theme.Plugin.badgeColor(for: type).opacity(0.15))
@@ -95,7 +102,7 @@ struct PluginDetailView: View {
                 HStack(spacing: 6) {
                     ForEach(plugin.manifest.capabilities, id: \.self) { capability in
                         Text(capability)
-                            .font(.system(size: 11))
+                            .font(settingsMetrics.secondaryFont())
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
                             .background(Color.gray.opacity(0.15))
@@ -154,7 +161,7 @@ struct PluginDetailView: View {
     private func configurationSection(_ configuration: [String: PluginConfigField]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Configuration")
-                .font(.system(size: 13, weight: .semibold))
+                .font(settingsMetrics.font(weight: .semibold))
 
             ForEach(configuration.sorted(by: { $0.key < $1.key }), id: \.key) { key, field in
                 configRow(key: key, field: field)
@@ -165,8 +172,8 @@ struct PluginDetailView: View {
     private func configRow(key: String, field: PluginConfigField) -> some View {
         HStack(alignment: .top, spacing: 0) {
             Text(field.title)
-                .font(.system(size: 13))
-                .frame(width: 120, alignment: .trailing)
+                .font(settingsMetrics.font())
+                .frame(width: settingsMetrics.fieldWidth(120), alignment: .trailing)
                 .padding(.trailing, 12)
                 .padding(.top, 2)
 
@@ -178,15 +185,18 @@ struct PluginDetailView: View {
             case "string" where field.secret == true:
                 SecureField("", text: configStringBinding(pluginID: plugin.id, key: key, field: field))
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 240)
+                    .font(settingsMetrics.font())
+                    .frame(maxWidth: settingsMetrics.fieldWidth(240), minHeight: settingsMetrics.controlHeight)
             case "number":
                 TextField("", text: configStringBinding(pluginID: plugin.id, key: key, field: field))
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 120)
+                    .font(settingsMetrics.font(monospaced: true))
+                    .frame(maxWidth: settingsMetrics.fieldWidth(120), minHeight: settingsMetrics.controlHeight)
             default:
                 TextField("", text: configStringBinding(pluginID: plugin.id, key: key, field: field))
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 240)
+                    .font(settingsMetrics.font())
+                    .frame(maxWidth: settingsMetrics.fieldWidth(240), minHeight: settingsMetrics.controlHeight)
             }
         }
     }

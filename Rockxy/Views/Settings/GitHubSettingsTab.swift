@@ -59,7 +59,7 @@ struct GitHubSettingsTab: View {
                     Image(systemName: viewModel.isConnected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(viewModel.isConnected ? .green : .orange)
                     Text(viewModel.connectionTitle)
-                        .font(.system(size: 13))
+                        .font(settingsMetrics.font())
                 }
             }
 
@@ -74,7 +74,7 @@ struct GitHubSettingsTab: View {
                             }
                         }
                         .controlSize(.regular)
-                        .frame(width: 124)
+                        .frame(width: settingsMetrics.menuWidth(124))
 
                         Button(String(localized: "Use Token...")) {
                             showPersonalAccessTokenSheet = true
@@ -98,20 +98,21 @@ struct GitHubSettingsTab: View {
                             """
                         )
                     )
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 640, alignment: .leading)
+                    .frame(maxWidth: settingsMetrics.fieldWidth(640), alignment: .leading)
 
                     if !viewModel.canUseOAuth {
                         Text(String(localized: "OAuth is not configured for this build. Personal access token fallback is available."))
-                            .font(.system(size: 11))
+                            .font(settingsMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
         }
-        .padding(.horizontal, 44)
+        .padding(.horizontal, settingsMetrics.contentPadding + 12)
     }
 
     private var defaultsSection: some View {
@@ -131,8 +132,9 @@ struct GitHubSettingsTab: View {
 
                     if GitHubGistVisibility(rawValue: gistVisibility) == .public {
                         Text(String(localized: "Public Gists are discoverable. Review captured traffic before publishing."))
-                            .font(.system(size: 11, weight: .medium))
+                            .font(settingsMetrics.secondaryFont(weight: .medium))
                             .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     checkboxWithHelp(
@@ -161,7 +163,7 @@ struct GitHubSettingsTab: View {
                 }
             }
         }
-        .padding(.horizontal, 44)
+        .padding(.horizontal, settingsMetrics.contentPadding + 12)
     }
 
     private var advancedSection: some View {
@@ -174,15 +176,16 @@ struct GitHubSettingsTab: View {
                     .controlSize(.large)
 
                     Text(String(localized: "Review or Revoke Application Authorization."))
-                        .font(.system(size: 11))
+                        .font(settingsMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Button {
                         viewModel.openHelp()
                     } label: {
                         Image(systemName: "questionmark")
-                            .font(.system(size: 18, weight: .bold))
-                            .frame(width: 38, height: 38)
+                            .font(.system(size: max(18, settingsMetrics.bodyFontSize + 5), weight: .bold))
+                            .frame(width: settingsMetrics.controlHeight + 14, height: settingsMetrics.controlHeight + 14)
                     }
                     .buttonStyle(.borderless)
                     .background(Color(nsColor: .controlBackgroundColor), in: Circle())
@@ -190,7 +193,7 @@ struct GitHubSettingsTab: View {
                 }
             }
         }
-        .padding(.horizontal, 44)
+        .padding(.horizontal, settingsMetrics.contentPadding + 12)
     }
 
     private func alignedRow<Content: View>(
@@ -201,8 +204,8 @@ struct GitHubSettingsTab: View {
     {
         HStack(alignment: .top, spacing: 18) {
             Text(label)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 182, alignment: .trailing)
+                .font(settingsMetrics.font(weight: .medium))
+                .frame(width: settingsMetrics.wideLabelWidth, alignment: .trailing)
                 .padding(.top, 2)
             content()
         }
@@ -216,16 +219,17 @@ struct GitHubSettingsTab: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 12) {
                     Image(systemName: GitHubGistVisibility(rawValue: gistVisibility) == value ? "largecircle.fill.circle" : "circle.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: max(14, settingsMetrics.bodyFontSize + 1)))
                         .foregroundStyle(GitHubGistVisibility(rawValue: gistVisibility) == value ? .blue : Color(nsColor: .controlColor))
                     Text(title)
-                        .font(.system(size: 13))
+                        .font(settingsMetrics.font())
                         .foregroundStyle(.primary)
                 }
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .padding(.leading, 33)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .contentShape(Rectangle())
         }
@@ -248,11 +252,18 @@ struct GitHubSettingsTab: View {
                 }
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .padding(.leading, 27)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -378,25 +389,29 @@ final class GitHubSettingsViewModel {
 
 private struct PersonalAccessTokenFallbackSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Bindable var viewModel: GitHubSettingsViewModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(localized: "Personal Access Token"))
-                .font(.title3.weight(.semibold))
+                .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3), weight: .semibold))
 
             Text(String(localized: "Paste a GitHub token with Gist access. Rockxy stores the token in Keychain."))
-                .font(.system(size: 12))
+                .font(settingsMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             SecureField(String(localized: "GitHub token"), text: $viewModel.personalAccessToken)
                 .textFieldStyle(.roundedBorder)
+                .font(settingsMetrics.font(monospaced: true))
+                .frame(minHeight: settingsMetrics.controlHeight)
 
             if let errorMessage = viewModel.errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 12))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -419,8 +434,13 @@ private struct PersonalAccessTokenFallbackSheet: View {
                 .disabled(viewModel.personalAccessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(22)
-        .frame(width: 430)
+        .font(settingsMetrics.font())
+        .padding(settingsMetrics.contentPadding)
+        .frame(width: settingsMetrics.fieldWidth(430))
+    }
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -428,6 +448,7 @@ private struct PersonalAccessTokenFallbackSheet: View {
 
 private struct GitHubDeviceCodeAuthorizationSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Bindable var viewModel: GitHubSettingsViewModel
     @State private var deviceCode: GitHubAuthService.DeviceCode?
     @State private var isLoading = false
@@ -436,13 +457,14 @@ private struct GitHubDeviceCodeAuthorizationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(String(localized: "Authorize GitHub"))
-                .font(.title3.weight(.semibold))
+                .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3), weight: .semibold))
 
             if let deviceCode {
                 Text(String(localized: "Enter this code on GitHub:"))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                 Text(deviceCode.userCode)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
+                    .font(.system(size: max(28, settingsMetrics.bodyFontSize + 15), weight: .bold, design: .monospaced))
                     .textSelection(.enabled)
 
                 HStack {
@@ -458,6 +480,7 @@ private struct GitHubDeviceCodeAuthorizationSheet: View {
                 }
             } else {
                 Text(String(localized: "Rockxy will request GitHub Gist permission using OAuth device authorization."))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(String(localized: "Start Authorization")) {
@@ -473,8 +496,9 @@ private struct GitHubDeviceCodeAuthorizationSheet: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 12))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -484,8 +508,9 @@ private struct GitHubDeviceCodeAuthorizationSheet: View {
                 }
             }
         }
-        .padding(22)
-        .frame(width: 430)
+        .font(settingsMetrics.font())
+        .padding(settingsMetrics.contentPadding)
+        .frame(width: settingsMetrics.fieldWidth(430))
         .task {
             if deviceCode == nil {
                 await start()
@@ -517,5 +542,9 @@ private struct GitHubDeviceCodeAuthorizationSheet: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 }

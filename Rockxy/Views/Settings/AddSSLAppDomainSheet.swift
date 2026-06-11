@@ -35,7 +35,8 @@ struct AddSSLAppDomainSheet: View {
             Divider()
             buttonBar
         }
-        .frame(width: 500, height: 520)
+        .font(toolMetrics.font())
+        .frame(width: max(500, toolMetrics.fieldWidth(500)), height: max(520, toolMetrics.bodyFontSize * 28 + 156))
     }
 
     // MARK: Private
@@ -46,10 +47,15 @@ struct AddSSLAppDomainSheet: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     @State private var searchText = ""
     @State private var selectedItem: PickerItem?
     @FocusState private var isSearchFocused: Bool
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var snapshot: TrafficDomainSnapshot {
         TrafficDomainSnapshot.shared
@@ -89,7 +95,7 @@ struct AddSSLAppDomainSheet: View {
     private var headerSection: some View {
         HStack {
             Text(String(localized: "Add favorite app or domain"))
-                .font(.system(size: 13))
+                .font(toolMetrics.font(weight: .medium))
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -105,6 +111,8 @@ struct AddSSLAppDomainSheet: View {
                 prompt: Text(String(localized: "Search app or domain (⌘⇧F)"))
             )
             .textFieldStyle(.roundedBorder)
+            .font(toolMetrics.font())
+            .frame(minHeight: toolMetrics.formControlHeight)
             .focused($isSearchFocused)
             .onAppear { isSearchFocused = true }
         }
@@ -127,10 +135,10 @@ struct AddSSLAppDomainSheet: View {
                     ForEach(app.domains, id: \.self) { domain in
                         HStack(spacing: 8) {
                             Image(systemName: "circle.slash")
-                                .font(.caption)
+                                .font(toolMetrics.secondaryFont())
                                 .foregroundStyle(.tertiary)
                             Text(domain)
-                                .font(.system(size: 12))
+                                .font(toolMetrics.secondaryFont())
                                 .lineLimit(1)
                         }
                         .tag(PickerItem.domain(domain))
@@ -138,11 +146,11 @@ struct AddSSLAppDomainSheet: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "app.fill")
-                            .font(.caption)
+                            .font(toolMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
                             .frame(width: 16, height: 16)
                         Text(app.name)
-                            .font(.system(size: 12))
+                            .font(toolMetrics.secondaryFont())
                             .lineLimit(1)
                     }
                     .tag(PickerItem.app(app.name))
@@ -151,12 +159,12 @@ struct AddSSLAppDomainSheet: View {
         } header: {
             HStack {
                 Image(systemName: "folder.fill")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                 Text(String(localized: "Apps"))
-                    .font(.caption.weight(.semibold))
+                    .font(toolMetrics.secondaryFont(weight: .semibold))
                 Spacer()
                 Text("\(filteredApps.count)")
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -171,10 +179,10 @@ struct AddSSLAppDomainSheet: View {
             ForEach(filteredDomains, id: \.self) { domain in
                 HStack(spacing: 8) {
                     Image(systemName: "circle.slash")
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.tertiary)
                     Text(domain)
-                        .font(.system(size: 12))
+                        .font(toolMetrics.secondaryFont())
                         .lineLimit(1)
                 }
                 .tag(PickerItem.domain(domain))
@@ -182,12 +190,12 @@ struct AddSSLAppDomainSheet: View {
         } header: {
             HStack {
                 Image(systemName: "globe")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                 Text(String(localized: "Domains"))
-                    .font(.caption.weight(.semibold))
+                    .font(toolMetrics.secondaryFont(weight: .semibold))
                 Spacer()
                 Text("\(filteredDomains.count)")
-                    .font(.caption)
+                    .font(toolMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -201,8 +209,9 @@ struct AddSSLAppDomainSheet: View {
         HStack {
             Spacer()
             Text(String(localized: "Launch your app/domain to see it in the list"))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(.vertical, 6)
@@ -228,7 +237,7 @@ struct AddSSLAppDomainSheet: View {
                 HStack(spacing: 4) {
                     Text(String(localized: "Select"))
                     Image(systemName: "chevron.down")
-                        .font(.caption2)
+                        .font(toolMetrics.metadataFont())
                 }
             }
             .menuStyle(.borderlessButton)

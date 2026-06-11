@@ -31,8 +31,8 @@ struct ComposeWindowView: View {
             Divider()
             footerBar
         }
-        .font(.system(.body))
-        .frame(minWidth: 900, minHeight: 600)
+        .font(toolMetrics.font())
+        .frame(minWidth: max(900, toolMetrics.bodyFontSize * 32 + 484), minHeight: max(600, toolMetrics.bodyFontSize * 18 + 366))
         .onAppear {
             consumeDraftRequest()
             isURLFocused = true
@@ -66,6 +66,11 @@ struct ComposeWindowView: View {
     @State private var viewModel = ComposeViewModel()
     @State private var isShowingBodyImporter = false
     @FocusState private var isURLFocused: Bool
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var composeBar: some View {
         HStack(spacing: 8) {
@@ -78,14 +83,15 @@ struct ComposeWindowView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .tint(.accentColor)
-                .frame(width: 86)
+                .frame(width: toolMetrics.menuWidth(86))
                 .onChange(of: viewModel.method) {
                     viewModel.syncUnsupportedState()
                 }
 
                 TextField(String(localized: "URL"), text: $viewModel.url)
                     .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
+                    .frame(minHeight: toolMetrics.formControlHeight)
                     .focused($isURLFocused)
                     .onSubmit {
                         Task { await viewModel.send() }
@@ -104,7 +110,7 @@ struct ComposeWindowView: View {
                 .help(String(localized: "Expand Raw Message"))
             }
             .padding(.horizontal, 10)
-            .frame(height: 44)
+            .frame(minHeight: max(44, toolMetrics.formControlHeight + 16))
             .background(.quaternary.opacity(0.55), in: RoundedRectangle(cornerRadius: 16))
 
             sendButton
@@ -117,7 +123,7 @@ struct ComposeWindowView: View {
         if case .loading = viewModel.responseState {
             ProgressView()
                 .controlSize(.small)
-                .frame(width: 60)
+                .frame(width: toolMetrics.menuWidth(60))
         } else {
             Button(String(localized: "Send")) {
                 Task { await viewModel.send() }
@@ -135,8 +141,9 @@ struct ComposeWindowView: View {
                 Image(systemName: "clock.arrow.circlepath")
                     .foregroundStyle(Color.accentColor)
                 Text(message)
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
             }
             .padding(.horizontal, 14)
@@ -199,7 +206,7 @@ struct ComposeWindowView: View {
                 }
                 Divider()
                 Text(String(localized: "Authorization and cookie headers are not stored on disk."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                 Button(String(localized: "Clear All..."), role: .destructive) {
                     viewModel.clearHistory()
                 }

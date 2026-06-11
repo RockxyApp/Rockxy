@@ -263,7 +263,8 @@ struct BlockListWindowView: View {
             shortcutHelp
             footer
         }
-        .frame(width: 1_200, height: 642)
+        .font(toolMetrics.font())
+        .frame(width: 1_200, height: 672)
         .task { await viewModel.refreshFromEngine() }
         .onAppear { consumePendingContext() }
         .onReceive(NotificationCenter.default.publisher(for: .openBlockListWindow)) { _ in
@@ -342,9 +343,10 @@ struct BlockListWindowView: View {
     @State private var exportDocument: BlockListSettingsDocument?
     @State private var importError: String?
     @State private var importSource: BlockListImportSource = .proxyman
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Toggle(
                 String(localized: "Enable Block List Tool"),
                 isOn: Binding(
@@ -353,11 +355,11 @@ struct BlockListWindowView: View {
                 )
             )
             .toggleStyle(.checkbox)
-            .controlSize(.large)
-            .font(.system(size: 13, weight: .medium))
+            .font(toolMetrics.font(weight: .medium))
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Block or Hide any Requests. Useful to block/hide unnecessary requests."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.primary)
 
             Text(
@@ -366,45 +368,39 @@ struct BlockListWindowView: View {
                     "Each request is checked against the rules from top to bottom, stopping when a match is found."
                 )
             )
-            .font(.system(size: 12.5))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var shortcutHelp: some View {
         Text(String(localized: "New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ␣"))
-            .font(.system(size: 10.5))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var footer: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             addRemoveControl
 
             Button {
                 // Help content is intentionally deferred; this mirrors the reference affordance.
             } label: {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.secondary.opacity(0.35), .clear)
-                    .overlay(Text("?").font(.system(size: 15, weight: .medium)).foregroundStyle(.primary))
-                    .frame(width: 34, height: 22)
+                Image(systemName: "questionmark.circle")
             }
-            .buttonStyle(.borderless)
-            .padding(.leading, 10)
+            .buttonStyle(.bordered)
 
             Spacer()
 
             moreMenu
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     private var addRemoveControl: some View {
@@ -413,9 +409,9 @@ struct BlockListWindowView: View {
                 viewModel.presentNewRuleEditor()
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -424,23 +420,23 @@ struct BlockListWindowView: View {
 
             Rectangle()
                 .fill(Color(nsColor: .separatorColor).opacity(0.7))
-                .frame(width: 1, height: 21)
+                .frame(width: 1, height: 18)
 
             Button {
                 viewModel.removeSelected()
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(viewModel.selectedRuleID == nil ? .tertiary : .primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(viewModel.selectedRuleID == nil)
             .help(String(localized: "Delete Rule"))
         }
-        .frame(height: 23)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor))
         .overlay(
             Rectangle()
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
@@ -514,10 +510,16 @@ struct BlockListWindowView: View {
             HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
         }
         .menuIndicator(.hidden)
+        .buttonStyle(.bordered)
+        .fixedSize()
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder
@@ -652,7 +654,7 @@ private struct BlockListTableView<ContextMenuContent: View>: View {
 
                 if rules.isEmpty {
                     Text(String(localized: "Click \"+\" or ⌘N to add new entry"))
-                        .font(.system(size: 12))
+                        .font(.system(size: toolMetrics.emptyStateFontSize))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -677,13 +679,15 @@ private struct BlockListTableView<ContextMenuContent: View>: View {
                     }
                 }
             }
+            .frame(maxHeight: .infinity)
         }
-        .frame(height: 399)
+        .frame(minHeight: toolMetrics.tableRowHeight * 8, maxHeight: .infinity)
+        .clipped()
         .overlay {
             Rectangle()
                 .stroke(.secondary.opacity(0.45), lineWidth: 1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var columnHeader: some View {
@@ -692,49 +696,62 @@ private struct BlockListTableView<ContextMenuContent: View>: View {
                 .frame(width: 66, alignment: .leading)
             tableDivider
             Text(String(localized: "Name"))
-                .frame(width: 303, alignment: .leading)
+                .frame(width: 300, alignment: .leading)
             tableDivider
             Text(String(localized: "Block Action"))
-                .frame(width: 110, alignment: .leading)
+                .frame(width: 150, alignment: .leading)
             tableDivider
             Text(String(localized: "Method"))
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 90, alignment: .leading)
             tableDivider
             Text(String(localized: "Matching Rule"))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 11, weight: .medium))
-        .padding(.horizontal, 12)
-        .frame(height: 24)
+        .font(toolMetrics.tableHeaderFont())
+        .lineLimit(1)
+        .padding(.horizontal, toolMetrics.tableCellHorizontalPadding)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(Color(nsColor: .textBackgroundColor))
-        .padding(.horizontal, 20)
         .overlay(alignment: .bottom) {
-            Divider().padding(.horizontal, 20)
+            Divider()
         }
     }
 
     private var tableDivider: some View {
         Rectangle()
             .fill(.secondary.opacity(0.22))
-            .frame(width: 1, height: 16)
+            .frame(width: 1, height: max(16, toolMetrics.tableRowHeight - 10))
             .padding(.trailing, 10)
     }
 
     private var zebraRows: some View {
-        VStack(spacing: 0) {
-            ForEach(0 ..< 17, id: \.self) { index in
-                Rectangle()
-                    .fill(index.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary.opacity(0.08))
-                    .frame(height: 22)
+        GeometryReader { proxy in
+            let rowCount = max(1, Int(ceil(proxy.size.height / toolMetrics.tableRowHeight)))
+            VStack(spacing: 0) {
+                ForEach(0 ..< rowCount, id: \.self) { index in
+                    Rectangle()
+                        .fill(index.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary.opacity(0.08))
+                        .frame(height: toolMetrics.tableRowHeight)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .allowsHitTesting(false)
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 }
 
 // MARK: - BlockRuleTableRow
 
 private struct BlockRuleTableRow: View {
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     let rule: ProxyRule
     let isSelected: Bool
     let rowIndex: Int
@@ -754,23 +771,27 @@ private struct BlockRuleTableRow: View {
             Text(rule.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 314, alignment: .leading)
+                .frame(width: 300, alignment: .leading)
 
             actionLabel
-                .frame(width: 110, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 150, alignment: .leading)
 
             Text(rule.matchCondition.method ?? "ANY")
-                .frame(width: 80, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: 90, alignment: .leading)
 
             Text(rule.matchCondition.urlPattern ?? "")
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 10.5))
+        .font(toolMetrics.font())
+        .padding(.horizontal, toolMetrics.tableCellHorizontalPadding)
         .foregroundStyle(rule.isEnabled ? .primary : .secondary)
-        .frame(height: 22)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -790,6 +811,10 @@ private struct BlockRuleTableRow: View {
             return AnyShapeStyle(Color.accentColor.opacity(0.22))
         }
         return AnyShapeStyle(rowIndex.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary.opacity(0.08))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -825,7 +850,7 @@ private struct AddBlockRuleSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Layout.sectionSpacing) {
+            VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing) {
                 provenanceBanner
 
                 formRow(String(localized: "Name:")) {
@@ -836,7 +861,7 @@ private struct AddBlockRuleSheet: View {
                 formRow(String(localized: "Matching Rule:")) {
                     TextField("", text: $urlPattern, prompt: Text("https://example.com"))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                 }
 
                 methodAndMatchRow
@@ -852,12 +877,12 @@ private struct AddBlockRuleSheet: View {
                     .pickerStyle(.menu)
                     .labelsHidden()
                     .accessibilityLabel(String(localized: "Action"))
-                    .frame(width: 220)
+                    .frame(width: toolMetrics.menuWidth(220))
                 }
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.top, toolMetrics.formVerticalPadding)
+            .padding(.bottom, toolMetrics.formVerticalPadding)
 
             Divider()
 
@@ -882,16 +907,16 @@ private struct AddBlockRuleSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(urlPattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.vertical, toolMetrics.controlSpacing)
         }
-        .frame(width: 600)
+        .font(toolMetrics.font())
+        .frame(minWidth: max(640, toolMetrics.bodyFontSize * 20 + 380))
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private static let labelWidth: CGFloat = 110
-
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var ruleName: String
     @State private var urlPattern: String
     @State private var httpMethod: HTTPMethodFilter
@@ -906,11 +931,15 @@ private struct AddBlockRuleSheet: View {
         return String(localized: "Done")
     }
 
+    private var labelWidth: CGFloat {
+        max(122, toolMetrics.formLabelWidth)
+    }
+
     @ViewBuilder private var provenanceBanner: some View {
         if case let .create(context?) = session.mode {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                 Group {
                     switch context.origin {
@@ -924,7 +953,7 @@ private struct AddBlockRuleSheet: View {
                         Text(String(localized: "Created from domain: \(context.sourceHost)"))
                     }
                 }
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -936,9 +965,9 @@ private struct AddBlockRuleSheet: View {
     }
 
     private var methodAndMatchRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Spacer()
-                .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                .frame(width: labelWidth + toolMetrics.controlSpacing)
             Picker("", selection: $httpMethod) {
                 ForEach(HTTPMethodFilter.allCases, id: \.self) { method in
                     Text(method.rawValue).tag(method)
@@ -947,7 +976,7 @@ private struct AddBlockRuleSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "HTTP Method"))
-            .frame(width: 90)
+            .frame(width: toolMetrics.menuWidth(90))
 
             Picker("", selection: $matchType) {
                 ForEach(BlockMatchType.allCases, id: \.self) { type in
@@ -957,12 +986,13 @@ private struct AddBlockRuleSheet: View {
             .pickerStyle(.menu)
             .labelsHidden()
             .accessibilityLabel(String(localized: "Match Type"))
-            .frame(width: 175)
+            .frame(width: toolMetrics.menuWidth(175))
 
             if matchType == .wildcard {
                 Text(String(localized: "Support wildcard * and ?."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -971,10 +1001,10 @@ private struct AddBlockRuleSheet: View {
         if matchType == .wildcard {
             HStack(spacing: 8) {
                 Spacer()
-                    .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                    .frame(width: labelWidth + toolMetrics.controlSpacing)
                 Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
         }
     }
@@ -985,15 +1015,21 @@ private struct AddBlockRuleSheet: View {
     )
         -> some View
     {
-        HStack(alignment: .top, spacing: Theme.Layout.sectionSpacing) {
+        HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
             Text(label)
-                .font(.system(size: 13))
-                .frame(width: Self.labelWidth, alignment: .trailing)
+                .font(toolMetrics.font())
+                .lineLimit(1)
+                .frame(width: labelWidth, alignment: .trailing)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 4) {
                 content()
             }
+            .frame(minHeight: toolMetrics.formControlHeight)
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

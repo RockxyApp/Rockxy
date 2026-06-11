@@ -6,6 +6,11 @@ struct DiffCandidateTableView: View {
     // MARK: Internal
 
     @Bindable var viewModel: DiffViewModel
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,7 +23,7 @@ struct DiffCandidateTableView: View {
                             viewModel.assignLeft(transaction)
                         } label: {
                             Image(systemName: viewModel.isLeft(transaction) ? "circle.fill" : "circle")
-                                .font(.system(size: 8))
+                                .font(.system(size: toolMetrics.compactIconFontSize))
                                 .foregroundStyle(viewModel.isLeft(transaction) ? Color.accentColor : Color.secondary
                                     .opacity(0.4))
                         }
@@ -31,7 +36,7 @@ struct DiffCandidateTableView: View {
                             viewModel.assignRight(transaction)
                         } label: {
                             Image(systemName: viewModel.isRight(transaction) ? "circle.fill" : "circle")
-                                .font(.system(size: 8))
+                                .font(.system(size: toolMetrics.compactIconFontSize))
                                 .foregroundStyle(viewModel.isRight(transaction) ? Color.accentColor : Color.secondary
                                     .opacity(0.4))
                         }
@@ -46,7 +51,7 @@ struct DiffCandidateTableView: View {
 
                     TableColumn(String(localized: "URL")) { transaction in
                         Text(transaction.request.url.absoluteString)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .help(transaction.request.url.absoluteString)
@@ -54,28 +59,28 @@ struct DiffCandidateTableView: View {
 
                     TableColumn(String(localized: "Client")) { transaction in
                         Text(transaction.clientApp ?? "—")
-                            .font(.caption)
+                            .font(toolMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
                     }
                     .width(60)
 
                     TableColumn(String(localized: "Code")) { transaction in
                         Text(transaction.response.map { "\($0.statusCode)" } ?? "—")
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(statusColor(transaction.response?.statusCode))
                     }
                     .width(40)
 
                     TableColumn(String(localized: "Time")) { transaction in
                         Text(formatTime(transaction.timestamp))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(.secondary)
                     }
                     .width(70)
 
                     TableColumn(String(localized: "Duration")) { transaction in
                         Text(formatDuration(transaction.timingInfo?.totalDuration))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(.secondary)
                     }
                     .width(70)
@@ -89,13 +94,14 @@ struct DiffCandidateTableView: View {
     private var emptyState: some View {
         VStack(spacing: 4) {
             Text(String(localized: "No compare candidates yet"))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.tertiary)
             Text(
                 String(localized: "Select two requests and choose \"Compare Selected\" to start a basic local compare.")
             )
-            .font(.caption2)
+            .font(toolMetrics.metadataFont())
             .foregroundStyle(.quaternary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 8)
