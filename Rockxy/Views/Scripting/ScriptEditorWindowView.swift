@@ -11,6 +11,7 @@ struct ScriptEditorWindowView: View {
             Divider()
             footer
         }
+        .font(toolMetrics.font())
         .frame(minWidth: 960, minHeight: 640)
         .onAppear {
             if let intent = ScriptEditorSession.shared.consumePending() {
@@ -26,6 +27,7 @@ struct ScriptEditorWindowView: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var viewModel = ScriptEditorViewModel()
 
     // MARK: - Matching Rule header
@@ -48,7 +50,7 @@ struct ScriptEditorWindowView: View {
                         .frame(width: 58, alignment: .trailing)
                     TextField("", text: $viewModel.urlPattern)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                 }
 
                 HStack(spacing: 8) {
@@ -60,7 +62,7 @@ struct ScriptEditorWindowView: View {
 
                     if viewModel.patternMode == .wildcard {
                         Text("Support wildcard * and ?.")
-                            .font(.caption)
+                            .font(toolMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
                     }
 
@@ -72,7 +74,7 @@ struct ScriptEditorWindowView: View {
                             : "No match for: \(effectiveSample)"
                     } label: {
                         Text("Test your Rule")
-                            .font(.caption.weight(.medium))
+                            .font(toolMetrics.secondaryFont(weight: .medium))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
@@ -88,7 +90,7 @@ struct ScriptEditorWindowView: View {
 
                 if !viewModel.testRulePreview.isEmpty {
                     Text(viewModel.testRulePreview)
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                         .padding(.leading, 66)
                 }
@@ -261,7 +263,7 @@ struct ScriptEditorWindowView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "eye")
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
@@ -308,13 +310,13 @@ struct ScriptEditorWindowView: View {
         Button("Reset Shared State") { viewModel.resetSharedState() }
         Menu("Environment Variables") {
             Text("(from plugin configuration)")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         Divider()
         Menu("Configs") {
             Text("(from plugin manifest)")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         Divider()
@@ -339,8 +341,12 @@ struct ScriptEditorWindowView: View {
             Text(title)
                 .frame(minWidth: minWidth, alignment: .leading)
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private func validateRule() {

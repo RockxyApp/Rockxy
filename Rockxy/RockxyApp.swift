@@ -38,7 +38,9 @@ struct RockxyApp: App {
         }
 
         Window(String(localized: "Advanced Proxy Settings"), id: "advancedProxySettings") {
-            AdvancedProxySettingsView()
+            ToolWindowDisplayMetricsProvider {
+                AdvancedProxySettingsView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -54,7 +56,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Mac Setup Guide"), id: "certificateSetup") {
-            MacCertificateSetupGuideView()
+            ToolWindowDisplayMetricsProvider {
+                MacCertificateSetupGuideView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 860, height: 540)
@@ -62,7 +66,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Custom Certificates"), id: "customCertificates") {
-            CustomCertificatesView()
+            ToolWindowDisplayMetricsProvider {
+                CustomCertificatesView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 940, height: 600)
@@ -92,14 +98,18 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
 
         Window(String(localized: "Map Local"), id: "mapLocal") {
-            MapLocalWindowView()
+            ToolWindowDisplayMetricsProvider {
+                MapLocalWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "Map Local Editor"), id: "mapLocalEditor") {
-            MapLocalEditorWindowView()
+            ToolWindowDisplayMetricsProvider {
+                MapLocalEditorWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 960, height: 640)
@@ -107,7 +117,9 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
 
         Window(String(localized: "Map Remote"), id: "mapRemote") {
-            MapRemoteWindowView()
+            ToolWindowDisplayMetricsProvider {
+                MapRemoteWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -115,7 +127,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Map Remote Editor"), id: "mapRemoteEditor") {
-            MapRemoteEditorWindowView()
+            ToolWindowDisplayMetricsProvider {
+                MapRemoteEditorWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 834, height: 584)
@@ -123,7 +137,9 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
 
         Window(String(localized: "Block List"), id: "blockList") {
-            BlockListWindowView()
+            ToolWindowDisplayMetricsProvider {
+                BlockListWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -131,14 +147,18 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Modify Headers"), id: "modifyHeaders") {
-            ModifyHeaderWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ModifyHeaderWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "Network Conditions"), id: "networkConditions") {
-            NetworkConditionsWindowView()
+            ToolWindowDisplayMetricsProvider {
+                NetworkConditionsWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -146,7 +166,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "SSL Proxying List"), id: "sslProxyingList") {
-            SSLProxyingListView()
+            ToolWindowDisplayMetricsProvider {
+                SSLProxyingListView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -154,28 +176,36 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Bypass Proxy List"), id: "bypassProxyList") {
-            BypassProxyListView()
+            ToolWindowDisplayMetricsProvider {
+                BypassProxyListView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "External Proxy Settings"), id: "externalProxySettings") {
-            ExternalProxySettingsView()
+            ToolWindowDisplayMetricsProvider {
+                ExternalProxySettingsView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "SOCKS Proxy Settings"), id: "socksProxySettings") {
-            SOCKSProxySettingsView()
+            ToolWindowDisplayMetricsProvider {
+                SOCKSProxySettingsView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "Allow List"), id: "allowList") {
-            AllowListWindowView()
+            ToolWindowDisplayMetricsProvider {
+                AllowListWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -183,14 +213,18 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Diff"), id: "diff") {
-            DiffWindowView()
+            ToolWindowDisplayMetricsProvider {
+                DiffWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 1_240, height: 820)
         .defaultPosition(.center)
 
         Window(String(localized: "Scripting"), id: "scriptingList") {
-            ScriptingListWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ScriptingListWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -198,28 +232,36 @@ struct RockxyApp: App {
         .defaultSize(width: 1_200, height: 672)
 
         Window(String(localized: "Script Editor"), id: "scriptEditor") {
-            ScriptEditorWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ScriptEditorWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 1_120, height: 690)
         .defaultPosition(.center)
 
         Window(String(localized: "Body Previewer Tabs"), id: "bodyPreviewerTabs") {
-            PreviewerTabSettingsView()
+            ToolWindowDisplayMetricsProvider {
+                PreviewerTabSettingsView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "Custom Columns"), id: "customColumns") {
-            CustomHeaderColumnsView()
+            ToolWindowDisplayMetricsProvider {
+                CustomHeaderColumnsView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
         .defaultPosition(.center)
 
         Window(String(localized: "Protobuf Settings"), id: "protobufSettings") {
-            ProtobufSettingsWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ProtobufSettingsWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -227,7 +269,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Protobuf Schema List"), id: "protobufSchemaList") {
-            ProtobufSchemaListWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ProtobufSchemaListWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -235,7 +279,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Breakpoint Rules"), id: "breakpointRules") {
-            BreakpointRulesWindowView()
+            ToolWindowDisplayMetricsProvider {
+                BreakpointRulesWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -243,7 +289,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Breakpoint Rule Editor"), id: "breakpointRuleEditor") {
-            BreakpointRuleEditorWindowView()
+            ToolWindowDisplayMetricsProvider {
+                BreakpointRuleEditorWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -251,7 +299,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Breakpoint Template"), id: "breakpointTemplates") {
-            BreakpointTemplateWindowView()
+            ToolWindowDisplayMetricsProvider {
+                BreakpointTemplateWindowView()
+            }
         }
         .commandsRemoved()
         .windowResizability(.contentSize)
@@ -259,7 +309,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Breakpoint Queue"), id: "breakpoints") {
-            BreakpointWindowView()
+            ToolWindowDisplayMetricsProvider {
+                BreakpointWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 800, height: 500)
@@ -300,7 +352,9 @@ private struct ComposeWindowScene: Scene {
 
     private var composeWindow: some Scene {
         let base = Window(String(localized: "Compose"), id: "compose") {
-            ComposeWindowView()
+            ToolWindowDisplayMetricsProvider {
+                ComposeWindowView()
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 900, height: 600)

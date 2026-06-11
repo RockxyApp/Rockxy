@@ -80,7 +80,7 @@ struct ModifyHeaderEditorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             helperText
 
             if operations.isEmpty {
@@ -103,12 +103,14 @@ struct ModifyHeaderEditorView: View {
     private static let removeWidth: CGFloat = 24
     private static let rowSpacing: CGFloat = 8
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     private var helperText: some View {
         HStack(spacing: 6) {
             Image(systemName: "info.circle")
                 .foregroundStyle(Color.accentColor)
             Text(String(localized: "Operations are applied in order. Later rows can overwrite earlier rows."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(Color(nsColor: .labelColor).opacity(0.72))
             Spacer()
         }
@@ -118,7 +120,7 @@ struct ModifyHeaderEditorView: View {
         HStack {
             Spacer()
             Text(String(localized: "No operations. Add at least one header operation."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -157,7 +159,7 @@ struct ModifyHeaderEditorView: View {
             Spacer()
                 .frame(width: Self.removeWidth)
         }
-        .font(.caption)
+        .font(toolMetrics.tableHeaderFont())
         .fontWeight(.semibold)
         .foregroundStyle(Color(nsColor: .labelColor))
         .padding(.horizontal, 12)
@@ -190,7 +192,7 @@ struct ModifyHeaderEditorView: View {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(invalidOps, id: \.0) { index, message in
                     Text(String(localized: "Row \(index + 1): \(message)"))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.red)
                 }
             }
@@ -246,7 +248,7 @@ struct ModifyHeaderEditorView: View {
                 }
             } label: {
                 Image(systemName: "trash")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
             }
             .buttonStyle(.borderless)
             .foregroundStyle(.secondary)
@@ -260,7 +262,7 @@ struct ModifyHeaderEditorView: View {
             Text(String(localized: "Not used"))
                 .font(.system(.body, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: Self.minFieldWidth, minHeight: 22, alignment: .leading)
+                .frame(minWidth: Self.minFieldWidth, minHeight: toolMetrics.formControlHeight, alignment: .leading)
                 .padding(.horizontal, 7)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
@@ -277,6 +279,10 @@ struct ModifyHeaderEditorView: View {
             .controlSize(.small)
             .frame(minWidth: Self.minFieldWidth)
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

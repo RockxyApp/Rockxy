@@ -52,7 +52,7 @@ struct AddAllowListRuleSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: Theme.Layout.sectionSpacing) {
+            VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing) {
                 provenanceBanner
 
                 formRow(String(localized: "Name:")) {
@@ -70,9 +70,9 @@ struct AddAllowListRuleSheet: View {
 
                 conditionalFields
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.top, toolMetrics.formVerticalPadding)
+            .padding(.bottom, toolMetrics.formVerticalPadding)
 
             Divider()
 
@@ -103,18 +103,20 @@ struct AddAllowListRuleSheet: View {
                 .keyboardShortcut(.defaultAction)
                 .disabled(trimmedURL.isEmpty)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 8)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.vertical, toolMetrics.controlSpacing)
         }
-        .frame(width: 600)
+        .font(toolMetrics.font())
+        .frame(minWidth: 640)
         .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
-    private static let labelWidth: CGFloat = 110
+    private static let labelWidth: CGFloat = 122
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var ruleName: String
     @State private var urlPattern: String
     @State private var httpMethod: HTTPMethodFilter
@@ -139,7 +141,7 @@ struct AddAllowListRuleSheet: View {
         if let context = quickCreateContext {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                 Group {
                     switch context.origin {
@@ -161,7 +163,7 @@ struct AddAllowListRuleSheet: View {
                         Text(String(localized: "Created from domain: \(context.sourceHost)"))
                     }
                 }
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -173,9 +175,9 @@ struct AddAllowListRuleSheet: View {
     }
 
     private var methodAndMatchRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Spacer()
-                .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                .frame(width: Self.labelWidth + toolMetrics.controlSpacing)
             Picker("", selection: $httpMethod) {
                 ForEach(HTTPMethodFilter.allCases, id: \.self) { method in
                     Text(method.rawValue).tag(method)
@@ -198,7 +200,7 @@ struct AddAllowListRuleSheet: View {
 
             if matchType == .wildcard {
                 Text(String(localized: "Support wildcard * and ?."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
             }
         }
@@ -206,12 +208,12 @@ struct AddAllowListRuleSheet: View {
 
     @ViewBuilder private var conditionalFields: some View {
         if matchType == .wildcard {
-            HStack(spacing: 8) {
+            HStack(spacing: toolMetrics.controlSpacing) {
                 Spacer()
-                    .frame(width: Self.labelWidth + Theme.Layout.sectionSpacing)
+                    .frame(width: Self.labelWidth + toolMetrics.controlSpacing)
                 Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
         }
     }
@@ -222,14 +224,18 @@ struct AddAllowListRuleSheet: View {
     )
         -> some View
     {
-        HStack(alignment: .top, spacing: Theme.Layout.sectionSpacing) {
+        HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
             Text(label)
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .frame(width: Self.labelWidth, alignment: .trailing)
                 .padding(.top, 4)
             VStack(alignment: .leading, spacing: 4) {
                 content()
             }
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

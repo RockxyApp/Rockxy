@@ -409,6 +409,7 @@ enum NetworkConditionsRuleForm {
 struct NetworkConditionsWindowView: View {
     // MARK: Internal
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State var viewModel = NetworkConditionsWindowViewModel()
 
     var body: some View {
@@ -421,6 +422,7 @@ struct NetworkConditionsWindowView: View {
             shortcutStrip
             bottomBar
         }
+        .font(toolMetrics.font())
         .frame(width: 1_198, height: 641)
         .task { await viewModel.loadRules() }
         .onAppear { consumePendingDraft() }
@@ -453,31 +455,31 @@ struct NetworkConditionsWindowView: View {
     @State private var pendingDraft: NetworkConditionsDraft?
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Toggle(isOn: Binding(
                 get: { viewModel.isToolEnabled },
                 set: { viewModel.setToolEnabled($0) }
             )) {
                 Text(String(localized: "Enable Network Conditions"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
             .toggleStyle(.checkbox)
-            .padding(.top, 16)
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Simulate Network Conditions with various Preset Profiles. Useful to test with slow networks."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.primary)
 
             Text(String(localized: "Only 1 Rule can be activated at once."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.orange)
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 10)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var filterBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField(String(localized: "Filter Network Conditions"), text: $viewModel.searchText)
@@ -491,7 +493,7 @@ struct NetworkConditionsWindowView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
         .padding(.bottom, 8)
     }
 
@@ -514,7 +516,7 @@ struct NetworkConditionsWindowView: View {
 
             TableColumn(String(localized: "Name")) { rule in
                 Text(rule.name.isEmpty ? String(localized: "Untitled") : rule.name)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.font())
                     .lineLimit(1)
                     .opacity(rule.isEnabled ? 1.0 : 0.62)
             }
@@ -523,7 +525,7 @@ struct NetworkConditionsWindowView: View {
             TableColumn(String(localized: "Status")) { rule in
                 let (label, color) = viewModel.statusLabel(for: rule)
                 Text(label)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.font())
                     .lineLimit(1)
                     .foregroundStyle(color)
             }
@@ -531,7 +533,7 @@ struct NetworkConditionsWindowView: View {
 
             TableColumn(String(localized: "Host")) { rule in
                 Text(viewModel.hostLabel(for: rule))
-                    .font(.system(size: 12))
+                    .font(toolMetrics.font())
                     .lineLimit(1)
                     .help(rule.matchCondition.urlPattern ?? String(localized: "System-wide"))
                     .opacity(rule.isEnabled ? 1.0 : 0.75)
@@ -541,7 +543,7 @@ struct NetworkConditionsWindowView: View {
             TableColumn(String(localized: "Network Profile")) { rule in
                 let profile = viewModel.networkProfile(for: rule)
                 Text(profile.name)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.font())
                     .lineLimit(1)
                     .help("\(profile.name), \(profile.latencyMs) ms")
                     .opacity(rule.isEnabled ? 1.0 : 0.75)
@@ -561,44 +563,39 @@ struct NetworkConditionsWindowView: View {
         .overlay {
             if viewModel.filteredRules.isEmpty {
                 Text(emptyTableMessage)
-                    .font(.system(size: 13))
+                    .font(.system(size: toolMetrics.emptyStateFontSize))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var shortcutStrip: some View {
         Text("New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ↵")
-            .font(.system(size: 11))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 18)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             addRemoveControl
 
             Button {
                 // Help content is intentionally deferred; this mirrors the reference affordance.
             } label: {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.secondary.opacity(0.35), .clear)
-                    .overlay(Text("?").font(.system(size: 15, weight: .medium)).foregroundStyle(.primary))
-                    .frame(width: 34, height: 22)
+                Image(systemName: "questionmark.circle")
             }
-            .buttonStyle(.borderless)
-            .padding(.leading, 2)
+            .buttonStyle(.bordered)
 
             Spacer()
 
             moreMenu
         }
-        .padding(.horizontal, 18)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     private var addRemoveControl: some View {
@@ -607,9 +604,9 @@ struct NetworkConditionsWindowView: View {
                 openNewEditor()
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -618,15 +615,15 @@ struct NetworkConditionsWindowView: View {
 
             Rectangle()
                 .fill(Color(nsColor: .separatorColor).opacity(0.7))
-                .frame(width: 1, height: 21)
+                .frame(width: 1, height: 18)
 
             Button {
                 viewModel.removeSelectedRule()
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(viewModel.selectedRuleID == nil ? .tertiary : .primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -634,8 +631,8 @@ struct NetworkConditionsWindowView: View {
             .disabled(viewModel.selectedRuleID == nil)
             .help(String(localized: "Delete Rule"))
         }
-        .frame(height: 23)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor))
         .overlay(
             Rectangle()
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
@@ -703,7 +700,7 @@ struct NetworkConditionsWindowView: View {
             HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
         }
         .menuIndicator(.hidden)
@@ -716,6 +713,10 @@ struct NetworkConditionsWindowView: View {
             return String(localized: "Click \"+\" or ⌘N to add new entry")
         }
         return String(localized: "No Network Conditions match the current filter")
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private var enableDisableLabel: String {
@@ -818,7 +819,7 @@ private struct NetworkConditionsEditSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing) {
                 labeledTextField(
                     String(localized: "Name:"),
                     text: $name,
@@ -833,26 +834,26 @@ private struct NetworkConditionsEditSheet: View {
                 .disabled(applySystemWide)
 
                 Text(String(localized: "Only support Host and Port. No Wildcard or Regex"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .padding(.leading, Self.fieldLeading)
 
                 Toggle(isOn: $applySystemWide) {
                     Text(String(localized: "Apply System-wide"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                 }
                 .toggleStyle(.checkbox)
                 .padding(.leading, Self.fieldLeading)
 
                 Text(String(localized: "All traffic being proxied through Rockxy will be affected by Network Throttling"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .padding(.leading, Self.fieldLeading)
                     .padding(.bottom, 6)
 
-                HStack(spacing: 8) {
+                HStack(spacing: toolMetrics.controlSpacing) {
                     Text(String(localized: "Preset Profiles:"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                         .frame(width: Self.labelWidth, alignment: .trailing)
                     Picker("", selection: $selectedPreset) {
                         ForEach(NetworkConditionPreset.allCases, id: \.self) { preset in
@@ -865,14 +866,14 @@ private struct NetworkConditionsEditSheet: View {
 
                 profileStats
             }
-            .padding(.top, 14)
-            .padding(.horizontal, 18)
+            .padding(.top, toolMetrics.formVerticalPadding)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
 
             Text(String(localized: "To simulate network condition in real-life, the bandwidth is generated randomly in a given range"))
-                .font(.system(size: 13))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
-                .padding(.leading, Self.fieldLeading + 18)
-                .padding(.top, 12)
+                .padding(.leading, Self.fieldLeading + toolMetrics.formHorizontalPadding)
+                .padding(.top, toolMetrics.formVerticalPadding)
 
             HStack {
                 Spacer()
@@ -886,16 +887,19 @@ private struct NetworkConditionsEditSheet: View {
                 .disabled(!isValid)
                 .frame(width: 100)
             }
-            .padding(.top, 16)
-            .padding(.horizontal, 18)
-            .padding(.bottom, 18)
+            .padding(.top, toolMetrics.formVerticalPadding + 4)
+            .padding(.horizontal, toolMetrics.formHorizontalPadding)
+            .padding(.bottom, toolMetrics.formVerticalPadding + 6)
         }
-        .frame(width: 838, height: 390)
+        .font(toolMetrics.font())
+        .frame(minWidth: 838, minHeight: max(390, toolMetrics.bodyFontSize * 16 + 190))
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var name = NetworkConditionsRuleForm.defaultName
     @State private var hostText = ""
     @State private var applySystemWide = false
@@ -932,10 +936,10 @@ private struct NetworkConditionsEditSheet: View {
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 20) {
                 Text(String(localized: "Download"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                     .frame(width: 260, alignment: .leading)
                 Text(String(localized: "Upload"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                     .frame(width: 260, alignment: .leading)
             }
             HStack(spacing: 20) {
@@ -956,13 +960,13 @@ private struct NetworkConditionsEditSheet: View {
     }
 
     private func labeledTextField(_ label: String, text: Binding<String>, prompt: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             Text(label)
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .frame(width: Self.labelWidth, alignment: .trailing)
             TextField(prompt, text: text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .frame(width: Self.fieldWidth)
         }
     }
@@ -983,11 +987,15 @@ private struct NetworkConditionsEditSheet: View {
                 }
             }
         }
-        .font(.system(size: 13))
+        .font(toolMetrics.font())
         .padding(.horizontal, 20)
-        .frame(width: 260, height: 88, alignment: .center)
+        .frame(width: 260, height: max(88, toolMetrics.bodyFontSize + 75), alignment: .center)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private static func hostText(from pattern: String?) -> String {

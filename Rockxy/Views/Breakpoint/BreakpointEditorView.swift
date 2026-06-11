@@ -15,12 +15,15 @@ struct BreakpointEditorView: View {
     let windowModel: BreakpointWindowModel
 
     var body: some View {
-        switch windowModel.selectionMode {
-        case .none:
-            emptyState
-        case let .pausedItem(itemId):
-            pausedItemEditor(itemId: itemId)
+        Group {
+            switch windowModel.selectionMode {
+            case .none:
+                emptyState
+            case let .pausedItem(itemId):
+                pausedItemEditor(itemId: itemId)
+            }
         }
+        .font(toolMetrics.font())
     }
 
     // MARK: Private
@@ -53,6 +56,7 @@ struct BreakpointEditorView: View {
     @State private var saveTemplateName = ""
     @State private var pendingTemplateKind: BreakpointTemplateKind = .request
     @State private var pendingTemplateRawMessage = ""
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var emptyState: some View {
         VStack(spacing: 4) {
@@ -60,7 +64,7 @@ struct BreakpointEditorView: View {
                 .font(.title2)
                 .foregroundStyle(.secondary)
             Text(String(localized: "Create breakpoint from context menu or Tools menu."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,7 +94,7 @@ struct BreakpointEditorView: View {
             Text(item.phase == .request
                 ? String(localized: "Request paused at breakpoint")
                 : String(localized: "Response paused at breakpoint"))
-                .font(.callout)
+                .font(toolMetrics.font())
                 .foregroundStyle(.primary)
             Spacer()
             ElapsedTimeBadge(since: item.createdAt)
@@ -131,7 +135,7 @@ struct BreakpointEditorView: View {
             set: { newValue in manager.updateDraft(id: itemId) { $0.url = newValue } }
         ))
         .textFieldStyle(.roundedBorder)
-        .font(.system(.body, design: .monospaced))
+        .font(toolMetrics.font(monospaced: true))
     }
 
     private func statusCodePicker(itemId: UUID) -> some View {
@@ -206,7 +210,7 @@ struct BreakpointEditorView: View {
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
 
                         TextField(String(localized: "Header value"), text: Binding(
                             get: { headerValue(itemId: itemId, headerId: header.id)?.value ?? "" },
@@ -219,7 +223,7 @@ struct BreakpointEditorView: View {
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
 
                         Button {
                             manager.updateDraft(id: itemId) { draft in
@@ -249,7 +253,7 @@ struct BreakpointEditorView: View {
             get: { draftFor(itemId)?.body ?? "" },
             set: { newValue in manager.updateDraft(id: itemId) { $0.body = newValue } }
         ))
-        .font(.system(.body, design: .monospaced))
+        .font(toolMetrics.font(monospaced: true))
         .padding(8)
     }
 
@@ -259,7 +263,7 @@ struct BreakpointEditorView: View {
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Label(validation.message, systemImage: "circle.fill")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(validation.isValid ? Color.green : Color.red)
                 Spacer()
                 Menu {
@@ -321,7 +325,7 @@ struct BreakpointEditorView: View {
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
 
                         TextField(String(localized: "Parameter value"), text: Binding(
                             get: { queryItems.first(where: { $0.id == item.id })?.value ?? "" },
@@ -333,7 +337,7 @@ struct BreakpointEditorView: View {
                             }
                         ))
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
 
                         Button {
                             queryItems.removeAll { $0.id == item.id }
@@ -404,13 +408,11 @@ struct BreakpointEditorView: View {
     private func columnHeaders(name: String, value: String) -> some View {
         HStack {
             Text(String(localized: String.LocalizationValue(name)))
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(String(localized: String.LocalizationValue(value)))
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Color.clear.frame(width: 24)
@@ -422,7 +424,7 @@ struct BreakpointEditorView: View {
         HStack {
             Button(action: action) {
                 Label(title, systemImage: "plus.circle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
             }
             .buttonStyle(.plain)
             Spacer()
@@ -467,14 +469,14 @@ struct BreakpointEditorView: View {
     private var saveTemplateSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(String(localized: "Save Template"))
-                .font(.headline)
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .semibold))
 
             TextField(String(localized: "Template name"), text: $saveTemplateName)
                 .textFieldStyle(.roundedBorder)
 
             let validation = BreakpointRawMessage.validation(for: pendingTemplateRawMessage, kind: pendingTemplateKind)
             Label(validation.message, systemImage: "circle.fill")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(validation.isValid ? Color.green : Color.red)
 
             HStack {
@@ -513,6 +515,10 @@ struct BreakpointEditorView: View {
         )
         isSaveTemplateSheetPresented = false
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }
 
 // MARK: - BreakpointEditorTab
@@ -549,8 +555,14 @@ private struct ElapsedTimeBadge: View {
         TimelineView(.periodic(from: since, by: 1)) { context in
             let elapsed = Int(context.date.timeIntervalSince(since))
             Text(String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
-                .font(.system(.callout, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

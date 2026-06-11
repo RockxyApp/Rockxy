@@ -18,11 +18,14 @@ struct ScriptListRow: View {
                 scriptRow(script: script)
             }
         }
+        .font(toolMetrics.font())
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     // MARK: - Folder row
 
@@ -33,7 +36,7 @@ struct ScriptListRow: View {
                 viewModel.toggleFolder(id: folder.id)
             } label: {
                 Image(systemName: folder.expanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 14)
             }
@@ -91,7 +94,7 @@ struct ScriptListRow: View {
 
             HStack(spacing: 0) {
                 Text(script.method ?? "ANY")
-                    .font(.caption.weight(.semibold))
+                    .font(toolMetrics.metadataFont(weight: .semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
@@ -101,19 +104,23 @@ struct ScriptListRow: View {
             HStack(spacing: 0) {
                 if let pattern = script.urlPattern, !pattern.isEmpty {
                     Text(pattern)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 } else {
                     Text("<Missing URL>")
-                        .font(.system(size: 12))
+                        .font(toolMetrics.font())
                         .foregroundStyle(.tertiary)
                 }
                 Spacer()
             }
         }
         .opacity(script.isEnabled ? 1.0 : 0.6)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     // MARK: - Helpers

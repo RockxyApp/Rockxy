@@ -13,6 +13,7 @@ struct ScriptingListWindowView: View {
             shortcutStrip
             bottomBar
         }
+        .font(toolMetrics.font())
         .frame(width: 1_200, height: 672)
         .task { await viewModel.load() }
         .onReceive(NotificationCenter.default.publisher(for: .rulesDidChange)) { _ in
@@ -26,6 +27,7 @@ struct ScriptingListWindowView: View {
     // MARK: Private
 
     @State private var viewModel = ScriptingListViewModel()
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
 
     // MARK: - Helpers
@@ -67,7 +69,7 @@ struct ScriptingListWindowView: View {
                 set: { viewModel.setToolEnabled($0) }
             )) {
                 Text("Enable Scripting Tool")
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
             .toggleStyle(.checkbox)
             .padding(.top, 16)
@@ -75,9 +77,9 @@ struct ScriptingListWindowView: View {
             Text(
                 "Modify the Request or Response automatically with JavaScript. Support URL, Status Code, Header, Method, and Body."
             )
-            .font(.system(size: 13))
+            .font(toolMetrics.font())
             Text("Each request is checked against the rules from top to bottom, stopping when a match is found.")
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
 
             if viewModel.isFilterVisible {
@@ -153,7 +155,7 @@ struct ScriptingListWindowView: View {
                     viewModel.toggleFolder(id: folder.id)
                 } label: {
                     Image(systemName: folder.expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 12)
                 }
@@ -209,7 +211,7 @@ struct ScriptingListWindowView: View {
 
     private var shortcutStrip: some View {
         Text("New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ↵")
-            .font(.system(size: 11))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 18)
             .padding(.top, 8)
@@ -287,8 +289,8 @@ struct ScriptingListWindowView: View {
                 }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -302,8 +304,8 @@ struct ScriptingListWindowView: View {
                 Task { await viewModel.deleteSelection() }
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 12, weight: .regular))
-                    .frame(width: 18, height: 18)
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -316,7 +318,11 @@ struct ScriptingListWindowView: View {
             Rectangle()
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
-        .frame(width: 37, height: 19)
+        .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder private var moreMenuItems: some View {
@@ -500,7 +506,7 @@ struct ScriptingListWindowView: View {
         HStack(spacing: 6) {
             Text(title)
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
         }
     }
 }
