@@ -20,7 +20,6 @@ struct InspectorTabStrip<Content: View, TrailingContent: View>: View {
                 HStack(spacing: 0) {
                     content
                 }
-                .padding(.vertical, 4)
                 .padding(.leading, 4)
                 .frame(minWidth: 0, alignment: .leading)
             }
@@ -33,5 +32,8 @@ struct InspectorTabStrip<Content: View, TrailingContent: View>: View {
                 .padding(.leading, 4)
                 .padding(.trailing, 4)
         }
+        .frame(minHeight: metrics.inspectorTabHeight)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

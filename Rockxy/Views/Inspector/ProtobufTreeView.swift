@@ -30,12 +30,14 @@ struct ProtobufTreeView: View {
             Text(String(localized: "Best Guess Value"))
             Spacer()
         }
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: metrics.metadataFontSize, weight: .semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor))
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }
 
 // MARK: - ProtobufFieldRow
@@ -52,31 +54,31 @@ private struct ProtobufFieldRow: View {
                 HStack(spacing: 4) {
                     if nestedTree != nil {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(.system(size: metrics.badgeFontSize, weight: .semibold))
                             .frame(width: 10)
                     } else {
                         Color.clear.frame(width: 10)
                     }
                     Text("\(field.fieldNumber)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, weight: .medium, design: .monospaced))
                 }
                 .padding(.leading, CGFloat(depth) * 16)
                 .frame(width: 120, alignment: .leading)
 
                 Text(field.wireType.displayName)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .frame(width: 130, alignment: .leading)
 
                 Text(valuePreview)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Spacer()
 
                 Text(SizeFormatter.format(bytes: field.rawBytes.count))
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 10)
@@ -99,6 +101,7 @@ private struct ProtobufFieldRow: View {
     // MARK: Private
 
     @State private var isExpanded = true
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var nestedTree: ProtobufDecodedTree? {
         if case let .message(tree) = field.value {

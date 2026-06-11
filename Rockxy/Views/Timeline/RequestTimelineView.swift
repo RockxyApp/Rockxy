@@ -55,7 +55,7 @@ struct RequestTimelineView: View {
                         .fill(color)
                         .frame(width: 12, height: 12)
                     Text(name)
-                        .font(.caption)
+                        .font(.system(size: metrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -101,7 +101,7 @@ struct RequestTimelineView: View {
                     let timeMs = fraction * maxDuration * 1_000
 
                     Text(formatMs(timeMs))
-                        .font(.system(size: 9, design: .monospaced))
+                        .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                         .foregroundStyle(.tertiary)
                         .position(x: xOffset, y: 10)
                 }
@@ -142,11 +142,11 @@ struct RequestTimelineView: View {
     private func requestLabel(_ transaction: HTTPTransaction) -> some View {
         HStack(spacing: 4) {
             Text(transaction.request.method)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, weight: .bold, design: .monospaced))
                 .foregroundStyle(.secondary)
 
             Text(transaction.request.host + transaction.request.path)
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -201,4 +201,6 @@ struct RequestTimelineView: View {
         }
         return String(format: "%.0fms", ms)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

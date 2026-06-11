@@ -37,17 +37,22 @@ struct DeveloperSetupAutomaticWindowView: View {
     // MARK: Private
 
     @State private var viewModel: DeveloperSetupSessionSetupViewModel
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "gearshape.2.fill")
-                    .font(.system(size: 24, weight: .regular))
+                    .font(.system(size: setupMetrics.prominentIconFontSize, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
 
                 Text(String(localized: "Automatic Setup"))
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: setupMetrics.titleFontSize, weight: .semibold))
                     .foregroundStyle(.primary)
             }
 
@@ -71,15 +76,15 @@ struct DeveloperSetupAutomaticWindowView: View {
     private var terminalSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Terminal App"))
-                .font(.headline)
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(String(localized: "Open a prepared terminal session that points supported tools at Rockxy."))
-                    .font(.callout)
+                    .font(.system(size: setupMetrics.bodyFontSize))
                     .foregroundStyle(.secondary)
 
                 Text(String(localized: "Supports Node.js, Ruby, Python, Go, cURL, and shell workflows that do not follow the system proxy."))
-                    .font(.callout)
+                    .font(.system(size: setupMetrics.bodyFontSize))
                     .foregroundStyle(.secondary)
 
                 Divider()
@@ -117,11 +122,11 @@ struct DeveloperSetupAutomaticWindowView: View {
     private var browserSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Web Browsers"))
-                .font(.headline)
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 10) {
                 Text(String(localized: "Open a prepared browser profile with Rockxy proxy and certificate guidance scoped to that profile."))
-                    .font(.callout)
+                    .font(.system(size: setupMetrics.bodyFontSize))
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 12) {
@@ -155,10 +160,10 @@ struct DeveloperSetupAutomaticWindowView: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.statusMessage ?? String(localized: "Rockxy will generate a scoped setup script before launching."))
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Proxy: \(viewModel.proxyEndpointText). \(viewModel.certificateStatusText)"))
-                    .font(.caption2)
+                    .font(.system(size: setupMetrics.metadataFontSize))
                     .foregroundStyle(.tertiary)
             }
 
@@ -182,13 +187,13 @@ struct DeveloperSetupAutomaticWindowView: View {
     private func benefitRow(systemImage: String, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: setupMetrics.iconFontSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color(nsColor: .systemGreen))
                 .frame(width: 18)
 
             Text(text)
-                .font(.callout)
+                .font(.system(size: setupMetrics.bodyFontSize))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }

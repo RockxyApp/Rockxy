@@ -12,7 +12,7 @@ struct GraphQLInspectorView: View {
                     if let name = info.operationName {
                         LabeledContent("Operation") {
                             Text(name)
-                                .font(.system(.body, design: .monospaced))
+                                .font(.system(size: metrics.primaryFontSize, design: .monospaced))
                         }
                     }
 
@@ -23,7 +23,7 @@ struct GraphQLInspectorView: View {
                     Text("Query")
                         .fontWeight(.semibold)
                     Text(info.query)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(8)
                         .background(.quaternary)
@@ -33,7 +33,7 @@ struct GraphQLInspectorView: View {
                         Text("Variables")
                             .fontWeight(.semibold)
                         Text(variables)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                             .textSelection(.enabled)
                             .padding(8)
                             .background(.quaternary)
@@ -50,4 +50,6 @@ struct GraphQLInspectorView: View {
             )
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

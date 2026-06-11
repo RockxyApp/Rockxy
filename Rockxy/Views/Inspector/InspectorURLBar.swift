@@ -14,7 +14,7 @@ struct InspectorURLBar: View {
             if let response = transaction.response {
                 StatusCodeBadge(statusCode: response.statusCode)
                 Text(response.statusMessage)
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.controlFontSize))
                     .foregroundStyle(.secondary)
             } else {
                 transactionStatePill
@@ -32,7 +32,7 @@ struct InspectorURLBar: View {
     @ViewBuilder private var methodBadge: some View {
         if transaction.request.method == "CONNECT" {
             Text(transaction.request.method)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: metrics.badgeFontSize, weight: .bold, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -61,7 +61,7 @@ struct InspectorURLBar: View {
             backgroundColor = .clear
         }
         return Text(label)
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: metrics.badgeFontSize, weight: .bold))
             .foregroundStyle(.black)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -79,7 +79,7 @@ struct InspectorURLBar: View {
         if !highlightContext.isEmpty {
             return AnyView(
                 HighlightedInspectorText(text: urlString, highlightContext: highlightContext)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.controlFontSize, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
@@ -89,19 +89,21 @@ struct InspectorURLBar: View {
         return AnyView(HStack(spacing: 0) {
             if let hostRange = urlString.range(of: host), !host.isEmpty {
                 Text(urlString[urlString.startIndex ..< hostRange.lowerBound])
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.controlFontSize, design: .monospaced))
                 Text(urlString[hostRange])
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.controlFontSize, design: .monospaced))
                     .foregroundStyle(Color.teal)
                 Text(urlString[hostRange.upperBound...])
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.controlFontSize, design: .monospaced))
             } else {
                 Text(urlString)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: metrics.controlFontSize, design: .monospaced))
             }
         }
             .lineLimit(1)
             .truncationMode(.middle)
             .textSelection(.enabled))
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

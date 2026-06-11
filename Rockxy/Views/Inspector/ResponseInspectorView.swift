@@ -92,7 +92,7 @@ struct ResponseInspectorView: View {
 
             if hasProtocolTab {
                 Divider()
-                    .frame(height: 14)
+                    .frame(height: max(14, metrics.controlFontSize + 2))
                     .padding(.horizontal, 4)
 
                 if transaction.webSocketConnection != nil {
@@ -120,7 +120,7 @@ struct ResponseInspectorView: View {
 
             if !previewTabStore.responseTabs.isEmpty {
                 Divider()
-                    .frame(height: 14)
+                    .frame(height: max(14, metrics.controlFontSize + 2))
                     .padding(.horizontal, 4)
 
                 ForEach(previewTabStore.responseTabs) { tab in
@@ -136,7 +136,7 @@ struct ResponseInspectorView: View {
             }
 
             Divider()
-                .frame(height: 14)
+                .frame(height: max(14, metrics.controlFontSize + 2))
                 .padding(.horizontal, 4)
 
             previewTabMenuButton
@@ -150,9 +150,9 @@ struct ResponseInspectorView: View {
             showPreviewPopover.toggle()
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: metrics.controlFontSize, weight: .medium))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                .frame(width: 20, height: 20)
+                .frame(width: metrics.inspectorTabHeight, height: metrics.inspectorTabHeight)
         }
         .buttonStyle(.plain)
         .help(String(localized: "Preview Tabs"))
@@ -259,7 +259,7 @@ struct ResponseInspectorView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(bodyDisplayMode.displayName)
-                    .font(.system(size: metrics.secondaryFontSize, weight: .medium))
+                    .font(.system(size: metrics.controlFontSize, weight: .medium))
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: metrics.badgeFontSize, weight: .semibold))
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
@@ -425,16 +425,16 @@ struct ResponseInspectorView: View {
             VStack(spacing: 18) {
                 HStack(spacing: 10) {
                     Image(systemName: "lock")
-                        .font(.system(size: 28, weight: .regular))
+                        .font(.system(size: max(24, metrics.primaryFontSize + 15), weight: .regular))
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
 
                     Text(prompt.title)
-                        .font(.system(size: 24, weight: .regular))
+                        .font(.system(size: max(20, metrics.primaryFontSize + 11), weight: .regular))
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                 }
 
                 Text(prompt.message)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: max(metrics.primaryFontSize, metrics.controlFontSize), weight: .regular))
                     .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
@@ -452,7 +452,7 @@ struct ResponseInspectorView: View {
                    let secondaryAction = prompt.secondaryAction
                 {
                     Text(String(localized: "or"))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: metrics.controlFontSize, weight: .medium))
                         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
 
                     Button {

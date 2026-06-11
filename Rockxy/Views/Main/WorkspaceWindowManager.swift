@@ -381,11 +381,24 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         super.init(frame: NSRect(x: 0, y: 0, width: 900, height: WorkspaceTabBarMetrics.barHeight))
         autoresizingMask = [.width]
         wantsLayer = false
+        appearanceObserver = NotificationCenter.default.addObserver(
+            forName: .appearanceDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.appearanceDidChange()
+        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("WorkspaceTabBarView does not support NSCoder init")
+    }
+
+    deinit {
+        if let appearanceObserver {
+            NotificationCenter.default.removeObserver(appearanceObserver)
+        }
     }
 
     // MARK: Internal
@@ -603,7 +616,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
 
         let field = WorkspaceInlineTabTextField(frame: editorFrame(in: tabFrame))
         field.stringValue = workspace.title
-        field.font = .systemFont(ofSize: 13, weight: .medium)
+        field.font = workspaceTabFont(weight: .medium)
         field.alignment = .center
         field.delegate = self
         field.onCommit = { [weak self] in self?.endEditing(commit: true) }
@@ -689,6 +702,21 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
     private var originalTitle = ""
     private var editField: WorkspaceInlineTabTextField?
     private var editMonitor: Any?
+    private var appearanceObserver: NSObjectProtocol?
+
+    private var displayMetrics: AppUIDisplayMetrics {
+        AppUIDisplayMetrics(settings: AppSettingsManager.shared.appUI)
+    }
+
+    private func workspaceTabFont(weight: NSFont.Weight) -> NSFont {
+        .systemFont(ofSize: displayMetrics.workspaceTabFontSize, weight: weight)
+    }
+
+    private func appearanceDidChange() {
+        editField?.font = workspaceTabFont(weight: .medium)
+        needsLayout = true
+        needsDisplay = true
+    }
 
     private func recalculateFrames() {
         guard let coordinator else {
@@ -851,7 +879,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         paragraph.alignment = .center
         paragraph.lineBreakMode = .byTruncatingMiddle
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 13, weight: isActive ? .medium : .regular),
+            .font: workspaceTabFont(weight: isActive ? .medium : .regular),
             .foregroundColor: (isActive ? activeTitleColor : inactiveTitleColor).withAlphaComponent(alpha),
             .paragraphStyle: paragraph
         ]

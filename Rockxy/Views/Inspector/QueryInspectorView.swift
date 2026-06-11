@@ -22,20 +22,20 @@ struct QueryInspectorView: View {
                         GridItem(.flexible(), alignment: .topLeading),
                     ], spacing: 4) {
                         Text(String(localized: "Name"))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                             .fontWeight(.bold)
                             .foregroundStyle(.secondary)
                         Text(String(localized: "Value"))
-                            .font(.system(.caption, design: .monospaced))
+                            .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                             .fontWeight(.bold)
                             .foregroundStyle(.secondary)
 
                         ForEach(Array(queryItems.enumerated()), id: \.offset) { _, item in
                             HighlightedInspectorText(text: item.name, highlightContext: highlightContext)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                                 .fontWeight(.semibold)
                             HighlightedInspectorText(text: item.value ?? "", highlightContext: highlightContext)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                                 .textSelection(.enabled)
                         }
                     }
@@ -45,4 +45,6 @@ struct QueryInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

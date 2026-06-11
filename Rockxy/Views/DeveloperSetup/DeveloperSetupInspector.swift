@@ -50,7 +50,7 @@ struct DeveloperSetupInspector: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Text(String(localized: "Use"))
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
 
                     Picker("", selection: $selectedSetupMode) {
@@ -72,12 +72,12 @@ struct DeveloperSetupInspector: View {
                 }
 
                 Text(selectedSetupModeCaption)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(setupReadinessHint)
-                    .font(.caption2)
+                    .font(.system(size: setupMetrics.metadataFontSize))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -126,11 +126,11 @@ struct DeveloperSetupInspector: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(snapshot.verificationState.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
 
                 if let host = snapshot.matchedHost, let method = snapshot.matchedMethod {
                     Text("\(method) \(host)")
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                 } else {
                     Text(
@@ -138,7 +138,7 @@ struct DeveloperSetupInspector: View {
                             ? validationInstruction
                             : String(localized: "Interactive validation is not available for this target.")
                     )
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                 }
 
@@ -170,16 +170,16 @@ struct DeveloperSetupInspector: View {
                 if let activeIssue {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(activeIssue.title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                         Text(activeIssue.message)
-                            .font(.caption)
+                            .font(.system(size: setupMetrics.secondaryFontSize))
                             .foregroundStyle(.secondary)
                     }
                 } else {
                     Text(String(localized: "No active issue"))
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                     Text(String(localized: "Rockxy is ready for the selected flow."))
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                 }
 
@@ -210,11 +210,11 @@ struct DeveloperSetupInspector: View {
     private func readinessRow(title: String, value: String) -> some View {
         HStack(spacing: 8) {
             Text(title)
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Text(value)
-                .font(.caption.weight(.medium))
+                .font(.system(size: setupMetrics.secondaryFontSize, weight: .medium))
                 .foregroundStyle(.primary)
         }
     }
@@ -264,7 +264,7 @@ struct DeveloperSetupInspector: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
                 .foregroundStyle(.primary)
 
             content()
@@ -279,5 +279,11 @@ struct DeveloperSetupInspector: View {
                         .stroke(Color(nsColor: .separatorColor).opacity(0.28))
                 )
         )
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
     }
 }

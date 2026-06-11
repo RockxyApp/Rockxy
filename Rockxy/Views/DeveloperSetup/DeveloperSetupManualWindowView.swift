@@ -34,17 +34,22 @@ struct DeveloperSetupManualWindowView: View {
     // MARK: Private
 
     @State private var viewModel: DeveloperSetupSessionSetupViewModel
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 24, weight: .regular))
+                    .font(.system(size: setupMetrics.prominentIconFontSize, weight: .regular))
                     .symbolRenderingMode(.hierarchical)
                     .foregroundStyle(.secondary)
 
                 Text(String(localized: "Manual Setup"))
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: setupMetrics.titleFontSize, weight: .semibold))
                     .foregroundStyle(.primary)
             }
 
@@ -64,7 +69,7 @@ struct DeveloperSetupManualWindowView: View {
     private var terminalCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Terminal app"))
-                .font(.headline)
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 16) {
                 instructionStep(
@@ -74,7 +79,7 @@ struct DeveloperSetupManualWindowView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text(String(localized: "2. Copy and paste this command into that terminal"))
-                        .font(.callout.weight(.semibold))
+                        .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                         .foregroundStyle(.primary)
 
                     commandBox
@@ -106,7 +111,7 @@ struct DeveloperSetupManualWindowView: View {
         HStack(spacing: 0) {
             ScrollView(.horizontal) {
                 Text(viewModel.manualSourceCommand)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: setupMetrics.snippetFontSize, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,13 +140,13 @@ struct DeveloperSetupManualWindowView: View {
     private func benefitRow(systemImage: String, text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: setupMetrics.iconFontSize, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(Color(nsColor: .systemGreen))
                 .frame(width: 18)
 
             Text(text)
-                .font(.callout)
+                .font(.system(size: setupMetrics.bodyFontSize))
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -155,18 +160,18 @@ struct DeveloperSetupManualWindowView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(title)
-                    .font(.callout.weight(.semibold))
+                    .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                     .foregroundStyle(.primary)
 
                 if let trailingSystemImage {
                     Image(systemName: trailingSystemImage)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: setupMetrics.iconFontSize, weight: .bold))
                         .foregroundStyle(Color(nsColor: .systemGreen))
                 }
             }
 
             Text(caption)
-                .font(.callout)
+                .font(.system(size: setupMetrics.bodyFontSize))
                 .foregroundStyle(.secondary)
                 .padding(.leading, 24)
         }

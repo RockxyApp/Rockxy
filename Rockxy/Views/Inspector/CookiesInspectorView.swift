@@ -12,6 +12,7 @@ struct CookiesInspectorView: View {
         ScrollView {
             if transaction.request.cookies.isEmpty, responseCookies.isEmpty {
                 Text("No cookies")
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                     .padding()
             } else {
@@ -46,57 +47,57 @@ struct CookiesInspectorView: View {
         ], spacing: 4) {
             ForEach(Array(cookies.enumerated()), id: \.offset) { _, cookie in
                 Text("Name")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .fontWeight(.semibold)
                 HighlightedInspectorText(text: cookie.name, highlightContext: highlightContext)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Value")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .fontWeight(.semibold)
                 HighlightedInspectorText(text: cookie.value, highlightContext: highlightContext)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Domain")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .fontWeight(.semibold)
                 HighlightedInspectorText(text: cookie.domain, highlightContext: highlightContext)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .textSelection(.enabled)
 
                 Text("Path")
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .fontWeight(.semibold)
                 HighlightedInspectorText(text: cookie.path, highlightContext: highlightContext)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .textSelection(.enabled)
 
                 if cookie.isSecure {
                     Text("Secure")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .fontWeight(.semibold)
                     Text("Yes")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .textSelection(.enabled)
                 }
 
                 if cookie.isHTTPOnly {
                     Text("HttpOnly")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .fontWeight(.semibold)
                     Text("Yes")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .textSelection(.enabled)
                 }
 
                 if let expires = cookie.expiresDate {
                     Text("Expires")
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .fontWeight(.semibold)
                     Text(expires.formatted(.dateTime))
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                         .textSelection(.enabled)
                 }
 
@@ -105,4 +106,6 @@ struct CookiesInspectorView: View {
             }
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

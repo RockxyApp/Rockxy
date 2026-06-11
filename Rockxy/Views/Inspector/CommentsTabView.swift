@@ -9,7 +9,7 @@ struct CommentsTabView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             TextEditor(text: $commentText)
-                .font(.system(size: 12))
+                .font(.system(size: metrics.primaryFontSize))
                 .scrollContentBackground(.hidden)
                 .padding(8)
         }
@@ -24,4 +24,5 @@ struct CommentsTabView: View {
     // MARK: Private
 
     @State private var commentText: String = ""
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

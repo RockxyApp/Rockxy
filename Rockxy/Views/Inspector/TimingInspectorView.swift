@@ -45,14 +45,16 @@ struct TimingInspectorView: View {
     private func timingRow(_ label: String, duration: TimeInterval, color: Color) -> some View {
         HStack {
             Text(label)
-                .font(.caption)
+                .font(.system(size: metrics.secondaryFontSize))
             Spacer()
             RoundedRectangle(cornerRadius: 2)
                 .fill(color)
                 .frame(width: max(2, CGFloat(duration * 200)), height: 12)
             Text(DurationFormatter.format(seconds: duration))
-                .font(.caption)
+                .font(.system(size: metrics.secondaryFontSize))
                 .frame(width: 60, alignment: .trailing)
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

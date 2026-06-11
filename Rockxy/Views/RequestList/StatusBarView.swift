@@ -165,11 +165,11 @@ private struct FooterProxyOverridePopover: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: metrics.chromeIconFontSize, weight: .semibold))
                 .foregroundStyle(Color(nsColor: .systemGreen))
 
             Text(statusText)
-                .font(.system(size: 13))
+                .font(.system(size: metrics.chromeFontSize))
                 .foregroundStyle(Color(nsColor: .labelColor))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -184,6 +184,8 @@ private struct FooterProxyOverridePopover: View {
         .padding(.vertical, 8)
         .frame(width: 660, alignment: .leading)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var statusText: String {
         String(localized: "System Proxy is Overridden by Rockxy (IP=\(proxyHost) Port=\(proxyPort)) (Toggle by: ⌥⌘O)")

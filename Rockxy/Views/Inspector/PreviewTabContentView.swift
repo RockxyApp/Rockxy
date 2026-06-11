@@ -121,7 +121,8 @@ private struct AsyncPreviewTabRenderView: View {
                         editorID: renderID,
                         editorSettings: editorSettings
                     )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
 
                     if editorSettings.showMinimap {
                         InspectorTextMinimapView(text: text, editorID: renderID)

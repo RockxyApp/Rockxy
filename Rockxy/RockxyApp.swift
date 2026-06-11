@@ -25,10 +25,12 @@ struct RockxyApp: App {
 
     var body: some Scene {
         Window(RockxyIdentity.current.displayName, id: "main") {
-            MainWindowContent(
-                lifecycleState: lifecycleState,
-                coordinator: mainCoordinator
-            )
+            AppUIDisplayMetricsProvider {
+                MainWindowContent(
+                    lifecycleState: lifecycleState,
+                    coordinator: mainCoordinator
+                )
+            }
         }
         .windowToolbarStyle(.unified)
         .commands {
@@ -42,7 +44,9 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
 
         Window(String(localized: "Developer Setup Hub"), id: "developerSetupHub") {
-            DeveloperSetupWindowView(coordinator: mainCoordinator)
+            AppUIDisplayMetricsProvider {
+                DeveloperSetupWindowView(coordinator: mainCoordinator)
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 1_180, height: 760)
@@ -66,7 +70,9 @@ struct RockxyApp: App {
         .windowToolbarStyle(.unifiedCompact)
 
         Window(String(localized: "Automatic Setup"), id: "automaticSetup") {
-            DeveloperSetupAutomaticWindowView(coordinator: mainCoordinator)
+            AppUIDisplayMetricsProvider {
+                DeveloperSetupAutomaticWindowView(coordinator: mainCoordinator)
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 760, height: 500)
@@ -75,7 +81,9 @@ struct RockxyApp: App {
         .windowResizability(.contentSize)
 
         Window(String(localized: "Manual Setup"), id: "manualSetup") {
-            DeveloperSetupManualWindowView(coordinator: mainCoordinator)
+            AppUIDisplayMetricsProvider {
+                DeveloperSetupManualWindowView(coordinator: mainCoordinator)
+            }
         }
         .commandsRemoved()
         .defaultSize(width: 780, height: 540)

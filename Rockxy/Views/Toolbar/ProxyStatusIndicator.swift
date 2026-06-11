@@ -11,6 +11,7 @@ struct ProxyStatusIndicator: View {
     // MARK: Internal
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     let displayState: ProxyDisplayState
     let listenAddress: String
@@ -29,19 +30,19 @@ struct ProxyStatusIndicator: View {
                     statusDot
 
                     Text(statusText)
-                        .font(.callout.weight(.medium))
+                        .font(.system(size: metrics.chromeFontSize, weight: .medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     if updateStatusSummary != nil {
                         Text("|")
-                            .font(.caption)
+                            .font(.system(size: metrics.badgeFontSize))
                             .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
                     }
                 }
                 .padding(.leading, ProxyStatusChromeMetrics.horizontalPadding)
                 .padding(.trailing, updateStatusSummary == nil ? ProxyStatusChromeMetrics.horizontalPadding : 7)
-                .frame(height: ProxyStatusChromeMetrics.outerHeight)
+                .frame(height: metrics.chromeControlHeight)
                 .contentShape(Capsule(style: .continuous))
             }
             .buttonStyle(.plain)
@@ -50,10 +51,10 @@ struct ProxyStatusIndicator: View {
             if let updateStatusSummary {
                 updateStatus(updateStatusSummary)
                     .padding(.trailing, ProxyStatusChromeMetrics.horizontalPadding)
-                    .frame(height: ProxyStatusChromeMetrics.outerHeight)
+                    .frame(height: metrics.chromeControlHeight)
             }
         }
-        .frame(height: ProxyStatusChromeMetrics.outerHeight)
+        .frame(height: metrics.chromeControlHeight)
         .contentShape(Rectangle())
         .popover(isPresented: $showPopover) {
             ProxyStatusPopover(
@@ -68,17 +69,14 @@ struct ProxyStatusIndicator: View {
     // MARK: Private
 
     private enum ProxyStatusChromeMetrics {
-        static let outerHeight: CGFloat = 32
-        static let updateBadgeHeight: CGFloat = 24
         static let horizontalPadding: CGFloat = 14
-        static let statusDotSize: CGFloat = 10
         static let strokeWidth: CGFloat = 0.75
     }
 
     private var statusDot: some View {
         Circle()
             .fill(statusColor)
-            .frame(width: ProxyStatusChromeMetrics.statusDotSize, height: ProxyStatusChromeMetrics.statusDotSize)
+            .frame(width: metrics.chromeStatusDotSize, height: metrics.chromeStatusDotSize)
             .shadow(
                 color: statusShadowColor,
                 radius: 4,
@@ -150,11 +148,11 @@ struct ProxyStatusIndicator: View {
 
     private func updateBadge(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 13, weight: .semibold))
+            .font(.system(size: metrics.chromeBadgeFontSize, weight: .semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .padding(.horizontal, 9)
-            .frame(height: ProxyStatusChromeMetrics.updateBadgeHeight)
+            .frame(height: metrics.chromeBadgeHeight)
             .background {
                 Capsule(style: .continuous).fill(updateBadgeBackground)
             }

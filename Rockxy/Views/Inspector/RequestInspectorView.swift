@@ -47,7 +47,7 @@ struct RequestInspectorView: View {
 
             if !previewTabStore.requestTabs.isEmpty {
                 Divider()
-                    .frame(height: 14)
+                    .frame(height: max(14, metrics.controlFontSize + 2))
                     .padding(.horizontal, 4)
 
                 ForEach(previewTabStore.requestTabs) { tab in
@@ -61,7 +61,7 @@ struct RequestInspectorView: View {
             }
 
             Divider()
-                .frame(height: 14)
+                .frame(height: max(14, metrics.controlFontSize + 2))
                 .padding(.horizontal, 4)
 
             previewTabMenuButton
@@ -75,9 +75,9 @@ struct RequestInspectorView: View {
             showPreviewPopover.toggle()
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: metrics.controlFontSize, weight: .medium))
                 .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
-                .frame(width: 20, height: 20)
+                .frame(width: metrics.inspectorTabHeight, height: metrics.inspectorTabHeight)
         }
         .buttonStyle(.plain)
         .help(String(localized: "Preview Tabs"))

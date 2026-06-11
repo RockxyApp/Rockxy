@@ -89,7 +89,7 @@ struct AdvancedFilterBar: View {
                 removeRule(at: index)
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: metrics.controlFontSize, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -98,7 +98,7 @@ struct AdvancedFilterBar: View {
                 addRule(after: index)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: metrics.controlFontSize, weight: .medium))
             }
             .buttonStyle(.bordered)
             .controlSize(.small)

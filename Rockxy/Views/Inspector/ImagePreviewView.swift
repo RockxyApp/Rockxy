@@ -18,7 +18,7 @@ struct ImagePreviewView: View {
                 let width = rep?.pixelsWide ?? Int(nsImage.size.width)
                 let height = rep?.pixelsHigh ?? Int(nsImage.size.height)
                 Text("\(width) × \(height) — \(SizeFormatter.format(bytes: data.count))")
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -31,4 +31,6 @@ struct ImagePreviewView: View {
             }
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

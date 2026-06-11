@@ -51,6 +51,7 @@ struct WebSocketInspectorView: View {
     @State private var directionFilterValue: FrameDirection?
     @State private var showDetail = true
     @State private var payloadMode: WebSocketPayloadInspectorMode = .payload
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var selectedFrame: WebSocketFrameData? {
         guard let id = selectedFrameID,
@@ -72,9 +73,9 @@ struct WebSocketInspectorView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: showDetail ? "chevron.down" : "chevron.right")
-                        .font(.caption2)
+                        .font(.system(size: metrics.badgeFontSize))
                     Text(String(localized: "Frame Detail"))
-                        .font(.caption)
+                        .font(.system(size: metrics.secondaryFontSize))
                         .fontWeight(.medium)
                 }
                 .foregroundStyle(.secondary)
@@ -104,7 +105,7 @@ struct WebSocketInspectorView: View {
                         Text(SizeFormatter.format(bytes: frame.payload.count))
                     }
                 }
-                .font(.system(size: 10))
+                .font(.system(size: metrics.metadataFontSize))
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
 
@@ -136,7 +137,7 @@ struct WebSocketInspectorView: View {
                     Text(transaction.state == .completed
                         ? String(localized: "Closed")
                         : String(localized: "Active"))
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 }
                 if let duration = connectionDuration(connection) {
                     summaryRow(String(localized: "Duration"), value: duration)
@@ -162,7 +163,7 @@ struct WebSocketInspectorView: View {
         HStack(spacing: 4) {
             summaryLabel(label)
             Text(value)
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -171,7 +172,7 @@ struct WebSocketInspectorView: View {
 
     private func summaryLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11))
+            .font(.system(size: metrics.secondaryFontSize))
             .foregroundStyle(.secondary)
     }
 
@@ -218,12 +219,12 @@ struct WebSocketInspectorView: View {
     private func frameRow(_ frame: WebSocketFrameData) -> some View {
         HStack(spacing: 4) {
             Text(formatTimestamp(frame.timestamp))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(width: 54, alignment: .leading)
 
             Image(systemName: frame.direction == .sent ? "arrow.up.circle" : "arrow.down.circle")
-                .font(.system(size: 11))
+                .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(frame.direction == .sent ? .blue : .green)
                 .frame(width: 16)
 
@@ -231,7 +232,7 @@ struct WebSocketInspectorView: View {
                 .frame(width: 42, alignment: .leading)
 
             Text(payloadPreview(frame))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -239,7 +240,7 @@ struct WebSocketInspectorView: View {
             Spacer()
 
             Text(SizeFormatter.format(bytes: frame.payload.count))
-                .font(.system(size: 10, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 48, alignment: .trailing)
         }
@@ -249,7 +250,7 @@ struct WebSocketInspectorView: View {
     private func opcodeBadge(_ opcode: FrameOpcode) -> some View {
         let (label, color) = opcodeInfo(opcode)
         return Text(label)
-            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .font(.system(size: metrics.badgeFontSize, weight: .medium, design: .monospaced))
             .padding(.horizontal, 3)
             .padding(.vertical, 1)
             .background(color.opacity(0.15))
@@ -261,7 +262,7 @@ struct WebSocketInspectorView: View {
     private func framePayloadView(_ frame: WebSocketFrameData) -> some View {
         if frame.payload.isEmpty {
             Text(String(localized: "(empty payload)"))
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .padding(12)
         } else {
@@ -277,7 +278,7 @@ struct WebSocketInspectorView: View {
 
                     if ProtobufDetector.isLikelyProtobuf(frame.payload) {
                         Label(String(localized: "Likely Protobuf"), systemImage: "sparkles")
-                            .font(.system(size: 10))
+                            .font(.system(size: metrics.metadataFontSize))
                             .foregroundStyle(.secondary)
                     }
 

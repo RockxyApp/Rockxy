@@ -15,7 +15,7 @@ struct AddFavoriteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(String(localized: "Add favorite app or domain"))
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: metrics.sidebarNavigationFontSize, weight: .medium))
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
                 .padding(.bottom, 10)
@@ -32,7 +32,7 @@ struct AddFavoriteView: View {
             Divider()
 
             Text(String(localized: "Launch your app/domain to see it in the list"))
-                .font(.system(size: 11))
+                .font(.system(size: metrics.sidebarSecondaryFontSize))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
@@ -53,6 +53,7 @@ struct AddFavoriteView: View {
 
     @State private var isAppsExpanded = true
     @State private var isDomainsExpanded = true
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var filteredApps: [AppCandidate] {
         let apps = buildAppCandidates()
@@ -85,20 +86,20 @@ struct AddFavoriteView: View {
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+                .font(.system(size: metrics.sidebarSecondaryFontSize))
                 .foregroundStyle(.secondary)
             TextField(
                 String(localized: "Search app or domain (\u{2318}\u{21E7}F)"),
                 text: $searchText
             )
             .textFieldStyle(.plain)
-            .font(.system(size: 13))
+            .font(.system(size: metrics.sidebarNavigationFontSize))
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.system(size: metrics.sidebarBadgeFontSize))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
@@ -177,7 +178,7 @@ struct AddFavoriteView: View {
                 HStack(spacing: 4) {
                     Text(String(localized: "Select"))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9))
+                        .font(.system(size: metrics.sidebarSectionHeaderFontSize))
                 }
             }
             .menuStyle(.borderlessButton)
@@ -207,17 +208,17 @@ struct AddFavoriteView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: metrics.sidebarSectionHeaderFontSize, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 10)
                 Image(systemName: icon)
-                    .font(.system(size: 12))
+                    .font(.system(size: metrics.sidebarSecondaryFontSize))
                     .foregroundStyle(.secondary)
                 Text(label)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: metrics.sidebarNavigationFontSize, weight: .medium))
                 Spacer()
                 Text("\(count)")
-                    .font(.system(size: 12).monospacedDigit())
+                    .font(.system(size: metrics.sidebarSecondaryFontSize).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
@@ -234,18 +235,19 @@ struct AddFavoriteView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8))
+                    .font(.system(size: metrics.sidebarSectionHeaderFontSize))
                     .foregroundStyle(.tertiary)
                     .frame(width: 10)
                 AppIconView(name: app.name)
                 Text(app.name)
-                    .font(.system(size: 13))
+                    .font(.system(size: metrics.sidebarNavigationFontSize))
                     .lineLimit(1)
                 Spacer()
             }
             .padding(.horizontal, 16)
             .padding(.leading, 12)
             .padding(.vertical, 4)
+            .frame(minHeight: metrics.sidebarRowHeight)
             .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
             .contentShape(Rectangle())
         }
@@ -259,25 +261,26 @@ struct AddFavoriteView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8))
+                    .font(.system(size: metrics.sidebarSectionHeaderFontSize))
                     .foregroundStyle(.tertiary)
                     .frame(width: 10)
                 Image(systemName: "globe")
-                    .font(.system(size: 12))
+                    .font(.system(size: metrics.sidebarSecondaryFontSize))
                     .foregroundStyle(.secondary)
                 Text(node.domain)
-                    .font(.system(size: 13))
+                    .font(.system(size: metrics.sidebarNavigationFontSize))
                     .lineLimit(1)
                 Spacer()
                 if node.requestCount > 0 {
                     Text("\(node.requestCount)")
-                        .font(.system(size: 12).monospacedDigit())
+                        .font(.system(size: metrics.sidebarSecondaryFontSize).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
             }
             .padding(.horizontal, 16)
             .padding(.leading, 12)
             .padding(.vertical, 4)
+            .frame(minHeight: metrics.sidebarRowHeight)
             .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
             .contentShape(Rectangle())
         }
@@ -334,15 +337,21 @@ private struct AppIconView: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 5)
             .fill(gradient)
-            .frame(width: 20, height: 20)
+            .frame(width: iconSize, height: iconSize)
             .overlay {
                 Text(letter)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: max(11, metrics.sidebarSecondaryFontSize), weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             }
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
+
+    private var iconSize: CGFloat {
+        metrics.sidebarAppIconSize
+    }
 
     private var letter: String {
         String(name.prefix(1)).uppercased()

@@ -30,7 +30,7 @@ struct AppearanceSettingsTab: View {
                 .padding(.top, 12)
                 .padding(.bottom, 24)
         }
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.settings.appUI))
+        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
     }
 
     // MARK: Private
@@ -38,11 +38,11 @@ struct AppearanceSettingsTab: View {
     private let settingsManager = AppSettingsManager.shared
 
     private var appUI: AppUISettings {
-        settingsManager.settings.appUI
+        settingsManager.appUI
     }
 
     private var appTheme: AppTheme {
-        settingsManager.settings.appTheme
+        settingsManager.appTheme
     }
 
     private var appUISection: some View {
@@ -78,7 +78,7 @@ struct AppearanceSettingsTab: View {
                         .toggleStyle(.checkbox)
                 }
 
-                Text(String(localized: "Apply to all tabs in the Request and Response Panel and the main table."))
+                Text(String(localized: "Applies to the main table, inspector, and Developer Setup Hub."))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 192)

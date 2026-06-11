@@ -22,16 +22,16 @@ struct ProxyStatusPopover: View {
 
             HStack(spacing: 4) {
                 Text(String(localized: "Proxy Port:"))
-                    .font(.system(size: 13))
+                    .font(.system(size: metrics.chromeFontSize))
                     .foregroundStyle(.secondary)
                 Text("\(port)")
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .font(.system(size: metrics.chromeFontSize, weight: .medium, design: .monospaced))
                 Button {
                     openWindow(id: "advancedProxySettings")
                     showPopover = false
                 } label: {
                     Image(systemName: "pencil")
-                        .font(.system(size: 11))
+                        .font(.system(size: metrics.badgeFontSize))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -55,14 +55,15 @@ struct ProxyStatusPopover: View {
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private func infoRow(label: String, value: String) -> some View {
         HStack(spacing: 4) {
             Text(label)
-                .font(.system(size: 13))
+                .font(.system(size: metrics.chromeFontSize))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: metrics.chromeFontSize, weight: .medium, design: .monospaced))
         }
     }
 }

@@ -141,7 +141,7 @@ struct ContentView: View {
                 }
             }
         }
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.settings.appUI))
+        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
     }
 
     // MARK: Private

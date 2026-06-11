@@ -78,11 +78,9 @@ struct SettingsView: View {
                 .tag(RockxySettingsTab.advanced.rawValue)
         }
         .frame(width: 820, height: 600)
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.settings.appUI))
     }
 
     // MARK: Private
 
     @AppStorage(RockxySettingsTab.defaultsKey) private var selectedTabID = RockxySettingsTab.general.rawValue
-    private let settingsManager = AppSettingsManager.shared
 }

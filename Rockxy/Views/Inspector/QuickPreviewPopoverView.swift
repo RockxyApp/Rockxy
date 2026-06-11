@@ -37,7 +37,7 @@ struct QuickPreviewPopoverView: View {
     private var header: some View {
         HStack {
             Text(title)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: metrics.primaryFontSize, weight: .semibold))
             Spacer()
             Button {
                 NSPasteboard.general.clearContents()
@@ -47,15 +47,17 @@ struct QuickPreviewPopoverView: View {
                 Label(copied ? String(localized: "Copied") : String(localized: "Copy"), systemImage: copied ? "checkmark" : "doc.on.doc")
             }
             .buttonStyle(.borderless)
-            .font(.system(size: 12))
+            .font(.system(size: metrics.controlFontSize))
         }
     }
 
     @ViewBuilder private var content: some View {
         switch result {
         case let .json(_, text),
-             let .text(_, text):
+            let .text(_, text):
             InspectorBodyTextEditor(text: text, editorSettings: metrics.inspectorTextEditorSettings)
+                .frame(minWidth: 0)
+                .clipped()
                 .frame(minHeight: 220)
         case let .keyValue(_, rows):
             ScrollView {
@@ -94,7 +96,7 @@ struct QuickPreviewPopoverView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(preview.warnings.enumerated()), id: \.offset) { _, warning in
                         Label(warning.message, systemImage: warning.severity == .warning ? "exclamationmark.triangle" : "info.circle")
-                            .font(.system(size: 11))
+                            .font(.system(size: metrics.secondaryFontSize))
                             .foregroundStyle(warning.severity == .warning ? .orange : .secondary)
                     }
                 }
@@ -105,10 +107,10 @@ struct QuickPreviewPopoverView: View {
                     ForEach(preview.claims.summaryRows) { row in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(row.key)
-                                .font(.system(size: 10, weight: .semibold))
+                                .font(.system(size: metrics.metadataFontSize, weight: .semibold))
                                 .foregroundStyle(.secondary)
                             Text(row.value)
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                                 .lineLimit(2)
                         }
                     }
@@ -117,13 +119,19 @@ struct QuickPreviewPopoverView: View {
 
             TabView {
                 InspectorBodyTextEditor(text: preview.headerText, editorSettings: metrics.inspectorTextEditorSettings)
+                    .frame(minWidth: 0)
+                    .clipped()
                     .tabItem { Text(String(localized: "Header")) }
                 InspectorBodyTextEditor(text: preview.payloadText, editorSettings: metrics.inspectorTextEditorSettings)
+                    .frame(minWidth: 0)
+                    .clipped()
                     .tabItem { Text(String(localized: "Payload")) }
                 InspectorBodyTextEditor(
                     text: preview.signaturePreview,
                     editorSettings: metrics.inspectorTextEditorSettings
                 )
+                    .frame(minWidth: 0)
+                    .clipped()
                     .tabItem { Text(String(localized: "Signature")) }
             }
             .frame(minHeight: 210)
@@ -132,7 +140,7 @@ struct QuickPreviewPopoverView: View {
 
     private var footer: some View {
         Text(String(localized: "Preview is local. JWT signatures are decoded, not verified."))
-            .font(.system(size: 11))
+            .font(.system(size: metrics.secondaryFontSize))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }

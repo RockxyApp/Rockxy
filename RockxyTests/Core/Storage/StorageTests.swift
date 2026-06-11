@@ -158,7 +158,32 @@ struct AppSettingsStorageTests {
         #expect(defaultSettings.autoSelectPort == true)
         #expect(defaultSettings.appTheme == .system)
         #expect(defaultSettings.appUI == .default)
+        #expect(defaultSettings.appUI.fontSize == 13)
         #expect(defaultSettings.lastExportedRootCAPath == nil)
+    }
+
+    @Test("missing appearance font size key loads new readable default")
+    func missingAppearanceFontSizeKeyLoadsDefault() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
+        UserDefaults.standard.removeObject(forKey: RockxyIdentity.current.defaultsKey("appearance.fontSize"))
+
+        let loaded = AppSettingsStorage.load()
+
+        #expect(loaded.appUI.fontSize == 13)
+    }
+
+    @Test("explicit compact appearance font size is respected")
+    func explicitCompactAppearanceFontSizeIsRespected() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
+        UserDefaults.standard.set(12, forKey: RockxyIdentity.current.defaultsKey("appearance.fontSize"))
+
+        let loaded = AppSettingsStorage.load()
+
+        #expect(loaded.appUI.fontSize == 12)
     }
 
     @Test("appearance settings reject invalid stored menu values")
@@ -176,6 +201,63 @@ struct AppSettingsStorageTests {
         #expect(loaded.appTheme == .system)
         #expect(loaded.appUI.fontSize == AppUISettings.defaultFontSize)
         #expect(loaded.appUI.tabWidth == AppUISettings.defaultTabWidth)
+    }
+
+    @Test("appearance persistence updates only appearance values")
+    func appearancePersistenceUpdatesOnlyAppearanceValues() {
+        let cleanup = installSettingsTestGuard()
+        defer { cleanup() }
+
+        var settings = AppSettings()
+        settings.proxyPort = 8_181
+        settings.recordOnLaunch = false
+        settings.githubGistAskBeforePublishing = false
+        AppSettingsStorage.save(settings)
+
+        var appUI = AppUISettings.default
+        appUI.fontSize = 20
+        appUI.tabWidth = 4
+        appUI.useMonospacedFont = true
+        AppSettingsStorage.saveAppearance(appTheme: .dark, appUI: appUI)
+
+        let loaded = AppSettingsStorage.load()
+
+        #expect(loaded.proxyPort == 8_181)
+        #expect(loaded.recordOnLaunch == false)
+        #expect(loaded.githubGistAskBeforePublishing == false)
+        #expect(loaded.appTheme == .dark)
+        #expect(loaded.appUI.fontSize == 20)
+        #expect(loaded.appUI.tabWidth == 4)
+        #expect(loaded.appUI.useMonospacedFont == true)
+    }
+
+    @MainActor
+    @Test("appearance manager split state stays coherent with settings snapshot")
+    func appearanceManagerSplitStateStaysCoherentWithSettingsSnapshot() {
+        let cleanup = installSettingsTestGuard()
+        let originalSettings = AppSettingsManager.shared.settings
+        defer {
+            AppSettingsManager.shared.settings = originalSettings
+            cleanup()
+        }
+
+        var settings = AppSettings()
+        settings.appTheme = .light
+        settings.appUI.fontSize = 12
+        AppSettingsManager.shared.settings = settings
+
+        #expect(AppSettingsManager.shared.appTheme == .light)
+        #expect(AppSettingsManager.shared.appUI.fontSize == 12)
+
+        var updatedUI = AppSettingsManager.shared.appUI
+        updatedUI.fontSize = 20
+        AppSettingsManager.shared.updateAppUI(updatedUI)
+        AppSettingsManager.shared.updateAppTheme(.dark)
+
+        #expect(AppSettingsManager.shared.appUI.fontSize == 20)
+        #expect(AppSettingsManager.shared.settings.appUI.fontSize == 20)
+        #expect(AppSettingsManager.shared.appTheme == .dark)
+        #expect(AppSettingsManager.shared.settings.appTheme == .dark)
     }
 
     @MainActor
@@ -207,6 +289,7 @@ struct AppSettingsStorageTests {
         #expect(AppSettingsManager.shared.settings.proxyPort == 8_181)
         #expect(AppSettingsManager.shared.settings.appTheme == .system)
         #expect(AppSettingsManager.shared.settings.appUI == .default)
+        #expect(AppSettingsManager.shared.settings.appUI.fontSize == 13)
     }
 
     // MARK: Private

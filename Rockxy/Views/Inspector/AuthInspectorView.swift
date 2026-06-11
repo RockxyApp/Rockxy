@@ -53,13 +53,15 @@ struct AuthInspectorView: View {
     private func labelRow(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.caption)
+                .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(.secondary)
             HighlightedInspectorText(text: value, highlightContext: highlightContext)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .textSelection(.enabled)
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private func findAuthHeader() -> String? {
         transaction.request.headers

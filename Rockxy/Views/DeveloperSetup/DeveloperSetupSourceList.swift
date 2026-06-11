@@ -35,9 +35,9 @@ struct DeveloperSetupSourceList: View {
     private var emptySearchState: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "No matching setups"))
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
             Text(String(localized: "Try another runtime, browser, framework, environment, or category name."))
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
@@ -48,14 +48,14 @@ struct DeveloperSetupSourceList: View {
     private func sectionView(category: SetupTargetCategory, targets: [SetupTarget]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(category.title)
-                .font(.caption.weight(.semibold))
+                .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
                 .padding(.horizontal, 8)
 
             if targets.isEmpty {
                 Text(emptySectionTitle(for: category))
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -67,18 +67,18 @@ struct DeveloperSetupSourceList: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: target.iconName)
-                                    .font(.system(size: 13, weight: .medium))
+                                    .font(.system(size: setupMetrics.iconFontSize, weight: .medium))
                                     .foregroundStyle(selectedTarget.id == target.id ? .primary : .secondary)
                                     .frame(width: 16)
 
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(target.title)
-                                        .font(.system(size: 13, weight: selectedTarget.id == target.id ? .semibold : .regular))
+                                        .font(.system(size: setupMetrics.bodyFontSize, weight: selectedTarget.id == target.id ? .semibold : .regular))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
 
                                     Text(target.supportStatus.title)
-                                        .font(.caption2)
+                                        .font(.system(size: setupMetrics.metadataFontSize))
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
                                 }
@@ -87,6 +87,7 @@ struct DeveloperSetupSourceList: View {
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 7)
+                            .frame(minHeight: setupMetrics.sidebarRowHeight)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
@@ -115,7 +116,7 @@ struct DeveloperSetupSourceList: View {
             onTogglePinned(target)
         } label: {
             Image(systemName: isPinned(target) ? "pin.fill" : "pin")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
                 .foregroundStyle(isPinned(target) ? Color(nsColor: .systemBlue) : Color.secondary)
                 .frame(width: 20, height: 20)
                 .background(
@@ -144,5 +145,11 @@ struct DeveloperSetupSourceList: View {
         default:
             String(localized: "No setups in this section")
         }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
     }
 }

@@ -127,6 +127,7 @@ extension MainContentCoordinator {
 
     func togglePin(for transaction: HTTPTransaction) {
         transaction.isPinned.toggle()
+        invalidateSidebarFavoriteCache()
         persistTransaction(transaction)
         refreshRowsAfterMutation()
     }
@@ -252,6 +253,7 @@ extension MainContentCoordinator {
 
     func saveRequest(_ transaction: HTTPTransaction) {
         transaction.isSaved.toggle()
+        invalidateSidebarFavoriteCache()
         persistTransaction(transaction)
         refreshRowsAfterMutation()
     }
@@ -322,6 +324,7 @@ extension MainContentCoordinator {
             transaction.isSaved = false
         }
 
+        invalidateSidebarFavoriteCache()
         updatePersistedFavoriteCache(after: transaction)
         persistTransaction(transaction)
         refreshRowsAfterMutation()
@@ -500,6 +503,7 @@ extension MainContentCoordinator {
         transactions.removeAll { ids.contains($0.id) }
         rebuildObservedDomainsByApp()
         persistedFavorites.removeAll { ids.contains($0.id) }
+        invalidateSidebarFavoriteCache()
 
         // Update all workspaces (same consistency as eviction)
         for workspace in workspaceStore.workspaces {

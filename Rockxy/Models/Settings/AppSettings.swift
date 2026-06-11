@@ -30,7 +30,7 @@ struct AppUISettings: Equatable {
     var bodyScrollBeyondLastLine = false
     var useAlternatingRowBackgroundColors = true
 
-    static let defaultFontSize = 12
+    static let defaultFontSize = 13
     static let defaultTabWidth = 2
     static let allowedFontSizes = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 28]
     static let allowedTabWidths = [2, 4]

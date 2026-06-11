@@ -16,16 +16,17 @@ struct SystemProxyWarningBanner: View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-                .font(.system(size: 13))
+                .font(.system(size: metrics.chromeIconFontSize))
 
             Text(message)
-                .font(.system(size: 12))
+                .font(.system(size: metrics.chromeSecondaryFontSize))
                 .foregroundStyle(.secondary)
 
             Spacer()
 
             if let primaryActionTitle, let onPrimaryAction {
                 Button(primaryActionTitle, action: onPrimaryAction)
+                    .font(.system(size: metrics.chromeBadgeFontSize))
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
@@ -35,7 +36,7 @@ struct SystemProxyWarningBanner: View {
                     onDismiss()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: metrics.badgeFontSize, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -48,4 +49,6 @@ struct SystemProxyWarningBanner: View {
             Divider()
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

@@ -84,6 +84,7 @@ struct DeveloperSetupWindowView: View {
 
     @Environment(\.openSettings) private var openSettings
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var viewModel: DeveloperSetupViewModel
     @State private var routeStore = DeveloperSetupRouteStore.shared
     @StateObject private var caShareController = CAShareController()
@@ -110,6 +111,10 @@ struct DeveloperSetupWindowView: View {
         )
     }
 
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
+    }
+
     private func applyPendingRouteIfNeeded() {
         guard let route = routeStore.consumePendingRoute(),
               let target = SetupTarget.target(for: route.targetID) else {
@@ -123,9 +128,9 @@ struct DeveloperSetupWindowView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "Developer Setup Hub"))
-                    .font(.headline)
+                    .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                 Text(viewModel.selectedTarget.title)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
 
@@ -162,10 +167,10 @@ struct DeveloperSetupWindowView: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.selectedTarget.supportStatus.bannerTitle)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: setupMetrics.secondaryFontSize, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text(viewModel.infoBannerText)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
@@ -225,9 +230,9 @@ struct DeveloperSetupWindowView: View {
             HStack(alignment: .center, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(viewModel.selectedTarget.title)
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: setupMetrics.titleFontSize, weight: .semibold))
                     Text(viewModel.selectedTarget.shortSummary)
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -318,10 +323,10 @@ struct DeveloperSetupWindowView: View {
                 systemImage: "checkmark.shield"
             ) {
                 Text(viewModel.selectedTarget.currentSupportSummary)
-                    .font(.subheadline)
+                    .font(.system(size: setupMetrics.bodyFontSize))
                     .foregroundStyle(.primary)
                 Text(viewModel.selectedTarget.manualSummary)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
         }
@@ -417,7 +422,7 @@ struct DeveloperSetupWindowView: View {
 
                 ScrollView(.horizontal) {
                     Text(currentSnippetText)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: setupMetrics.snippetFontSize, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -463,17 +468,17 @@ struct DeveloperSetupWindowView: View {
                     systemImage: "bolt.horizontal.circle"
                 ) {
                     Text(viewModel.validationInstruction)
-                        .font(.subheadline)
+                        .font(.system(size: setupMetrics.bodyFontSize))
                     Text(viewModel.snapshot.verificationState.title)
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                     if let issue = viewModel.activeIssue {
                         Divider()
                         VStack(alignment: .leading, spacing: 6) {
                             Text(issue.title)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                             Text(issue.message)
-                                .font(.caption)
+                                .font(.system(size: setupMetrics.secondaryFontSize))
                                 .foregroundStyle(.secondary)
                             Button(issue.actionTitle) {
                                 handleIssueAction(issue)
@@ -485,7 +490,7 @@ struct DeveloperSetupWindowView: View {
 
                 ScrollView(.horizontal) {
                     Text(currentSnippetText)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: setupMetrics.snippetFontSize, design: .monospaced))
                         .textSelection(.enabled)
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -543,7 +548,7 @@ struct DeveloperSetupWindowView: View {
                 ForEach(viewModel.troubleshootingIssues) { issue in
                     detailCard(title: issue.title, systemImage: "exclamationmark.triangle") {
                         Text(issue.message)
-                            .font(.subheadline)
+                            .font(.system(size: setupMetrics.bodyFontSize))
                             .foregroundStyle(.primary)
                         HStack(spacing: 8) {
                             Button(issue.actionTitle) {
@@ -567,14 +572,14 @@ struct DeveloperSetupWindowView: View {
     private var bottomBar: some View {
         HStack(spacing: 8) {
             Text(certificateShareStatusMessage ?? viewModel.bottomStatusText)
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 8)
 
             if let warning = viewModel.snapshot.readinessWarningMessage {
                 Text(warning)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
@@ -597,7 +602,7 @@ struct DeveloperSetupWindowView: View {
                     """
                 )
             )
-            .font(.subheadline)
+            .font(.system(size: setupMetrics.bodyFontSize))
             .foregroundStyle(.primary)
 
             Text(
@@ -605,7 +610,7 @@ struct DeveloperSetupWindowView: View {
                     localized: "The link only serves the public PEM, expires automatically, and stops when this sheet closes."
                 )
             )
-            .font(.caption)
+            .font(.system(size: setupMetrics.secondaryFontSize))
             .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
@@ -625,12 +630,12 @@ struct DeveloperSetupWindowView: View {
     private var toolbarSearchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 12))
+                .font(.system(size: setupMetrics.controlFontSize))
                 .foregroundStyle(.secondary)
 
             TextField(String(localized: "Search setups"), text: $viewModel.sourceListSearchText)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(.system(size: setupMetrics.controlFontSize))
                 .frame(width: 180)
 
             if !viewModel.sourceListSearchText.isEmpty {
@@ -638,7 +643,7 @@ struct DeveloperSetupWindowView: View {
                     viewModel.sourceListSearchText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(.system(size: setupMetrics.metadataFontSize))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
@@ -657,12 +662,12 @@ struct DeveloperSetupWindowView: View {
     private func statusCard(title: String, value: String, caption: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: setupMetrics.titleFontSize, weight: .semibold))
             Text(caption)
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
         }
@@ -678,14 +683,14 @@ struct DeveloperSetupWindowView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: step.isComplete ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(step.isComplete ? .green : .secondary)
-                .font(.system(size: 16, weight: .medium))
+                .font(.system(size: setupMetrics.iconFontSize, weight: .medium))
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(step.title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                 Text(step.description)
-                    .font(.caption)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
 
@@ -707,7 +712,7 @@ struct DeveloperSetupWindowView: View {
     private func detailCard(title: String, systemImage: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -720,7 +725,7 @@ struct DeveloperSetupWindowView: View {
 
     private func supportBadge(title: String, fill: Color, stroke: Color, textColor: Color) -> some View {
         Text(title)
-            .font(.caption.weight(.semibold))
+            .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
             .foregroundStyle(textColor)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -737,13 +742,13 @@ struct DeveloperSetupWindowView: View {
     private func guideOnlyContent(title: String, message: String) -> some View {
         detailCard(title: title, systemImage: "info.circle") {
             Text(message)
-                .font(.subheadline)
+                .font(.system(size: setupMetrics.bodyFontSize))
             Text(
                 String(
                     localized: "Rockxy shows this target now so the long-term hub taxonomy stays stable, but this target remains guidance-only today."
                 )
             )
-            .font(.caption)
+            .font(.system(size: setupMetrics.secondaryFontSize))
             .foregroundStyle(.secondary)
         }
     }
@@ -754,10 +759,10 @@ struct DeveloperSetupWindowView: View {
                 ForEach(tips) { tip in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(tip.title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                             .foregroundStyle(.primary)
                         Text(tip.message)
-                            .font(.caption)
+                            .font(.system(size: setupMetrics.secondaryFontSize))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -770,13 +775,13 @@ struct DeveloperSetupWindowView: View {
     private func guideOnlyEmptyState(title: String, message: String) -> some View {
         VStack(alignment: .center, spacing: 10) {
             Image(systemName: "square.dashed")
-                .font(.system(size: 22))
+                .font(.system(size: setupMetrics.prominentIconFontSize))
                 .foregroundStyle(.tertiary)
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(message)
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -787,10 +792,10 @@ struct DeveloperSetupWindowView: View {
     private func metadataItem(title: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.caption)
+                .font(.system(size: setupMetrics.secondaryFontSize))
                 .foregroundStyle(.primary)
         }
     }

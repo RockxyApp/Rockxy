@@ -40,10 +40,10 @@ struct SetCookieInspectorView: View {
     private func cookieRow(_ cookie: HTTPCookie) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HighlightedInspectorText(text: cookie.name, highlightContext: highlightContext)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .fontWeight(.bold)
             HighlightedInspectorText(text: cookie.value, highlightContext: highlightContext)
-                .font(.system(.caption, design: .monospaced))
+                .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 .textSelection(.enabled)
                 .foregroundStyle(.secondary)
 
@@ -54,12 +54,12 @@ struct SetCookieInspectorView: View {
                 labelValue(String(localized: "Path"), cookie.path)
                 if cookie.isSecure {
                     Text(String(localized: "Secure"))
-                        .font(.caption2)
+                        .font(.system(size: metrics.metadataFontSize))
                         .foregroundStyle(.green)
                 }
                 if cookie.isHTTPOnly {
                     Text("HttpOnly")
-                        .font(.caption2)
+                        .font(.system(size: metrics.metadataFontSize))
                         .foregroundStyle(.orange)
                 }
             }
@@ -69,10 +69,12 @@ struct SetCookieInspectorView: View {
     private func labelValue(_ label: String, _ value: String) -> some View {
         HStack(spacing: 2) {
             Text(label + ":")
-                .font(.caption2)
+                .font(.system(size: metrics.metadataFontSize))
                 .foregroundStyle(.secondary)
             HighlightedInspectorText(text: value, highlightContext: highlightContext)
-                .font(.system(.caption2, design: .monospaced))
+                .font(.system(size: metrics.metadataFontSize, design: .monospaced))
         }
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

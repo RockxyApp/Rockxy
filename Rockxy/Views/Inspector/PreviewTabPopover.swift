@@ -11,7 +11,7 @@ struct PreviewTabPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Preview Tabs"))
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: metrics.controlFontSize, weight: .semibold))
 
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(PreviewRenderMode.allCases) { mode in
@@ -26,7 +26,7 @@ struct PreviewTabPopover: View {
                         }
                     ))
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 12))
+                    .font(.system(size: metrics.controlFontSize))
                 }
             }
 
@@ -37,11 +37,13 @@ struct PreviewTabPopover: View {
                 set: { store.autoBeautify = $0 }
             )) {
                 Text(String(localized: "Auto beautify"))
-                    .font(.system(size: 11))
+                    .font(.system(size: metrics.secondaryFontSize))
             }
             .toggleStyle(.checkbox)
         }
         .padding(12)
         .frame(width: 220)
     }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }

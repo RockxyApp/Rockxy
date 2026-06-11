@@ -32,15 +32,20 @@ struct DeveloperSetupAutomationSheet: View {
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var setupMetrics: DeveloperSetupDisplayMetrics {
+        DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(preview.title)
-                        .font(.title3.weight(.semibold))
+                        .font(.system(size: setupMetrics.titleFontSize, weight: .semibold))
                     Text(target.title)
-                        .font(.caption)
+                        .font(.system(size: setupMetrics.secondaryFontSize))
                         .foregroundStyle(.secondary)
                 }
 
@@ -50,7 +55,7 @@ struct DeveloperSetupAutomationSheet: View {
             }
 
             Text(preview.summary)
-                .font(.subheadline)
+                .font(.system(size: setupMetrics.bodyFontSize))
                 .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 20)
@@ -60,7 +65,7 @@ struct DeveloperSetupAutomationSheet: View {
 
     private var automationBadge: some View {
         Text(target.automationSupport.badgeTitle)
-            .font(.caption.weight(.semibold))
+            .font(.system(size: setupMetrics.metadataFontSize, weight: .semibold))
             .foregroundStyle(Color(nsColor: .systemBlue))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
@@ -78,11 +83,11 @@ struct DeveloperSetupAutomationSheet: View {
         card(title: String(localized: "Primary action"), systemImage: "terminal") {
             VStack(alignment: .leading, spacing: 8) {
                 Text(preview.primaryActionTitle)
-                    .font(.headline)
+                    .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
 
                 Text(preview.summary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                    .font(.system(size: setupMetrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -93,9 +98,9 @@ struct DeveloperSetupAutomationSheet: View {
                 ForEach(preview.steps) { step in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(step.title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(.system(size: setupMetrics.bodyFontSize, weight: .semibold))
                         Text(step.description)
-                            .font(.caption)
+                            .font(.system(size: setupMetrics.secondaryFontSize))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -108,7 +113,7 @@ struct DeveloperSetupAutomationSheet: View {
     private var fallbackCard: some View {
         card(title: String(localized: "Manual Setup fallback"), systemImage: "arrow.uturn.backward") {
             Text(preview.supplementaryNote)
-                .font(.subheadline)
+                .font(.system(size: setupMetrics.bodyFontSize))
                 .foregroundStyle(.primary)
         }
     }
@@ -136,7 +141,7 @@ struct DeveloperSetupAutomationSheet: View {
     private func card<Content: View>(title: String, systemImage: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
 
             content()
         }
