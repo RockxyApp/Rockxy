@@ -23,7 +23,8 @@ struct BypassProxyListView: View {
             Divider()
             footerSection
         }
-        .frame(width: 520, height: 480)
+        .font(toolMetrics.font())
+        .frame(width: toolMetrics.fieldWidth(520), height: 480)
         .onAppear {
             manager = BypassProxyManager.shared
         }
@@ -38,18 +39,24 @@ struct BypassProxyListView: View {
     @State private var showingExporter = false
     @State private var exportData: Data?
     @State private var validationError: String?
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(String(localized: "Bypass Proxy List"))
-                .font(.headline)
+                .font(toolMetrics.font(weight: .semibold))
             Text(
                 String(
                     localized: "These domains never go through Rockxy. Use this for noisy traffic, localhost exclusions, or SSL-pinned services."
                 )
             )
-            .font(.callout)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -75,7 +82,7 @@ struct BypassProxyListView: View {
                     Table(manager.domains, selection: $selectedDomainIDs) {
                         TableColumn(String(localized: "Domain")) { domain in
                             Text(domain.domain)
-                                .font(.body.monospaced())
+                                .font(toolMetrics.font(monospaced: true))
                         }
                         .width(min: 200)
                         TableColumn(String(localized: "Enabled")) { domain in
@@ -106,6 +113,8 @@ struct BypassProxyListView: View {
                     text: $newDomain
                 )
                 .textFieldStyle(.roundedBorder)
+                .font(toolMetrics.font())
+                .frame(minHeight: toolMetrics.formControlHeight)
                 .onSubmit { addDomain() }
                 .onChange(of: newDomain) {
                     validationError = nil
@@ -129,8 +138,9 @@ struct BypassProxyListView: View {
 
             if let validationError {
                 Text(validationError)
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal)
@@ -173,7 +183,7 @@ struct BypassProxyListView: View {
                 let activeCount = manager.domains.filter(\.isEnabled).count
                 if activeCount > 0 {
                     Text(String(localized: "\(activeCount) domain(s) active"))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                 }
             }

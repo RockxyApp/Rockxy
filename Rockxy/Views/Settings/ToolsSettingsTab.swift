@@ -20,19 +20,25 @@ struct ToolsSettingsTab: View {
 
                 Spacer()
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, settingsMetrics.contentPadding)
             .padding(.top, 20)
         }
+        .font(settingsMetrics.font())
     }
 
     // MARK: Private
 
     @AppStorage(RockxyIdentity.current.defaultsKey("noCaching")) private var noCaching =
         false // WIRED: NoCacheHeaderMutator
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private func checkboxRow(title: String, isOn: Binding<Bool>) -> some View {
         HStack {
-            Color.clear.frame(width: 176)
+            Color.clear.frame(width: settingsMetrics.rowLeading)
             Toggle(title, isOn: isOn)
                 .toggleStyle(.checkbox)
         }

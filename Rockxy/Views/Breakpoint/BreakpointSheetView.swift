@@ -24,7 +24,8 @@ struct BreakpointSheetView: View {
             Divider()
             actionButtons
         }
-        .frame(width: 700, height: 560)
+        .font(toolMetrics.font())
+        .frame(width: max(700, toolMetrics.bodyFontSize * 20 + 440), height: max(560, toolMetrics.bodyFontSize * 14 + 378))
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
@@ -50,17 +51,19 @@ struct BreakpointSheetView: View {
 
     @State private var selectedTab: BreakpointTab = .headers
     @State private var elapsedSeconds: Int = 0
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var alertBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
             Text(String(localized: "Request paused at breakpoint"))
-                .font(.callout)
+                .font(toolMetrics.font())
                 .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
             Text(String(format: "%02d:%02d", elapsedSeconds / 60, elapsedSeconds % 60))
-                .font(.system(.callout, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .foregroundStyle(.secondary)
         }
         .padding(12)
@@ -75,7 +78,7 @@ struct BreakpointSheetView: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 100)
+            .frame(width: toolMetrics.menuWidth(100))
 
             httpsAwareURLField
 
@@ -85,7 +88,7 @@ struct BreakpointSheetView: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 160)
+            .frame(width: toolMetrics.menuWidth(160))
         }
         .padding(12)
     }
@@ -97,7 +100,7 @@ struct BreakpointSheetView: View {
         {
             HStack(spacing: 0) {
                 Text("https://\(urlComponents.host ?? "")")
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 TextField("", text: Binding(
@@ -117,7 +120,8 @@ struct BreakpointSheetView: View {
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
+                .frame(minHeight: toolMetrics.formControlHeight)
             }
         } else if requestData.phase == .request,
                   let urlComponents = URLComponents(string: requestData.url),
@@ -125,7 +129,7 @@ struct BreakpointSheetView: View {
         {
             HStack(spacing: 0) {
                 Text("\(urlComponents.scheme ?? "http")://")
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .foregroundStyle(.secondary)
                 TextField("", text: Binding(
                     get: {
@@ -145,12 +149,14 @@ struct BreakpointSheetView: View {
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
+                .frame(minHeight: toolMetrics.formControlHeight)
             }
         } else {
             TextField(String(localized: "URL"), text: $requestData.url)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
+                .frame(minHeight: toolMetrics.formControlHeight)
         }
     }
 
@@ -185,12 +191,12 @@ struct BreakpointSheetView: View {
         VStack(spacing: 0) {
             HStack {
                 Text(String(localized: "Name"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(String(localized: "Value"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .fontWeight(.semibold)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -205,10 +211,12 @@ struct BreakpointSheetView: View {
                     HStack(spacing: 8) {
                         TextField(String(localized: "Header name"), text: $header.name)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
+                            .frame(minHeight: toolMetrics.formControlHeight)
                         TextField(String(localized: "Header value"), text: $header.value)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
+                            .frame(minHeight: toolMetrics.formControlHeight)
                         Button {
                             requestData.headers.removeAll { $0.id == header.id }
                         } label: {
@@ -226,7 +234,7 @@ struct BreakpointSheetView: View {
                     requestData.headers.append(EditableHeader(name: "", value: ""))
                 } label: {
                     Label(String(localized: "Add Header"), systemImage: "plus.circle")
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                 }
                 .buttonStyle(.plain)
                 Spacer()
@@ -239,7 +247,7 @@ struct BreakpointSheetView: View {
     @ViewBuilder private var responseView: some View {
         if requestData.phase == .response {
             TextEditor(text: $requestData.body)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .padding(8)
         } else {
             ContentUnavailableView(
@@ -254,7 +262,7 @@ struct BreakpointSheetView: View {
 
     private var bodyEditor: some View {
         TextEditor(text: $requestData.body)
-            .font(.system(.body, design: .monospaced))
+            .font(toolMetrics.font(monospaced: true))
             .padding(8)
     }
 
@@ -271,11 +279,11 @@ struct BreakpointSheetView: View {
                 List(queryItems, id: \.name) { item in
                     HStack {
                         Text(item.name)
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .fontWeight(.semibold)
                         Spacer()
                         Text(item.value ?? "")
-                            .font(.system(.caption, design: .monospaced))
+                            .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -303,6 +311,10 @@ struct BreakpointSheetView: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(12)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

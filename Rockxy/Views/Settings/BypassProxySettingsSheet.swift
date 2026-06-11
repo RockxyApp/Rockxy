@@ -19,19 +19,20 @@ struct BypassProxySettingsSheet: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: Theme.Layout.contentPadding) {
                 Text(String(localized: "Bypass Proxy Settings for these List & Domain:"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
 
                 TextEditor(text: $domainsText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 120)
+                    .font(toolMetrics.font(monospaced: true))
+                    .frame(minHeight: max(120, toolMetrics.bodyFontSize * 8))
                     .overlay(
                         RoundedRectangle(cornerRadius: 4)
                             .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                     )
 
                 Text(String(localized: "Use * to match all, or *.domain.com for subdomains. Separate by comma."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -62,12 +63,17 @@ struct BypassProxySettingsSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
         }
-        .frame(width: 550)
+        .frame(width: max(550, toolMetrics.fieldWidth(550)))
         .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.dismiss) private var dismiss
     @State private var domainsText: String
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }

@@ -42,7 +42,8 @@ struct ExportScopeSheet: View {
         .padding(.top, 16)
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
-        .frame(width: 420)
+        .font(toolMetrics.font())
+        .frame(width: max(420, toolMetrics.fieldWidth(420)))
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -52,7 +53,7 @@ struct ExportScopeSheet: View {
 
     private var title: some View {
         Text(context.format.title)
-            .font(.system(size: 15, weight: .semibold))
+            .font(toolMetrics.font(weight: .semibold))
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -87,7 +88,7 @@ struct ExportScopeSheet: View {
 
     private var privacyNote: some View {
         Text(context.format.privacyNote)
-            .font(.system(size: 12))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -109,16 +110,17 @@ struct ExportScopeSheet: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                .controlSize(.small)
-                .frame(width: 68, height: 25)
+                .frame(width: toolMetrics.footerButtonWidth)
+                .frame(minHeight: toolMetrics.formControlHeight)
 
                 Button {
                     onExport(selectedScope)
                 } label: {
                     Text(String(localized: "Export\u{2026}"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(toolMetrics.font(weight: .medium))
                         .foregroundStyle(.white)
-                        .frame(width: 80, height: 25)
+                        .frame(width: toolMetrics.footerButtonWidth)
+                        .frame(minHeight: toolMetrics.formControlHeight)
                         .background(Color.accentColor)
                         .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
@@ -131,7 +133,7 @@ struct ExportScopeSheet: View {
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(toolMetrics.metadataFont(weight: .medium))
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .tracking(0.3)
             .textCase(.uppercase)
@@ -159,7 +161,7 @@ struct ExportScopeSheet: View {
                     .frame(width: 8)
 
                 Text(label)
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                     .foregroundStyle(
                         isSelected
                             ? .white
@@ -170,7 +172,7 @@ struct ExportScopeSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text("\(count)")
-                    .font(.system(size: 12))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(
                         isSelected
                             ? .white
@@ -178,7 +180,7 @@ struct ExportScopeSheet: View {
                     )
             }
             .padding(.horizontal, 12)
-            .frame(height: 29)
+            .frame(minHeight: toolMetrics.formControlHeight)
             .background(
                 isSelected
                     ? Color.accentColor
@@ -206,5 +208,11 @@ struct ExportScopeSheet: View {
                     .padding(isSelected ? 3 : 0)
             )
             .frame(width: 14, height: 14)
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

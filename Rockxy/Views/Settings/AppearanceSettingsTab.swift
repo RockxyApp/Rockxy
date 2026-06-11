@@ -9,12 +9,12 @@ struct AppearanceSettingsTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(String(localized: "App UI"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(settingsMetrics.font(weight: .medium))
 
                     appUISection
 
                     Text(String(localized: "App Theme"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(settingsMetrics.font(weight: .medium))
 
                     themeSection
                 }
@@ -31,6 +31,7 @@ struct AppearanceSettingsTab: View {
                 .padding(.bottom, 24)
         }
         .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
+        .font(settingsMetrics.font())
     }
 
     // MARK: Private
@@ -45,20 +46,24 @@ struct AppearanceSettingsTab: View {
         settingsManager.appTheme
     }
 
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: AppUIDisplayMetrics(settings: settingsManager.appUI))
+    }
+
     private var appUISection: some View {
         VStack(alignment: .leading, spacing: 10) {
             appearanceControlGroup {
                 HStack(alignment: .top, spacing: 28) {
                     HStack(spacing: 8) {
                         Text(String(localized: "Font Size:"))
-                            .frame(width: 84, alignment: .trailing)
+                            .frame(width: settingsMetrics.fieldWidth(84), alignment: .trailing)
                         Picker("", selection: fontSizeBinding) {
                             ForEach(AppUISettings.allowedFontSizes, id: \.self) { size in
                                 Text("\(size)").tag(size)
                             }
                         }
                         .labelsHidden()
-                        .frame(width: 72)
+                        .frame(width: settingsMetrics.menuWidth(72))
                     }
 
                     HStack(spacing: 8) {
@@ -69,7 +74,7 @@ struct AppearanceSettingsTab: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(width: 112)
+                        .frame(width: settingsMetrics.menuWidth(112))
                     }
                 }
 
@@ -79,9 +84,10 @@ struct AppearanceSettingsTab: View {
                 }
 
                 Text(String(localized: "Applies to the main table, inspector, and Developer Setup Hub."))
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
-                    .padding(.leading, 192)
+                    .padding(.leading, settingsMetrics.fieldWidth(192))
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             appearanceControlGroup {
@@ -106,8 +112,8 @@ struct AppearanceSettingsTab: View {
                 }
             }
         }
-        .font(.system(size: 13))
-        .padding(.horizontal, 112)
+        .font(settingsMetrics.font())
+        .padding(.horizontal, settingsMetrics.fieldWidth(112))
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
@@ -144,8 +150,8 @@ struct AppearanceSettingsTab: View {
             Button {
                 settingsManager.restoreAppearanceDefaults()
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 12, weight: .medium))
+                        Image(systemName: "arrow.clockwise")
+                    .font(settingsMetrics.secondaryFont(weight: .medium))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.borderless)
@@ -154,7 +160,7 @@ struct AppearanceSettingsTab: View {
 
             Spacer()
         }
-        .font(.system(size: 13))
+        .font(settingsMetrics.font())
     }
 
     private var fontSizeBinding: Binding<Int> {
@@ -192,7 +198,7 @@ struct AppearanceSettingsTab: View {
     {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
-                .frame(width: 84, alignment: .trailing)
+                .frame(width: settingsMetrics.fieldWidth(84), alignment: .trailing)
             content()
         }
     }
@@ -214,11 +220,11 @@ struct AppearanceSettingsTab: View {
                 HStack(spacing: 6) {
                     if appTheme == theme {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(settingsMetrics.font(weight: .semibold))
                             .foregroundStyle(Color(nsColor: .systemGreen))
                     }
                     Text(theme.displayName)
-                        .font(.system(size: 13))
+                        .font(settingsMetrics.font())
                         .foregroundStyle(.primary)
                 }
                 .frame(minWidth: 82)

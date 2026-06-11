@@ -9,6 +9,11 @@ struct DiffWindowView: View {
     // MARK: Internal
 
     @State var viewModel = DiffViewModel()
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,7 +26,13 @@ struct DiffWindowView: View {
             Divider()
             DiffControlBar(viewModel: viewModel)
         }
-        .frame(minWidth: 900, idealWidth: 1_240, minHeight: 600, idealHeight: 820)
+        .font(toolMetrics.font())
+        .frame(
+            minWidth: max(900, toolMetrics.bodyFontSize * 32 + 484),
+            idealWidth: max(1_240, toolMetrics.bodyFontSize * 42 + 694),
+            minHeight: max(600, toolMetrics.bodyFontSize * 18 + 366),
+            idealHeight: max(820, toolMetrics.bodyFontSize * 24 + 508)
+        )
         .toolbar {
             ToolbarItemGroup {
                 Button {
@@ -59,8 +70,9 @@ struct DiffWindowView: View {
                     localized: "Basic Compare helps you quickly inspect Request, Response, or Timing differences between two local transactions."
                 )
             )
-            .font(.caption)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(.horizontal, 12)

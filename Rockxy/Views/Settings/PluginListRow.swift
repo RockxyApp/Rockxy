@@ -19,10 +19,10 @@ struct PluginListRow: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(plugin.manifest.name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(settingsMetrics.font(weight: .medium))
                     .lineLimit(1)
                 Text(subtitleText)
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -42,6 +42,12 @@ struct PluginListRow: View {
     }
 
     // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var statusColor: Color {
         switch plugin.status {

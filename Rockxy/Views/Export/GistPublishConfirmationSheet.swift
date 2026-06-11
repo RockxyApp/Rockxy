@@ -10,7 +10,7 @@ struct GistPublishConfirmationSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(toolMetrics.font(weight: .semibold))
 
             VStack(alignment: .leading, spacing: 10) {
                 Picker(String(localized: "Publish as"), selection: $visibility) {
@@ -21,8 +21,9 @@ struct GistPublishConfirmationSheet: View {
 
                 if visibility == .public {
                     Label(String(localized: "Public Gists are discoverable. Review selected traffic before publishing."), systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 Toggle(String(localized: "Automatic redact sensitive headers"), isOn: $redactSensitiveData)
@@ -34,14 +35,15 @@ struct GistPublishConfirmationSheet: View {
             }
 
             Text(String(localized: "Rockxy will upload a README, HAR file, and readable request/response files for the selected traffic."))
-                .font(.system(size: 12))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -58,8 +60,9 @@ struct GistPublishConfirmationSheet: View {
                 .disabled(isPublishing)
             }
         }
+        .font(toolMetrics.font())
         .padding(22)
-        .frame(width: 500)
+        .frame(width: max(500, toolMetrics.fieldWidth(500)))
         .onAppear {
             let settings = AppSettingsManager.shared.settings
             visibility = settings.githubGistVisibility
@@ -77,6 +80,11 @@ struct GistPublishConfirmationSheet: View {
     @State private var copyURLToClipboard = false
     @State private var isPublishing = false
     @State private var errorMessage: String?
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var title: String {
         context.transactions.count == 1

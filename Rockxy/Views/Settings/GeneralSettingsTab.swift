@@ -17,7 +17,9 @@ struct GeneralSettingsTab: View {
                 settingsRow(label: String(localized: "Port Number:")) {
                     TextField("", value: $proxyPort, format: .number)
                         .textFieldStyle(.roundedBorder)
-                        .frame(width: 80)
+                        .font(settingsMetrics.font(monospaced: true))
+                        .frame(width: settingsMetrics.fieldWidth(80))
+                        .frame(minHeight: settingsMetrics.controlHeight)
                 }
 
                 // Auto Start Recording
@@ -31,7 +33,7 @@ struct GeneralSettingsTab: View {
 
                 // Advanced Proxy Setting button
                 HStack {
-                    Color.clear.frame(width: 176)
+                    Color.clear.frame(width: settingsMetrics.rowLeading)
                     Button(String(localized: "Advanced Proxy Setting…")) {
                         openWindow(id: "advancedProxySettings")
                     }
@@ -45,23 +47,25 @@ struct GeneralSettingsTab: View {
                 // Certificate status feedback
                 if case let .success(message) = certificateStatus {
                     HStack(spacing: 8) {
-                        Color.clear.frame(width: 176)
+                        Color.clear.frame(width: settingsMetrics.rowLeading)
                         Text(message)
                             .foregroundStyle(.green)
-                            .font(Theme.Typography.caption)
+                            .font(settingsMetrics.secondaryFont())
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 } else if case let .error(message) = certificateStatus {
                     HStack(spacing: 8) {
-                        Color.clear.frame(width: 176)
+                        Color.clear.frame(width: settingsMetrics.rowLeading)
                         Text(message)
                             .foregroundStyle(.red)
-                            .font(Theme.Typography.caption)
+                            .font(settingsMetrics.secondaryFont())
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 Spacer()
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, settingsMetrics.contentPadding)
             .padding(.top, 20)
         }
         .onChange(of: proxyPort) { _, newValue in
@@ -119,6 +123,7 @@ struct GeneralSettingsTab: View {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "GeneralSettingsTab")
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     @AppStorage(RockxyIdentity.current.defaultsKey("proxyPort")) private var proxyPort =
         9_090
@@ -131,6 +136,10 @@ struct GeneralSettingsTab: View {
 
     private var sectionDivider: some View {
         Divider().padding(.horizontal, 0)
+    }
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 
     private var certificateSection: some View {
@@ -151,8 +160,8 @@ struct GeneralSettingsTab: View {
     {
         HStack(alignment: .top, spacing: 0) {
             Text(label)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 160, alignment: .trailing)
+                .font(settingsMetrics.font(weight: .medium))
+                .frame(width: settingsMetrics.labelWidth, alignment: .trailing)
                 .padding(.trailing, 16)
                 .padding(.top, 2)
             content()
@@ -167,13 +176,14 @@ struct GeneralSettingsTab: View {
         -> some View
     {
         HStack(alignment: .top, spacing: 0) {
-            Color.clear.frame(width: 176)
+            Color.clear.frame(width: settingsMetrics.rowLeading)
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(title, isOn: isOn)
                     .toggleStyle(.checkbox)
                 Text(description)
-                    .font(.system(size: 11))
+                    .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

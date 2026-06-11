@@ -301,6 +301,7 @@ struct BreakpointRulesWindowView: View {
             shortcutStrip
             bottomBar
         }
+        .font(toolMetrics.font())
         .frame(width: 1_200, height: 675)
         .task { await viewModel.refreshFromEngine() }
         .onAppear { consumePendingContext() }
@@ -333,6 +334,7 @@ struct BreakpointRulesWindowView: View {
         category: "BreakpointRulesWindowView"
     )
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
     @State private var viewModel = BreakpointRulesViewModel()
 
@@ -346,21 +348,21 @@ struct BreakpointRulesWindowView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Toggle(isOn: Binding(
                 get: { viewModel.isBreakpointToolEnabled },
                 set: { viewModel.setBreakpointToolEnabled($0) }
             )) {
                 Text(String(localized: "Enable Breakpoint Tool"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
             }
             .toggleStyle(.checkbox)
-            .padding(.top, 16)
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Modify the Request/Response on the fly. Support URL, Method, Status Code, Headers, and Body."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
             Text(String(localized: "Each request is checked against the rules from top to bottom, stopping when a match is found."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.secondary)
 
             if viewModel.isFilterBarVisible {
@@ -372,8 +374,8 @@ struct BreakpointRulesWindowView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 10)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var tableContent: some View {
@@ -440,18 +442,18 @@ struct BreakpointRulesWindowView: View {
                 )
             }
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             HStack(spacing: 0) {
                 Button {
                     openNewEditor()
                 } label: {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -465,8 +467,8 @@ struct BreakpointRulesWindowView: View {
                     viewModel.removeSelected()
                 } label: {
                     Image(systemName: "minus")
-                        .font(.system(size: 12, weight: .regular))
-                        .frame(width: 18, height: 18)
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .regular))
+                        .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -476,7 +478,7 @@ struct BreakpointRulesWindowView: View {
             .foregroundStyle(.primary)
             .background(Color(nsColor: .controlBackgroundColor))
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-            .frame(width: 37, height: 19)
+            .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
 
             Button(String(localized: "New Folder")) {}
                 .disabled(true)
@@ -509,18 +511,17 @@ struct BreakpointRulesWindowView: View {
 
             moreMenu
         }
-        .padding(.horizontal, 22)
-        .padding(.bottom, 14)
-        .padding(.top, 8)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     private var shortcutStrip: some View {
         Text("New: ⌘N    Edit: ⌘↵    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ↵")
-            .font(.system(size: 11))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 22)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var moreMenu: some View {
@@ -573,7 +574,7 @@ struct BreakpointRulesWindowView: View {
             HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
         }
         .menuIndicator(.hidden)
@@ -610,10 +611,14 @@ struct BreakpointRulesWindowView: View {
         HStack {
             Spacer()
             Image(systemName: isActive ? "checkmark.square.fill" : "square")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: toolMetrics.compactIconFontSize, weight: .semibold))
                 .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
             Spacer()
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private func openNewEditor(context: BreakpointEditorContext? = nil) {

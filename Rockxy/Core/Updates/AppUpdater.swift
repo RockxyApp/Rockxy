@@ -433,10 +433,14 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         guard compareVersions(latestVersion, currentVersion) == .orderedDescending else {
             return nil
         }
+        let resolvedVersionsBehind = versionsBehind ?? semanticVersionsBehind(
+            currentVersion: currentVersion,
+            latestVersion: latestVersion
+        )
         return UpdateStatusSummary(
             currentVersion: currentVersion,
             latestVersion: latestVersion,
-            versionsBehind: versionsBehind
+            versionsBehind: resolvedVersionsBehind
         )
     }
 
@@ -463,8 +467,12 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
         latestVersion: String,
         appcastData: Data
     ) -> Int? {
+        let semanticCount = semanticVersionsBehind(
+            currentVersion: currentVersion,
+            latestVersion: latestVersion
+        )
         guard let versions = AppcastVersionParser.versions(from: appcastData) else {
-            return nil
+            return semanticCount
         }
 
         var seen: Set<String> = []
@@ -475,7 +483,11 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
             return compareVersions(version, currentVersion) == .orderedDescending
                 && compareVersions(version, latestVersion) != .orderedDescending
         }
-        return newerVersions.isEmpty ? nil : newerVersions.count
+        let appcastCount = newerVersions.isEmpty ? nil : newerVersions.count
+        if let appcastCount, appcastCount > 1 {
+            return appcastCount
+        }
+        return [appcastCount, semanticCount].compactMap { $0 }.max()
     }
 
     static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
@@ -505,6 +517,46 @@ final class AppUpdater: NSObject, ObservableObject, SPUUpdaterDelegate {
                 let digits = component.prefix { $0.isNumber }
                 return Int(digits) ?? 0
             }
+    }
+
+    private static func semanticVersionsBehind(currentVersion: String, latestVersion: String) -> Int? {
+        guard compareVersions(latestVersion, currentVersion) == .orderedDescending else {
+            return nil
+        }
+
+        let current = semanticVersionComponents(currentVersion)
+        let latest = semanticVersionComponents(latestVersion)
+        guard current.major == latest.major else {
+            return nil
+        }
+
+        if current.minor == latest.minor {
+            let count = latest.patch - current.patch
+            return count > 0 ? count : nil
+        }
+
+        guard current.patch == 0 else {
+            return nil
+        }
+
+        let minorCount = latest.minor - current.minor
+        guard minorCount > 0 else {
+            return nil
+        }
+        return minorCount + latest.patch
+    }
+
+    private static func semanticVersionComponents(_ version: String) -> (major: Int, minor: Int, patch: Int) {
+        let components = versionComponents(version)
+        return (
+            major: versionComponent(at: 0, in: components),
+            minor: versionComponent(at: 1, in: components),
+            patch: versionComponent(at: 2, in: components)
+        )
+    }
+
+    private static func versionComponent(at index: Int, in components: [Int]) -> Int {
+        components.indices.contains(index) ? components[index] : 0
     }
 
     private static func installManualOnlyOverrides(defaults: UserDefaults = .standard) {

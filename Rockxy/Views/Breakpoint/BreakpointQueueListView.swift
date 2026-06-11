@@ -15,8 +15,7 @@ struct BreakpointQueueListView: View {
         VStack(spacing: 0) {
             HStack {
                 pausedHeader
-                    .font(.caption)
-                    .fontWeight(.semibold)
+                    .font(toolMetrics.secondaryFont(weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -32,10 +31,10 @@ struct BreakpointQueueListView: View {
                         .font(.title2)
                         .foregroundStyle(.secondary)
                     Text(String(localized: "No breakpoints paused."))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                     Text(String(localized: "Traffic matching breakpoint rules will appear here."))
-                        .font(.caption2)
+                        .font(toolMetrics.metadataFont())
                         .foregroundStyle(.tertiary)
                         .multilineTextAlignment(.center)
                 }
@@ -53,6 +52,8 @@ struct BreakpointQueueListView: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     /// Localized, plural-aware header for the paused items section.
     /// Uses SwiftUI `Text` inflection so the singular/plural form resolves at
     /// runtime and the integer count is a first-class argument localizers can
@@ -63,6 +64,10 @@ struct BreakpointQueueListView: View {
             "^[\(count) paused](inflect: true)",
             comment: "Header showing how many paused breakpoint items are in the queue"
         )
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -80,10 +85,10 @@ struct BreakpointQueueRow: View {
             methodOrStatus
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.host)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .lineLimit(1)
                 Text(item.path)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(toolMetrics.secondaryFont(monospaced: true))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -95,9 +100,11 @@ struct BreakpointQueueRow: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     private var phaseBadge: some View {
         Text(item.phase == .request ? "REQ" : "RES")
-            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .font(.system(size: toolMetrics.smallIconFontSize, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
@@ -107,13 +114,11 @@ struct BreakpointQueueRow: View {
     @ViewBuilder private var methodOrStatus: some View {
         if item.phase == .request {
             Text(item.method)
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold, monospaced: true))
                 .foregroundStyle(.primary)
         } else if let code = item.statusCode {
             Text("\(code)")
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold, monospaced: true))
                 .foregroundStyle(statusColor(for: code))
         }
     }
@@ -127,6 +132,10 @@ struct BreakpointQueueRow: View {
         default: .secondary
         }
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }
 
 // MARK: - ElapsedTimeLabel
@@ -139,8 +148,14 @@ struct ElapsedTimeLabel: View {
         TimelineView(.periodic(from: since, by: 1)) { context in
             let elapsed = Int(context.date.timeIntervalSince(since))
             Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

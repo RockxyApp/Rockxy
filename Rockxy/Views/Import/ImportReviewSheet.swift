@@ -33,7 +33,8 @@ struct ImportReviewSheet: View {
         .padding(.top, 16)
         .padding(.horizontal, 20)
         .padding(.bottom, 20)
-        .frame(width: 420)
+        .font(toolMetrics.font())
+        .frame(width: max(420, toolMetrics.fieldWidth(420)))
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -61,7 +62,7 @@ struct ImportReviewSheet: View {
 
     private var title: some View {
         Text(String(localized: "Import Review"))
-            .font(.system(size: 15, weight: .semibold))
+            .font(toolMetrics.font(weight: .semibold))
             .frame(maxWidth: .infinity, alignment: .center)
     }
 
@@ -134,19 +135,19 @@ struct ImportReviewSheet: View {
     private var warningRow: some View {
         HStack(spacing: 0) {
             Text("\u{26A0}")
-                .font(.system(size: 13))
+                .font(toolMetrics.font(weight: .semibold))
                 .foregroundStyle(Color(red: 0.93, green: 0.60, blue: 0.0))
 
             Spacer()
                 .frame(width: 6)
 
             Text(warningText)
-                .font(.system(size: 12))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(Color(red: 0.55, green: 0.38, blue: 0.0))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 28)
+                .frame(minHeight: toolMetrics.formControlHeight)
                 .background(Color(red: 1.0, green: 0.969, blue: 0.922))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay {
@@ -158,7 +159,7 @@ struct ImportReviewSheet: View {
                 }
         }
         .padding(.leading, 12)
-        .frame(height: 44)
+        .frame(minHeight: toolMetrics.formControlHeight + 16)
     }
 
     private var bottomBar: some View {
@@ -172,16 +173,17 @@ struct ImportReviewSheet: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                .controlSize(.small)
-                .frame(width: 68, height: 25)
+                .frame(width: toolMetrics.footerButtonWidth)
+                .frame(minHeight: toolMetrics.formControlHeight)
 
                 Button(role: .destructive) {
                     onReplace()
                 } label: {
                     Text(String(localized: "Replace Current"))
-                        .font(.system(size: 13, weight: .medium))
+                        .font(toolMetrics.font(weight: .medium))
                         .foregroundStyle(.white)
-                        .frame(width: 130, height: 25)
+                        .frame(width: toolMetrics.menuWidth(130))
+                        .frame(minHeight: toolMetrics.formControlHeight)
                         .background(Color(red: 1.0, green: 0.231, blue: 0.188))
                         .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
@@ -192,7 +194,7 @@ struct ImportReviewSheet: View {
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium))
+            .font(toolMetrics.metadataFont(weight: .medium))
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
             .tracking(0.3)
             .textCase(.uppercase)
@@ -201,15 +203,15 @@ struct ImportReviewSheet: View {
     private func infoRow(label: String, value: String) -> some View {
         HStack(spacing: 0) {
             Text(label)
-                .font(.system(size: 13))
-                .frame(width: 90, alignment: .leading)
+                .font(toolMetrics.font())
+                .frame(width: toolMetrics.menuWidth(90), alignment: .leading)
 
             Text(value)
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 28)
+                .frame(minHeight: toolMetrics.formControlHeight)
                 .background(Color(nsColor: .controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .overlay {
@@ -218,7 +220,7 @@ struct ImportReviewSheet: View {
                 }
         }
         .padding(.leading, 12)
-        .frame(height: 44)
+        .frame(minHeight: toolMetrics.formControlHeight + 16)
     }
 
     private func dateRangeText(_ start: Date, _ end: Date?) -> String {
@@ -230,5 +232,11 @@ struct ImportReviewSheet: View {
             return startStr
         }
         return "\(startStr) — \(formatter.string(from: end))"
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

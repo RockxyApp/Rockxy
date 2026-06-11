@@ -11,6 +11,7 @@ struct ScriptEditorWindowView: View {
             Divider()
             footer
         }
+        .font(toolMetrics.font())
         .frame(minWidth: 960, minHeight: 640)
         .onAppear {
             if let intent = ScriptEditorSession.shared.consumePending() {
@@ -26,6 +27,7 @@ struct ScriptEditorWindowView: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var viewModel = ScriptEditorViewModel()
 
     // MARK: - Matching Rule header
@@ -33,35 +35,41 @@ struct ScriptEditorWindowView: View {
     private var matchingRuleHeader: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Matching Rule")
-                .font(.headline)
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
                     Text("Name:")
-                        .frame(width: 58, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     TextField("", text: $viewModel.name)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        .frame(minHeight: toolMetrics.formControlHeight)
                 }
 
                 HStack(spacing: 8) {
                     Text("URL:")
-                        .frame(width: 58, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: compactLabelWidth, alignment: .trailing)
                     TextField("", text: $viewModel.urlPattern)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
                 }
 
                 HStack(spacing: 8) {
                     Spacer()
-                        .frame(width: 66)
+                        .frame(width: compactLabelWidth + 8)
 
                     methodMenu
                     patternModeMenu
 
                     if viewModel.patternMode == .wildcard {
                         Text("Support wildcard * and ?.")
-                            .font(.caption)
+                            .font(toolMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Button {
@@ -72,7 +80,7 @@ struct ScriptEditorWindowView: View {
                             : "No match for: \(effectiveSample)"
                     } label: {
                         Text("Test your Rule")
-                            .font(.caption.weight(.medium))
+                            .font(toolMetrics.secondaryFont(weight: .medium))
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
@@ -84,13 +92,14 @@ struct ScriptEditorWindowView: View {
                     Text("Include all subpaths of this URL")
                 }
                 .toggleStyle(.checkbox)
-                .padding(.leading, 66)
+                .padding(.leading, compactLabelWidth + 8)
 
                 if !viewModel.testRulePreview.isEmpty {
                     Text(viewModel.testRulePreview)
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
-                        .padding(.leading, 66)
+                        .padding(.leading, compactLabelWidth + 8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 14)
@@ -119,7 +128,7 @@ struct ScriptEditorWindowView: View {
                 }
             }
         } label: {
-            menuLabel(viewModel.method.label, minWidth: 88)
+            menuLabel(viewModel.method.label, minWidth: toolMetrics.menuWidth(88))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
@@ -141,7 +150,7 @@ struct ScriptEditorWindowView: View {
                 }
             }
         } label: {
-            menuLabel(viewModel.patternMode.title, minWidth: 128)
+            menuLabel(viewModel.patternMode.title, minWidth: toolMetrics.menuWidth(128))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
@@ -166,11 +175,16 @@ struct ScriptEditorWindowView: View {
                     .fill(statusDotColor)
                     .frame(width: 10, height: 10)
                 Text(viewModel.statusMessage.isEmpty ? " " : viewModel.statusMessage)
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
+    }
+
+    private var compactLabelWidth: CGFloat {
+        max(58, toolMetrics.formCompactLabelWidth - 12)
     }
 
     // MARK: - Body split
@@ -261,7 +275,7 @@ struct ScriptEditorWindowView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "eye")
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
                 }
             }
             .menuIndicator(.hidden)
@@ -308,13 +322,13 @@ struct ScriptEditorWindowView: View {
         Button("Reset Shared State") { viewModel.resetSharedState() }
         Menu("Environment Variables") {
             Text("(from plugin configuration)")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         Divider()
         Menu("Configs") {
             Text("(from plugin manifest)")
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         Divider()
@@ -339,8 +353,12 @@ struct ScriptEditorWindowView: View {
             Text(title)
                 .frame(minWidth: minWidth, alignment: .leading)
             Image(systemName: "chevron.down")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
         }
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     private func validateRule() {

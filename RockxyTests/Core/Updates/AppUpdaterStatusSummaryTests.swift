@@ -12,7 +12,8 @@ struct AppUpdaterStatusSummaryTests {
 
         #expect(updater.updateStatusSummary?.title == "Update Available")
         #expect(updater.updateStatusSummary?.versionLine == "v0.12.0 -> v0.17.0")
-        #expect(updater.updateStatusSummary?.badgeTitle == "Update Available")
+        #expect(updater.updateStatusSummary?.versionsBehind == 5)
+        #expect(updater.updateStatusSummary?.badgeTitle == "5 New Updates")
     }
 
     @Test("No update clears the summary")
@@ -40,6 +41,17 @@ struct AppUpdaterStatusSummaryTests {
         #expect(older == nil)
     }
 
+    @Test("Cross-major update without appcast history keeps generic badge")
+    func crossMajorUpdateWithoutAppcastHistoryKeepsGenericBadge() {
+        let summary = AppUpdater.makeUpdateStatusSummary(
+            currentVersion: "0.25.0",
+            latestVersion: "1.0.0"
+        )
+
+        #expect(summary?.versionsBehind == nil)
+        #expect(summary?.badgeTitle == "Update Available")
+    }
+
     @Test("Appcast count returns versions behind")
     func appcastVersionsBehindCount() {
         let data = Data(
@@ -62,6 +74,29 @@ struct AppUpdaterStatusSummaryTests {
         )
 
         #expect(count == 3)
+    }
+
+    @Test("Compact appcast count falls back to semantic version distance")
+    func compactAppcastCountFallsBackToSemanticVersionDistance() {
+        let data = Data(
+            """
+            <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+              <channel>
+                <item><enclosure sparkle:shortVersionString="0.25.0" sparkle:version="38" /></item>
+              </channel>
+            </rss>
+            """.utf8
+        )
+
+        let summary = AppUpdater.makeUpdateStatusSummary(
+            currentVersion: "0.22.0",
+            appcastData: data
+        )
+
+        #expect(summary?.latestVersion == "0.25.0")
+        #expect(summary?.versionsBehind == 3)
+        #expect(summary?.badgeTitle == "3 New Updates")
+        #expect(summary?.countLine == "3 versions behind")
     }
 
     @Test("Appcast summary uses latest release and update badge")
@@ -172,7 +207,7 @@ struct AppUpdaterStatusSummaryTests {
         #expect(count == 3)
     }
 
-    @Test("Single appcast update badge uses clean singular copy")
+    @Test("Single version update badge uses clean singular copy")
     func singleAppcastUpdateBadgeUsesCleanSingularCopy() {
         let data = Data(
             """
@@ -185,7 +220,7 @@ struct AppUpdaterStatusSummaryTests {
         )
 
         let summary = AppUpdater.makeUpdateStatusSummary(
-            currentVersion: "0.12.0",
+            currentVersion: "0.16.0",
             appcastData: data
         )
 
@@ -194,15 +229,15 @@ struct AppUpdaterStatusSummaryTests {
         #expect(summary?.countLine == "1 version behind")
     }
 
-    @Test("Malformed appcast omits versions behind")
-    func malformedAppcastOmitsCount() {
+    @Test("Malformed appcast count falls back to semantic version distance")
+    func malformedAppcastCountFallsBackToSemanticVersionDistance() {
         let count = AppUpdater.versionsBehind(
             currentVersion: "0.12.0",
             latestVersion: "0.17.0",
             appcastData: Data("<rss><channel>".utf8)
         )
 
-        #expect(count == nil)
+        #expect(count == 5)
     }
 
     private func makeConfiguration(appVersion: String) -> RockxyUpdateConfiguration {

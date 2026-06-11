@@ -9,7 +9,7 @@ struct ExternalProxySettingsView: View {
         VStack(alignment: .leading, spacing: 16) {
             Toggle(String(localized: "Enable External Proxy Tool"), isOn: $isEnabled)
                 .toggleStyle(.checkbox)
-                .font(.system(size: 13, weight: .medium))
+                .font(toolMetrics.font(weight: .medium))
 
             HStack(alignment: .top, spacing: 28) {
                 protocolList
@@ -27,7 +27,7 @@ struct ExternalProxySettingsView: View {
                     showHelp = true
                 } label: {
                     Image(systemName: "questionmark.circle.fill")
-                        .font(.system(size: 22))
+                        .font(.system(size: max(22, toolMetrics.bodyFontSize + 9)))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -51,8 +51,9 @@ struct ExternalProxySettingsView: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
+        .font(toolMetrics.font())
         .padding(28)
-        .frame(width: 900)
+        .frame(width: toolMetrics.fieldWidth(900))
         .onAppear(perform: loadDraft)
         .alert(String(localized: "Upstream Proxy"), isPresented: $showHelp) {
             Button(String(localized: "OK")) {}
@@ -68,6 +69,7 @@ struct ExternalProxySettingsView: View {
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var store = UpstreamProxyStore.shared
     @State private var selectedProtocol: ExternalProxyProtocolSelection = .http
     @State private var isEnabled = false
@@ -83,6 +85,10 @@ struct ExternalProxySettingsView: View {
     @State private var statusIsError = false
     @State private var isTesting = false
     @State private var showHelp = false
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var httpServerLabel: String {
         switch selectedProtocol {
@@ -109,7 +115,7 @@ struct ExternalProxySettingsView: View {
     private var protocolList: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "Select a protocol to configure:"))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
 
             VStack(spacing: 0) {
                 ForEach(ExternalProxyProtocolSelection.allCases) { row in
@@ -118,19 +124,20 @@ struct ExternalProxySettingsView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: checkboxSymbol(for: row))
-                                .font(.system(size: 13, weight: .medium))
+                                .font(toolMetrics.font(weight: .medium))
                                 .foregroundStyle(
                                     selectedProtocol == row ? Color.white : Color(nsColor: .tertiaryLabelColor)
                                 )
                                 .frame(width: 18)
 
                             Text(row.displayName)
-                                .font(.system(size: 13, weight: selectedProtocol == row ? .semibold : .regular))
+                                .font(toolMetrics.font(weight: selectedProtocol == row ? .semibold : .regular))
                                 .lineLimit(1)
+                                .minimumScaleFactor(0.9)
 
                             if row == .socks5, !store.canSelectSOCKS5 {
                                 Image(systemName: "lock.fill")
-                                    .font(.system(size: 11))
+                                    .font(toolMetrics.metadataFont())
                                     .foregroundStyle(.secondary)
                             }
 
@@ -144,7 +151,7 @@ struct ExternalProxySettingsView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .frame(width: 350, height: 230, alignment: .top)
+            .frame(width: toolMetrics.fieldWidth(350), height: 230, alignment: .top)
             .background(Color(nsColor: .textBackgroundColor))
             .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
         }
@@ -155,17 +162,19 @@ struct ExternalProxySettingsView: View {
         case .automatic:
             VStack(alignment: .leading, spacing: 10) {
                 Text(String(localized: "Proxy Configuration URL:"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                 TextField(String(localized: "http://my-server.com/proxy.pac"), text: $pacURL)
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 470)
+                    .font(toolMetrics.font())
+                    .frame(maxWidth: toolMetrics.fieldWidth(470), minHeight: toolMetrics.formControlHeight)
                 Text(
                     String(
                         localized: "If your network administrator provided you with the address of an automatic proxy configuration (.pac) file, enter it above."
                     )
                 )
-                .font(.system(size: 13))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         case .http,
@@ -192,9 +201,11 @@ struct ExternalProxySettingsView: View {
                         labeledTextField(String(localized: "Username:"), text: $username)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(String(localized: "Password:"))
-                                .font(.system(size: 13))
+                                .font(toolMetrics.font())
                             SecureField(String(localized: "Password"), text: $password)
                                 .textFieldStyle(.roundedBorder)
+                                .font(toolMetrics.font())
+                                .frame(minHeight: toolMetrics.formControlHeight)
                         }
                     }
                 }
@@ -204,17 +215,20 @@ struct ExternalProxySettingsView: View {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(String(localized: "SOCKS Proxy Server"))
-                        .font(.system(size: 13))
+                        .font(toolMetrics.font())
                     HStack(spacing: 8) {
                         TextField(String(localized: "127.0.0.1"), text: $host)
                             .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 390)
+                            .font(toolMetrics.font())
+                            .frame(maxWidth: toolMetrics.fieldWidth(390), minHeight: toolMetrics.formControlHeight)
                             .disabled(!store.canSelectSOCKS5)
                         Text(":")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(toolMetrics.font(weight: .semibold))
                         TextField(String(localized: "8080"), text: $port)
                             .textFieldStyle(.roundedBorder)
-                            .frame(width: 86)
+                            .font(toolMetrics.font(monospaced: true))
+                            .frame(width: toolMetrics.fieldWidth(86))
+                            .frame(minHeight: toolMetrics.formControlHeight)
                             .disabled(!store.canSelectSOCKS5)
                     }
                 }
@@ -226,24 +240,29 @@ struct ExternalProxySettingsView: View {
                 HStack(spacing: 12) {
                     Text(String(localized: "Username:"))
                         .foregroundStyle(.secondary)
-                        .frame(width: 92, alignment: .leading)
+                        .frame(width: toolMetrics.formCompactLabelWidth, alignment: .leading)
                     TextField("", text: $username)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        .frame(minHeight: toolMetrics.formControlHeight)
                         .disabled(true)
                 }
 
                 HStack(spacing: 12) {
                     Text(String(localized: "Password:"))
                         .foregroundStyle(.secondary)
-                        .frame(width: 92, alignment: .leading)
+                        .frame(width: toolMetrics.formCompactLabelWidth, alignment: .leading)
                     SecureField("", text: $password)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        .frame(minHeight: toolMetrics.formControlHeight)
                         .disabled(true)
                 }
 
                 Text(String(localized: "SOCKS Proxy has not supported Authentication yet."))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 if !store.canSelectSOCKS5 {
                     PolicyLockNotice(
@@ -260,15 +279,15 @@ struct ExternalProxySettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(String(localized: "Bypass List for External Proxies:"))
-                    .font(.system(size: 13))
+                    .font(toolMetrics.font())
                 Spacer()
                 Text(String(localized: "\(store.bypassEntriesUsed) of \(store.bypassEntriesLimit) used"))
-                    .font(.system(size: 11, weight: .medium))
+                    .font(toolMetrics.metadataFont(weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
             TextEditor(text: $bypassText)
-                .font(.system(size: 13, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .frame(height: 88)
                 .scrollContentBackground(.hidden)
                 .background(Color(nsColor: .textBackgroundColor))
@@ -279,8 +298,9 @@ struct ExternalProxySettingsView: View {
                     localized: "Support wildcard (* and ?). Separate by comma. Community baseline allows 3 bypass entries."
                 )
             )
-            .font(.system(size: 12))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             Toggle(String(localized: "Always bypass external proxies for localhost"), isOn: $bypassLocalhost)
                 .toggleStyle(.checkbox)
@@ -297,10 +317,12 @@ struct ExternalProxySettingsView: View {
     {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
             TextField(placeholder ?? title, text: text)
                 .textFieldStyle(.roundedBorder)
-                .frame(width: width)
+                .font(toolMetrics.font())
+                .frame(width: width.map { toolMetrics.fieldWidth($0) })
+                .frame(minHeight: toolMetrics.formControlHeight)
         }
     }
 
@@ -408,13 +430,20 @@ private struct StatusDisclosure: View {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(isError ? .orange : .green)
             Text(message)
-                .font(.system(size: 12))
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(isError ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 
@@ -427,20 +456,27 @@ struct PolicyLockNotice: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "lock.fill")
-                .font(.system(size: 12, weight: .semibold))
+                .font(toolMetrics.metadataFont(weight: .semibold))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(toolMetrics.secondaryFont(weight: .semibold))
                 Text(message)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

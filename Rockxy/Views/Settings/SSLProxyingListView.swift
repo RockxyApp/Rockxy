@@ -28,7 +28,8 @@ struct SSLProxyingListView: View {
             Divider()
             outerBottomBar
         }
-        .frame(width: 860, height: 620)
+        .font(toolMetrics.font())
+        .frame(width: toolMetrics.fieldWidth(860), height: 620)
         .onChange(of: viewModel.manager.rules) { _, _ in
             viewModel.reconcileSelectionAfterRulesChange()
         }
@@ -109,6 +110,11 @@ struct SSLProxyingListView: View {
     @State private var importSource: ImportSource = .rockxy
 
     @FocusState private var isFilterFocused: Bool
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var tabDescriptionText: String {
         switch viewModel.selectedTab {
@@ -126,7 +132,7 @@ struct SSLProxyingListView: View {
     private var toolbar: some View {
         HStack {
             Text(String(localized: "SSL Proxying List"))
-                .font(.headline)
+                .font(toolMetrics.font(weight: .semibold))
             Spacer()
             Toggle(
                 String(localized: "Enable SSL Proxying Tool"),
@@ -137,6 +143,7 @@ struct SSLProxyingListView: View {
             )
             .toggleStyle(.switch)
             .controlSize(.small)
+            .font(toolMetrics.font())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -153,8 +160,9 @@ struct SSLProxyingListView: View {
                     localized: "Define Clients or Domains (wildcard) that Rockxy will decrypt their HTTPS Request/Response."
                 )
             )
-            .font(.caption)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -180,8 +188,9 @@ struct SSLProxyingListView: View {
     private var tabDescription: some View {
         HStack {
             Text(tabDescriptionText)
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
         .padding(.horizontal, 16)
@@ -225,7 +234,7 @@ struct SSLProxyingListView: View {
         HStack(spacing: 10) {
             Spacer().frame(width: 24)
             Text(String(localized: "Name"))
-                .font(.caption.weight(.semibold))
+                .font(toolMetrics.tableHeaderFont())
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -237,24 +246,25 @@ struct SSLProxyingListView: View {
     private var emptyState: some View {
         VStack(alignment: .center, spacing: 12) {
             Image(systemName: "lock.shield")
-                .font(.system(size: 20))
+                .font(.system(size: max(20, toolMetrics.bodyFontSize + 7)))
                 .foregroundStyle(.tertiary)
 
             if viewModel.selectedTab == .exclude {
                 Text(String(localized: "⌘N: Add new apps"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                 Text(String(localized: "⇧⌘N: Add custom Domains / Wildcards"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
             } else {
                 Text(String(localized: "No SSL Proxying Rules"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(toolMetrics.font(weight: .medium))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Add domains or apps to intercept their HTTPS traffic."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -272,6 +282,8 @@ struct SSLProxyingListView: View {
                 prompt: Text(String(localized: "Filter (Hide: ESC)"))
             )
             .textFieldStyle(.roundedBorder)
+            .font(toolMetrics.font())
+            .frame(minHeight: toolMetrics.formControlHeight)
             .focused($isFilterFocused)
             .onExitCommand { hideFilterBar() }
             .onAppear { isFilterFocused = true }
@@ -302,7 +314,7 @@ struct SSLProxyingListView: View {
             Text(
                 "\(viewModel.ruleCount) \(viewModel.ruleCount == 1 ? String(localized: "rule") : String(localized: "rules"))"
             )
-            .font(.caption)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
 
             Spacer()
@@ -383,8 +395,10 @@ struct SSLProxyingListView: View {
             .disabled(viewModel.selectedRuleID == nil)
         } label: {
             Text(String(localized: "More"))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Image(systemName: "chevron.down")
-                .font(.caption2)
+                .font(toolMetrics.metadataFont())
         }
         .menuStyle(.borderlessButton)
     }
@@ -439,8 +453,10 @@ struct SSLProxyingListView: View {
             }
         } label: {
             Text(String(localized: "More"))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Image(systemName: "chevron.down")
-                .font(.caption2)
+                .font(toolMetrics.metadataFont())
         }
         .menuStyle(.borderlessButton)
     }
@@ -547,21 +563,27 @@ private struct SSLProxyingRuleRow: View {
             .labelsHidden()
 
             Image(systemName: "circle.slash")
-                .font(.caption)
+                .font(toolMetrics.metadataFont())
                 .foregroundStyle(.tertiary)
 
             Text(rule.domain)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, max(2, (toolMetrics.tableRowHeight - toolMetrics.bodyFontSize - 14) / 2))
         .opacity(rule.isEnabled ? 1.0 : 0.5)
         .contentShape(Rectangle())
         .onTapGesture {
             onSelect()
         }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

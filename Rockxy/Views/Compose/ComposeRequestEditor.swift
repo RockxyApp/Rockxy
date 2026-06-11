@@ -35,12 +35,16 @@ struct ComposeRequestEditor: View {
     // MARK: Private
 
     @State private var selectedTab: ComposeRequestTab = .headers
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private var headerBar: some View {
         HStack(spacing: 14) {
             Text(String(localized: "Request"))
-                .font(.headline)
-                .fontWeight(.semibold)
+                .font(toolMetrics.font(weight: .semibold))
 
             ForEach(ComposeRequestTab.primaryTabs) { tab in
                 Button {
@@ -53,7 +57,7 @@ struct ComposeRequestEditor: View {
             }
 
             Divider()
-                .frame(height: 18)
+                .frame(height: max(18, toolMetrics.bodyFontSize + 5))
 
             Button {
                 selectedTab = .raw
@@ -68,7 +72,7 @@ struct ComposeRequestEditor: View {
             requestMenu
         }
         .padding(.horizontal, 12)
-        .frame(height: 44)
+        .frame(minHeight: max(44, toolMetrics.formControlHeight + 16))
     }
 
     private var requestMenu: some View {
@@ -113,14 +117,16 @@ struct ComposeRequestEditor: View {
                             text: headerNameBinding(for: header.id)
                         )
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
 
                         TextField(
                             String(localized: "Header value"),
                             text: headerValueBinding(for: header.id)
                         )
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
 
                         removeButton {
                             viewModel.removeHeader(id: header.id)
@@ -154,14 +160,16 @@ struct ComposeRequestEditor: View {
                             text: queryNameBinding(for: item.id)
                         )
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
 
                         TextField(
                             String(localized: "Parameter value"),
                             text: queryValueBinding(for: item.id)
                         )
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
 
                         removeButton {
                             viewModel.removeQueryItem(id: item.id)
@@ -184,14 +192,15 @@ struct ComposeRequestEditor: View {
     private var bodyEditor: some View {
         VStack(spacing: 0) {
             TextEditor(text: $viewModel.body)
-                .font(.system(.body, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .padding(8)
 
             if let message = viewModel.lastFormattingError {
                 Divider()
                 Label(message, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
@@ -204,7 +213,7 @@ struct ComposeRequestEditor: View {
     private var rawView: some View {
         ScrollView([.horizontal, .vertical]) {
             Text(viewModel.rawRequestText)
-                .font(.system(size: 12, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
@@ -217,13 +226,11 @@ struct ComposeRequestEditor: View {
         HStack {
             Color.clear.frame(width: 24)
             Text(String(localized: String.LocalizationValue(name)))
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(String(localized: String.LocalizationValue(value)))
-                .font(.caption)
-                .fontWeight(.semibold)
+                .font(toolMetrics.secondaryFont(weight: .semibold))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Color.clear.frame(width: 24)
@@ -243,7 +250,7 @@ struct ComposeRequestEditor: View {
         HStack {
             Button(action: action) {
                 Label(title, systemImage: "plus.circle")
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
             }
             .buttonStyle(.plain)
             Spacer()

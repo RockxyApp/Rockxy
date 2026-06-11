@@ -24,6 +24,7 @@ struct ProtobufSettingsWindowView: View {
             shortcutHelp
             footer
         }
+        .font(toolMetrics.font())
         .frame(width: 1_240, height: 660)
         .sheet(item: $editorSession) { session in
             ProtobufRuleEditorSheet(
@@ -42,6 +43,7 @@ struct ProtobufSettingsWindowView: View {
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var mappingStore = ProtobufMappingRuleStore()
     @State private var schemaStore = ProtobufSchemaStore.shared
     @State private var editorSession: ProtobufRuleEditorSession?
@@ -55,19 +57,19 @@ struct ProtobufSettingsWindowView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
             Text(String(localized: "Protobuf Mapping Rules"))
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: max(15, toolMetrics.bodyFontSize + 2), weight: .medium))
 
             Text(String(localized: "Define Protobuf Message Type for each Protobuf Request/Response."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
 
             Text(
                 String(
                     localized: "Each request is checked against the rules from top to bottom, stopping when a match is found."
                 )
             )
-            .font(.system(size: 12.5))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
 
             if !schemaStore.canUploadSchema {
@@ -79,9 +81,9 @@ struct ProtobufSettingsWindowView: View {
                 )
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.top, toolMetrics.headerTopPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var rulesTable: some View {
@@ -119,25 +121,26 @@ struct ProtobufSettingsWindowView: View {
 
             if mappingStore.rules.isEmpty {
                 Text(String(localized: "Click \"+\" or ⌘N to add new entry"))
-                    .font(.system(size: 14))
+                    .font(.system(size: toolMetrics.emptyStateFontSize))
                     .foregroundStyle(.secondary)
             }
         }
         .frame(minHeight: 380)
         .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-        .padding(.horizontal, 20)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     private var shortcutHelp: some View {
         Text(String(localized: "New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: ␣"))
-            .font(.system(size: 10.5))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var footer: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             addRemoveControl
 
             Button(String(localized: "Protobuf Schema…")) {
@@ -147,16 +150,13 @@ struct ProtobufSettingsWindowView: View {
             Button {
                 // Help content is intentionally lightweight until user-facing docs are wired into Help.
             } label: {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.secondary.opacity(0.4))
-                    .overlay(Text("?").font(.system(size: 15, weight: .medium)).foregroundStyle(.primary))
+                Image(systemName: "questionmark.circle")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.bordered)
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(.system(size: 12))
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.red)
                     .lineLimit(1)
             }
@@ -165,9 +165,8 @@ struct ProtobufSettingsWindowView: View {
 
             moreMenu
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     private var addRemoveControl: some View {
@@ -176,8 +175,8 @@ struct ProtobufSettingsWindowView: View {
                 editorSession = ProtobufRuleEditorSession(mode: .create)
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13))
-                    .frame(width: 21, height: 21)
+                    .font(.system(size: toolMetrics.compactIconFontSize))
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -186,23 +185,23 @@ struct ProtobufSettingsWindowView: View {
 
             Rectangle()
                 .fill(Color(nsColor: .separatorColor).opacity(0.7))
-                .frame(width: 1, height: 21)
+                .frame(width: 1, height: 18)
 
             Button {
                 mappingStore.removeSelectedRule()
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13))
+                    .font(.system(size: toolMetrics.compactIconFontSize))
                     .foregroundStyle(mappingStore.selectedRuleID == nil ? .tertiary : .primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(mappingStore.selectedRuleID == nil)
             .help(String(localized: "Delete Mapping Rule"))
         }
-        .frame(height: 23)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor))
         .overlay(Rectangle().stroke(Color(nsColor: .separatorColor), lineWidth: 1))
     }
 
@@ -246,10 +245,14 @@ struct ProtobufSettingsWindowView: View {
             HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
         }
         .menuIndicator(.hidden)
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder
@@ -326,14 +329,16 @@ private struct ProtobufRuleEditorSheet: View {
             protobufSection
             footer
         }
-        .padding(28)
-        .frame(width: 1_040)
+        .font(toolMetrics.font())
+        .padding(toolMetrics.formHorizontalPadding + 10)
+        .frame(minWidth: max(1_040, toolMetrics.bodyFontSize * 26 + 702))
         .onAppear(perform: loadSession)
     }
 
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var ruleID = UUID()
     @State private var urlPattern = "/v1/*"
     @State private var method: HTTPMethodFilter = .any
@@ -358,42 +363,47 @@ private struct ProtobufRuleEditorSheet: View {
     private var matchingRuleSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "Matching Rule"))
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .medium))
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     Text(String(localized: "Matching Rule:"))
-                        .frame(width: 150, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: wideLabelWidth, alignment: .trailing)
                     TextField(String(localized: "/v1/*"), text: $urlPattern)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
                 }
 
                 HStack(spacing: 12) {
                     Spacer()
-                        .frame(width: 150)
+                        .frame(width: wideLabelWidth)
                     Picker(String(localized: "Method"), selection: $method) {
                         ForEach(HTTPMethodFilter.allCases) { method in
                             Text(method.displayName).tag(method)
                         }
                     }
-                    .frame(width: 140)
+                    .frame(width: toolMetrics.menuWidth(140))
 
                     Picker(String(localized: "Match Type"), selection: $matchType) {
                         ForEach(RuleMatchType.allCases, id: \.self) { type in
                             Text(type.displayName).tag(type)
                         }
                     }
-                    .frame(width: 170)
+                    .frame(width: toolMetrics.menuWidth(170))
 
                     Text(String(localized: "Support wildcard * and ?."))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button(String(localized: "Test your Rule")) {}
                         .buttonStyle(.link)
                 }
 
                 HStack {
                     Spacer()
-                        .frame(width: 150)
+                        .frame(width: wideLabelWidth)
                     Toggle(String(localized: "Include all subpaths of this URL"), isOn: $includeSubpaths)
                         .toggleStyle(.checkbox)
                 }
@@ -407,12 +417,13 @@ private struct ProtobufRuleEditorSheet: View {
     private var protobufSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "Protobuf"))
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: max(17, toolMetrics.bodyFontSize + 4), weight: .medium))
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
                     Text(String(localized: "Schema:"))
-                        .frame(width: 150, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: wideLabelWidth, alignment: .trailing)
                     Button(String(localized: "Add Schema…")) {
                         onAddSchema()
                     }
@@ -420,44 +431,50 @@ private struct ProtobufRuleEditorSheet: View {
 
                     if !canUploadSchema {
                         Label(String(localized: "Schema upload unavailable"), systemImage: "lock.fill")
-                            .font(.system(size: 12))
+                            .font(toolMetrics.secondaryFont())
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 HStack(spacing: 12) {
                     Text(String(localized: "Message Type:"))
-                        .frame(width: 150, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: wideLabelWidth, alignment: .trailing)
                     Picker(String(localized: "Schema"), selection: $schemaID) {
                         Text(String(localized: "Not selected")).tag(UUID?.none)
                         ForEach(schemas) { schema in
                             Text(schema.fileName).tag(Optional(schema.id))
                         }
                     }
-                    .frame(width: 240)
+                    .frame(width: toolMetrics.menuWidth(240))
                     TextField(String(localized: "package.Message"), text: $messageType)
                         .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font(monospaced: true))
+                        .frame(minHeight: toolMetrics.formControlHeight)
                     if schemaID == nil {
                         Label(
                             String(localized: "Not found in Schema List"),
                             systemImage: "exclamationmark.triangle.fill"
                         )
-                        .font(.system(size: 12))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
                 HStack {
                     Spacer()
-                        .frame(width: 162)
+                        .frame(width: wideFieldLeading)
                     Text(String(localized: "If the Message Type does not exist, add the Schema first."))
-                        .font(.system(size: 12))
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack {
                     Spacer()
-                        .frame(width: 162)
+                        .frame(width: wideFieldLeading)
                     Toggle(
                         String(localized: "Use different Message Type for Request / Response"),
                         isOn: $useDifferentMessageTypes
@@ -468,18 +485,25 @@ private struct ProtobufRuleEditorSheet: View {
                 if useDifferentMessageTypes {
                     HStack(spacing: 12) {
                         Text(String(localized: "Request:"))
-                            .frame(width: 150, alignment: .trailing)
+                            .lineLimit(1)
+                            .frame(width: wideLabelWidth, alignment: .trailing)
                         TextField(String(localized: "package.Request"), text: $requestMessageType)
                             .textFieldStyle(.roundedBorder)
+                            .font(toolMetrics.font(monospaced: true))
+                            .frame(minHeight: toolMetrics.formControlHeight)
                         Text(String(localized: "Response:"))
+                            .lineLimit(1)
                         TextField(String(localized: "package.Response"), text: $responseMessageType)
                             .textFieldStyle(.roundedBorder)
+                            .font(toolMetrics.font(monospaced: true))
+                            .frame(minHeight: toolMetrics.formControlHeight)
                     }
                 }
 
                 HStack(spacing: 12) {
                     Text(String(localized: "Payload Type:"))
-                        .frame(width: 150, alignment: .trailing)
+                        .lineLimit(1)
+                        .frame(width: wideLabelWidth, alignment: .trailing)
                     Picker(String(localized: "Payload Type"), selection: $payloadEncoding) {
                         ForEach(ProtobufPayloadEncoding.allCases) { encoding in
                             Text(encoding.displayName).tag(encoding)
@@ -500,11 +524,9 @@ private struct ProtobufRuleEditorSheet: View {
             Button {
                 // Help intentionally mirrors the reference window's compact affordance.
             } label: {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "questionmark.circle")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.bordered)
 
             Spacer()
 
@@ -550,5 +572,17 @@ private struct ProtobufRuleEditorSheet: View {
             responseMessageType: useDifferentMessageTypes ? responseMessageType : nil,
             payloadEncoding: payloadEncoding
         )
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    private var wideLabelWidth: CGFloat {
+        toolMetrics.formWideLabelWidth
+    }
+
+    private var wideFieldLeading: CGFloat {
+        wideLabelWidth + toolMetrics.controlSpacing + 4
     }
 }

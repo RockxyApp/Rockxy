@@ -39,6 +39,11 @@ struct ComposeResponseViewer: View {
     ]
 
     @State private var selectedTab: ComposeResponseTab = .body
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     // MARK: - Empty State
 
@@ -57,7 +62,7 @@ struct ComposeResponseViewer: View {
             ProgressView()
                 .controlSize(.regular)
             Text(String(localized: "Sending..."))
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,11 +105,11 @@ struct ComposeResponseViewer: View {
         HStack(spacing: 8) {
             StatusCodeBadge(statusCode: response.statusCode)
             Text(response.statusMessage)
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(.secondary)
             Spacer()
             Text(Self.formatBodySize(response.bodySize))
-                .font(.caption2)
+                .font(toolMetrics.metadataFont())
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
@@ -118,7 +123,7 @@ struct ComposeResponseViewer: View {
             } else {
                 ScrollView([.horizontal, .vertical]) {
                     Text(response.bodyDisplayText)
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(toolMetrics.font(monospaced: true))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
@@ -131,21 +136,19 @@ struct ComposeResponseViewer: View {
         ScrollView {
             LazyVGrid(columns: Self.headerColumns, alignment: .leading, spacing: 4) {
                 Text(String(localized: "Name"))
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(toolMetrics.secondaryFont(weight: .bold))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Value"))
-                    .font(.caption)
-                    .fontWeight(.bold)
+                    .font(toolMetrics.secondaryFont(weight: .bold))
                     .foregroundStyle(.secondary)
 
                 ForEach(Array(response.headers.enumerated()), id: \.offset) { _, header in
                     Text(header.name)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     Text(header.value)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(toolMetrics.secondaryFont(monospaced: true))
                         .textSelection(.enabled)
                 }
             }
@@ -156,7 +159,7 @@ struct ComposeResponseViewer: View {
     private func responseRaw(_ response: ComposeResponse) -> some View {
         ScrollView([.horizontal, .vertical]) {
             Text(Self.buildRawResponse(response))
-                .font(.system(size: 12, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
@@ -181,9 +184,10 @@ struct ComposeResponseViewer: View {
                 .font(.title)
                 .foregroundStyle(.red)
             Text(message)
-                .font(.caption)
+                .font(toolMetrics.secondaryFont())
                 .foregroundStyle(.red)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

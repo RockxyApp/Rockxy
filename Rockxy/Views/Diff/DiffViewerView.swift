@@ -6,6 +6,11 @@ struct DiffViewerView: View {
     // MARK: Internal
 
     @Bindable var viewModel: DiffViewModel
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     var body: some View {
         if viewModel.workspaceState == .textPaste {
@@ -37,12 +42,12 @@ struct DiffViewerView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(String(localized: "Side A — paste or type text"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 TextEditor(text: $viewModel.textA)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .scrollContentBackground(.hidden)
             }
 
@@ -50,12 +55,12 @@ struct DiffViewerView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(String(localized: "Side B — paste or type text"))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 TextEditor(text: $viewModel.textB)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .scrollContentBackground(.hidden)
             }
         }
@@ -71,18 +76,20 @@ struct DiffViewerView: View {
                 .foregroundStyle(.tertiary)
             if viewModel.workspaceState == .missingRight {
                 Text(String(localized: "Assign a Right Transaction"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(toolMetrics.font(weight: .medium))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Click the R column on a candidate to finish this basic compare."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if viewModel.workspaceState == .missingLeft {
                 Text(String(localized: "Assign a Left Transaction"))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(toolMetrics.font(weight: .medium))
                     .foregroundStyle(.secondary)
                 Text(String(localized: "Click the L column on a candidate to finish this basic compare."))
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -95,16 +102,14 @@ struct DiffViewerView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 0) {
                     Text(String(localized: "Left"))
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(toolMetrics.secondaryFont(weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                     Divider()
                     Text(String(localized: "Right"))
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(toolMetrics.secondaryFont(weight: .bold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 8)
@@ -144,7 +149,7 @@ struct DiffViewerView: View {
             }
             .padding(.vertical, 1)
             .padding(.horizontal, 4)
-            .frame(minHeight: 18)
+            .frame(minHeight: max(18, toolMetrics.bodyFontSize + 5))
         }
     }
 
@@ -167,8 +172,7 @@ struct DiffViewerView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text("— \(title) —")
-            .font(.caption)
-            .fontWeight(.bold)
+            .font(toolMetrics.secondaryFont(weight: .bold))
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -179,18 +183,18 @@ struct DiffViewerView: View {
     private func diffLineRow(_ line: DiffLine) -> some View {
         HStack(spacing: 0) {
             Text("\(line.lineNumber)")
-                .font(.system(.caption2, design: .monospaced))
+                .font(toolMetrics.metadataFont(monospaced: true))
                 .foregroundStyle(.tertiary)
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: toolMetrics.fieldWidth(36), alignment: .trailing)
                 .padding(.trailing, 4)
 
             Text(prefix(for: line.type))
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(prefixColor(for: line.type))
-                .frame(width: 14)
+                .frame(width: toolMetrics.fieldWidth(14))
 
             Text(line.content)
-                .font(.system(.caption, design: .monospaced))
+                .font(toolMetrics.secondaryFont(monospaced: true))
                 .foregroundStyle(contentColor(for: line.type))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

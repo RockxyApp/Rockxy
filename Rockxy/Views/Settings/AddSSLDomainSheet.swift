@@ -23,20 +23,22 @@ struct AddSSLDomainSheet: View {
                 Text(editingRule != nil
                     ? String(localized: "Edit Domain")
                     : String(localized: "Add Domain"))
-                    .font(.system(size: 14, weight: .bold))
+                    .font(toolMetrics.font(weight: .bold))
 
                 VStack(spacing: 2) {
                     Text(String(localized: "Only Host: without Port, Path and Query"))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                     Text(String(localized: "Use * to match all, or *.domain.com for subdomains"))
-                        .font(.caption)
+                        .font(toolMetrics.secondaryFont())
                         .foregroundStyle(.secondary)
                 }
+                .fixedSize(horizontal: false, vertical: true)
 
                 TextField("", text: $domain, prompt: Text("api.example.com"))
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
+                    .frame(minHeight: toolMetrics.formControlHeight)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -66,12 +68,17 @@ struct AddSSLDomainSheet: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 10)
         }
-        .frame(width: 350)
+        .frame(width: max(350, toolMetrics.fieldWidth(350)))
         .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.dismiss) private var dismiss
     @State private var domain: String
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 }

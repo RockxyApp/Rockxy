@@ -242,7 +242,8 @@ struct AllowListWindowView: View {
             shortcutHelp
             footer
         }
-        .frame(width: 1_200, height: 642)
+        .font(toolMetrics.font())
+        .frame(width: 1_200, height: 672)
         .onAppear { consumePendingContext() }
         .onReceive(NotificationCenter.default.publisher(for: .openAllowListWindow)) { _ in
             consumePendingContext()
@@ -332,6 +333,7 @@ struct AllowListWindowView: View {
     @State private var exportDocument: AllowListJSONDocument?
     @State private var importError: String?
     @State private var importSource: AllowListImportSource = .rockxyJSON
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var enableDisableLabel: String {
         guard let id = viewModel.selectedRuleID,
@@ -354,11 +356,11 @@ struct AllowListWindowView: View {
                 )
             )
             .toggleStyle(.checkbox)
-            .controlSize(.large)
-            .font(.system(size: 13, weight: .medium))
+            .font(toolMetrics.font(weight: .medium))
+            .padding(.top, toolMetrics.headerTopPadding)
 
             Text(String(localized: "Define Rules for capturing only specific domains. Ignore others domains."))
-                .font(.system(size: 13))
+                .font(toolMetrics.font())
                 .foregroundStyle(.primary)
 
             Text(
@@ -367,45 +369,39 @@ struct AllowListWindowView: View {
                     "Each request is checked against the rules from top to bottom, stopping when a match is found."
                 )
             )
-            .font(.system(size: 12.5))
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 14)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.headerBottomPadding)
     }
 
     private var shortcutHelp: some View {
         Text(String(localized: "New: ⌘N    Edit: ⌘↩    Delete: ⌘⌫    Duplicate: ⌘D    Toggle: Space"))
-            .font(.system(size: 10.5))
+            .font(.system(size: toolMetrics.shortcutFontSize))
             .foregroundStyle(.secondary)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
+            .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+            .padding(.top, toolMetrics.shortcutTopPadding)
+            .padding(.bottom, toolMetrics.shortcutBottomPadding)
     }
 
     private var footer: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: toolMetrics.controlSpacing) {
             addRemoveControl
 
             Button {
                 // Help content is intentionally deferred; this mirrors the reference affordance.
             } label: {
-                Image(systemName: "questionmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundStyle(.secondary.opacity(0.35), .clear)
-                    .overlay(Text("?").font(.system(size: 15, weight: .medium)).foregroundStyle(.primary))
-                    .frame(width: 34, height: 22)
+                Image(systemName: "questionmark.circle")
             }
-            .buttonStyle(.borderless)
-            .padding(.leading, 10)
+            .buttonStyle(.bordered)
 
             Spacer()
 
             moreMenu
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        .padding(.bottom, 18)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+        .padding(.bottom, toolMetrics.footerBottomPadding)
     }
 
     private var addRemoveControl: some View {
@@ -414,9 +410,9 @@ struct AllowListWindowView: View {
                 viewModel.presentNewRuleEditor()
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(.primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -425,23 +421,23 @@ struct AllowListWindowView: View {
 
             Rectangle()
                 .fill(Color(nsColor: .separatorColor).opacity(0.7))
-                .frame(width: 1, height: 21)
+                .frame(width: 1, height: 18)
 
             Button {
                 viewModel.removeSelected()
             } label: {
                 Image(systemName: "minus")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: toolMetrics.compactIconFontSize, weight: .regular))
                     .foregroundStyle(viewModel.selectedRuleID == nil ? .tertiary : .primary)
-                    .frame(width: 21, height: 21)
+                    .frame(width: toolMetrics.compactButtonSize - 5, height: toolMetrics.compactButtonSize - 5)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(viewModel.selectedRuleID == nil)
             .help(String(localized: "Delete Rule"))
         }
-        .frame(height: 23)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .frame(width: max(43, toolMetrics.compactButtonSize * 2 + 1), height: toolMetrics.footerControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor))
         .overlay(
             Rectangle()
                 .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
@@ -520,12 +516,16 @@ struct AllowListWindowView: View {
             HStack(spacing: 6) {
                 Text(String(localized: "More"))
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
             }
         }
         .menuIndicator(.hidden)
         .buttonStyle(.bordered)
         .fixedSize()
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
     @ViewBuilder
@@ -668,7 +668,7 @@ private struct AllowListTableView<ContextMenuContent: View>: View {
 
                 if rules.isEmpty {
                     Text(String(localized: "Click \"+\" or ⌘N to add new entry"))
-                        .font(.system(size: 12))
+                        .font(.system(size: toolMetrics.emptyStateFontSize))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
@@ -693,13 +693,15 @@ private struct AllowListTableView<ContextMenuContent: View>: View {
                     }
                 }
             }
+            .frame(maxHeight: .infinity)
         }
-        .frame(height: 399)
+        .frame(minHeight: toolMetrics.tableRowHeight * 8, maxHeight: .infinity)
+        .clipped()
         .overlay {
             Rectangle()
                 .stroke(.secondary.opacity(0.45), lineWidth: 1)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, toolMetrics.contentHorizontalPadding)
     }
 
     // MARK: Private
@@ -710,48 +712,61 @@ private struct AllowListTableView<ContextMenuContent: View>: View {
                 .frame(width: 66, alignment: .leading)
             tableDivider
             Text(String(localized: "Name"))
-                .frame(width: 303, alignment: .leading)
+                .frame(width: 330, alignment: .leading)
             tableDivider
             Text(String(localized: "Method"))
-                .frame(width: 80, alignment: .leading)
+                .frame(width: 90, alignment: .leading)
             tableDivider
             Text(String(localized: "Matching Rule"))
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 11, weight: .medium))
-        .padding(.horizontal, 12)
-        .frame(height: 24)
+        .font(toolMetrics.tableHeaderFont())
+        .lineLimit(1)
+        .padding(.horizontal, toolMetrics.tableCellHorizontalPadding)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(Color(nsColor: .textBackgroundColor))
-        .padding(.horizontal, 20)
         .overlay(alignment: .bottom) {
-            Divider().padding(.horizontal, 20)
+            Divider()
         }
     }
 
     private var tableDivider: some View {
         Rectangle()
             .fill(.secondary.opacity(0.22))
-            .frame(width: 1, height: 16)
+            .frame(width: 1, height: max(16, toolMetrics.tableRowHeight - 10))
             .padding(.trailing, 10)
     }
 
     private var zebraRows: some View {
-        VStack(spacing: 0) {
-            ForEach(0 ..< 17, id: \.self) { index in
-                Rectangle()
-                    .fill(index.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary
-                        .opacity(0.08))
-                    .frame(height: 22)
+        GeometryReader { proxy in
+            let rowCount = max(1, Int(ceil(proxy.size.height / toolMetrics.tableRowHeight)))
+            VStack(spacing: 0) {
+                ForEach(0 ..< rowCount, id: \.self) { index in
+                    Rectangle()
+                        .fill(index.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary
+                            .opacity(0.08))
+                        .frame(height: toolMetrics.tableRowHeight)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .allowsHitTesting(false)
     }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 }
 
 // MARK: - AllowListTableRow
 
 private struct AllowListTableRow: View {
     // MARK: Internal
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     let rule: AllowListRule
     let isSelected: Bool
@@ -772,20 +787,22 @@ private struct AllowListTableRow: View {
             Text(rule.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .frame(width: 314, alignment: .leading)
+                .frame(width: 330, alignment: .leading)
 
             Text(rule.method ?? "ANY")
-                .frame(width: 80, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: 90, alignment: .leading)
 
             Text(rule.rawPattern)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(toolMetrics.font(monospaced: true))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.system(size: 10.5))
+        .font(toolMetrics.font())
+        .padding(.horizontal, toolMetrics.tableCellHorizontalPadding)
         .foregroundStyle(rule.isEnabled ? .primary : .secondary)
-        .frame(height: 22)
+        .frame(height: toolMetrics.tableRowHeight)
         .background(rowBackground)
         .contentShape(Rectangle())
         .onTapGesture {
@@ -802,6 +819,10 @@ private struct AllowListTableRow: View {
         }
         return AnyShapeStyle(rowIndex.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary
             .opacity(0.08))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
 

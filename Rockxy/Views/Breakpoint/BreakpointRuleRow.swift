@@ -18,10 +18,10 @@ struct BreakpointRuleRow: View {
             phaseBadge
             VStack(alignment: .leading, spacing: 2) {
                 Text(rule.name)
-                    .font(.caption)
+                    .font(toolMetrics.secondaryFont())
                     .lineLimit(1)
                 Text(rule.matchCondition.urlPattern ?? "")
-                    .font(.system(.caption2, design: .monospaced))
+                    .font(toolMetrics.metadataFont(monospaced: true))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -41,6 +41,8 @@ struct BreakpointRuleRow: View {
 
     // MARK: Private
 
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
     private var phaseBadge: some View {
         let label: String = {
             if case let .breakpoint(phase) = rule.action {
@@ -53,10 +55,14 @@ struct BreakpointRuleRow: View {
             return "?"
         }()
         return Text(label)
-            .font(.system(size: 8, weight: .bold, design: .monospaced))
+            .font(.system(size: toolMetrics.smallIconFontSize, weight: .bold, design: .monospaced))
             .foregroundStyle(.white)
             .padding(.horizontal, 4)
             .padding(.vertical, 1)
             .background(Color.purple, in: Capsule())
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }
