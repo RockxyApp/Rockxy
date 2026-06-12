@@ -70,6 +70,12 @@ Defense-in-depth includes:
 - Saved sessions, exports, and plugin code should be treated as potentially sensitive project artifacts
 - The privileged helper validates every connection via certificate-chain comparison, not just bundle ID
 
+## Public Release Metadata
+
+Rockxy publishes signed update metadata in `appcast.xml`, latest-release metadata in `releases/latest.json`, and an all-release catalog in `releases/catalog.json`. Each signed installable release carries a UTC `release_date`, download URL, SHA-256 checksum, DMG length, Sparkle EdDSA signature, release notes URL, and minimum macOS version.
+
+Rockxy `release_date` is used by Rockxy licensing services to determine update eligibility. This public repository does not contain private entitlement payloads, license-signature rules, purchase-provider configuration, or license-validation code.
+
 ## Vulnerability Reporting
 
 If you discover a security issue, please report it privately via [SECURITY.md](https://github.com/RockxyApp/Rockxy/blob/main/SECURITY.md).

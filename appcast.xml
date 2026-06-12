@@ -1,5 +1,5 @@
 <?xml version="1.0" standalone="yes"?>
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:rockxy="https://rockxy.io/xml-namespaces/release">
   <channel>
     <title>Rockxy</title>
     <link>https://raw.githubusercontent.com/RockxyApp/Rockxy/main/appcast.xml</link>
@@ -8,6 +8,7 @@
     <item>
       <title>Version 0.26.0 (build 39)</title>
       <pubDate>Wed, 10 Jun 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-06-10T00:00:00Z</rockxy:releaseDate>
       <enclosure
         url="https://github.com/RockxyApp/Rockxy/releases/download/v0.26.0/Rockxy-0.26.0-39.dmg"
         sparkle:version="39"

@@ -126,6 +126,8 @@ The panel also shows the current version summary and the last-checked timestamp.
 
 Updates are delivered through Sparkle, served from the project's signed appcast, and verified against the embedded EdDSA public key. Releases that fail signature, notarization, or stapling checks are rejected before install — see [Security](/development/security) for the full release-pipeline contract.
 
+Rockxy release metadata also publishes a UTC `release_date` for each signed installable build. Rockxy `release_date` is used by Rockxy licensing services to determine update eligibility. The public repository stores release metadata only; private entitlement and license-validation logic is not part of this repo.
+
 ### Miscellaneous
 
 | Setting | Default | Description |
