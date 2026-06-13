@@ -20,6 +20,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+## [0.27.0] - 2026-06-13
+
+### Added
+
+- Added Workspace Log upload support for securely sharing sanitized HAR captures from Rockxy into a workspace.
+- Added workspace desktop sign-in and session recovery paths for Workspace Log sharing.
+
+### Fixed
+
+- Fixed custom tool and settings windows so Appearance font-size changes scale controls, labels, rows, and tab text more reliably.
+- Hardened Workspace Log upload gating so expired sessions, locked workspace access, and missing recovery grants fail closed with clearer recovery states.
+- Hardened Pro license update eligibility so perpetual licenses keep eligible builds working while blocking builds released outside the covered update window.
+
+### Changed
+
+- Improved readability across more secondary windows, including rule, scripting, compose, diff, settings-launched, and Workspace surfaces.
+- Strengthened release metadata validation so appcast, latest, and catalog metadata stay consistent before publishing.
+
 ## [0.26.0] - 2026-06-10
 
 ### Fixed

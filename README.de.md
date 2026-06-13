@@ -41,18 +41,23 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.26.0** — 2026-06-10
+**v0.27.0** — 2026-06-13
+
+### Added
+
+- Added Workspace Log upload support for securely sharing sanitized HAR captures from Rockxy into a workspace.
+- Added workspace desktop sign-in and session recovery paths for Workspace Log sharing.
 
 ### Fixed
 
-- Fixed stale AppKit icon, request-table header, visible row, and workspace-tab sizing after repeated or rapid font-size changes.
-- Kept request-table density and saved column sizing stable while Appearance metrics refresh.
+- Fixed custom tool and settings windows so Appearance font-size changes scale controls, labels, rows, and tab text more reliably.
+- Hardened Workspace Log upload gating so expired sessions, locked workspace access, and missing recovery grants fail closed with clearer recovery states.
+- Hardened Pro license update eligibility so perpetual licenses keep eligible builds working while blocking builds released outside the covered update window.
 
 ### Changed
 
-- Set the default Appearance font size to 13 pt so fresh installs and reset settings start from a more readable baseline.
-- Improved Appearance font-size scaling across the request table, inspectors, sidebar, timeline, toolbar/status surfaces, and Developer Setup views.
-- Reduced live Appearance update churn so font-size changes preserve inspector editor contents and avoid unnecessary request-table autosizing.
+- Improved readability across more secondary windows, including rule, scripting, compose, diff, settings-launched, and Workspace surfaces.
+- Strengthened release metadata validation so appcast, latest, and catalog metadata stay consistent before publishing.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
