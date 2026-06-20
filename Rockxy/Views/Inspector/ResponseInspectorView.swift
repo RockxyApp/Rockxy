@@ -51,7 +51,7 @@ struct ResponseInspectorView: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasProtocolTab: Bool {
-        transaction.webSocketConnection != nil || transaction.graphQLInfo != nil || GRPCDetector.isGRPC(transaction: transaction)
+        true
     }
 
     private var httpsPromptModel: HTTPSInspectionPromptModel? {
@@ -148,15 +148,13 @@ struct ResponseInspectorView: View {
             }
         }
 
-        if GRPCDetector.isGRPC(transaction: transaction) {
-            InspectorTabButton(
-                title: "gRPC",
-                isActive: protocolTab == .grpc
-            ) {
-                selectionIntent = .protocolSpecific
-                protocolTab = .grpc
-                selectedPreviewTab = nil
-            }
+        InspectorTabButton(
+            title: "gRPC",
+            isActive: protocolTab == .grpc
+        ) {
+            selectionIntent = .protocolSpecific
+            protocolTab = .grpc
+            selectedPreviewTab = nil
         }
     }
 
@@ -799,7 +797,7 @@ enum ProtocolTabKind {
         case .graphql:
             transaction.graphQLInfo != nil
         case .grpc:
-            GRPCDetector.isGRPC(transaction: transaction)
+            true
         }
     }
 }

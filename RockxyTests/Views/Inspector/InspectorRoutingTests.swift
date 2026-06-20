@@ -196,6 +196,12 @@ struct InspectorRoutingTests {
         #expect(tab == nil)
     }
 
+    @Test("Plain HTTP transaction still supports empty gRPC tab")
+    func httpSupportsEmptyGRPCTab() {
+        let tx = TestFixtures.makeTransaction()
+        #expect(ProtocolTabKind.isSupported(.grpc, by: tx))
+    }
+
     @Test("Switching WS → HTTP clears protocol tab")
     func wsToHttpClearsProtocol() {
         let wsTx = TestFixtures.makeWebSocketTransaction()
