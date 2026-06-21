@@ -51,7 +51,7 @@ struct ResponseInspectorView: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasProtocolTab: Bool {
-        true
+        transaction.webSocketConnection != nil || transaction.graphQLInfo != nil
     }
 
     private var httpsPromptModel: HTTPSInspectionPromptModel? {
@@ -97,6 +97,8 @@ struct ResponseInspectorView: View {
                     selectedTab = tab
                 }
             }
+
+            grpcTabButton
 
             if !previewTabStore.responseTabs.isEmpty {
                 Divider()
@@ -147,7 +149,9 @@ struct ResponseInspectorView: View {
                 selectedPreviewTab = nil
             }
         }
+    }
 
+    private var grpcTabButton: some View {
         InspectorTabButton(
             title: "gRPC",
             isActive: protocolTab == .grpc
