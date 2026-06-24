@@ -171,6 +171,6 @@ final class WelcomeViewModel {
         certInstalled = readiness.certReadiness != .notGenerated
         certTrusted = readiness.canInterceptHTTPS
         applyHelperState(status: readiness.helperReadiness, signingIssue: readiness.helperSigningIssue)
-        systemProxyEnabled = SystemProxyManager.shared.isSystemProxyEnabled()
+        systemProxyEnabled = readiness.proxyMode != .unavailable
     }
 }

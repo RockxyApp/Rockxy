@@ -92,6 +92,12 @@ enum DeveloperSetupRuntimeTooling {
         }
     }
 
+    static func readinessAsync(for targetID: SetupTarget.ID) async -> SetupRuntimeReadiness {
+        await Task.detached(priority: .utility) {
+            readiness(for: targetID)
+        }.value
+    }
+
     static func javaTool(named name: String) -> URL? {
         let fileManager = FileManager.default
 

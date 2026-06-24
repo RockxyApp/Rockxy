@@ -296,7 +296,7 @@ final class DeveloperSetupViewModel {
             return
         }
 
-        let runtimeReadiness = DeveloperSetupRuntimeTooling.readiness(for: originalTargetID)
+        let runtimeReadiness = await DeveloperSetupRuntimeTooling.readinessAsync(for: originalTargetID)
         let workflow = currentWorkflow
         let target = selectedTarget
 
@@ -344,7 +344,7 @@ final class DeveloperSetupViewModel {
         }
     }
 
-    func selectTarget(_ target: SetupTarget) {
+    func selectTarget(_ target: SetupTarget) async {
         if selectedTarget.id != target.id, snapshot.verificationState == .waitingForTraffic {
             cancelValidation(markCancelled: true)
         }
@@ -353,10 +353,7 @@ final class DeveloperSetupViewModel {
         selectedTarget = target
         selectedTab = .overview
         selectedSnippetID = defaultSnippetID(for: target.id)
-        let runtimeReadiness = DeveloperSetupRuntimeTooling.readiness(for: target.id)
         snapshot.supportStatus = target.supportStatus
-        snapshot.runtimeReady = runtimeReadiness.isSatisfied
-        snapshot.runtimeStatusNote = runtimeReadiness.note
         snapshot.selectedSnippetID = currentWorkflow.supportsSnippets ? selectedSnippetID : nil
         snapshot.matchedTransactionID = nil
         snapshot.matchedHost = nil
@@ -364,6 +361,15 @@ final class DeveloperSetupViewModel {
         snapshot.matchedPath = nil
         probeSession = nil
         Task { await probeServer.stop() }
+
+        let targetID = target.id
+        let runtimeReadiness = await DeveloperSetupRuntimeTooling.readinessAsync(for: targetID)
+        guard selectedTarget.id == targetID else {
+            return
+        }
+
+        snapshot.runtimeReady = runtimeReadiness.isSatisfied
+        snapshot.runtimeStatusNote = runtimeReadiness.note
         activeIssue = Self.validationIssue(for: target, snapshot: snapshot, workflow: currentWorkflow)
 
         if supportsValidation {

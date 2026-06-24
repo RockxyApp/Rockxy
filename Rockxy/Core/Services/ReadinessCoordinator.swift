@@ -251,7 +251,7 @@ final class ReadinessCoordinator {
     func refresh() async {
         await refreshCertState()
         refreshHelperState()
-        refreshProxyMode(isEnabled: SystemProxyManager.shared.isSystemProxyEnabled())
+        refreshProxyMode(isEnabled: await systemProxyEnabledProbe())
         recomputeWarning()
     }
 
@@ -261,7 +261,7 @@ final class ReadinessCoordinator {
         await HelperManager.shared.checkStatus()
         await refreshCertState(performValidation: true)
         refreshHelperState()
-        refreshProxyMode(isEnabled: SystemProxyManager.shared.isSystemProxyEnabled())
+        refreshProxyMode(isEnabled: await systemProxyEnabledProbe())
         recomputeWarning()
         Self.logger.debug("ReadinessCoordinator deep-refreshed all state")
     }
@@ -304,6 +304,18 @@ final class ReadinessCoordinator {
         recomputeWarning()
     }
 
+    #if DEBUG
+    func injectSystemProxyEnabledProbeForTests(_ probe: @escaping () async -> Bool) {
+        systemProxyEnabledProbe = probe
+    }
+
+    func resetSystemProxyEnabledProbeForTests() {
+        systemProxyEnabledProbe = {
+            await SystemProxyManager.shared.isSystemProxyEnabledAsync()
+        }
+    }
+    #endif
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ReadinessCoordinator")
@@ -317,6 +329,9 @@ final class ReadinessCoordinator {
     private let activationRefreshClock = ContinuousClock()
     private var isActivationRefreshInFlight = false
     private var lastActivationRefreshFinishedAt: ContinuousClock.Instant?
+    private var systemProxyEnabledProbe: () async -> Bool = {
+        await SystemProxyManager.shared.isSystemProxyEnabledAsync()
+    }
 
     // MARK: - State Refresh
 

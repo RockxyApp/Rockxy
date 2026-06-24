@@ -97,6 +97,18 @@ struct ReadinessCoordinatorTests {
         coordinator.setCaptureActive(false)
     }
 
+    @Test("refresh uses async proxy probe for proxy mode")
+    @MainActor
+    func refreshUsesAsyncProxyProbe() async {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.injectSystemProxyEnabledProbeForTests { true }
+        defer { coordinator.resetSystemProxyEnabledProbeForTests() }
+
+        await coordinator.refresh()
+
+        #expect(coordinator.proxyMode == .direct)
+    }
+
     // MARK: - Derived Capabilities
 
     @Test("canInterceptHTTPS reflects cert readiness")

@@ -184,14 +184,14 @@ struct DeveloperSetupViewModelTests {
     }
 
     @Test("Automation sheet state only opens for supported targets and resets on target change")
-    func automationSheetStateFollowsTargetSupport() {
+    func automationSheetStateFollowsTargetSupport() async {
         let viewModel = DeveloperSetupViewModel(coordinator: MainContentCoordinator())
 
         #expect(viewModel.supportsAutomation == true)
         viewModel.openAutomationSheet()
         #expect(viewModel.showsAutomationSheet == true)
 
-        viewModel.selectTarget(.postman)
+        await viewModel.selectTarget(.postman)
         #expect(viewModel.showsAutomationSheet == false)
         #expect(viewModel.supportsAutomation == false)
 
@@ -214,9 +214,9 @@ struct DeveloperSetupViewModelTests {
     }
 
     @Test("Inspector setup actions keep Manual available when Automatic is not shipped")
-    func inspectorSetupActionsKeepManualAvailableForManualTargets() {
+    func inspectorSetupActionsKeepManualAvailableForManualTargets() async {
         let viewModel = DeveloperSetupViewModel(coordinator: MainContentCoordinator())
-        viewModel.selectTarget(.postman)
+        await viewModel.selectTarget(.postman)
 
         let actions = viewModel.setupModeActions
 
@@ -394,7 +394,7 @@ struct DeveloperSetupViewModelTests {
     }
 
     @Test("Flutter ships hybrid manual snippets, guide content, and validation")
-    func flutterHybridWorkflow() {
+    func flutterHybridWorkflow() async {
         let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .flutter)
         #expect(workflow.snippets.map(\.id) == [
             .flutterDio5,
@@ -407,7 +407,7 @@ struct DeveloperSetupViewModelTests {
         #expect(DeveloperSetupGuideCatalog.content(for: .flutter) != nil)
 
         let viewModel = DeveloperSetupViewModel(coordinator: MainContentCoordinator())
-        viewModel.selectTarget(.flutter)
+        await viewModel.selectTarget(.flutter)
 
         #expect(viewModel.toolbarCopyEnabled)
         #expect(viewModel.toolbarVerifyEnabled)
@@ -419,7 +419,7 @@ struct DeveloperSetupViewModelTests {
     }
 
     @Test("React Native ships hybrid snippets, guide content, and validation")
-    func reactNativeHybridWorkflow() {
+    func reactNativeHybridWorkflow() async {
         let workflow = DeveloperSetupWorkflowCatalog.workflow(for: .reactNative)
         #expect(workflow.snippets.map(\.id) == [
             .reactNativeFetchProbe,
@@ -431,7 +431,7 @@ struct DeveloperSetupViewModelTests {
         #expect(DeveloperSetupGuideCatalog.content(for: .reactNative) != nil)
 
         let viewModel = DeveloperSetupViewModel(coordinator: MainContentCoordinator())
-        viewModel.selectTarget(.reactNative)
+        await viewModel.selectTarget(.reactNative)
 
         #expect(viewModel.toolbarCopyEnabled)
         #expect(viewModel.toolbarVerifyEnabled)

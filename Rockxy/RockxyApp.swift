@@ -405,7 +405,7 @@ private struct MainWindowContent: View {
                     let certInstalled = await CertificateManager.shared.isRootCAInstalled()
                     let certTrusted = await CertificateManager.shared.isRootCATrusted()
                     let helperOK = HelperManager.shared.status == .installedCompatible
-                    let proxyOK = SystemProxyManager.shared.isSystemProxyEnabled()
+                    let proxyOK = await SystemProxyManager.shared.isSystemProxyEnabledAsync()
                     if certInstalled, certTrusted, helperOK, proxyOK {
                         onboardingCompletedOnce = true
                     }

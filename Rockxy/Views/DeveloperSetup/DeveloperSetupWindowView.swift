@@ -120,8 +120,10 @@ struct DeveloperSetupWindowView: View {
               let target = SetupTarget.target(for: route.targetID) else {
             return
         }
-        viewModel.selectTarget(target)
-        viewModel.selectTab(route.tab)
+        Task { @MainActor in
+            await viewModel.selectTarget(target)
+            viewModel.selectTab(route.tab)
+        }
     }
 
     private var toolbar: some View {
@@ -189,8 +191,10 @@ struct DeveloperSetupWindowView: View {
                     viewModel.isPinned(target)
                 }
             ) { target in
-                viewModel.selectTarget(target)
-                refreshSnapshot()
+                Task { @MainActor in
+                    await viewModel.selectTarget(target)
+                    await viewModel.refreshSnapshot()
+                }
             } onTogglePinned: { target in
                 viewModel.togglePinned(target)
             }

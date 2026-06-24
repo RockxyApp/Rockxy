@@ -375,7 +375,7 @@ final class SystemProxyManager: @unchecked Sendable {
         NotificationCenter.default.post(name: .systemProxyDidChange, object: nil, userInfo: ["enabled": false])
     }
 
-    func isSystemProxyEnabled() -> Bool {
+    private func isSystemProxyEnabled() -> Bool {
         guard let service = try? detectPrimaryNetworkService() else {
             return false
         }
@@ -394,6 +394,12 @@ final class SystemProxyManager: @unchecked Sendable {
         }
 
         return false
+    }
+
+    func isSystemProxyEnabledAsync() async -> Bool {
+        await Task.detached(priority: .utility) {
+            self.isSystemProxyEnabled()
+        }.value
     }
 
     // MARK: - Bypass Domain Management
