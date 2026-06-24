@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - ProtobufWireType
 
-enum ProtobufWireType: Int, Codable, CaseIterable {
+enum ProtobufWireType: Int, Codable, CaseIterable, Sendable {
     case varint = 0
     case fixed64 = 1
     case lengthDelimited = 2

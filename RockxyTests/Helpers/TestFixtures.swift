@@ -47,9 +47,12 @@ enum TestFixtures {
     )
         -> HTTPRequestData
     {
-        HTTPRequestData(
+        guard let url = URL(string: url) else {
+            preconditionFailure("Expected valid fixture URL")
+        }
+        return HTTPRequestData(
             method: method,
-            url: URL(string: url)!,
+            url: url,
             httpVersion: "HTTP/1.1",
             headers: headers,
             body: nil
@@ -158,9 +161,12 @@ enum TestFixtures {
             "operationName": operationName as Any
         ]
         let bodyData = try? JSONSerialization.data(withJSONObject: queryBody)
+        guard let url = URL(string: "https://api.example.com/graphql") else {
+            preconditionFailure("Expected valid GraphQL fixture URL")
+        }
         let request = HTTPRequestData(
             method: "POST",
-            url: URL(string: "https://api.example.com/graphql")!,
+            url: url,
             httpVersion: "HTTP/1.1",
             headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
             body: bodyData,
@@ -177,6 +183,50 @@ enum TestFixtures {
         return transaction
     }
 
+    static func makeGRPCTransaction(
+        requestBody: Data? = grpcFrame(payload: Data([0x08, 0x96, 0x01])),
+        responseBody: Data? = grpcFrame(payload: Data([0x12, 0x07]) + Data("Stephen".utf8))
+    )
+        -> HTTPTransaction
+    {
+        guard let url = URL(string: "https://api.example.com/user.v1.UserService/GetProfile") else {
+            preconditionFailure("Expected valid gRPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/2",
+            headers: [
+                HTTPHeader(name: "Content-Type", value: "application/grpc+proto"),
+                HTTPHeader(name: "TE", value: "trailers"),
+            ],
+            body: requestBody,
+            contentType: .protobuf
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [
+                HTTPHeader(name: "Content-Type", value: "application/grpc+proto"),
+                HTTPHeader(name: "grpc-status", value: "0"),
+                HTTPHeader(name: "grpc-message", value: "OK"),
+            ],
+            body: responseBody,
+            contentType: .protobuf
+        )
+        return HTTPTransaction(request: request, response: response, state: .completed)
+    }
+
+    static func grpcFrame(compressedFlag: UInt8 = 0, payload: Data) -> Data {
+        var frame = Data([compressedFlag])
+        let length = UInt32(payload.count).bigEndian
+        withUnsafeBytes(of: length) { bytes in
+            frame.append(contentsOf: bytes)
+        }
+        frame.append(payload)
+        return frame
+    }
+
     static func makeWebSocketTransaction() -> HTTPTransaction {
         let request = makeRequest(url: "wss://ws.example.com/stream")
         let connection = WebSocketConnection(upgradeRequest: request)
@@ -184,7 +234,7 @@ enum TestFixtures {
             let frame = WebSocketFrameData(
                 direction: i % 2 == 0 ? .sent : .received,
                 opcode: .text,
-                payload: "Frame \(i)".data(using: .utf8)!
+                payload: Data("Frame \(i)".utf8)
             )
             connection.addFrame(frame)
         }
@@ -455,7 +505,7 @@ enum TestFixtures {
     @available(
         *,
         deprecated,
-        message: "Writes to real app-support Plugins directory; use createTempPlugin(id:enabled:in:defaults:) with makeIsolatedPluginEnv() or makeIsolatedPluginDir() for isolated tests."
+        message: "Writes to the real app-support Plugins directory; prefer isolated plugin fixtures."
     )
     static func createTempPlugin(id: String, enabled: Bool) throws -> URL {
         try createTempPlugin(
@@ -485,7 +535,10 @@ enum TestFixtures {
     /// with the suite name so callers can clear the persistent domain on teardown.
     static func makeNamedIsolatedDefaults() -> (defaults: UserDefaults, suiteName: String) {
         let suiteName = "RockxyPluginTests-\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suiteName)!, suiteName)
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            preconditionFailure("Expected isolated UserDefaults suite")
+        }
+        return (defaults, suiteName)
     }
 
     /// Creates a fully isolated plugin test environment.

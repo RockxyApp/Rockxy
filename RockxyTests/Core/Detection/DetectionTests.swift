@@ -172,10 +172,71 @@ struct DetectionTests {
         #expect(result == .form)
     }
 
+    @Test("ContentTypeDetector detects gRPC and Protobuf media types")
+    func detectGRPCAndProtobuf() {
+        let grpc = [HTTPHeader(name: "Content-Type", value: "application/grpc+proto; charset=utf-8")]
+        let grpcWeb = [HTTPHeader(name: "Content-Type", value: "application/grpc-web+proto")]
+        let protobuf = [HTTPHeader(name: "Content-Type", value: "application/x-protobuf")]
+
+        #expect(ContentTypeDetector.detect(headers: grpc, body: nil) == .protobuf)
+        #expect(ContentTypeDetector.detect(headers: grpcWeb, body: nil) == .protobuf)
+        #expect(ContentTypeDetector.detect(headers: protobuf, body: nil) == .protobuf)
+    }
+
     @Test("ContentTypeDetector returns unknown for unrecognized type")
     func detectUnknown() {
         let headers = [HTTPHeader(name: "Content-Type", value: "application/octet-stream")]
         let result = ContentTypeDetector.detect(headers: headers, body: nil)
         #expect(result == .unknown)
+    }
+
+    // MARK: - GRPCDetector Tests
+
+    @Test("GRPCDetector detects method metadata and unary frames")
+    func detectGRPCUnaryFrames() throws {
+        let transaction = TestFixtures.makeGRPCTransaction()
+
+        let inspection = try #require(GRPCDetector.detect(
+            request: transaction.request,
+            response: transaction.response,
+            timingInfo: transaction.timingInfo,
+            measuredDuration: transaction.measuredDuration
+        ))
+
+        #expect(inspection.serviceName == "user.v1.UserService")
+        #expect(inspection.methodName == "GetProfile")
+        #expect(inspection.grpcStatus == "0")
+        #expect(inspection.requestFrames.count == 1)
+        #expect(inspection.responseFrames.count == 1)
+        #expect(inspection.requestFrames.first?.heuristicTree != nil)
+    }
+
+    @Test("GRPCDetector preserves streaming frame boundaries")
+    func detectGRPCStreamingFrames() throws {
+        let first = TestFixtures.grpcFrame(payload: Data([0x08, 0x01]))
+        let second = TestFixtures.grpcFrame(payload: Data([0x08, 0x02]))
+        let transaction = TestFixtures.makeGRPCTransaction(responseBody: first + second)
+
+        let inspection = try #require(GRPCDetector.detect(
+            request: transaction.request,
+            response: transaction.response,
+            timingInfo: nil,
+            measuredDuration: nil
+        ))
+
+        #expect(inspection.responseFrames.count == 2)
+        #expect(inspection.responseFrames.map(\.index) == [1, 2])
+        #expect(inspection.responseFrames.map(\.payload.count) == [2, 2])
+    }
+
+    @Test("GRPCDetector reports truncated payloads honestly")
+    func detectGRPCTruncatedPayload() throws {
+        let truncated = Data([0x00, 0x00, 0x00, 0x00, 0x04, 0x08])
+        let frames = GRPCDetector.parseFrames(truncated, direction: .response)
+        let frame = try #require(frames.first)
+
+        #expect(frames.count == 1)
+        #expect(frame.status == .truncatedPayload(expectedBytes: 4, actualBytes: 1))
+        #expect(frame.heuristicTree == nil)
     }
 }

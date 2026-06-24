@@ -31,6 +31,12 @@ struct InspectorRoutingTests {
         #expect(transaction.graphQLInfo?.operationType == .query)
     }
 
+    @Test("gRPC transaction is detected from HTTP metadata")
+    func grpcTransactionHasInspectionMetadata() {
+        let transaction = TestFixtures.makeGRPCTransaction()
+        #expect(GRPCDetector.isGRPC(transaction: transaction))
+    }
+
     @Test("WebSocket transaction preserves HTTP response for handshake inspection")
     func webSocketPreservesHTTPResponse() {
         let transaction = TestFixtures.makeWebSocketTransaction()
@@ -175,11 +181,25 @@ struct InspectorRoutingTests {
         #expect(tab == .graphql)
     }
 
+    @Test("gRPC transaction defaults to .grpc protocol tab")
+    func grpcDefaultsToGRPCTab() {
+        let tx = TestFixtures.makeGRPCTransaction()
+        let tab = ProtocolTabKind.defaultFor(tx)
+        #expect(tab == .grpc)
+        #expect(ProtocolTabKind.isSupported(.grpc, by: tx))
+    }
+
     @Test("Plain HTTP transaction defaults to nil protocol tab")
     func httpDefaultsToNilTab() {
         let tx = TestFixtures.makeTransaction()
         let tab = ProtocolTabKind.defaultFor(tx)
         #expect(tab == nil)
+    }
+
+    @Test("Plain HTTP transaction still supports empty gRPC tab")
+    func httpSupportsEmptyGRPCTab() {
+        let tx = TestFixtures.makeTransaction()
+        #expect(ProtocolTabKind.isSupported(.grpc, by: tx))
     }
 
     @Test("Switching WS → HTTP clears protocol tab")
@@ -234,6 +254,18 @@ struct InspectorRoutingTests {
 
         tab = ProtocolTabKind.defaultFor(gql)
         #expect(tab == .graphql)
+    }
+
+    @Test("Switching GraphQL → gRPC transitions protocol tab correctly")
+    func graphQLToGRPCTransition() {
+        let gql = TestFixtures.makeGraphQLTransaction()
+        let grpc = TestFixtures.makeGRPCTransaction()
+
+        var tab = ProtocolTabKind.defaultFor(gql)
+        #expect(tab == .graphql)
+
+        tab = ProtocolTabKind.defaultFor(grpc)
+        #expect(tab == .grpc)
     }
 
     @Test("Manual switch to nil preserves until next transaction change")

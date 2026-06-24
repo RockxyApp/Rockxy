@@ -8,7 +8,7 @@ import SwiftUI
 /// Right half of the inspector split view. Provides tabbed access to response-side data:
 /// headers, body (with format picker), Set-Cookie headers, auth, and timing breakdown.
 /// Also supports optional body preview tabs from PreviewTabStore.
-/// Conditionally shows protocol-specific tabs (WebSocket, GraphQL) when the selected
+/// Conditionally shows protocol-specific tabs (WebSocket, GraphQL, gRPC) when the selected
 /// transaction has protocol-specific data.
 struct ResponseInspectorView: View {
     // MARK: Internal
@@ -78,6 +78,14 @@ struct ResponseInspectorView: View {
 
     private var inspectorTabBar: some View {
         InspectorTabStrip {
+            if hasProtocolTab {
+                protocolTabButtons
+
+                Divider()
+                    .frame(height: max(14, metrics.controlFontSize + 2))
+                    .padding(.horizontal, 4)
+            }
+
             ForEach(ResponseInspectorTab.allCases, id: \.self) { tab in
                 InspectorTabButton(
                     title: tab.displayName,
@@ -90,33 +98,7 @@ struct ResponseInspectorView: View {
                 }
             }
 
-            if hasProtocolTab {
-                Divider()
-                    .frame(height: max(14, metrics.controlFontSize + 2))
-                    .padding(.horizontal, 4)
-
-                if transaction.webSocketConnection != nil {
-                    InspectorTabButton(
-                        title: String(localized: "WebSocket"),
-                        isActive: protocolTab == .websocket
-                    ) {
-                        selectionIntent = .protocolSpecific
-                        protocolTab = .websocket
-                        selectedPreviewTab = nil
-                    }
-                }
-
-                if transaction.graphQLInfo != nil {
-                    InspectorTabButton(
-                        title: String(localized: "GraphQL"),
-                        isActive: protocolTab == .graphql
-                    ) {
-                        selectionIntent = .protocolSpecific
-                        protocolTab = .graphql
-                        selectedPreviewTab = nil
-                    }
-                }
-            }
+            grpcTabButton
 
             if !previewTabStore.responseTabs.isEmpty {
                 Divider()
@@ -142,6 +124,41 @@ struct ResponseInspectorView: View {
             previewTabMenuButton
         } trailingContent: {
             inspectorTrailingControls
+        }
+    }
+
+    @ViewBuilder private var protocolTabButtons: some View {
+        if transaction.webSocketConnection != nil {
+            InspectorTabButton(
+                title: String(localized: "WebSocket"),
+                isActive: protocolTab == .websocket
+            ) {
+                selectionIntent = .protocolSpecific
+                protocolTab = .websocket
+                selectedPreviewTab = nil
+            }
+        }
+
+        if transaction.graphQLInfo != nil {
+            InspectorTabButton(
+                title: String(localized: "GraphQL"),
+                isActive: protocolTab == .graphql
+            ) {
+                selectionIntent = .protocolSpecific
+                protocolTab = .graphql
+                selectedPreviewTab = nil
+            }
+        }
+    }
+
+    private var grpcTabButton: some View {
+        InspectorTabButton(
+            title: "gRPC",
+            isActive: protocolTab == .grpc
+        ) {
+            selectionIntent = .protocolSpecific
+            protocolTab = .grpc
+            selectedPreviewTab = nil
         }
     }
 
@@ -291,6 +308,8 @@ struct ResponseInspectorView: View {
                     WebSocketInspectorView(transaction: transaction)
                 case .graphql:
                     GraphQLInspectorView(transaction: transaction)
+                case .grpc:
+                    GRPCInspectorView(transaction: transaction)
                 }
             } else if let previewTab = selectedPreviewTab,
                       previewTabStore.responseTabs.contains(where: { $0.id == previewTab.id })
@@ -757,6 +776,7 @@ struct HTTPSInspectionPromptModel: Equatable {
 enum ProtocolTabKind {
     case websocket
     case graphql
+    case grpc
 
     // MARK: Internal
 
@@ -768,6 +788,9 @@ enum ProtocolTabKind {
         if transaction.graphQLInfo != nil {
             return .graphql
         }
+        if GRPCDetector.isGRPC(transaction: transaction) {
+            return .grpc
+        }
         return nil
     }
 
@@ -777,6 +800,8 @@ enum ProtocolTabKind {
             transaction.webSocketConnection != nil
         case .graphql:
             transaction.graphQLInfo != nil
+        case .grpc:
+            true
         }
     }
 }

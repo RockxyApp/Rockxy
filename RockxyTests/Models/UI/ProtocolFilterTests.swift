@@ -29,6 +29,13 @@ struct ProtocolFilterTests {
         #expect(ProtocolFilter.websocket.matches(transaction))
     }
 
+    @Test("gRPC filter matches transaction with gRPC metadata")
+    func grpcMatches() {
+        let transaction = TestFixtures.makeGRPCTransaction()
+        #expect(ProtocolFilter.grpc.matches(transaction))
+        #expect(!ProtocolFilter.other.matches(transaction))
+    }
+
     // MARK: - Content Type Matching
 
     @Test("JSON filter matches JSON content type")

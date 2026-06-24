@@ -2,13 +2,13 @@ import Foundation
 
 // MARK: - ProtobufDecodedTree
 
-struct ProtobufDecodedTree: Codable, Equatable {
+struct ProtobufDecodedTree: Codable, Equatable, Sendable {
     let fields: [ProtobufDecodedField]
 }
 
 // MARK: - ProtobufDecodedField
 
-struct ProtobufDecodedField: Codable, Equatable, Identifiable {
+struct ProtobufDecodedField: Codable, Equatable, Identifiable, Sendable {
     // MARK: Lifecycle
 
     init(
@@ -36,7 +36,7 @@ struct ProtobufDecodedField: Codable, Equatable, Identifiable {
 
 // MARK: - ProtobufDecodedValue
 
-enum ProtobufDecodedValue: Codable, Equatable {
+enum ProtobufDecodedValue: Codable, Equatable, Sendable {
     case varint(UInt64)
     case fixed64(UInt64)
     case fixed32(UInt32)

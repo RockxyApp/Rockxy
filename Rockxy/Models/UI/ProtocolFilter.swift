@@ -13,6 +13,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     case js
     case css
     case graphql
+    case grpc
     case document
     case media
     case form
@@ -27,7 +28,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     // MARK: Internal
 
     static var contentFilters: [ProtocolFilter] {
-        [.all, .http, .https, .websocket, .json, .xml, .js, .css, .graphql, .document, .media, .form, .font, .other]
+        [.all, .http, .https, .websocket, .json, .xml, .js, .css, .graphql, .grpc, .document, .media, .form, .font, .other]
     }
 
     static var statusFilters: [ProtocolFilter] {
@@ -45,6 +46,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
         case .js: "JS"
         case .css: "CSS"
         case .graphql: "GraphQL"
+        case .grpc: "gRPC"
         case .document: "Document"
         case .media: "Media"
         case .form: "Form"
@@ -91,6 +93,8 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
             return contentTypeHeader(for: transaction).contains("css")
         case .graphql:
             return transaction.graphQLInfo != nil
+        case .grpc:
+            return GRPCDetector.isGRPC(transaction: transaction)
         case .document:
             return transaction.response?.contentType == .html
         case .media:
@@ -100,7 +104,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
         case .font:
             return isFontContent(for: transaction)
         case .other:
-            let known: Set<ContentType> = [.json, .xml, .html, .image, .form, .multipartForm, .text]
+            let known: Set<ContentType> = [.json, .xml, .html, .image, .form, .multipartForm, .protobuf, .text]
             guard let respType = transaction.response?.contentType else {
                 return true
             }

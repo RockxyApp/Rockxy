@@ -96,11 +96,13 @@ enum ProcessLogSource {
             }
         }
 
-        let monitorTask = Task {
+        let monitorTask = Task.detached(priority: .utility) {
             process.waitUntilExit()
 
-            stdoutPipe.fileHandleForReading.readabilityHandler = nil
-            stderrPipe.fileHandleForReading.readabilityHandler = nil
+            await MainActor.run {
+                stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                stderrPipe.fileHandleForReading.readabilityHandler = nil
+            }
 
             Self.logger.info("Process \(executablePath) (PID \(pid)) exited with code \(process.terminationStatus)")
         }

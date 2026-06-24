@@ -46,7 +46,14 @@ enum ContentType: String, Sendable {
         if mediaType == "multipart/form-data" {
             return .multipartForm
         }
-        if mediaType == "application/grpc" || mediaType == "application/protobuf" {
+        if mediaType == "application/grpc"
+            || mediaType.hasPrefix("application/grpc+")
+            || mediaType == "application/grpc-web"
+            || mediaType.hasPrefix("application/grpc-web+")
+            || mediaType == "application/protobuf"
+            || mediaType == "application/x-protobuf"
+            || mediaType.hasSuffix("+proto")
+        {
             return .protobuf
         }
         if mediaType.hasPrefix("text/") {
