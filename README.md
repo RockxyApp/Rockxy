@@ -8,18 +8,33 @@
   <a href="README.md">English</a> |
   <a href="README.vi.md">Tiếng Việt</a> |
   <a href="README.zh.md">中文</a> |
+  <a href="README.zh-TW.md">繁體中文</a> |
+  <a href="README.es.md">Español</a> |
+  <a href="README.pt-BR.md">Português do Brasil</a> |
   <a href="README.ja.md">日本語</a> |
   <a href="README.ko.md">한국어</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.de.md">Deutsch</a>
+  <a href="README.de.md">Deutsch</a> |
+  <a href="README.it.md">Italiano</a> |
+  <a href="README.tr.md">Türkçe</a> |
+  <a href="README.pl.md">Polski</a> |
+  <a href="README.nl.md">Nederlands</a> |
+  <a href="README.ru.md">Русский</a> |
+  <a href="README.uk.md">Українська</a> |
+  <a href="README.ar.md">العربية</a> |
+  <a href="README.fa.md">فارسی</a> |
+  <a href="README.bn.md">বাংলা</a> |
+  <a href="README.ro.md">Română</a> |
+  <a href="README.ka.md">ქართული</a>
 </p>
 
 <p align="center">
-  <strong>The open-source, auditable HTTP debugging proxy for macOS.</strong>
+  <strong>The open-source, auditable debugging proxy for macOS.</strong>
 </p>
 
 <p align="center">
   Intercept, inspect, and modify HTTP/HTTPS/WebSocket/GraphQL traffic with a native Swift app you can inspect, build, and trust.<br>
+  Built for API, mobile, MCP-assisted, AI, and blockchain-era debugging workflows as Rockxy evolves.<br>
   A local-first, AGPL-3.0 alternative to <a href="#rockxy-vs-alternatives">Proxyman and Charles Proxy</a>.
 </p>
 
@@ -59,6 +74,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 - Node.js Developer Setup now mirrors the selected client during validation and has a fuller localhost sample guide.
 - Developer Setup Hub now covers runtimes, browsers, clients, devices, frameworks, and environments with target-specific snippets, validation watchers, and honest guide content.
 - WebSocket Protobuf work continues as part of Rockxy's richer protocol inspection direction.
+- Public roadmap planning now includes protocol-aware debugging for AI traffic, Web3/RPC flows, x402-style payment flows, and safer redacted evidence sharing.
 
 ## Features
 
@@ -84,7 +100,7 @@ Narrow thousands of captured requests in seconds. Combine method, host, status, 
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
-Let Claude Desktop or Cursor read your captured traffic through a local MCP server. Ask "why did this 500?" instead of pasting headers into chat. Free MCP server — no paid AI add-on or upsell, no usage cap.
+Let Claude Desktop or Cursor read your captured traffic through a local MCP server. Ask "why did this 500?" instead of pasting headers into chat. Local, redaction-aware, and open source.
 
 `Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
 
@@ -224,6 +240,40 @@ JS hooks on requests and responses for the cases a static rule can't cover — r
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
+## More Features Coming Soon
+
+Future features are tracked publicly and ship only when the implementation, tests, privacy behavior, and documentation are ready.
+
+### AI Traffic Inspection `Coming Soon`
+
+Make model traffic easier to debug inside the normal capture workflow. Detect AI requests, inspect selected model calls, diagnose streaming responses, compare prompt/output behavior, and understand tool-call chains without pasting sensitive payloads into another service.
+
+`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+
+### Web3/RPC Inspection `Coming Soon`
+
+Turn blockchain-era network calls into readable debugging evidence. Inspect JSON-RPC and Solana RPC traffic, group related calls into flows, explain common RPC errors, and replay selected requests without becoming a wallet or block explorer.
+
+`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+
+### x402 Payment Flow Debugging `Coming Soon`
+
+Understand payment-gated HTTP flows from the network layer. Highlight payment-required responses, follow the retry path, and keep the debugging evidence local and redaction-aware.
+
+`Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+### Redacted Evidence Bundles `Coming Soon`
+
+Share the facts needed to reproduce a bug without leaking secrets. Package selected traffic with protocol summaries, redaction previews, and source-backed context a teammate can audit.
+
+`Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
+
+### Protocol-Aware Filters & Rules `Coming Soon`
+
+Use AI and Web3 metadata where Rockxy already works: filters, badges, optional columns, comparison, rules, Developer Setup, and local MCP summaries.
+
+`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
+
 ### Team Sharing & Collaboration `Coming Soon`
 
 Send a captured session to a teammate with one click. Annotate failing requests inline, see who's looking at what in real time, and pair-debug HTTPS traffic without screen-sharing. Targeted for a future release.
@@ -231,6 +281,7 @@ Send a captured session to a teammate with one click. Annotate failing requests 
 `Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% native macOS. No Electron. No web views. SwiftUI + AppKit + SwiftNIO.
+
 ## Quick Start
 
 ```bash
@@ -259,7 +310,7 @@ If you want to connect Rockxy to a local MCP client after installation, see the 
 | **MCP/local automation bridge** | Built in, token-authenticated, redaction by default | Not claimed in public docs reviewed | Not claimed in public docs reviewed |
 | **Open contribution path** | Public issues, discussions, roadmap, and PRs | Vendor-controlled product | Vendor-controlled product |
 
-On the roadmap: deeper replay/diff/rules/scripting workflows, improved WebSocket and GraphQL inspection, and exploration of gRPC/Protobuf plus HTTP/2 and HTTP/3 support.
+On the roadmap: deeper replay/diff/rules/scripting workflows, improved WebSocket and GraphQL inspection, protocol-aware AI and Web3/RPC debugging, x402-style payment-flow visibility, and exploration of gRPC/Protobuf plus HTTP/2 and HTTP/3 support.
 
 ## Security
 
@@ -275,7 +326,7 @@ Report vulnerabilities via [SECURITY.md](SECURITY.md). See the [full security ar
 
 ## Roadmap
 
-Rockxy's public roadmap is workflow-oriented and date-free. It focuses on reliability, native macOS UX, debugging workflows, protocol support, documentation, and contributor onboarding.
+Rockxy's public roadmap is workflow-oriented and date-free. It focuses on reliability, native macOS UX, debugging workflows, protocol support, AI/Web3-era traffic visibility, documentation, and contributor onboarding.
 
 - [ROADMAP.md](ROADMAP.md): high-level public engineering direction
 - [Rockxy Public Roadmap](https://github.com/orgs/RockxyApp/projects/1): operational visibility for roadmap-tracked issues

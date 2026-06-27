@@ -8,18 +8,33 @@
   <a href="README.md">English</a> |
   <a href="README.vi.md">Tiếng Việt</a> |
   <a href="README.zh.md">中文</a> |
+  <a href="README.zh-TW.md">繁體中文</a> |
+  <a href="README.es.md">Español</a> |
+  <a href="README.pt-BR.md">Português do Brasil</a> |
   <a href="README.ja.md">日本語</a> |
   <a href="README.ko.md">한국어</a> |
   <a href="README.fr.md">Français</a> |
-  <a href="README.de.md">Deutsch</a>
+  <a href="README.de.md">Deutsch</a> |
+  <a href="README.it.md">Italiano</a> |
+  <a href="README.tr.md">Türkçe</a> |
+  <a href="README.pl.md">Polski</a> |
+  <a href="README.nl.md">Nederlands</a> |
+  <a href="README.ru.md">Русский</a> |
+  <a href="README.uk.md">Українська</a> |
+  <a href="README.ar.md">العربية</a> |
+  <a href="README.fa.md">فارسی</a> |
+  <a href="README.bn.md">বাংলা</a> |
+  <a href="README.ro.md">Română</a> |
+  <a href="README.ka.md">ქართული</a>
 </p>
 
 <p align="center">
-  <strong>macOS 上开源、可审计的 HTTP 调试代理。</strong>
+  <strong>macOS 上开源、可审计的调试代理。</strong>
 </p>
 
 <p align="center">
   使用可检查、可构建、可信任的原生 Swift 应用拦截、检查和修改 HTTP/HTTPS/WebSocket/GraphQL 流量。<br>
+  随着 Rockxy 演进，面向 API、移动端、MCP 辅助、AI 与区块链时代的调试工作流构建。<br>
   <a href="#rockxy-vs-其他方案">Proxyman 和 Charles Proxy</a> 的 local-first、AGPL-3.0 替代方案。
 </p>
 
@@ -53,9 +68,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## 当前分支亮点
 
+- Upstream Proxy 现在包含 free/core 的 Automatic Proxy Configuration，支持通过 PAC URL 路由 `DIRECT` 、HTTP 和 HTTPS，同时保留现有 SOCKS5 与认证策略边界。
+- 导出流程现在覆盖 OpenAPI YAML/HTML，以及带脱敏感知 payload 构建的 selected-traffic Gist 发布。
+- Inspector 工具现在包含 JSONPath/key/value 过滤，以及对 JWT 等选中 payload 文本的快速预览。
+- Node.js Developer Setup 现在会在验证时镜像所选客户端，并提供更完整的 localhost 示例指南。
 - Developer Setup Hub 现在覆盖运行时、浏览器、客户端、设备、框架与环境，并提供按目标生成的代码片段、验证监视器和清晰的操作指引。
-- 当按域名或应用启用/禁用 SSL Proxying 时，HTTPS 响应提示、侧边栏操作和主请求表的展示会保持同步。
-- Inspector 与主请求表已完成一轮打磨，包括单行可滚动标签、Query 顶部对齐、更清晰的 Status/Code 区分、Request/Response 字节列、Duration 修正以及实时 SSL 状态图标。
+- WebSocket Protobuf 工作继续作为 Rockxy 更丰富协议检查方向的一部分。
+- 公开路线图规划现在包含 AI 流量、Web3/RPC flow、x402-style payment flow 的协议感知调试，以及更安全的脱敏证据分享。
 
 ## 功能特性
 
@@ -81,7 +100,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
-让 Claude Desktop 或 Cursor 通过本地 MCP 服务器读取你捕获的流量。直接问 "为什么这条请求 500 了?",不用再把 header 粘进聊天框。免费的 MCP 服务器 — 没有付费 AI 附加项或追售,没有用量上限。
+让 Claude Desktop 或 Cursor 通过本地 MCP 服务器读取你捕获的流量。直接问 "为什么这条请求 500 了?",不用再把 header 粘进聊天框。本地、脱敏感知、开源。
 
 `Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
 
@@ -221,6 +240,40 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
+## 更多即将推出的功能
+
+未来功能会公开跟踪，并且只在实现、测试、隐私行为和文档都准备好之后发布。
+
+### AI 流量检查 `即将推出`
+
+让模型流量在正常 capture 工作流中更容易调试。检测 AI 请求，检查选中的模型调用，诊断 streaming response，比较 prompt/output 行为，并理解 tool-call chain，而不需要把敏感 payload 粘贴到其他服务。
+
+`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+
+### Web3/RPC 检查 `即将推出`
+
+把区块链时代的 network call 变成可读的调试证据。检查 JSON-RPC 和 Solana RPC 流量，把相关调用归组为 flow，解释常见 RPC 错误，并 replay 选中的请求，同时不把 Rockxy 变成钱包或 block explorer。
+
+`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+
+### x402 支付流程调试 `即将推出`
+
+从网络层理解 payment-gated HTTP flow。突出 payment-required response，跟随 retry path，并让调试证据保持本地优先与脱敏感知。
+
+`Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+### 脱敏证据包 `即将推出`
+
+分享复现 bug 所需的事实，而不泄露 secret。把 selected traffic、protocol summary、redaction preview 和 source-backed context 打包，让同事可以审计。
+
+`Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
+
+### 协议感知过滤器与规则 `即将推出`
+
+在 Rockxy 已经工作的地方使用 AI 和 Web3 metadata：filter、badge、optional column、comparison、rule、Developer Setup 和 local MCP summary。
+
+`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
+
 ### 团队分享与协作 `即将推出`
 
 一键把捕获会话发给同事。对失败请求做 inline 注释,实时看到谁在看什么,无需共享屏幕也能 pair-debug HTTPS 流量。规划在未来版本中推出。
@@ -228,6 +281,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 `Shared Sessions` · `Team Workspaces` · `Inline Comments` · `Live Cursor` · `Cloud Sync` · `Pair Debug` · `SSO` · `Audit Log`
 
 > 100% 原生 macOS。没有 Electron。没有 Web 视图。SwiftUI + AppKit + SwiftNIO。
+
 ## 快速开始
 
 ```bash
@@ -253,7 +307,7 @@ open Rockxy.xcodeproj
 | **MCP/local automation bridge** | 内置，token 认证，默认脱敏 | 已检查的公开文档中未声明 | 已检查的公开文档中未声明 |
 | **开放贡献路径** | 公开 issues、discussions、roadmap 和 PR | 厂商控制的产品 | 厂商控制的产品 |
 
-路线图方向：更深入的 replay/diff/rules/scripting 工作流，改进 WebSocket 和 GraphQL 检查，并探索 gRPC/Protobuf 以及 HTTP/2、HTTP/3 支持。
+路线图方向：更深入的 replay/diff/rules/scripting 工作流，改进 WebSocket 和 GraphQL 检查，面向 AI 与 Web3/RPC 的协议感知调试，x402-style payment-flow 可见性，并探索 gRPC/Protobuf 以及 HTTP/2、HTTP/3 支持。
 
 ## 安全性
 
@@ -269,7 +323,7 @@ Rockxy 拦截网络流量 — 安全是基础，不是可选项。
 
 ## 路线图
 
-Rockxy 的公开路线图以调试工作流为中心，不承诺固定日期。它关注可靠性、原生 macOS 体验、调试工作流、协议支持、文档和贡献者入门。
+Rockxy 的公开路线图以调试工作流为中心，不承诺固定日期。它关注可靠性、原生 macOS 体验、调试工作流、协议支持、AI/Web3 时代的流量可见性、文档和贡献者入门。
 
 - [ROADMAP.md](ROADMAP.md)：高层公开工程方向
 - [Rockxy Public Roadmap](https://github.com/orgs/RockxyApp/projects/1)：路线图相关 issue 的执行视图
