@@ -194,6 +194,20 @@ struct HeaderColumnStoreTests {
         #expect(store.isBuiltInColumnVisible("url"))
     }
 
+    @Test("AI built-in column is hidden by default but can be enabled")
+    func aiBuiltInColumnDefaultVisibility() {
+        let store = makeCleanStore()
+
+        #expect(!store.isBuiltInColumnVisible("ai"))
+        store.toggleBuiltInColumn("ai")
+        #expect(store.isBuiltInColumnVisible("ai"))
+
+        let store2 = HeaderColumnStore()
+        #expect(store2.isBuiltInColumnVisible("ai"))
+        store2.toggleBuiltInColumn("ai")
+        #expect(!store2.isBuiltInColumnVisible("ai"))
+    }
+
     @Test("Hidden built-in columns persist")
     func hiddenBuiltInPersist() {
         let store = makeCleanStore()
@@ -290,6 +304,10 @@ struct HeaderColumnStoreTests {
         clearDefaultsKey("discoveredReqHeaders", fallback: TestIdentity.discoveredRequestHeadersKey)
         clearDefaultsKey("discoveredResHeaders", fallback: TestIdentity.discoveredResponseHeadersKey)
         clearDefaultsKey("hiddenBuiltInColumns", fallback: TestIdentity.hiddenBuiltInColumnsKey)
+        clearDefaultsKey(
+            "visibleDefaultHiddenBuiltInColumns",
+            fallback: TestIdentity.visibleDefaultHiddenBuiltInColumnsKey
+        )
         return HeaderColumnStore()
     }
 

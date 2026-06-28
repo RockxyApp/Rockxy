@@ -41,6 +41,7 @@ enum TestIdentity {
     static let discoveredRequestHeadersKey = "\(defaultsPrefix).discoveredReqHeaders"
     static let discoveredResponseHeadersKey = "\(defaultsPrefix).discoveredResHeaders"
     static let hiddenBuiltInColumnsKey = "\(defaultsPrefix).hiddenBuiltInColumns"
+    static let visibleDefaultHiddenBuiltInColumnsKey = "\(defaultsPrefix).visibleDefaultHiddenBuiltInColumns"
     static let showAlertOnQuitKey = "\(defaultsPrefix).showAlertOnQuit"
     static let recordOnLaunchKey = "\(defaultsPrefix).recordOnLaunch"
     static let autoSelectPortKey = "\(defaultsPrefix).autoSelectPort"
