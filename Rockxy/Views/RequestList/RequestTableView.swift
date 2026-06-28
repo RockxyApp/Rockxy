@@ -202,6 +202,7 @@ struct RequestTableView: NSViewRepresentable {
     private static func makeColumns() -> [NSTableColumn] {
         let specs: [ColumnSpec] = [
             ColumnSpec(id: "status", title: "", width: 22, minWidth: 22),
+            ColumnSpec(id: "ai", title: String(localized: "AI"), width: 38, minWidth: 32),
             ColumnSpec(id: "row", title: String(localized: "ID"), width: 46, minWidth: 36),
             ColumnSpec(id: "url", title: String(localized: "URL"), width: 300, minWidth: 200),
             ColumnSpec(id: "client", title: String(localized: "Client"), width: 120, minWidth: 60),
@@ -230,6 +231,8 @@ struct RequestTableView: NSViewRepresentable {
             if spec.id == "status" {
                 column.resizingMask = []
                 column.maxWidth = 22
+            } else if spec.id == "ai" {
+                column.maxWidth = 44
             } else if spec.id == "ssl" {
                 column.maxWidth = 42
             } else {
@@ -629,6 +632,7 @@ extension RequestTableView {
 
             switch columnID {
             case "status": return 22
+            case "ai": return 38
             case "row": return 46
             case "ssl": return 38
             default: break
@@ -652,6 +656,9 @@ extension RequestTableView {
                 case "client":
                     text = rowData.clientApp ?? ""
                     font = metrics.appKitFont()
+                case "ai":
+                    text = rowData.aiTrafficSignal.tableLabel
+                    font = metrics.appKitFont(weight: .semibold)
                 case "method":
                     text = rowData.method
                     font = metrics.appKitFont(weight: .semibold)
@@ -1521,6 +1528,7 @@ extension RequestTableView {
             // Built-in column visibility
             let builtInColumns: [(id: String, title: String)] = [
                 ("status", String(localized: "Status Icon")),
+                ("ai", String(localized: "AI")),
                 ("row", "#"),
                 ("url", String(localized: "URL")),
                 ("client", String(localized: "Client")),
@@ -2100,6 +2108,7 @@ extension RequestTableView {
             cell.textColor = .labelColor
             cell.alignment = .left
             cell.font = metrics.appKitFont()
+            cell.toolTip = nil
 
             switch column {
             case "row":
@@ -2112,6 +2121,15 @@ extension RequestTableView {
                 cell.stringValue = rowData.host + rowData.path
                 cell.font = metrics.appKitFont(monospaced: true)
                 cell.textColor = .labelColor
+
+            case "ai":
+                cell.alignment = .center
+                cell.stringValue = rowData.aiTrafficSignal.tableLabel
+                cell.toolTip = rowData.aiTrafficSignal.accessibilityLabel.isEmpty
+                    ? nil
+                    : rowData.aiTrafficSignal.accessibilityLabel
+                cell.font = metrics.appKitFont(weight: .semibold)
+                cell.textColor = rowData.aiTrafficSignal.isLikelyAI ? .controlAccentColor : .tertiaryLabelColor
 
             case "method":
                 cell.alignment = .center
