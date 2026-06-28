@@ -25,6 +25,7 @@ final class HeaderColumnStore {
     var discoveredRequestHeaders: [String] = []
     var discoveredResponseHeaders: [String] = []
     var hiddenBuiltInColumns: Set<String> = []
+    var visibleDefaultHiddenBuiltInColumns: Set<String> = []
 
     var enabledColumns: [HeaderColumn] {
         columns.filter(\.isEnabled)
@@ -179,16 +180,26 @@ final class HeaderColumnStore {
     }
 
     func toggleBuiltInColumn(_ columnID: String) {
-        if hiddenBuiltInColumns.contains(columnID) {
-            hiddenBuiltInColumns.remove(columnID)
-        } else {
+        if isBuiltInColumnVisible(columnID) {
+            visibleDefaultHiddenBuiltInColumns.remove(columnID)
             hiddenBuiltInColumns.insert(columnID)
+        } else {
+            hiddenBuiltInColumns.remove(columnID)
+            if Self.defaultHiddenBuiltInColumns.contains(columnID) {
+                visibleDefaultHiddenBuiltInColumns.insert(columnID)
+            }
         }
         saveHiddenColumns()
     }
 
     func isBuiltInColumnVisible(_ columnID: String) -> Bool {
-        !hiddenBuiltInColumns.contains(columnID)
+        if hiddenBuiltInColumns.contains(columnID) {
+            return false
+        }
+        if Self.defaultHiddenBuiltInColumns.contains(columnID) {
+            return visibleDefaultHiddenBuiltInColumns.contains(columnID)
+        }
+        return true
     }
 
     func reload() {
@@ -202,6 +213,8 @@ final class HeaderColumnStore {
     private static let discoveredReqKey = RockxyIdentity.current.defaultsKey("discoveredReqHeaders")
     private static let discoveredResKey = RockxyIdentity.current.defaultsKey("discoveredResHeaders")
     private static let hiddenColumnsKey = RockxyIdentity.current.defaultsKey("hiddenBuiltInColumns")
+    private static let visibleDefaultHiddenColumnsKey = RockxyIdentity.current.defaultsKey("visibleDefaultHiddenBuiltInColumns")
+    private static let defaultHiddenBuiltInColumns: Set<String> = ["ai"]
 
     // Internal dedup sets for O(1) membership checks during incremental discovery
     private var discoveredRequestHeaderSet: Set<String> = []
@@ -210,6 +223,10 @@ final class HeaderColumnStore {
     private func saveHiddenColumns() {
         let array = Array(hiddenBuiltInColumns)
         UserDefaults.standard.set(array, forKey: Self.hiddenColumnsKey)
+        UserDefaults.standard.set(
+            Array(visibleDefaultHiddenBuiltInColumns),
+            forKey: Self.visibleDefaultHiddenColumnsKey
+        )
     }
 
     // MARK: - Persistence
@@ -226,6 +243,9 @@ final class HeaderColumnStore {
     private func load() {
         if let hidden = UserDefaults.standard.stringArray(forKey: Self.hiddenColumnsKey) {
             hiddenBuiltInColumns = Set(hidden)
+        }
+        if let visibleDefaultHidden = UserDefaults.standard.stringArray(forKey: Self.visibleDefaultHiddenColumnsKey) {
+            visibleDefaultHiddenBuiltInColumns = Set(visibleDefaultHidden)
         }
         if let reqHeaders = UserDefaults.standard.stringArray(forKey: Self.discoveredReqKey) {
             discoveredRequestHeaders = reqHeaders

@@ -41,6 +41,7 @@ struct RequestListRow: Identifiable {
         comment = transaction.comment
         highlightColor = transaction.highlightColor
         isTLSFailure = transaction.isTLSFailure
+        aiTrafficSignal = AITrafficDetector.signal(transaction: transaction)
         graphQLOpName = transaction.graphQLInfo?.operationName
         graphQLOpType = transaction.graphQLInfo?.operationType.rawValue
         isWebSocket = transaction.webSocketConnection != nil
@@ -75,6 +76,7 @@ struct RequestListRow: Identifiable {
     let comment: String?
     let highlightColor: HighlightColor?
     let isTLSFailure: Bool
+    let aiTrafficSignal: AITrafficSignal
     let graphQLOpName: String?
     let graphQLOpType: String?
     let isWebSocket: Bool
@@ -169,6 +171,8 @@ extension RequestListRow {
             compareOptionalInt(lhs.responseSize, rhs.responseSize)
         case "ssl":
             compareInt(lhs.sslState.rawValue, rhs.sslState.rawValue)
+        case "ai":
+            compareAISignal(lhs, rhs)
         case "queryName":
             compareQueryName(lhs, rhs)
         case "client":
@@ -238,6 +242,16 @@ extension RequestListRow {
         default:
             .orderedSame
         }
+    }
+
+    private static func compareAISignal(_ lhs: RequestListRow, _ rhs: RequestListRow) -> ComparisonResult {
+        let presence = compareBool(lhs.aiTrafficSignal.isLikelyAI, rhs.aiTrafficSignal.isLikelyAI)
+        if presence != .orderedSame {
+            return presence
+        }
+        let lhsProvider = lhs.aiTrafficSignal.provider?.displayName ?? ""
+        let rhsProvider = rhs.aiTrafficSignal.provider?.displayName ?? ""
+        return lhsProvider.localizedCompare(rhsProvider)
     }
 
     private static func defaultSSLState(forScheme scheme: String) -> SSLState {

@@ -16,6 +16,17 @@ nonisolated enum AITrafficDetector {
         isLikelyAI(snapshot: AITrafficSnapshot(transaction: transaction))
     }
 
+    static func signal(transaction: HTTPTransaction) -> AITrafficSignal {
+        signal(snapshot: AITrafficSnapshot(transaction: transaction))
+    }
+
+    static func signal(snapshot: AITrafficSnapshot) -> AITrafficSignal {
+        if let provider = provider(from: snapshot) {
+            return AITrafficSignal(isLikelyAI: true, provider: provider)
+        }
+        return AITrafficSignal(isLikelyAI: isLikelyAI(snapshot: snapshot), provider: nil)
+    }
+
     static func isLikelyAI(snapshot: AITrafficSnapshot) -> Bool {
         if provider(from: snapshot) != nil {
             return true
@@ -493,6 +504,25 @@ enum AIProvider: String, Sendable {
         case .openAICompatible: "OpenAI-compatible"
         case .anthropic: "Anthropic"
         }
+    }
+}
+
+struct AITrafficSignal: Equatable, Sendable {
+    let isLikelyAI: Bool
+    let provider: AIProvider?
+
+    var tableLabel: String {
+        isLikelyAI ? "AI" : ""
+    }
+
+    var accessibilityLabel: String {
+        guard isLikelyAI else {
+            return ""
+        }
+        if let provider {
+            return "Likely AI model traffic: \(provider.displayName)"
+        }
+        return "Likely AI model traffic"
     }
 }
 

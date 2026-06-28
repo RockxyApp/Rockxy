@@ -99,6 +99,21 @@ struct RequestListRowTests {
         #expect(row.isTLSFailure == true)
     }
 
+    @Test("AI traffic signal is extracted from model-provider requests")
+    func aiTrafficSignal() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses",
+            statusCode: 200
+        )
+
+        let row = RequestListRow(from: transaction)
+
+        #expect(row.aiTrafficSignal.isLikelyAI)
+        #expect(row.aiTrafficSignal.provider == .openAICompatible)
+        #expect(row.aiTrafficSignal.tableLabel == "AI")
+    }
+
     @Test("Body sizes extracted from request and response")
     func bodySizes() {
         let transaction = TestFixtures.makeTransactionWithBody(
@@ -202,6 +217,16 @@ struct RequestListRowTests {
 
         #expect(RequestListRow.compare(http, https, using: descriptors) == true)
         #expect(RequestListRow.compare(https, http, using: descriptors) == false)
+    }
+
+    @Test("Sort by AI groups ordinary traffic before AI traffic")
+    func sortByAI() {
+        let ordinary = makeRow(host: "example.com")
+        let ai = makeRow(host: "api.openai.com", path: "/v1/responses")
+        let descriptors = [NSSortDescriptor(key: "ai", ascending: true)]
+
+        #expect(RequestListRow.compare(ordinary, ai, using: descriptors) == true)
+        #expect(RequestListRow.compare(ai, ordinary, using: descriptors) == false)
     }
 
     @Test("SSL state can represent intercepted HTTPS separately from tunneled HTTPS")
