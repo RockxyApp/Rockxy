@@ -86,7 +86,7 @@ struct ResponseInspectorView: View {
                     .padding(.horizontal, 4)
             }
 
-            ForEach(ResponseInspectorTab.allCases, id: \.self) { tab in
+            ForEach(ResponseInspectorTab.availableTabs(hasAIInspection: hasAIInspection), id: \.self) { tab in
                 InspectorTabButton(
                     title: tab.displayName,
                     isActive: protocolTab == nil && selectedPreviewTab == nil && selectedTab == tab
@@ -331,6 +331,16 @@ struct ResponseInspectorView: View {
             encryptedHTTPSPrompt(prompt)
         } else if let response = transaction.response {
             switch selectedTab {
+            case .ai:
+                if hasAIInspection {
+                    AIInspectorView(transaction: transaction)
+                } else {
+                    InspectorEmptyStateView(
+                        String(localized: "No AI Metadata"),
+                        systemImage: "sparkles",
+                        description: String(localized: "This response does not look like captured AI model traffic.")
+                    )
+                }
             case .headers:
                 responseHeadersView(response: response)
             case .body:
@@ -523,6 +533,11 @@ struct ResponseInspectorView: View {
     }
 
     private func syncInspectorStateForTransaction() {
+        let supportsAIInspection = hasAIInspection
+        if selectedTab == .ai, !supportsAIInspection {
+            selectedTab = .headers
+        }
+
         if let selectedPreviewTab,
            !previewTabStore.responseTabs.contains(where: { $0.id == selectedPreviewTab.id })
         {
@@ -533,6 +548,9 @@ struct ResponseInspectorView: View {
         switch selectionIntent {
         case .automatic:
             protocolTab = ProtocolTabKind.defaultFor(transaction)
+            if protocolTab == nil, supportsAIInspection {
+                selectedTab = .ai
+            }
         case .native,
              .preview:
             protocolTab = nil
@@ -565,6 +583,10 @@ struct ResponseInspectorView: View {
             return false
         }
         return !body.isEmpty
+    }
+
+    private var hasAIInspection: Bool {
+        AITrafficDetector.isLikelyAI(transaction: transaction)
     }
 
     private func prettyJSONString(from data: Data, sortedKeys: Bool) -> String? {
