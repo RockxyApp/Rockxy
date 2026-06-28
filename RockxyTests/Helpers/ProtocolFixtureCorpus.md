@@ -65,5 +65,26 @@ Group A foundation work is tracked by:
 
 - #186 schema, loader, and validation harness
 - #187 UX contract expectations
+- #188 AI streaming and tool-call fixtures
+- #189 AI embeddings, RAG, and retrieval fixtures
+- #190 EVM JSON-RPC fixtures
+- #191 Solana RPC and subscription fixtures
+- #192 x402 payment-flow fixtures
+- #193 hostile, malformed, and large-payload fixtures
 - #194 public-safety gates
 - #195 fixture-to-feature traceability
+
+## Extension Process
+
+When adding a fixture:
+
+1. Choose the smallest synthetic payload that represents the protocol shape.
+2. Add scenario tags that map to the relevant issue and protocol behavior.
+3. Declare expected metadata hints, redaction fields, UX contract fields, safety
+   class, size class, and traceability.
+4. Use `webSocketMessages` for subscription or bidirectional message flows.
+5. Set `estimatedPayloadBytes` for bounded stress fixtures.
+6. Add or update tests that prove the new issue coverage and safety behavior.
+
+UX contract fields are planning contracts for future app behavior. They should
+not be described as shipped UI unless the production view code implements them.

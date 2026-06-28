@@ -26,6 +26,62 @@ struct ProtocolFixtureCorpusTests {
         #expect(families.isSuperset(of: [.ordinaryHTTP, .ai, .web3RPC, .x402, .unknown]))
     }
 
+    @Test("AI streaming fixtures cover tool calls, malformed streams, and provider errors")
+    func aiStreamingFixturesCoverRequiredScenarios() {
+        let aiTags = tags(for: .ai)
+
+        #expect(aiTags.isSuperset(of: ["openai", "anthropic", "streaming", "tool-call", "interrupted"]))
+        #expect(aiTags.isSuperset(of: ["provider-error", "no-usage-summary", "malformed"]))
+    }
+
+    @Test("AI retrieval fixtures cover embeddings, vector search, and RAG")
+    func aiRetrievalFixturesCoverRequiredScenarios() {
+        let aiTags = tags(for: .ai)
+
+        #expect(aiTags.isSuperset(of: ["embeddings", "vector-search", "retrieval", "rag", "sensitive-context"]))
+    }
+
+    @Test("EVM JSON-RPC fixtures cover method, batch, error, malformed, and large cases")
+    func evmJSONRPCFixturesCoverRequiredScenarios() {
+        let evmFixtures = fixtures(containing: "evm")
+        let evmTags = Set(evmFixtures.flatMap(\.scenarioTags))
+
+        #expect(evmTags.isSuperset(of: ["estimate-gas", "receipt", "signed-payload"]))
+        #expect(evmTags.isSuperset(of: ["batch", "error", "malformed", "large"]))
+        #expect(evmFixtures.contains { $0.sizeClass == .boundedStress })
+    }
+
+    @Test("Solana fixtures cover HTTP RPC and WebSocket subscription lifecycle")
+    func solanaFixturesCoverRequiredScenarios() {
+        let solanaFixtures = fixtures(containing: "solana")
+        let solanaTags = Set(solanaFixtures.flatMap(\.scenarioTags))
+
+        #expect(solanaTags.isSuperset(of: ["http-rpc", "websocket-rpc", "subscription", "notification", "unsubscribe"]))
+        #expect(solanaTags.isSuperset(of: ["malformed", "long-session"]))
+        #expect(solanaFixtures.contains { !$0.traffic.webSocketMessages.isEmpty })
+    }
+
+    @Test("x402 fixtures cover payment retry, malformed, missing proof, and provider error")
+    func x402FixturesCoverRequiredScenarios() {
+        let x402Tags = tags(for: .x402)
+
+        #expect(x402Tags.isSuperset(of: ["payment-required", "retry", "success"]))
+        #expect(x402Tags.isSuperset(of: ["malformed", "missing-proof", "provider-error", "sensitive-metadata"]))
+    }
+
+    @Test("Hostile fixtures declare bounded parser safety behavior")
+    func hostileFixturesDeclareBoundedParserSafetyBehavior() {
+        let hostileFixtures = fixtures(containing: "hostile")
+        let hostileTags = Set(hostileFixtures.flatMap(\.scenarioTags))
+
+        #expect(hostileTags.isSuperset(of: ["oversized", "deep-nesting", "long-string", "truncated", "partial"]))
+        #expect(hostileTags.contains("malformed-bytes"))
+        for fixture in hostileFixtures {
+            #expect(fixture.expected.ux.fallbackBehavior != nil, "\(fixture.id) must declare bounded fallback behavior")
+            #expect(fixture.traffic.estimatedPayloadBytes <= 32_000, "\(fixture.id) must stay inside the corpus budget")
+        }
+    }
+
     @Test("Protocol fixtures include UX contract expectations")
     func protocolFixturesIncludeUXContractExpectations() {
         for fixture in ProtocolFixtureCorpus.fixtures where fixture.family != .ordinaryHTTP {
@@ -138,6 +194,15 @@ struct ProtocolFixtureCorpusTests {
         #expect(findings.contains { $0.reason.contains("personal email-like") })
     }
 
+    @Test("Safety scanner catches seed phrase-like samples")
+    func safetyScannerCatchesSeedPhraseLikeSamples() {
+        let findings = ProtocolFixtureSafetyScanner.scan(
+            text: "abandon ability able about above absent absorb abstract absurd abuse access accident"
+        )
+
+        #expect(findings.contains { $0.reason.contains("seed phrase-like") })
+    }
+
     @Test("Fixtures trace back to parent and Group A child issues")
     func fixturesTraceBackToParentAndGroupAChildIssues() {
         let requiredChildIssues: Set<Int> = [186, 187, 194, 195]
@@ -150,7 +215,22 @@ struct ProtocolFixtureCorpusTests {
         }
     }
 
+    @Test("Child issues are represented by corpus fixtures")
+    func childIssuesAreRepresentedByCorpusFixtures() {
+        let representedIssues = Set(ProtocolFixtureCorpus.fixtures.flatMap(\.traceability.childIssues))
+
+        #expect(representedIssues.isSuperset(of: [186, 187, 188, 189, 190, 191, 192, 193, 194, 195]))
+    }
+
     private func formatFinding(_ finding: ProtocolFixtureSafetyScanner.Finding) -> String {
         "\(finding.fixtureID): \(finding.reason): \(finding.excerpt)"
+    }
+
+    private func tags(for family: ProtocolFixtureFamily) -> Set<String> {
+        Set(ProtocolFixtureCorpus.fixtures.filter { $0.family == family }.flatMap(\.scenarioTags))
+    }
+
+    private func fixtures(containing tag: String) -> [ProtocolFixture] {
+        ProtocolFixtureCorpus.fixtures.filter { $0.scenarioTags.contains(tag) }
     }
 }

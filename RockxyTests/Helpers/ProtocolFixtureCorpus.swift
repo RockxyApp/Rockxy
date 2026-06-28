@@ -6,15 +6,34 @@ enum ProtocolFixtureCorpus {
     static let fixtures: [ProtocolFixture] = [
         .httpJSONSmoke,
         .aiSSEContractSmoke,
+        .aiAnthropicSSEContractSmoke,
+        .aiInterruptedToolCallContractSmoke,
+        .aiProviderErrorNoUsageContractSmoke,
+        .aiEmbeddingContractSmoke,
+        .aiRAGContractSmoke,
+        .aiMalformedRetrievalContractSmoke,
         .evmJSONRPCContractSmoke,
+        .evmGasReceiptAndSendRawContractSmoke,
+        .evmBatchErrorAndLargeContractSmoke,
+        .evmMalformedJSONRPCContractSmoke,
+        .solanaHTTPRPCContractSmoke,
+        .solanaWebSocketSubscriptionContractSmoke,
+        .solanaLongAndMalformedSubscriptionContractSmoke,
         .x402ContractSmoke,
+        .x402MalformedAndMissingProofContractSmoke,
+        .x402ProviderErrorMetadataContractSmoke,
         .malformedPayloadContractSmoke,
+        .hostileOversizedDeepJSONContractSmoke,
+        .hostileLongStringTruncatedContractSmoke,
+        .hostilePartialSSEAndBytesContractSmoke,
     ]
 
     static let allowedSyntheticHosts: Set<String> = [
         "api.example.com",
         "ai.example.com",
         "rpc.example.com",
+        "solana.example.com",
+        "vector.example.com",
         "payments.example.com",
         "test.invalid",
     ]
@@ -58,6 +77,18 @@ enum ProtocolFixtureSizeClass: String, CaseIterable {
 
 struct ProtocolFixtureTraffic: Equatable {
     let exchanges: [ProtocolFixtureExchange]
+    let webSocketMessages: [ProtocolFixtureWebSocketMessage]
+    let estimatedPayloadBytes: Int
+
+    init(
+        exchanges: [ProtocolFixtureExchange] = [],
+        webSocketMessages: [ProtocolFixtureWebSocketMessage] = [],
+        estimatedPayloadBytes: Int = 0
+    ) {
+        self.exchanges = exchanges
+        self.webSocketMessages = webSocketMessages
+        self.estimatedPayloadBytes = estimatedPayloadBytes
+    }
 }
 
 struct ProtocolFixtureExchange: Equatable {
@@ -108,6 +139,17 @@ struct ProtocolFixtureStreamEvent: Equatable {
     let data: String
 }
 
+struct ProtocolFixtureWebSocketMessage: Equatable {
+    let direction: ProtocolFixtureWebSocketDirection
+    let url: String
+    let body: String
+}
+
+enum ProtocolFixtureWebSocketDirection: String, CaseIterable {
+    case clientToServer
+    case serverToClient
+}
+
 struct ProtocolFixtureExpectations: Equatable {
     let metadataHints: Set<String>
     let redaction: ProtocolFixtureRedactionExpectation
@@ -136,260 +178,6 @@ struct ProtocolFixtureTraceability: Equatable {
     let futureIssues: Set<Int>
 }
 
-// MARK: - Corpus Smoke Fixtures
-
-private extension ProtocolFixture {
-    static let commonTraceability = ProtocolFixtureTraceability(
-        parentIssue: 176,
-        childIssues: [186, 187, 194, 195],
-        futureIssues: [143, 144, 145, 146, 177, 178, 179, 180]
-    )
-
-    static let httpJSONSmoke = ProtocolFixture(
-        id: "foundation.http-json.redaction-smoke",
-        title: "Ordinary JSON request with synthetic redaction candidate",
-        family: .ordinaryHTTP,
-        scenarioTags: ["http", "json", "redaction-smoke"],
-        traffic: ProtocolFixtureTraffic(exchanges: [
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "POST",
-                    url: "https://api.example.com/v1/debug-smoke",
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"request_id":"fixture-request","api_key":"synthetic-api-key"}"#
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://api.example.com/v1/debug-smoke",
-                    statusCode: 200,
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"ok":true,"request_id":"fixture-request"}"#
-                )
-            )
-        ]),
-        expected: ProtocolFixtureExpectations(
-            metadataHints: ["http", "json"],
-            redaction: ProtocolFixtureRedactionExpectation(
-                sensitiveFields: ["api_key"],
-                redactedMarkers: ["[REDACTED]"],
-                safeFields: ["request_id", "ok"]
-            ),
-            ux: ProtocolFixtureUXExpectation(
-                requestListBadges: ["JSON"],
-                optionalColumns: ["content": "JSON"],
-                inspectorTabs: ["Headers", "JSON", "Raw"],
-                warningStates: [],
-                exportSummaryFields: ["method", "host", "status", "redacted_fields"],
-                mcpSummaryFields: ["method", "url", "status", "redacted"],
-                fallbackBehavior: nil
-            )
-        ),
-        safetyClass: .containsSyntheticSensitiveData,
-        sizeClass: .small,
-        traceability: commonTraceability
-    )
-
-    static let aiSSEContractSmoke = ProtocolFixture(
-        id: "foundation.ai-sse.contract-smoke",
-        title: "AI streaming response with synthetic tool call",
-        family: .ai,
-        scenarioTags: ["ai", "sse", "streaming", "tool-call", "contract-smoke"],
-        traffic: ProtocolFixtureTraffic(exchanges: [
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "POST",
-                    url: "https://ai.example.com/v1/responses",
-                    headers: [
-                        .init(name: "Content-Type", value: "application/json"),
-                        .init(name: "Authorization", value: "Bearer synthetic-ai-token"),
-                    ],
-                    body: #"{"model":"synthetic-model","input":"[SYNTHETIC_PROMPT]","tool_choice":"auto"}"#
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://ai.example.com/v1/responses",
-                    statusCode: 200,
-                    headers: [.init(name: "Content-Type", value: "text/event-stream")],
-                    body: nil
-                ),
-                streamEvents: [
-                    .init(event: "response.created", data: #"{"id":"resp_fixture","model":"synthetic-model"}"#),
-                    .init(event: "response.tool_call.delta", data: #"{"name":"lookup_order","arguments":"{\"order_id\":\"fixture-order\"}"}"#),
-                    .init(event: "response.completed", data: #"{"id":"resp_fixture","status":"completed"}"#),
-                ]
-            )
-        ]),
-        expected: ProtocolFixtureExpectations(
-            metadataHints: ["ai", "streaming", "tool_call", "model_request"],
-            redaction: ProtocolFixtureRedactionExpectation(
-                sensitiveFields: ["Authorization", "input", "tool_choice", "arguments"],
-                redactedMarkers: ["[REDACTED]"],
-                safeFields: ["model", "status"]
-            ),
-            ux: ProtocolFixtureUXExpectation(
-                requestListBadges: ["AI", "Stream"],
-                optionalColumns: ["protocol": "AI", "streaming": "true"],
-                inspectorTabs: ["AI", "Stream", "Tool Calls", "Raw"],
-                warningStates: ["prompt_redaction_candidate", "tool_payload_redaction_candidate"],
-                exportSummaryFields: ["model", "stream_event_count", "tool_call_count", "redacted_fields"],
-                mcpSummaryFields: ["model", "status", "streaming", "redacted"],
-                fallbackBehavior: nil
-            )
-        ),
-        safetyClass: .containsSyntheticSensitiveData,
-        sizeClass: .small,
-        traceability: commonTraceability
-    )
-
-    static let evmJSONRPCContractSmoke = ProtocolFixture(
-        id: "foundation.evm-json-rpc.contract-smoke",
-        title: "EVM JSON-RPC request with synthetic method summary",
-        family: .web3RPC,
-        scenarioTags: ["web3", "evm", "json-rpc", "contract-smoke"],
-        traffic: ProtocolFixtureTraffic(exchanges: [
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "POST",
-                    url: "https://rpc.example.com/evm",
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"jsonrpc":"2.0","id":"fixture-1","method":"eth_call","params":[{"to":"0xSyntheticContract","data":"0xsyntheticCallData"},"latest"]}"#
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://rpc.example.com/evm",
-                    statusCode: 200,
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"jsonrpc":"2.0","id":"fixture-1","result":"0xsyntheticResult"}"#
-                )
-            )
-        ]),
-        expected: ProtocolFixtureExpectations(
-            metadataHints: ["web3", "json_rpc", "evm", "eth_call"],
-            redaction: ProtocolFixtureRedactionExpectation(
-                sensitiveFields: ["params.data"],
-                redactedMarkers: ["[REDACTED]"],
-                safeFields: ["jsonrpc", "method", "id"]
-            ),
-            ux: ProtocolFixtureUXExpectation(
-                requestListBadges: ["RPC", "EVM"],
-                optionalColumns: ["rpc_method": "eth_call"],
-                inspectorTabs: ["RPC", "JSON", "Raw"],
-                warningStates: [],
-                exportSummaryFields: ["rpc_method", "chain_hint", "redacted_fields"],
-                mcpSummaryFields: ["rpc_method", "status", "redacted"],
-                fallbackBehavior: nil
-            )
-        ),
-        safetyClass: .containsSyntheticSensitiveData,
-        sizeClass: .small,
-        traceability: commonTraceability
-    )
-
-    static let x402ContractSmoke = ProtocolFixture(
-        id: "foundation.x402.contract-smoke",
-        title: "x402-style payment-required retry flow",
-        family: .x402,
-        scenarioTags: ["x402", "payment-required", "retry", "contract-smoke"],
-        traffic: ProtocolFixtureTraffic(exchanges: [
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "GET",
-                    url: "https://payments.example.com/protected/report",
-                    headers: [.init(name: "Accept", value: "application/json")]
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://payments.example.com/protected/report",
-                    statusCode: 402,
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"x402Version":1,"paymentRequired":true,"challenge":"synthetic-payment-challenge"}"#
-                )
-            ),
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "GET",
-                    url: "https://payments.example.com/protected/report",
-                    headers: [
-                        .init(name: "Accept", value: "application/json"),
-                        .init(name: "X-Payment", value: "synthetic-payment-proof"),
-                    ]
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://payments.example.com/protected/report",
-                    statusCode: 200,
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"ok":true,"receipt":"synthetic-receipt"}"#
-                )
-            )
-        ]),
-        expected: ProtocolFixtureExpectations(
-            metadataHints: ["x402", "payment_required", "retry_flow"],
-            redaction: ProtocolFixtureRedactionExpectation(
-                sensitiveFields: ["X-Payment", "challenge", "receipt"],
-                redactedMarkers: ["[REDACTED]"],
-                safeFields: ["x402Version", "paymentRequired", "ok"]
-            ),
-            ux: ProtocolFixtureUXExpectation(
-                requestListBadges: ["x402", "402"],
-                optionalColumns: ["payment_flow": "required_then_success"],
-                inspectorTabs: ["Payment", "Headers", "Raw"],
-                warningStates: ["payment_metadata_redaction_candidate"],
-                exportSummaryFields: ["payment_required", "retry_count", "redacted_fields"],
-                mcpSummaryFields: ["payment_flow", "status", "redacted"],
-                fallbackBehavior: nil
-            )
-        ),
-        safetyClass: .containsSyntheticSensitiveData,
-        sizeClass: .small,
-        traceability: commonTraceability
-    )
-
-    static let malformedPayloadContractSmoke = ProtocolFixture(
-        id: "foundation.malformed-json.contract-smoke",
-        title: "Malformed JSON payload with bounded fallback contract",
-        family: .unknown,
-        scenarioTags: ["malformed", "json", "fallback", "contract-smoke"],
-        traffic: ProtocolFixtureTraffic(exchanges: [
-            ProtocolFixtureExchange(
-                request: ProtocolFixtureMessage(
-                    method: "POST",
-                    url: "https://test.invalid/malformed",
-                    headers: [.init(name: "Content-Type", value: "application/json")],
-                    body: #"{"message":"unterminated""#
-                ),
-                response: ProtocolFixtureMessage(
-                    method: "HTTP",
-                    url: "https://test.invalid/malformed",
-                    statusCode: 400,
-                    headers: [.init(name: "Content-Type", value: "text/plain")],
-                    body: "Malformed synthetic payload"
-                )
-            )
-        ]),
-        expected: ProtocolFixtureExpectations(
-            metadataHints: ["malformed", "fallback"],
-            redaction: ProtocolFixtureRedactionExpectation(
-                sensitiveFields: [],
-                redactedMarkers: [],
-                safeFields: ["message"]
-            ),
-            ux: ProtocolFixtureUXExpectation(
-                requestListBadges: ["Malformed"],
-                optionalColumns: ["parse_state": "failed"],
-                inspectorTabs: ["Raw"],
-                warningStates: ["malformed_payload"],
-                exportSummaryFields: ["parse_state", "omitted_protocol_summary"],
-                mcpSummaryFields: ["parse_state"],
-                fallbackBehavior: "Show bounded raw fallback without protocol-specific inspector content."
-            )
-        ),
-        safetyClass: .malformed,
-        sizeClass: .small,
-        traceability: commonTraceability
-    )
-}
-
 // MARK: - Validation
 
 enum ProtocolFixtureValidation {
@@ -405,8 +193,8 @@ enum ProtocolFixtureValidation {
         if fixture.scenarioTags.isEmpty {
             failures.append("\(fixture.id): scenarioTags must not be empty.")
         }
-        if fixture.traffic.exchanges.isEmpty {
-            failures.append("\(fixture.id): traffic.exchanges must not be empty.")
+        if fixture.traffic.exchanges.isEmpty && fixture.traffic.webSocketMessages.isEmpty {
+            failures.append("\(fixture.id): traffic must include exchanges or WebSocket messages.")
         }
         if fixture.expected.metadataHints.isEmpty {
             failures.append("\(fixture.id): expected.metadataHints must not be empty.")
@@ -428,6 +216,18 @@ enum ProtocolFixtureValidation {
         }
         if !fixture.traceability.childIssues.isSuperset(of: [186, 187, 194, 195]) {
             failures.append("\(fixture.id): traceability.childIssues must include Group A child issues.")
+        }
+        if fixture.safetyClass == .malformed && fixture.expected.ux.fallbackBehavior == nil {
+            failures.append("\(fixture.id): malformed fixtures must declare fallback behavior.")
+        }
+        if fixture.safetyClass == .large && fixture.sizeClass != .boundedStress {
+            failures.append("\(fixture.id): large fixtures must use boundedStress size class.")
+        }
+        if fixture.sizeClass == .boundedStress && fixture.traffic.estimatedPayloadBytes <= 0 {
+            failures.append("\(fixture.id): boundedStress fixtures must declare estimatedPayloadBytes.")
+        }
+        if fixture.traffic.estimatedPayloadBytes > 32_000 {
+            failures.append("\(fixture.id): estimatedPayloadBytes exceeds the test corpus budget.")
         }
 
         return failures
@@ -456,6 +256,10 @@ enum ProtocolFixtureSafetyScanner {
                 findings.append(contentsOf: scan(text: event.data, fixtureID: fixture.id, context: "stream data"))
             }
         }
+        for message in fixture.traffic.webSocketMessages {
+            findings.append(contentsOf: scanHost(message.url, fixtureID: fixture.id))
+            findings.append(contentsOf: scan(text: message.body, fixtureID: fixture.id, context: "websocket body"))
+        }
 
         return findings
     }
@@ -470,6 +274,7 @@ enum ProtocolFixtureSafetyScanner {
             ("AWS access key", #"\bAKIA[0-9A-Z]{16}\b"#),
             ("Ethereum private-key-like value", #"\b0x[0-9a-fA-F]{64}\b"#),
             ("realistic bearer token", #"Bearer\s+(?!(?:synthetic|fake|example)[A-Za-z0-9._~+/-]*\b)[A-Za-z0-9._~+/-]{20,}"#),
+            ("seed phrase-like sample", #"\b(?:abandon|ability|able|about|above|absent|absorb|abstract|absurd|abuse)\s+(?:[a-z]+\s+){10,23}[a-z]+\b"#),
         ]
 
         var findings: [Finding] = []
