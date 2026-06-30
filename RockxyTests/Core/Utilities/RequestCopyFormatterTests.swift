@@ -4,8 +4,6 @@ import Testing
 
 // Regression tests for `RequestCopyFormatter` in the core utilities layer.
 
-// swiftlint:disable force_unwrapping
-
 struct RequestCopyFormatterTests {
     // MARK: - URL
 
@@ -130,6 +128,13 @@ struct RequestCopyFormatterTests {
         let transaction = TestFixtures.makeGraphQLTransaction(operationName: "FetchUsers")
         let result = RequestCopyFormatter.cellValue(for: transaction, column: "queryName")
         #expect(result == "FetchUsers")
+    }
+
+    @Test("cellValue returns Web3 RPC method for queryName column")
+    func cellValueWeb3RPCMethod() {
+        let transaction = TestFixtures.makeWeb3RPCTransaction(method: "eth_getLogs")
+        let result = RequestCopyFormatter.cellValue(for: transaction, column: "queryName")
+        #expect(result == "eth_getLogs")
     }
 
     // MARK: - Headers
@@ -426,5 +431,3 @@ struct RequestCopyFormatterTests {
         #expect(result.contains("api.example.com"))
     }
 }
-
-// swiftlint:enable force_unwrapping

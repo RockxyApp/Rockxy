@@ -69,6 +69,28 @@ struct RequestListRowTests {
         #expect(row.webSocketFrameCount == 0)
     }
 
+    @Test("Extracts Web3 RPC fields correctly")
+    func web3RPCFields() {
+        let transaction = TestFixtures.makeWeb3RPCTransaction(
+            method: nil,
+            batch: Web3RPCBatchSummary(
+                requestCount: 2,
+                web3RequestCount: 2,
+                responseCount: 2,
+                errorCount: 1,
+                methods: ["eth_chainId", "eth_blockNumber"]
+            ),
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+
+        let row = RequestListRow(from: transaction)
+
+        #expect(row.isWeb3RPC == true)
+        #expect(row.web3RPCMethod == "eth_chainId + 1")
+        #expect(row.web3RPCProviderHost == "rpc.example.com")
+        #expect(row.web3RPCErrorCode == -32_000)
+    }
+
     @Test("Extracts WebSocket fields correctly")
     func webSocketFields() {
         let transaction = TestFixtures.makeWebSocketTransaction()
@@ -322,6 +344,16 @@ struct RequestListRowTests {
         // Numeric: 2 < 10 (lexicographic would put "10" before "2")
         #expect(RequestListRow.compare(ws2, ws10, using: descriptors) == true)
         #expect(RequestListRow.compare(ws10, ws2, using: descriptors) == false)
+    }
+
+    @Test("Web3 RPC method participates in operation sort")
+    func web3RPCOperationSort() {
+        let call = RequestListRow(from: TestFixtures.makeWeb3RPCTransaction(method: "eth_call"))
+        let logs = RequestListRow(from: TestFixtures.makeWeb3RPCTransaction(method: "eth_getLogs"))
+        let descriptors = [NSSortDescriptor(key: "queryName", ascending: true)]
+
+        #expect(RequestListRow.compare(call, logs, using: descriptors) == true)
+        #expect(RequestListRow.compare(logs, call, using: descriptors) == false)
     }
 
     // MARK: - Sequence Number Display

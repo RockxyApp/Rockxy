@@ -8,6 +8,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     case http
     case https
     case websocket
+    case web3RPC
     case json
     case xml
     case js
@@ -28,7 +29,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     // MARK: Internal
 
     static var contentFilters: [ProtocolFilter] {
-        [.all, .http, .https, .websocket, .json, .xml, .js, .css, .graphql, .grpc, .document, .media, .form, .font, .other]
+        [.all, .http, .https, .websocket, .web3RPC, .json, .xml, .js, .css, .graphql, .grpc, .document, .media, .form, .font, .other]
     }
 
     static var statusFilters: [ProtocolFilter] {
@@ -41,6 +42,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
         case .http: "HTTP"
         case .https: "HTTPS"
         case .websocket: "WebSocket"
+        case .web3RPC: "Web3/RPC"
         case .json: "JSON"
         case .xml: "XML"
         case .js: "JS"
@@ -83,6 +85,8 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
             return transaction.request.url.scheme == "https"
         case .websocket:
             return transaction.webSocketConnection != nil
+        case .web3RPC:
+            return transaction.web3RPCInfo != nil
         case .json:
             return transaction.response?.contentType == .json || transaction.request.contentType == .json
         case .xml:

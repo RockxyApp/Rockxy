@@ -675,7 +675,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, @unchecked Sendable 
             response: responseData,
             state: .completed,
             timingInfo: timing,
-            graphQLInfo: graphQLInfo
+            graphQLInfo: graphQLInfo,
+            web3RPCInfo: Web3RPCDetector.detect(request: requestData, response: responseData)
         )
         transaction.sourcePort = sourcePort
         transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)

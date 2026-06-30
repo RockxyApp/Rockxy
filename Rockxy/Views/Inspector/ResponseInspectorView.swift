@@ -51,7 +51,7 @@ struct ResponseInspectorView: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasProtocolTab: Bool {
-        transaction.webSocketConnection != nil || transaction.graphQLInfo != nil
+        transaction.webSocketConnection != nil || transaction.web3RPCInfo != nil || transaction.graphQLInfo != nil
     }
 
     private var httpsPromptModel: HTTPSInspectionPromptModel? {
@@ -135,6 +135,17 @@ struct ResponseInspectorView: View {
             ) {
                 selectionIntent = .protocolSpecific
                 protocolTab = .websocket
+                selectedPreviewTab = nil
+            }
+        }
+
+        if transaction.web3RPCInfo != nil {
+            InspectorTabButton(
+                title: String(localized: "Web3/RPC"),
+                isActive: protocolTab == .web3
+            ) {
+                selectionIntent = .protocolSpecific
+                protocolTab = .web3
                 selectedPreviewTab = nil
             }
         }
@@ -306,6 +317,8 @@ struct ResponseInspectorView: View {
                 switch proto {
                 case .websocket:
                     WebSocketInspectorView(transaction: transaction)
+                case .web3:
+                    Web3RPCInspectorView(transaction: transaction)
                 case .graphql:
                     GraphQLInspectorView(transaction: transaction)
                 case .grpc:
@@ -797,6 +810,7 @@ struct HTTPSInspectionPromptModel: Equatable {
 /// Separate from ResponseInspectorTab to avoid showing protocol tabs for all transactions.
 enum ProtocolTabKind {
     case websocket
+    case web3
     case graphql
     case grpc
 
@@ -806,6 +820,9 @@ enum ProtocolTabKind {
     static func defaultFor(_ transaction: HTTPTransaction) -> ProtocolTabKind? {
         if transaction.webSocketConnection != nil {
             return .websocket
+        }
+        if transaction.web3RPCInfo != nil {
+            return .web3
         }
         if transaction.graphQLInfo != nil {
             return .graphql
@@ -820,6 +837,8 @@ enum ProtocolTabKind {
         switch tab {
         case .websocket:
             transaction.webSocketConnection != nil
+        case .web3:
+            transaction.web3RPCInfo != nil
         case .graphql:
             transaction.graphQLInfo != nil
         case .grpc:

@@ -29,6 +29,13 @@ struct ProtocolFilterTests {
         #expect(ProtocolFilter.websocket.matches(transaction))
     }
 
+    @Test("Web3 RPC filter matches transaction with Web3 metadata")
+    func web3RPCMatches() {
+        let transaction = TestFixtures.makeWeb3RPCTransaction()
+        #expect(ProtocolFilter.web3RPC.matches(transaction))
+        #expect(!ProtocolFilter.graphql.matches(transaction))
+    }
+
     @Test("gRPC filter matches transaction with gRPC metadata")
     func grpcMatches() {
         let transaction = TestFixtures.makeGRPCTransaction()

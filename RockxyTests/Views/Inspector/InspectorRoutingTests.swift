@@ -189,11 +189,36 @@ struct InspectorRoutingTests {
         #expect(ProtocolTabKind.isSupported(.grpc, by: tx))
     }
 
+    @Test("Web3 RPC metadata defaults to .web3 protocol tab")
+    func web3RPCMetadataDefaultsToWeb3Tab() {
+        let tx = makeWeb3RPCTransaction()
+        let tab = ProtocolTabKind.defaultFor(tx)
+
+        #expect(tab == .web3)
+        #expect(ProtocolTabKind.isSupported(.web3, by: tx))
+    }
+
     @Test("Plain HTTP transaction defaults to nil protocol tab")
     func httpDefaultsToNilTab() {
         let tx = TestFixtures.makeTransaction()
         let tab = ProtocolTabKind.defaultFor(tx)
         #expect(tab == nil)
+    }
+
+    @Test("JSON-RPC shaped HTTP without Web3 metadata defaults to nil protocol tab")
+    func jsonRPCWithoutWeb3MetadataDefaultsToNilTab() {
+        let tx = makeJSONRPCTransaction(
+            body: #"{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}"#
+        )
+
+        #expect(ProtocolTabKind.defaultFor(tx) == nil)
+    }
+
+    @Test("Malformed JSON-RPC HTTP without Web3 metadata falls back to nil protocol tab")
+    func malformedJSONRPCWithoutWeb3MetadataDefaultsToNilTab() {
+        let tx = makeJSONRPCTransaction(body: #"{"jsonrpc":"2.0","method":"eth_sendRawTransaction""#)
+
+        #expect(ProtocolTabKind.defaultFor(tx) == nil)
     }
 
     @Test("Plain HTTP transaction still supports empty gRPC tab")
@@ -212,6 +237,42 @@ struct InspectorRoutingTests {
         #expect(protocolTab == .websocket)
 
         // Then select HTTP
+        protocolTab = ProtocolTabKind.defaultFor(httpTx)
+        #expect(protocolTab == nil)
+    }
+
+    @Test("Switching GraphQL → HTTP clears protocol tab")
+    func graphQLToHttpClearsProtocol() {
+        let gqlTx = TestFixtures.makeGraphQLTransaction()
+        let httpTx = TestFixtures.makeTransaction()
+
+        var protocolTab = ProtocolTabKind.defaultFor(gqlTx)
+        #expect(protocolTab == .graphql)
+
+        protocolTab = ProtocolTabKind.defaultFor(httpTx)
+        #expect(protocolTab == nil)
+    }
+
+    @Test("Switching gRPC → HTTP clears protocol tab")
+    func grpcToHttpClearsProtocol() {
+        let grpcTx = TestFixtures.makeGRPCTransaction()
+        let httpTx = TestFixtures.makeTransaction()
+
+        var protocolTab = ProtocolTabKind.defaultFor(grpcTx)
+        #expect(protocolTab == .grpc)
+
+        protocolTab = ProtocolTabKind.defaultFor(httpTx)
+        #expect(protocolTab == nil)
+    }
+
+    @Test("Switching Web3 RPC → HTTP clears protocol tab")
+    func web3RPCToHttpClearsProtocol() {
+        let web3Tx = makeWeb3RPCTransaction()
+        let httpTx = TestFixtures.makeTransaction()
+
+        var protocolTab = ProtocolTabKind.defaultFor(web3Tx)
+        #expect(protocolTab == .web3)
+
         protocolTab = ProtocolTabKind.defaultFor(httpTx)
         #expect(protocolTab == nil)
     }
@@ -254,6 +315,30 @@ struct InspectorRoutingTests {
 
         tab = ProtocolTabKind.defaultFor(gql)
         #expect(tab == .graphql)
+    }
+
+    @Test("Switching WebSocket → Web3 RPC transitions protocol tab correctly")
+    func wsToWeb3RPCTransition() {
+        let ws = TestFixtures.makeWebSocketTransaction()
+        let web3 = makeWeb3RPCTransaction()
+
+        var tab = ProtocolTabKind.defaultFor(ws)
+        #expect(tab == .websocket)
+
+        tab = ProtocolTabKind.defaultFor(web3)
+        #expect(tab == .web3)
+    }
+
+    @Test("Web3 RPC metadata is preferred before GraphQL metadata")
+    func web3RPCPreferredBeforeGraphQL() {
+        let tx = makeWeb3RPCTransaction(graphQLInfo: GraphQLInfo(
+            operationName: "Example",
+            operationType: .query,
+            query: "query Example { blockNumber }",
+            variables: nil
+        ))
+
+        #expect(ProtocolTabKind.defaultFor(tx) == .web3)
     }
 
     @Test("Switching GraphQL → gRPC transitions protocol tab correctly")
@@ -416,6 +501,68 @@ struct InspectorRoutingTests {
             }
         }
         return crc ^ 0xFFFF_FFFF
+    }
+
+    private func makeWeb3RPCTransaction(graphQLInfo: GraphQLInfo? = nil) -> HTTPTransaction {
+        guard let url = URL(string: "https://rpc.example.com") else {
+            preconditionFailure("Expected valid Web3 RPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}"#.utf8),
+            contentType: .json
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
+            contentType: .json
+        )
+        return HTTPTransaction(
+            request: request,
+            response: response,
+            state: .completed,
+            graphQLInfo: graphQLInfo,
+            web3RPCInfo: Web3RPCInfo(
+                family: .evm,
+                providerHost: "rpc.example.com",
+                method: "eth_blockNumber",
+                requestID: "1",
+                batch: nil,
+                error: nil,
+                chainHint: Web3RPCChainHint(chainID: "0x1"),
+                transactionHash: nil,
+                blockIdentifier: nil,
+                requestPayloadSize: request.body?.count,
+                responsePayloadSize: response.body?.count
+            )
+        )
+    }
+
+    private func makeJSONRPCTransaction(body: String?) -> HTTPTransaction {
+        guard let url = URL(string: "https://rpc.example.com") else {
+            preconditionFailure("Expected valid JSON-RPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: body.map { Data($0.utf8) },
+            contentType: .json
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8),
+            contentType: .json
+        )
+        return HTTPTransaction(request: request, response: response, state: .completed)
     }
 
     @Test("CONNECT tunnel with existing SSL rule shows disable guidance")
