@@ -60,6 +60,8 @@ struct CodableTransaction: Codable {
             .map { CodableWebSocketConnection(from: $0) }
         self.graphQLInfo = transaction.graphQLInfo
             .map { CodableGraphQLInfo(from: $0) }
+        self.web3RPCInfo = transaction.web3RPCInfo
+            .map { CodableWeb3RPCInfo(from: $0) }
         self.sourcePort = transaction.sourcePort
         self.clientApp = transaction.clientApp
         self.comment = transaction.comment
@@ -85,6 +87,7 @@ struct CodableTransaction: Codable {
             CodableWebSocketConnection.self, forKey: .webSocketConnection
         )
         graphQLInfo = try container.decodeIfPresent(CodableGraphQLInfo.self, forKey: .graphQLInfo)
+        web3RPCInfo = try container.decodeIfPresent(CodableWeb3RPCInfo.self, forKey: .web3RPCInfo)
         sourcePort = try container.decodeIfPresent(UInt16.self, forKey: .sourcePort)
         clientApp = try container.decodeIfPresent(String.self, forKey: .clientApp)
         comment = try container.decodeIfPresent(String.self, forKey: .comment)
@@ -109,6 +112,7 @@ struct CodableTransaction: Codable {
         case timingInfo
         case webSocketConnection
         case graphQLInfo
+        case web3RPCInfo
         case sourcePort
         case clientApp
         case comment
@@ -130,6 +134,7 @@ struct CodableTransaction: Codable {
     let timingInfo: CodableTiming?
     let webSocketConnection: CodableWebSocketConnection?
     let graphQLInfo: CodableGraphQLInfo?
+    let web3RPCInfo: CodableWeb3RPCInfo?
     let sourcePort: UInt16?
     let clientApp: String?
     let comment: String?
@@ -151,7 +156,8 @@ struct CodableTransaction: Codable {
             state: TransactionState(rawValue: state) ?? .pending,
             timingInfo: timingInfo?.toLiveModel(),
             webSocketConnection: webSocketConnection?.toLiveModel(),
-            graphQLInfo: graphQLInfo?.toLiveModel()
+            graphQLInfo: graphQLInfo?.toLiveModel(),
+            web3RPCInfo: web3RPCInfo?.toLiveModel()
         )
         transaction.clientApp = clientApp
         transaction.sourcePort = sourcePort
@@ -381,6 +387,126 @@ struct CodableGraphQLInfo: Codable {
             query: query,
             variables: variables
         )
+    }
+}
+
+// MARK: - CodableWeb3RPCInfo
+
+struct CodableWeb3RPCInfo: Codable {
+    // MARK: Lifecycle
+
+    init(from info: Web3RPCInfo) {
+        self.family = info.family.rawValue
+        self.providerHost = info.providerHost
+        self.method = info.method
+        self.requestID = info.requestID
+        self.batch = info.batch.map { CodableWeb3RPCBatchSummary(from: $0) }
+        self.error = info.error.map { CodableWeb3RPCError(from: $0) }
+        self.chainHint = info.chainHint.map { CodableWeb3RPCChainHint(from: $0) }
+        self.transactionHash = info.transactionHash
+        self.blockIdentifier = info.blockIdentifier
+        self.requestPayloadSize = info.requestPayloadSize
+        self.responsePayloadSize = info.responsePayloadSize
+    }
+
+    // MARK: Internal
+
+    let family: String
+    let providerHost: String
+    let method: String?
+    let requestID: String?
+    let batch: CodableWeb3RPCBatchSummary?
+    let error: CodableWeb3RPCError?
+    let chainHint: CodableWeb3RPCChainHint?
+    let transactionHash: String?
+    let blockIdentifier: String?
+    let requestPayloadSize: Int?
+    let responsePayloadSize: Int?
+
+    func toLiveModel() -> Web3RPCInfo {
+        Web3RPCInfo(
+            family: Web3RPCFamily(rawValue: family) ?? .evm,
+            providerHost: providerHost,
+            method: method,
+            requestID: requestID,
+            batch: batch?.toLiveModel(),
+            error: error?.toLiveModel(),
+            chainHint: chainHint?.toLiveModel(),
+            transactionHash: transactionHash,
+            blockIdentifier: blockIdentifier,
+            requestPayloadSize: requestPayloadSize,
+            responsePayloadSize: responsePayloadSize
+        )
+    }
+}
+
+// MARK: - CodableWeb3RPCBatchSummary
+
+struct CodableWeb3RPCBatchSummary: Codable {
+    // MARK: Lifecycle
+
+    init(from summary: Web3RPCBatchSummary) {
+        self.requestCount = summary.requestCount
+        self.web3RequestCount = summary.web3RequestCount
+        self.responseCount = summary.responseCount
+        self.errorCount = summary.errorCount
+        self.methods = summary.methods
+    }
+
+    // MARK: Internal
+
+    let requestCount: Int
+    let web3RequestCount: Int
+    let responseCount: Int?
+    let errorCount: Int
+    let methods: [String]
+
+    func toLiveModel() -> Web3RPCBatchSummary {
+        Web3RPCBatchSummary(
+            requestCount: requestCount,
+            web3RequestCount: web3RequestCount,
+            responseCount: responseCount,
+            errorCount: errorCount,
+            methods: methods
+        )
+    }
+}
+
+// MARK: - CodableWeb3RPCError
+
+struct CodableWeb3RPCError: Codable {
+    // MARK: Lifecycle
+
+    init(from error: Web3RPCError) {
+        self.code = error.code
+        self.message = error.message
+    }
+
+    // MARK: Internal
+
+    let code: Int?
+    let message: String?
+
+    func toLiveModel() -> Web3RPCError {
+        Web3RPCError(code: code, message: message)
+    }
+}
+
+// MARK: - CodableWeb3RPCChainHint
+
+struct CodableWeb3RPCChainHint: Codable {
+    // MARK: Lifecycle
+
+    init(from hint: Web3RPCChainHint) {
+        self.chainID = hint.chainID
+    }
+
+    // MARK: Internal
+
+    let chainID: String?
+
+    func toLiveModel() -> Web3RPCChainHint {
+        Web3RPCChainHint(chainID: chainID)
     }
 }
 

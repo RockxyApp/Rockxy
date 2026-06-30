@@ -183,6 +183,53 @@ enum TestFixtures {
         return transaction
     }
 
+    static func makeWeb3RPCTransaction(
+        method: String? = "eth_blockNumber",
+        batch: Web3RPCBatchSummary? = nil,
+        error: Web3RPCError? = nil,
+        requestBody: Data? = Data(#"{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}"#.utf8),
+        responseBody: Data? = Data(#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#.utf8)
+    )
+        -> HTTPTransaction
+    {
+        guard let url = URL(string: "https://rpc.example.com") else {
+            preconditionFailure("Expected valid Web3 RPC fixture URL")
+        }
+        let request = HTTPRequestData(
+            method: "POST",
+            url: url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: requestBody,
+            contentType: .json
+        )
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: responseBody,
+            contentType: .json
+        )
+        return HTTPTransaction(
+            request: request,
+            response: response,
+            state: .completed,
+            web3RPCInfo: Web3RPCInfo(
+                family: .evm,
+                providerHost: "rpc.example.com",
+                method: method,
+                requestID: batch == nil ? "1" : nil,
+                batch: batch,
+                error: error,
+                chainHint: Web3RPCChainHint(chainID: "0x1"),
+                transactionHash: nil,
+                blockIdentifier: nil,
+                requestPayloadSize: requestBody?.count,
+                responsePayloadSize: responseBody?.count
+            )
+        )
+    }
+
     static func makeGRPCTransaction(
         requestBody: Data? = grpcFrame(payload: Data([0x08, 0x96, 0x01])),
         responseBody: Data? = grpcFrame(payload: Data([0x12, 0x07]) + Data("Stephen".utf8))

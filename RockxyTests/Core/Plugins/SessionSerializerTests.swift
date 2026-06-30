@@ -141,6 +141,32 @@ struct SessionSerializerTests {
         #expect(gql?.query == "{ users { id } }")
     }
 
+    @Test("Round-trip preserves Web3 RPC info")
+    func roundTripWeb3RPC() throws {
+        let transaction = TestFixtures.makeWeb3RPCTransaction(
+            method: nil,
+            batch: Web3RPCBatchSummary(
+                requestCount: 2,
+                web3RequestCount: 2,
+                responseCount: 2,
+                errorCount: 1,
+                methods: ["eth_chainId", "eth_blockNumber"]
+            ),
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+
+        let info = session.transactions[0].toLiveModel().web3RPCInfo
+        #expect(info?.family == .evm)
+        #expect(info?.providerHost == "rpc.example.com")
+        #expect(info?.requestID == nil)
+        #expect(info?.batch?.methods == ["eth_chainId", "eth_blockNumber"])
+        #expect(info?.error?.code == -32_000)
+        #expect(info?.chainHint?.chainID == "0x1")
+    }
+
     @Test("Round-trip preserves log entries")
     func roundTripLogEntries() throws {
         let transactions = [TestFixtures.makeTransaction()]
