@@ -214,7 +214,7 @@ struct RequestTableView: NSViewRepresentable {
             ColumnSpec(id: "requestSize", title: String(localized: "Request"), width: 78, minWidth: 60),
             ColumnSpec(id: "responseSize", title: String(localized: "Response"), width: 78, minWidth: 60),
             ColumnSpec(id: "ssl", title: String(localized: "SSL"), width: 38, minWidth: 32),
-            ColumnSpec(id: "queryName", title: String(localized: "Query Name"), width: 100, minWidth: 60),
+            ColumnSpec(id: "queryName", title: String(localized: "Operation"), width: 110, minWidth: 70),
         ]
 
         return specs.map { spec in
@@ -685,10 +685,12 @@ extension RequestTableView {
                     text = rowData.responseSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 case "queryName":
-                    // Unified display: WS rows show frame count, others show GraphQL op name
+                    // Unified display: WS rows show frame count, Web3 rows show RPC method, GraphQL rows show operation name.
                     if rowData.isWebSocket {
                         let count = rowData.webSocketFrameCount
                         text = "\(count) \(count == 1 ? "frame" : "frames")"
+                    } else if rowData.isWeb3RPC {
+                        text = rowData.web3RPCMethod ?? ""
                     } else {
                         text = rowData.graphQLOpName ?? ""
                     }
@@ -1540,7 +1542,7 @@ extension RequestTableView {
                 ("requestSize", String(localized: "Request")),
                 ("responseSize", String(localized: "Response")),
                 ("ssl", String(localized: "SSL")),
-                ("queryName", String(localized: "Query Name")),
+                ("queryName", String(localized: "Operation")),
             ]
 
             for col in builtInColumns {
@@ -2206,9 +2208,15 @@ extension RequestTableView {
                     let count = rowData.webSocketFrameCount
                     cell.stringValue = "\(count) \(count == 1 ? "frame" : "frames")"
                     cell.textColor = .tertiaryLabelColor
+                    cell.toolTip = nil
+                } else if rowData.isWeb3RPC {
+                    cell.stringValue = rowData.web3RPCMethod ?? ""
+                    cell.textColor = rowData.web3RPCErrorCode == nil ? .secondaryLabelColor : .systemRed
+                    cell.toolTip = rowData.web3RPCProviderHost
                 } else {
                     cell.stringValue = rowData.graphQLOpName ?? ""
                     cell.textColor = .secondaryLabelColor
+                    cell.toolTip = nil
                 }
 
             default:

@@ -7,7 +7,7 @@ import Foundation
 // MARK: - HTTPTransaction
 
 /// The central model for a proxied HTTP exchange — pairs a request with its response,
-/// lifecycle state, timing breakdown, and optional protocol-specific data (WebSocket, GraphQL).
+/// lifecycle state, timing breakdown, and optional protocol-specific data (WebSocket, GraphQL, Web3 RPC).
 /// Uses `@Observable` for SwiftUI reactivity; marked `@unchecked Sendable` because mutations
 /// only occur on the main actor after the proxy pipeline delivers completed transactions.
 @Observable
@@ -22,7 +22,8 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         state: TransactionState = .pending,
         timingInfo: TimingInfo? = nil,
         webSocketConnection: WebSocketConnection? = nil,
-        graphQLInfo: GraphQLInfo? = nil
+        graphQLInfo: GraphQLInfo? = nil,
+        web3RPCInfo: Web3RPCInfo? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -32,6 +33,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         self.timingInfo = timingInfo
         self.webSocketConnection = webSocketConnection
         self.graphQLInfo = graphQLInfo
+        self.web3RPCInfo = web3RPCInfo
     }
 
     // MARK: Internal
@@ -45,6 +47,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var measuredDuration: TimeInterval?
     var webSocketConnection: WebSocketConnection?
     var graphQLInfo: GraphQLInfo?
+    var web3RPCInfo: Web3RPCInfo?
     var sourcePort: UInt16?
     var clientApp: String?
     var comment: String?

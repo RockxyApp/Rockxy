@@ -49,7 +49,7 @@ enum RequestCopyFormatter {
         case "size":
             return transaction.response?.body.map { SizeFormatter.format(bytes: $0.count) } ?? ""
         case "queryName":
-            return transaction.graphQLInfo?.operationName ?? ""
+            return web3RPCMethodDescription(transaction.web3RPCInfo) ?? transaction.graphQLInfo?.operationName ?? ""
         default:
             if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
                 return HeaderColumnStore.resolveValue(for: column, transaction: transaction)
@@ -191,5 +191,21 @@ enum RequestCopyFormatter {
 
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func web3RPCMethodDescription(_ info: Web3RPCInfo?) -> String? {
+        guard let info else {
+            return nil
+        }
+        if let method = info.method {
+            return method
+        }
+        guard let batch = info.batch else {
+            return nil
+        }
+        if let first = batch.methods.first {
+            return batch.methods.count > 1 ? "\(first) + \(batch.methods.count - 1)" : first
+        }
+        return "\(batch.web3RequestCount) calls"
     }
 }

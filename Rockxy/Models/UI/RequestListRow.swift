@@ -9,7 +9,7 @@ import Foundation
 /// and enabling future `SessionStore`-backed windowed browsing.
 ///
 /// Supports all traffic classes that `HTTPTransaction` represents: plain HTTP, HTTPS,
-/// WebSocket, GraphQL, and TLS-failure transactions.
+/// WebSocket, GraphQL, Web3 JSON-RPC, and TLS-failure transactions.
 struct RequestListRow: Identifiable {
     enum SSLState: Int {
         case insecure
@@ -44,6 +44,10 @@ struct RequestListRow: Identifiable {
         aiTrafficSignal = AITrafficDetector.signal(transaction: transaction)
         graphQLOpName = transaction.graphQLInfo?.operationName
         graphQLOpType = transaction.graphQLInfo?.operationType.rawValue
+        isWeb3RPC = transaction.web3RPCInfo != nil
+        web3RPCMethod = Self.web3RPCMethodDescription(transaction.web3RPCInfo)
+        web3RPCProviderHost = transaction.web3RPCInfo?.providerHost
+        web3RPCErrorCode = transaction.web3RPCInfo?.error?.code
         isWebSocket = transaction.webSocketConnection != nil
         webSocketFrameCount = transaction.webSocketConnection?.frameCount ?? 0
         sourcePort = transaction.sourcePort
@@ -79,6 +83,10 @@ struct RequestListRow: Identifiable {
     let aiTrafficSignal: AITrafficSignal
     let graphQLOpName: String?
     let graphQLOpType: String?
+    let isWeb3RPC: Bool
+    let web3RPCMethod: String?
+    let web3RPCProviderHost: String?
+    let web3RPCErrorCode: Int?
     let isWebSocket: Bool
     let webSocketFrameCount: Int
     let sourcePort: UInt16?
@@ -193,9 +201,32 @@ extension RequestListRow {
         if lhs.isWebSocket, rhs.isWebSocket {
             return compareInt(lhs.webSocketFrameCount, rhs.webSocketFrameCount)
         }
-        let lhsDisplay = lhs.isWebSocket ? "\(lhs.webSocketFrameCount)" : (lhs.graphQLOpName ?? "")
-        let rhsDisplay = rhs.isWebSocket ? "\(rhs.webSocketFrameCount)" : (rhs.graphQLOpName ?? "")
+        let lhsDisplay = operationDisplayName(for: lhs)
+        let rhsDisplay = operationDisplayName(for: rhs)
         return lhsDisplay.localizedCompare(rhsDisplay)
+    }
+
+    private static func operationDisplayName(for row: RequestListRow) -> String {
+        if row.isWebSocket {
+            return "\(row.webSocketFrameCount)"
+        }
+        return row.web3RPCMethod ?? row.graphQLOpName ?? ""
+    }
+
+    private static func web3RPCMethodDescription(_ info: Web3RPCInfo?) -> String? {
+        guard let info else {
+            return nil
+        }
+        if let method = info.method {
+            return method
+        }
+        guard let batch = info.batch else {
+            return nil
+        }
+        if let first = batch.methods.first {
+            return batch.methods.count > 1 ? "\(first) + \(batch.methods.count - 1)" : first
+        }
+        return "\(batch.web3RequestCount) calls"
     }
 
     private static func compareInt(_ lhs: Int, _ rhs: Int) -> ComparisonResult {

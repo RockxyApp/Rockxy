@@ -41,6 +41,17 @@ struct SensitiveDataRedactor {
         "passwd",
         "pwd",
         "private_key",
+        "private-key",
+        "privatekey",
+        "seed",
+        "seed_phrase",
+        "seed-phrase",
+        "seedphrase",
+        "mnemonic",
+        "recovery_phrase",
+        "recovery-phrase",
+        "recoveryphrase",
+        "signature",
         "client_secret",
         "key",
     ]
@@ -146,7 +157,8 @@ struct SensitiveDataRedactor {
             state: transaction.state,
             timingInfo: transaction.timingInfo,
             webSocketConnection: transaction.webSocketConnection,
-            graphQLInfo: transaction.graphQLInfo
+            graphQLInfo: transaction.graphQLInfo,
+            web3RPCInfo: transaction.web3RPCInfo
         )
         redacted.measuredDuration = transaction.measuredDuration
         redacted.sourcePort = transaction.sourcePort
@@ -176,15 +188,38 @@ struct SensitiveDataRedactor {
         options: [.caseInsensitive]
     )
 
+    private static let bodySecretKeyPattern = [
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "client_secret",
+        "private_key",
+        "private-key",
+        "privatekey",
+        "seed",
+        "seed_phrase",
+        "seed-phrase",
+        "seedphrase",
+        "mnemonic",
+        "recovery_phrase",
+        "recovery-phrase",
+        "recoveryphrase",
+        "signature",
+        "credentials",
+    ].joined(separator: "|")
+
     private static let bodySecretPatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: #"("(?:password|passwd|pwd|secret|client_secret|private_key|credentials)")\s*:\s*\#(jsonScalarPattern)"#,
+        pattern: #"("(?:\#(bodySecretKeyPattern))")\s*:\s*\#(jsonScalarPattern)"#,
         options: [.caseInsensitive]
     )
 
     private static let xmlSensitivePatternRegex: NSRegularExpression = try! NSRegularExpression(
         pattern: """
         <(password|passwd|secret|token|access_token|api_key|apikey\
-        |client_secret|private_key|credentials)>([^<]*)</
+        |client_secret|private_key|private-key|privatekey|seed|seed_phrase|seed-phrase\
+        |seedphrase|mnemonic|recovery_phrase|recovery-phrase|recoveryphrase|signature\
+        |credentials)>([^<]*)</
         """,
         options: [.caseInsensitive]
     )
@@ -195,7 +230,7 @@ struct SensitiveDataRedactor {
     )
 
     private static let genericKeyValuePatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: #"(?i)((?:password|passwd|secret|token|api_key|apikey)[\s]*[:=][\s]*)\S+"#,
+        pattern: #"(?i)((?:password|passwd|secret|token|api_key|apikey|private_key|privatekey|seed_phrase|seedphrase|mnemonic|signature)[\s]*[:=][\s]*)\S+"#,
         options: []
     )
     // swiftlint:enable force_try
