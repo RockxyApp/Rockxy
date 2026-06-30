@@ -56,12 +56,16 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.27.2** — 2026-06-18
+**v0.28.0** — 2026-06-25
 
-### Changed
+### Added
 
-- Enhance metadata privacy controls
-- Refine metadata disclosure layout
+- Added a dedicated gRPC inspector for protobuf traffic, making unary and streaming gRPC responses easier to identify and inspect.
+
+### Fixed
+
+- Kept protocol-specific inspector tabs visible and ordered consistently so gRPC details stay easy to find during response review.
+- Fixed a launch-time readiness check that could crash or stall while Rockxy refreshed proxy and developer setup state.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

@@ -20,6 +20,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+## [0.28.0] - 2026-06-25
+
+### Added
+
+- Added a dedicated gRPC inspector for protobuf traffic, making unary and streaming gRPC responses easier to identify and inspect.
+
+### Fixed
+
+- Kept protocol-specific inspector tabs visible and ordered consistently so gRPC details stay easy to find during response review.
+- Fixed a launch-time readiness check that could crash or stall while Rockxy refreshed proxy and developer setup state.
+
 ## [0.27.2] - 2026-06-18
 
 ### Changed
