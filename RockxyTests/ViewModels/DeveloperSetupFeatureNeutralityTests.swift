@@ -40,6 +40,33 @@ struct DeveloperSetupFeatureNeutralityTests {
         #expect(violations.isEmpty, "Developer Setup files must stay free of packaging and entitlement language: \(violations)")
     }
 
+    @Test("Public React Native docs do not claim unsupported Android automation")
+    func publicReactNativeDocsStaySourceBacked() throws {
+        let root = try resolveProjectRoot()
+        let docs = [
+            root.appendingPathComponent("docs/setup-guides/react-native.mdx"),
+            root.appendingPathComponent("docs/getting-started/developer-setup-hub.mdx"),
+            root.appendingPathComponent("docs/index.mdx"),
+            root.appendingPathComponent("docs/troubleshooting/faq.mdx"),
+            root.appendingPathComponent("docs/changelog.mdx"),
+            root.appendingPathComponent("CHANGELOG.md"),
+        ]
+        let unsupportedClaims = [
+            "React Native Android automation",
+            "Pro automation exists for the React Native Android workflow",
+            "licensed Android automation",
+        ]
+
+        let violations = try docs.flatMap { url -> [String] in
+            let raw = try String(contentsOf: url, encoding: .utf8)
+            return unsupportedClaims.compactMap { claim in
+                raw.localizedCaseInsensitiveContains(claim) ? "\(url.lastPathComponent): \(claim)" : nil
+            }
+        }
+
+        #expect(violations.isEmpty, "React Native docs must match the shipped manual/hybrid implementation: \(violations)")
+    }
+
     // MARK: Private
 
     private enum ResolveError: Error, CustomStringConvertible {

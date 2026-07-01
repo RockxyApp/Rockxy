@@ -254,7 +254,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-- Developer Setup Hub now includes Flutter and React Native mobile setup flows, with licensed Android automation for supported workflows.
+- Developer Setup Hub now includes Flutter and React Native mobile setup flows with manual platform guidance, validation probes, and setup snippets for supported workflows.
 - Favorite request context menus now include richer actions, including opening favorites in new tabs.
 - Developer Setup Hub can now be opened directly from the toolbar.
 
