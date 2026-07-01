@@ -111,7 +111,7 @@ struct PrivacySettingsTab: View {
             }
 
             Button(String(localized: "Privacy Policy")) {
-                if let url = URL(string: "https://github.com/LocNguyenHuu/Rockxy/wiki/Privacy") {
+                if let url = URL(string: "https://www.rockxy.io/privacy") {
                     NSWorkspace.shared.open(url)
                 }
             }

@@ -14,7 +14,7 @@
 
 If you discover a security vulnerability in Rockxy, please report it responsibly through one of these channels:
 
-1. **GitHub Security Advisories** (preferred): Go to the [Security tab](https://github.com/LocNguyenHuu/Rockxy/security/advisories) and click "Report a vulnerability."
+1. **GitHub Security Advisories** (preferred): Go to the [Security tab](https://github.com/RockxyApp/Rockxy/security/advisories) and click "Report a vulnerability."
 2. **Email**: Send details to [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com) with the subject line "Rockxy Security Report".
 
 ### What to include
