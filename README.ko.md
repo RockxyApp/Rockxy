@@ -48,7 +48,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/Rockxy-Light.png" alt="macOS에서 실행 중인 Rockxy" width="800" />
+  <a href="https://youtu.be/RvkQuwUjBaQ" title="Watch the Rockxy demo on YouTube">
+    <img src="docs/images/Rockxy-Demo-Preview.png" alt="macOS에서 실행 중인 Rockxy" width="800" />
+  </a>
 </p>
 
 ---

@@ -48,7 +48,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/Rockxy-Light.png" alt="Rockxy chạy trên macOS" width="800" />
+  <a href="https://youtu.be/RvkQuwUjBaQ" title="Watch the Rockxy demo on YouTube">
+    <img src="docs/images/Rockxy-Demo-Preview.png" alt="Rockxy chạy trên macOS" width="800" />
+  </a>
 </p>
 
 ---
