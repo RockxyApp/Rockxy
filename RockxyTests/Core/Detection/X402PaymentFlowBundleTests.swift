@@ -36,6 +36,50 @@ struct X402PaymentFlowBundleTests {
         }
     }
 
+    @Test("Every case preserves its expected detection, flow, and severity values")
+    func casesPreserveExpectedOutcomeValues() throws {
+        let expectedOutcomes: [String: (detect: String, flow: String, severity: String)] = [
+            "unpaid_x402": (
+                detect: "x402_payment_required",
+                flow: "partial",
+                severity: "needs_payment_not_error"
+            ),
+            "malformed_metadata": (
+                detect: "possible_x402_payment_required",
+                flow: "partial_invalid_metadata",
+                severity: "protocol_metadata_warning"
+            ),
+            "verification_failure": (
+                detect: "x402_payment_attempt_failed",
+                flow: "attempted_unsettled",
+                severity: "payment_verification_failed"
+            ),
+            "settled_retry_shape": (
+                detect: "x402_settled_retry",
+                flow: "completed",
+                severity: "success"
+            ),
+            "ordinary_non_x402_402": (
+                detect: "ordinary_http_402",
+                flow: "single_response",
+                severity: "inspectable_http_status"
+            ),
+            "settlement_failure": (
+                detect: "x402_settlement_failed",
+                flow: "attempted_unsettled",
+                severity: "payment_settlement_failed"
+            ),
+        ]
+
+        for (name, outcome) in expectedOutcomes {
+            let expected = try requiredObject(caseNamed(name)["expected"], named: "\(name).expected")
+
+            #expect(expected["detect"] as? String == outcome.detect)
+            #expect(expected["flow"] as? String == outcome.flow)
+            #expect(expected["severity"] as? String == outcome.severity)
+        }
+    }
+
     @Test("Ordinary HTTP 402 remains separate from x402 payment metadata")
     func ordinaryHTTP402IsNotClassifiedAsX402() throws {
         let item = try caseNamed("ordinary_non_x402_402")
