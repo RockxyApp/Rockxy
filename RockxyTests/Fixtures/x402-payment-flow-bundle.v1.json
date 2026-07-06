@@ -1,0 +1,252 @@
+{
+  "bundle": "rockxy_x402_payment_flow_detection_fixtures",
+  "schema_version": "fixture.x402.flow.v1",
+  "source_issue": "https://github.com/RockxyApp/Rockxy/issues/164",
+  "safety": {
+    "wallet_secrets": "none",
+    "private_keys": "none",
+    "seed_phrases": "none",
+    "bearer_tokens": "none",
+    "payment_proofs": "synthetic_or_redacted_only",
+    "personal_data": "none",
+    "network_fetching_tests": "none"
+  },
+  "redaction_policy": {
+    "always_redact_headers": [
+      "payment-required",
+      "www-authenticate",
+      "authorization",
+      "cookie",
+      "x-api-key",
+      "x-payment",
+      "x-payment-response"
+    ],
+    "summarize_fields": [
+      "pay_to",
+      "request",
+      "facilitator",
+      "payment_payload",
+      "settlement_reference"
+    ],
+    "display_safe_fields": [
+      "x402Version",
+      "x402",
+      "network",
+      "asset",
+      "price",
+      "method",
+      "resource.url",
+      "resource.description",
+      "facilitator_host"
+    ]
+  },
+  "cases": [
+    {
+      "case": "unpaid_x402",
+      "request": {
+        "method": "GET",
+        "url": "https://payments.example.com/price"
+      },
+      "response": {
+        "status": 402,
+        "headers": {
+          "content-type": "application/json",
+          "payment-required": "[REDACTED_BASE64_PAYMENT_REQUIREMENTS]",
+          "www-authenticate": "[REDACTED_X402_CHALLENGE]"
+        },
+        "body": {
+          "x402Version": 2,
+          "x402": "payment_required",
+          "error": "Payment required",
+          "method": "GET",
+          "resource": {
+            "url": "https://payments.example.com/price",
+            "description": "Get current BTC and ETH prices",
+            "mimeType": "application/json",
+            "serviceName": "Synthetic x402 fixture seller"
+          },
+          "accepts_summary": [
+            {
+              "scheme": "exact",
+              "network": "eip155:8453",
+              "asset": "USDC",
+              "price": "$0.01",
+              "method": "x402",
+              "intent": "charge",
+              "facilitator_host": "api.cdp.coinbase.com",
+              "pay_to": "[REDACTED_ADDRESS]",
+              "request": "[REDACTED_SIGNABLE_REQUEST]"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "detect": "x402_payment_required",
+        "flow": "partial",
+        "redact": [
+          "payment-required",
+          "www-authenticate",
+          "accepts.request",
+          "accepts.pay_to"
+        ],
+        "severity": "needs_payment_not_error"
+      }
+    },
+    {
+      "case": "malformed_metadata",
+      "request": {
+        "method": "GET",
+        "url": "https://payments.example.invalid/price"
+      },
+      "response": {
+        "status": 402,
+        "headers": {
+          "content-type": "application/json",
+          "payment-required": "[REDACTED_UNPARSEABLE_VALUE]"
+        },
+        "body": {
+          "x402Version": 2,
+          "x402": "payment_required",
+          "accepts": [
+            {
+              "scheme": "exact",
+              "network": "eip155:8453",
+              "asset": "USDC",
+              "price": "$0.01",
+              "pay_to": null,
+              "request": "not-base64-json"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "detect": "possible_x402_payment_required",
+        "flow": "partial_invalid_metadata",
+        "redact": [
+          "payment-required",
+          "accepts.request"
+        ],
+        "diagnostics": [
+          "missing_or_invalid_pay_to",
+          "invalid_signable_request_encoding"
+        ],
+        "severity": "protocol_metadata_warning"
+      }
+    },
+    {
+      "case": "verification_failure",
+      "request_sequence": [
+        {
+          "step": "initial_resource_request",
+          "method": "GET",
+          "url": "https://payments.example.invalid/research/x402"
+        },
+        {
+          "step": "retry_with_payment_payload",
+          "method": "GET",
+          "url": "https://payments.example.invalid/research/x402",
+          "headers": {
+            "x-payment": "[REDACTED_SYNTHETIC_PAYMENT_PAYLOAD]"
+          }
+        }
+      ],
+      "response_sequence": [
+        {
+          "step": "payment_required",
+          "status": 402,
+          "headers": {
+            "payment-required": "[REDACTED]"
+          },
+          "body": {
+            "x402Version": 2,
+            "x402": "payment_required",
+            "network": "eip155:8453",
+            "asset": "USDC",
+            "price": "$0.05"
+          }
+        },
+        {
+          "step": "verification_failed",
+          "status": 402,
+          "headers": {
+            "payment-required": "[REDACTED]"
+          },
+          "body": {
+            "x402Version": 2,
+            "x402": "payment_failed",
+            "error": "facilitator verification failed",
+            "failure_class": "verification_failure",
+            "safe_reason": "signature_or_amount_invalid"
+          }
+        }
+      ],
+      "expected": {
+        "detect": "x402_payment_attempt_failed",
+        "flow": "attempted_unsettled",
+        "redact": [
+          "x-payment",
+          "payment-required"
+        ],
+        "severity": "payment_verification_failed"
+      }
+    },
+    {
+      "case": "settled_retry_shape",
+      "request_sequence": [
+        {
+          "step": "initial_resource_request",
+          "method": "GET",
+          "url": "https://payments.example.invalid/price"
+        },
+        {
+          "step": "retry_with_payment_payload",
+          "method": "GET",
+          "url": "https://payments.example.invalid/price",
+          "headers": {
+            "x-payment": "[REDACTED_SYNTHETIC_PAYMENT_PAYLOAD]"
+          }
+        }
+      ],
+      "response_sequence": [
+        {
+          "step": "payment_required",
+          "status": 402,
+          "headers": {
+            "payment-required": "[REDACTED]"
+          },
+          "body": {
+            "x402Version": 2,
+            "x402": "payment_required",
+            "network": "eip155:8453",
+            "asset": "USDC",
+            "price": "$0.01"
+          }
+        },
+        {
+          "step": "paid_resource_response",
+          "status": 200,
+          "headers": {
+            "content-type": "application/json",
+            "x-payment-response": "[REDACTED_SYNTHETIC_SETTLEMENT_REFERENCE]"
+          },
+          "body": {
+            "btc_usd": 62335,
+            "eth_usd": 1758.78,
+            "as_of": "2026-07-06T12:00:00Z"
+          }
+        }
+      ],
+      "expected": {
+        "detect": "x402_settled_retry",
+        "flow": "completed",
+        "redact": [
+          "x-payment",
+          "x-payment-response",
+          "payment-required"
+        ],
+        "display_summary": "GET /price: 402 payment_required -> paid retry -> 200 resource",
+        "severity": "success"
+      }
+    }
+  ]
+}
