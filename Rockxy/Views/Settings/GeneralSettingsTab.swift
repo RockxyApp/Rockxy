@@ -12,62 +12,35 @@ struct GeneralSettingsTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Port Number
-                settingsRow(label: String(localized: "Port Number:")) {
-                    TextField("", value: $proxyPort, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .font(settingsMetrics.font(monospaced: true))
-                        .frame(width: settingsMetrics.fieldWidth(80))
-                        .frame(minHeight: settingsMetrics.controlHeight)
+            VStack(alignment: .leading, spacing: 18) {
+                Text(String(localized: "Proxy"))
+                    .font(settingsMetrics.font(weight: .medium))
+
+                sectionCard {
+                    generalControlsSection
                 }
 
-                // Auto Start Recording
-                checkboxRow(
-                    isOn: $recordOnLaunch,
-                    title: String(localized: "Auto Start Recording Traffic at Launch"),
-                    description: String(
-                        localized: "Start capturing network traffic as soon as the app launches."
-                    )
-                )
+                Text(String(localized: "Root CA Certificate"))
+                    .font(settingsMetrics.font(weight: .medium))
 
-                // Advanced Proxy Setting button
-                HStack {
-                    Color.clear.frame(width: settingsMetrics.rowLeading)
-                    Button(String(localized: "Advanced Proxy Setting…")) {
-                        openWindow(id: "advancedProxySettings")
+                sectionCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        certificateSection
+
+                        if case let .success(message) = certificateStatus {
+                            certificateFeedbackRow(message: message, color: .green)
+                        } else if case let .error(message) = certificateStatus {
+                            certificateFeedbackRow(message: message, color: .red)
+                        }
                     }
                 }
-
-                sectionDivider
-
-                // Certificate section
-                certificateSection
-
-                // Certificate status feedback
-                if case let .success(message) = certificateStatus {
-                    HStack(spacing: 8) {
-                        Color.clear.frame(width: settingsMetrics.rowLeading)
-                        Text(message)
-                            .foregroundStyle(.green)
-                            .font(settingsMetrics.secondaryFont())
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                } else if case let .error(message) = certificateStatus {
-                    HStack(spacing: 8) {
-                        Color.clear.frame(width: settingsMetrics.rowLeading)
-                        Text(message)
-                            .foregroundStyle(.red)
-                            .font(settingsMetrics.secondaryFont())
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-
-                Spacer()
             }
             .padding(.horizontal, settingsMetrics.contentPadding)
             .padding(.top, 20)
+            .padding(.bottom, 20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: proxyPort) { _, newValue in
             AppSettingsManager.shared.updateProxyPort(newValue)
         }
@@ -134,22 +107,65 @@ struct GeneralSettingsTab: View {
     @State private var certificateStatus: CertificateStatus = .idle
     @StateObject private var caShareController = CAShareController()
 
-    private var sectionDivider: some View {
-        Divider().padding(.horizontal, 0)
-    }
-
     private var settingsMetrics: SettingsDisplayMetrics {
         SettingsDisplayMetrics(appMetrics: appMetrics)
     }
 
-    private var certificateSection: some View {
-        settingsRow(label: String(localized: "Root CA Certificate:")) {
-            CertificateStatusPanel(
-                snapshot: certSnapshot,
-                isLoading: certLoading,
-                onAction: handleCertAction
-            )
+    private func sectionCard<Content: View>(
+        @ViewBuilder content: () -> Content
+    )
+        -> some View
+    {
+        VStack(alignment: .leading, spacing: 12) {
+            content()
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            Color(nsColor: .controlBackgroundColor).opacity(0.82),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 0.5)
+        }
+    }
+
+    private var certificateSection: some View {
+        CertificateStatusPanel(
+            snapshot: certSnapshot,
+            isLoading: certLoading,
+            onAction: handleCertAction
+        )
+    }
+
+    private var generalControlsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            settingsRow(label: String(localized: "Port Number:")) {
+                TextField("", value: $proxyPort, format: .number)
+                    .textFieldStyle(.roundedBorder)
+                    .font(settingsMetrics.font(monospaced: true))
+                    .frame(width: settingsMetrics.fieldWidth(80))
+                    .frame(minHeight: settingsMetrics.controlHeight)
+            }
+
+            checkboxRow(
+                isOn: $recordOnLaunch,
+                title: String(localized: "Auto Start Recording Traffic at Launch"),
+                description: String(
+                    localized: "Start capturing network traffic as soon as the app launches."
+                )
+            )
+
+            HStack {
+                Color.clear.frame(width: settingsMetrics.rowLeading)
+                Button(String(localized: "Advanced Proxy Setting…")) {
+                    openWindow(id: "advancedProxySettings")
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func settingsRow(
@@ -186,6 +202,13 @@ struct GeneralSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func certificateFeedbackRow(message: String, color: Color) -> some View {
+        Text(message)
+            .foregroundStyle(color)
+            .font(settingsMetrics.secondaryFont())
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Certificate Actions

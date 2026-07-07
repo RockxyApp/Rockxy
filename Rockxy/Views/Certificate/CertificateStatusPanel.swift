@@ -33,6 +33,7 @@ struct CertificateStatusPanel: View {
 
     let snapshot: RootCAStatusSnapshot?
     let isLoading: Bool
+    var pinsActionsToBottom = false
     let onAction: (CertificateAction) -> Void
 
     var body: some View {
@@ -41,14 +42,48 @@ struct CertificateStatusPanel: View {
             diagnosticsGrid
             expiryCallout
             errorCallout
+            if pinsActionsToBottom {
+                Spacer(minLength: 12)
+            }
             actionRow
         }
+        .frame(maxWidth: .infinity, maxHeight: pinsActionsToBottom ? .infinity : nil, alignment: .topLeading)
     }
 
     // MARK: Private
 
     private static let expiryWarningDays = 30
     private static let expiryWarningSeconds: TimeInterval = .init(expiryWarningDays) * 24 * 3_600
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    private var titleFont: Font {
+        settingsMetrics.font(weight: .medium)
+    }
+
+    private var secondaryFont: Font {
+        settingsMetrics.secondaryFont()
+    }
+
+    private var secondaryMonospacedFont: Font {
+        settingsMetrics.secondaryFont(monospaced: true)
+    }
+
+    private var metadataFont: Font {
+        settingsMetrics.metadataFont()
+    }
+
+    private var actionFont: Font {
+        settingsMetrics.font()
+    }
+
+    private var summaryIconFontSize: CGFloat {
+        max(16, settingsMetrics.bodyFontSize + 3)
+    }
 
     private var state: PanelState {
         guard let snapshot else {
@@ -129,18 +164,19 @@ struct CertificateStatusPanel: View {
     // MARK: - Zone A: Summary Row
 
     private var summaryRow: some View {
-        HStack(spacing: Theme.Layout.controlSpacing) {
+        HStack(alignment: .top, spacing: Theme.Layout.controlSpacing) {
             Image(systemName: state.iconName)
                 .foregroundStyle(state.iconColor)
-                .font(.system(size: 16))
+                .font(.system(size: summaryIconFontSize))
+                .padding(.top, 2)
                 .accessibilityLabel(
                     String(localized: "Root CA status: \(state.accessibilityLabel)")
                 )
             VStack(alignment: .leading, spacing: 2) {
                 Text(state.title)
-                    .font(Theme.Typography.sectionTitle)
+                    .font(titleFont)
                 Text(state.subtitle)
-                    .font(.system(size: 11))
+                    .font(secondaryFont)
                     .foregroundStyle(.secondary)
             }
         }
@@ -215,9 +251,9 @@ struct CertificateStatusPanel: View {
             HStack(alignment: .top, spacing: 4) {
                 Image(systemName: "clock.badge.exclamationmark")
                     .foregroundStyle(tintColor)
-                    .font(.system(size: 10))
+                    .font(metadataFont)
                 Text(message)
-                    .font(.system(size: 10))
+                    .font(secondaryFont)
                     .foregroundStyle(tintColor)
             }
             .padding(6)
@@ -240,9 +276,9 @@ struct CertificateStatusPanel: View {
             HStack(alignment: .top, spacing: 4) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
-                    .font(.system(size: 10))
+                    .font(metadataFont)
                 Text(message)
-                    .font(.system(size: 10))
+                    .font(secondaryFont)
                     .foregroundStyle(.red)
             }
             .padding(6)
@@ -324,6 +360,7 @@ struct CertificateStatusPanel: View {
                 .disabled(isLoading)
             }
         }
+        .font(actionFont)
     }
 
     private var shareCertificateButton: some View {
@@ -343,11 +380,11 @@ struct CertificateStatusPanel: View {
     {
         GridRow {
             Text(label)
-                .font(.system(size: 11))
+                .font(metadataFont)
                 .foregroundStyle(.secondary)
                 .gridColumnAlignment(.trailing)
             Text(value)
-                .font(.system(size: 11, design: .monospaced))
+                .font(secondaryMonospacedFont)
                 .foregroundStyle(color)
                 .accessibilityLabel(fullAccessibilityValue ?? value)
         }
