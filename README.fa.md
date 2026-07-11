@@ -58,16 +58,24 @@
 ---
 
 <!-- BEGIN GENERATED: latest-release -->
-## آخرین نسخه با برچسب
+## Latest Tagged Release
 
-**نسخه 0.27.2** — 2026-06-18
+**v0.29.0** — 2026-07-11
 
-### تغییر کرد
+### Added
 
-- کنترل‌های حریم خصوصی فراداده را تقویت کنید
-- طرح‌بندی افشای فراداده را اصلاح کنید
+- Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.
+- Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
+- Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
+- Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
 
-ببینید [CHANGELOG.md](CHANGELOG.md) برای تاریخچه انتشار کامل
+### Changed
+
+- Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.
+- Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
+- Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
 
 ## نکات برجسته شعبه فعلی

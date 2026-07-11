@@ -6,27 +6,31 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.28.0 (build 44)</title>
-      <pubDate>Thu, 25 Jun 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-06-25T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.29.0 (build 45)</title>
+      <pubDate>Sat, 11 Jul 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-07-11T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.28.0/Rockxy-0.28.0-44.dmg"
-        sparkle:version="44"
-        sparkle:shortVersionString="0.28.0"
-        sparkle:edSignature="jXer8Z6xuXKughtFYipL3PcIqXgLQuKIRV2z6CusI1h7K3x4/2cgDSk7UaFVD2/tzKFL6a1hPv4hPIMj/gZYDA=="
-        length="29115459"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.29.0/Rockxy-0.29.0-45.dmg"
+        sparkle:version="45"
+        sparkle:shortVersionString="0.29.0"
+        sparkle:edSignature="OqYWnTlf+BWosxEc9hHYrdWNF4L8fZCJwrnTeNzxrXNTKenorYeS11jv3ycQuGgLknotm8pu5Z5NtIuejlwaCw=="
+        length="29561391"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.28.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.29.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Added a dedicated gRPC inspector for protobuf traffic, making unary and streaming gRPC responses easier to identify and inspect.</li>
+  <li>Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.</li>
+  <li>Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.</li>
+  <li>Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.</li>
+  <li>Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.</li>
 </ul>
-<h3>Fixed</h3>
+<h3>Changed</h3>
 <ul>
-  <li>Kept protocol-specific inspector tabs visible and ordered consistently so gRPC details stay easy to find during response review.</li>
-  <li>Fixed a launch-time readiness check that could crash or stall while Rockxy refreshed proxy and developer setup state.</li>
+  <li>Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.</li>
+  <li>Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.</li>
+  <li>Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.</li>
 </ul>
       ]]></description>
     </item>
