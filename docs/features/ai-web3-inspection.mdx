@@ -1,0 +1,127 @@
+---
+title: "AI and Web3 Inspection"
+description: "Detect and inspect AI model calls, Web3 JSON-RPC traffic, and x402-style payment hints inside Rockxy's native macOS traffic debugger."
+---
+
+# AI and Web3 Inspection
+
+Rockxy can highlight AI and Web3 traffic inside the same capture, filter, request list, and inspector workflow you already use for HTTP debugging.
+
+The goal is visibility first: identify the request, understand what kind of protocol behavior it represents, and keep the underlying request and response available in the normal inspector tabs.
+
+## What Rockxy Detects
+
+| Traffic type | What appears in Rockxy |
+|--------------|------------------------|
+| AI model APIs | Provider, model when visible, streaming hints, usage fields when present, warnings, retrieval hints, and tool-call summaries |
+| Native AI app sessions | AI session labeling when the request is recognizable but full payload details are not visible |
+| Web3 JSON-RPC | Provider host, request ID, RPC family, method, batch summary, error, chain hint, transaction hash, and payload sizes when visible |
+| x402-style flows | Payment-required and retry-flow hints from HTTP status, headers, and response body shape |
+| gRPC | Dedicated gRPC inspector tab for unary and streaming protobuf-style traffic |
+
+<Note>
+AI and Web3 inspection is passive. Rockxy does not become a wallet, model gateway, block explorer, prompt manager, or hosted observability service.
+</Note>
+
+## Request List Signals
+
+The request list can show protocol-aware labels so noisy sessions are easier to scan:
+
+- **Protocol** column labels AI, Web3 RPC, gRPC, GraphQL, WebSocket, and normal HTTP traffic.
+- Protocol filters help narrow a session to the traffic family you are investigating.
+- Rows keep the original method, host, path, status, size, and duration fields visible so protocol context does not replace the normal HTTP evidence.
+
+## AI Inspector
+
+When Rockxy recognizes AI model traffic, the AI inspector focuses on the debugging facts that are safe and useful to read:
+
+- provider and model when available,
+- request kind and endpoint shape,
+- streaming state,
+- usage fields when the provider returns them,
+- tool-call summaries,
+- retrieval hints,
+- warnings for incomplete or unavailable fields.
+
+Use the regular **Headers**, **Body**, **Raw**, **Timeline**, and **Comments** tabs alongside the AI tab when you need the full request context.
+
+## Web3 Inspector
+
+For Web3 JSON-RPC traffic, the Web3 inspector summarizes the call without hiding the raw JSON:
+
+- RPC family such as EVM or Solana,
+- provider host,
+- JSON-RPC request ID,
+- method,
+- batch request and response counts,
+- error code and message when present,
+- chain and transaction hints when visible,
+- payload size and debug intent.
+
+Debug intent helps you quickly tell whether a call looks like a read, simulation, provider check, log lookup, subscription, batch, or broadcast-style request.
+
+## Working With Existing Debugging Tools
+
+AI and Web3 requests remain normal captured HTTP transactions. Existing Rockxy tools still apply:
+
+- use **Breakpoint** to pause a request or response and inspect or edit it before continuing;
+- use **Map Local** to return a saved response snapshot for a matching request;
+- use **Map Remote** to redirect traffic to another provider, staging gateway, local model server, or local RPC node;
+- use **Modify Headers** to test request or response header behavior;
+- use **Block List** to make an endpoint fail and test fallback behavior;
+- use **Network Conditions** to test slower provider responses and retry behavior.
+
+<Warning>
+Traffic rules currently match URL, HTTP method, and headers. They do not yet match individual AI model names, tool calls, JSON-RPC methods, chain IDs, wallet addresses, transaction hashes, or batch subcalls.
+</Warning>
+
+## Practical Workflows
+
+### Debug AI API behavior
+
+1. Capture the real client request.
+2. Filter to AI traffic or search for the provider host.
+3. Open the AI inspector to check provider, model, stream, usage, and tool-call hints.
+4. Use the Body or Raw tab for the exact request and response payload.
+5. Use Breakpoints, Map Local, Map Remote, or Modify Headers only when you need to change the next run.
+
+### Debug Web3 RPC behavior
+
+1. Capture the wallet, dApp, backend, or CLI traffic.
+2. Filter to Web3 RPC traffic or scope to the provider domain.
+3. Open the Web3 inspector to check method, request ID, batch state, chain hint, error, and transaction hash.
+4. Use the raw JSON body for any detail not summarized by the inspector.
+5. Use Breakpoints for write or broadcast-style calls when you need to inspect the payload before it leaves the machine.
+
+### Check x402-style payment flows
+
+1. Capture the payment-gated HTTP request.
+2. Look for payment-required status and header/body hints.
+3. Compare the first response with the retry request or follow-up response.
+4. Keep sensitive headers and payloads local unless you explicitly export or publish selected traffic.
+
+## Current Scope
+
+Rockxy focuses on inspection and local debugging evidence:
+
+- AI and Web3 metadata is derived from visible captured HTTP traffic.
+- Encrypted HTTPS payloads require normal Rockxy certificate trust and SSL proxying setup.
+- WebSocket frames are still inspected through the WebSocket tools; Web3 JSON-RPC detection currently focuses on HTTP request and response bodies.
+- Batch JSON-RPC requests are summarized instead of split into separate editable subcalls.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Traffic Capture" icon="radar" href="/features/traffic-capture">
+    Capture HTTP, HTTPS, WebSocket, GraphQL, AI, and Web3 traffic from real clients.
+  </Card>
+  <Card title="Traffic Rules" icon="filter" href="/features/rules">
+    Use existing Rockxy tools to pause, map, redirect, block, or slow matching requests.
+  </Card>
+  <Card title="Request Replay" icon="rotate" href="/features/request-replay">
+    Re-send selected HTTP requests while iterating on headers, body, query, or method.
+  </Card>
+  <Card title="MCP Integration" icon="plug" href="/features/mcp">
+    Share redacted captured traffic with local MCP clients when you choose to.
+  </Card>
+</CardGroup>

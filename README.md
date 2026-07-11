@@ -77,10 +77,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 - Upstream Proxy now includes free/core Automatic Proxy Configuration with PAC URL routing for `DIRECT`, HTTP, and HTTPS routes while preserving existing SOCKS5 and authentication policy boundaries.
 - Export workflows now cover OpenAPI YAML/HTML and selected-traffic Gist publishing with redaction-aware payload building.
 - Inspector tools now include JSONPath/key/value filtering and quick previews for selected payload text such as JWTs.
+- AI and Web3 traffic inspection now adds protocol labels, inspector tabs, and debug summaries for recognized model calls, JSON-RPC traffic, and x402-style payment hints.
 - Node.js Developer Setup now mirrors the selected client during validation and has a fuller localhost sample guide.
 - Developer Setup Hub now covers runtimes, browsers, clients, devices, frameworks, and environments with target-specific snippets, validation watchers, and honest guide content.
 - WebSocket Protobuf work continues as part of Rockxy's richer protocol inspection direction.
-- Public roadmap planning now includes protocol-aware debugging for AI traffic, Web3/RPC flows, x402-style payment flows, and safer redacted evidence sharing.
+- Public roadmap planning now focuses on deeper protocol-aware rules, replay, comparison, and safer redacted evidence sharing.
 
 ## Features
 
@@ -246,39 +247,39 @@ JS hooks on requests and responses for the cases a static rule can't cover — r
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## More Features Coming Soon
+## AI, Web3, and Future Protocol Work
 
-Future features are tracked publicly and ship only when the implementation, tests, privacy behavior, and documentation are ready.
+Rockxy is adding protocol-aware inspection while keeping the normal HTTP debugging workflow intact. Features ship only when the implementation, tests, privacy behavior, and documentation are ready.
 
-### AI Traffic Inspection `Coming Soon`
+### AI Traffic Inspection
 
-Make model traffic easier to debug inside the normal capture workflow. Detect AI requests, inspect selected model calls, diagnose streaming responses, compare prompt/output behavior, and understand tool-call chains without pasting sensitive payloads into another service.
+Make model traffic easier to debug inside the normal capture workflow. Detect recognized AI requests, inspect selected model calls, review streaming state, usage fields when present, warnings, retrieval hints, and tool-call summaries without pasting sensitive payloads into another service.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### Web3/RPC Inspection `Coming Soon`
+### Web3/RPC Inspection
 
-Turn blockchain-era network calls into readable debugging evidence. Inspect JSON-RPC and Solana RPC traffic, group related calls into flows, explain common RPC errors, and replay selected requests without becoming a wallet or block explorer.
+Turn blockchain-era network calls into readable debugging evidence. Inspect EVM and Solana-style HTTP JSON-RPC traffic with provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details without becoming a wallet or block explorer.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### x402 Payment Flow Debugging `Coming Soon`
+### x402 Payment Flow Hints
 
-Understand payment-gated HTTP flows from the network layer. Highlight payment-required responses, follow the retry path, and keep the debugging evidence local and redaction-aware.
+Understand payment-gated HTTP flows from the network layer. Highlight payment-required and retry-oriented hints while keeping debugging evidence local and redaction-aware.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+### Protocol-Aware Filters & Rules `Future`
+
+Rockxy can label and inspect AI and Web3 traffic today. Deeper rule matching by model, tool call, JSON-RPC method, chain, transaction hash, or batch subcall remains future work; current traffic modification tools still match URL, HTTP method, and headers.
+
+`Smart Filters` · `Request Badges` · `Protocol Column` · `Inspector Tabs` · `Future Rule Metadata`
 
 ### Redacted Evidence Bundles `Coming Soon`
 
 Share the facts needed to reproduce a bug without leaking secrets. Package selected traffic with protocol summaries, redaction previews, and source-backed context a teammate can audit.
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
-
-### Protocol-Aware Filters & Rules `Coming Soon`
-
-Use AI and Web3 metadata where Rockxy already works: filters, badges, optional columns, comparison, rules, Developer Setup, and local MCP summaries.
-
-`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
 
 ### Team Sharing & Collaboration `Coming Soon`
 
@@ -316,7 +317,7 @@ If you want to connect Rockxy to a local MCP client after installation, see the 
 | **MCP/local automation bridge** | Built in, token-authenticated, redaction by default | Not claimed in public docs reviewed | Not claimed in public docs reviewed |
 | **Open contribution path** | Public issues, discussions, roadmap, and PRs | Vendor-controlled product | Vendor-controlled product |
 
-On the roadmap: deeper replay/diff/rules/scripting workflows, improved WebSocket and GraphQL inspection, protocol-aware AI and Web3/RPC debugging, x402-style payment-flow visibility, and exploration of gRPC/Protobuf plus HTTP/2 and HTTP/3 support.
+On the roadmap: deeper replay/diff/rules/scripting workflows, improved WebSocket and GraphQL inspection, deeper protocol-aware AI and Web3/RPC debugging, x402-style payment-flow visibility, and exploration of gRPC/Protobuf plus HTTP/2 and HTTP/3 support.
 
 ## Security
 

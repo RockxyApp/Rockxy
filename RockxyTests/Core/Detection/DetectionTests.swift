@@ -438,6 +438,43 @@ struct DetectionTests {
         #expect(info.providerHost == "api.mainnet-beta.solana.com")
     }
 
+    @Test("Web3RPCInfo classifies engineer debug intent")
+    func classifyWeb3DebugIntent() {
+        #expect(makeWeb3Info(method: "eth_call").debugIntent == .simulation)
+        #expect(makeWeb3Info(method: "eth_estimateGas").debugIntent == .simulation)
+        #expect(makeWeb3Info(method: "eth_sendRawTransaction").debugIntent == .broadcast)
+        #expect(makeWeb3Info(method: "sendTransaction", family: .solana).debugIntent == .broadcast)
+        #expect(makeWeb3Info(method: "eth_getLogs").debugIntent == .logs)
+        #expect(makeWeb3Info(method: "getTransaction", family: .solana).debugIntent == .logs)
+        #expect(makeWeb3Info(method: "eth_chainId").debugIntent == .provider)
+        #expect(makeWeb3Info(method: "getBalance", family: .solana).debugIntent == .read)
+    }
+
+    @Test("Web3RPCInfo classifies batch before method class")
+    func classifyWeb3BatchIntent() {
+        let info = Web3RPCInfo(
+            family: .evm,
+            providerHost: "rpc.example.com",
+            method: "eth_sendRawTransaction",
+            requestID: nil,
+            batch: Web3RPCBatchSummary(
+                requestCount: 2,
+                web3RequestCount: 2,
+                responseCount: 2,
+                errorCount: 1,
+                methods: ["eth_chainId", "eth_sendRawTransaction"]
+            ),
+            error: Web3RPCError(code: -32_000, message: "rejected"),
+            chainHint: nil,
+            transactionHash: nil,
+            blockIdentifier: nil,
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+
+        #expect(info.debugIntent == .batch)
+    }
+
     private func web3Request(url: String = "https://mainnet.infura.io/v3/test", body: Any) throws -> HTTPRequestData {
         let data = try JSONSerialization.data(withJSONObject: body)
         return try HTTPRequestData(
@@ -447,6 +484,22 @@ struct DetectionTests {
             headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
             body: data,
             contentType: .json
+        )
+    }
+
+    private func makeWeb3Info(method: String, family: Web3RPCFamily = .evm) -> Web3RPCInfo {
+        Web3RPCInfo(
+            family: family,
+            providerHost: "rpc.example.com",
+            method: method,
+            requestID: "1",
+            batch: nil,
+            error: nil,
+            chainHint: nil,
+            transactionHash: nil,
+            blockIdentifier: nil,
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
         )
     }
 

@@ -29,11 +29,43 @@ struct ProtocolFilterTests {
         #expect(ProtocolFilter.websocket.matches(transaction))
     }
 
+    @Test("AI filter matches likely AI traffic")
+    func aiMatches() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses"
+        )
+        #expect(ProtocolFilter.ai.matches(transaction))
+        #expect(!ProtocolFilter.ai.matches(TestFixtures.makeTransaction()))
+    }
+
+    @Test("AI Session filter matches known app session hosts")
+    func aiSessionMatches() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://chatgpt.com/",
+            statusCode: nil
+        )
+
+        #expect(ProtocolFilter.aiSession.matches(transaction))
+        #expect(!ProtocolFilter.ai.matches(transaction))
+        #expect(!ProtocolFilter.aiSession.matches(TestFixtures.makeTransaction()))
+    }
+
     @Test("Web3 RPC filter matches transaction with Web3 metadata")
     func web3RPCMatches() {
         let transaction = TestFixtures.makeWeb3RPCTransaction()
         #expect(ProtocolFilter.web3RPC.matches(transaction))
         #expect(!ProtocolFilter.graphql.matches(transaction))
+    }
+
+    @Test("RPC error filter matches Web3 transactions with provider errors")
+    func rpcErrorMatches() {
+        let transaction = TestFixtures.makeWeb3RPCTransaction(
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+        #expect(ProtocolFilter.rpcError.matches(transaction))
+        #expect(!ProtocolFilter.rpcError.matches(TestFixtures.makeWeb3RPCTransaction()))
     }
 
     @Test("gRPC filter matches transaction with gRPC metadata")

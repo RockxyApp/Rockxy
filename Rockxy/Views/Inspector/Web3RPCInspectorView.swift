@@ -13,6 +13,7 @@ struct Web3RPCInspectorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     callSummary(info)
+                    debugIntentCard(info)
                     metadataGrid(info)
                     batchSummary(info.batch)
                     errorStrip(info.error)
@@ -23,9 +24,9 @@ struct Web3RPCInspectorView: View {
             .background(Color(nsColor: .textBackgroundColor))
         } else {
             InspectorEmptyStateView(
-                String(localized: "No Web3 RPC Data"),
+                String(localized: "No Web3 Detected"),
                 systemImage: "network",
-                description: String(localized: "This transaction does not include Web3 JSON-RPC metadata.")
+                description: String(localized: "Open this tab when a request carries JSON-RPC methods such as eth_call, sendTransaction, or getLatestBlockhash.")
             )
         }
     }
@@ -37,7 +38,7 @@ struct Web3RPCInspectorView: View {
     private func callSummary(_ info: Web3RPCInfo) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                badge(String(localized: "Web3 JSON-RPC"), color: .purple)
+                badge(String(localized: "Web3"), color: .green)
                 badge(info.family.displayName, color: .blue)
                 if let statusCode = transaction.response?.statusCode {
                     badge(String(localized: "HTTP \(statusCode)"), color: statusCode < 400 ? .green : .red)
@@ -59,12 +60,7 @@ struct Web3RPCInspectorView: View {
                     .textSelection(.enabled)
             }
 
-            LazyVGrid(columns: summaryColumns, alignment: .leading, spacing: 8) {
-                metric(String(localized: "Provider"), value: info.providerHost, color: .primary)
-                metric(String(localized: "Request ID"), value: info.requestID ?? String(localized: "Batch"), color: .primary)
-                metric(String(localized: "Chain"), value: info.chainHint?.chainID ?? String(localized: "Unknown"), color: .primary)
-                metric(String(localized: "Payload"), value: payloadSummary(info), color: .primary)
-            }
+            summaryMetrics(info)
         }
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
@@ -75,10 +71,38 @@ struct Web3RPCInspectorView: View {
         }
     }
 
-    private var summaryColumns: [GridItem] {
-        [
-            GridItem(.adaptive(minimum: 140), spacing: 8, alignment: .leading),
-        ]
+    private func summaryMetrics(_ info: Web3RPCInfo) -> some View {
+        let provider = summaryMetric(String(localized: "Provider"), value: info.providerHost, color: .primary)
+        let requestID = summaryMetric(String(localized: "Request ID"), value: info.requestID ?? String(localized: "Batch"), color: .primary)
+        let chain = summaryMetric(String(localized: "Chain"), value: info.chainHint?.chainID ?? String(localized: "Unknown"), color: .primary)
+        let payload = summaryMetric(String(localized: "Payload"), value: payloadSummary(info), color: .primary)
+
+        return ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 8) {
+                provider
+                requestID
+                chain
+                payload
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
+                    provider
+                    requestID
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    chain
+                    payload
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                provider
+                requestID
+                chain
+                payload
+            }
+        }
     }
 
     private func metadataGrid(_ info: Web3RPCInfo) -> some View {
@@ -90,6 +114,18 @@ struct Web3RPCInspectorView: View {
             VStack(alignment: .leading, spacing: 12) {
                 callSection(info)
                 resultSection(info)
+            }
+        }
+    }
+
+    private func debugIntentCard(_ info: Web3RPCInfo) -> some View {
+        section(String(localized: "Debug Intent"), badgeText: info.debugIntent.displayName) {
+            VStack(spacing: 0) {
+                metadataRow(String(localized: "Intent"), value: info.debugIntent.explanation, color: info.debugIntent.color)
+                Divider()
+                metadataRow(String(localized: "Outcome"), value: outcomeText(info), color: outcomeColor(info))
+                Divider()
+                metadataRow(String(localized: "Next Check"), value: nextCheckText(info), color: .primary)
             }
         }
     }
@@ -278,7 +314,7 @@ struct Web3RPCInspectorView: View {
             .foregroundStyle(color)
     }
 
-    private func metric(_ label: String, value: String, color: Color) -> some View {
+    private func summaryMetric(_ label: String, value: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(label)
                 .font(.system(size: metrics.badgeFontSize, weight: .medium))
@@ -292,6 +328,7 @@ struct Web3RPCInspectorView: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 7)
+        .frame(minWidth: 136, maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6)
@@ -332,6 +369,145 @@ struct Web3RPCInspectorView: View {
         }
         return String(localized: "Success")
     }
+
+    private func outcomeText(_ info: Web3RPCInfo) -> String {
+        if let error = info.error {
+            if let code = error.code, let message = error.message {
+                return String(localized: "RPC \(code): \(message)")
+            }
+            return error.message ?? String(localized: "Provider returned a JSON-RPC error")
+        }
+
+        if let statusCode = transaction.response?.statusCode,
+           statusCode >= 400
+        {
+            return String(localized: "HTTP \(statusCode) from provider")
+        }
+
+        if let batch = info.batch {
+            return batch.errorCount == 0 ?
+                String(localized: "\(batch.web3RequestCount) batch calls completed") :
+                String(localized: "\(batch.errorCount) of \(batch.web3RequestCount) batch calls failed")
+        }
+
+        return String(localized: "RPC completed")
+    }
+
+    private func outcomeColor(_ info: Web3RPCInfo) -> Color {
+        if info.error != nil {
+            return .red
+        }
+        if let statusCode = transaction.response?.statusCode,
+           statusCode >= 400
+        {
+            return .red
+        }
+        if let batch = info.batch,
+           batch.errorCount > 0
+        {
+            return .orange
+        }
+        return .green
+    }
+
+    private func nextCheckText(_ info: Web3RPCInfo) -> String {
+        if info.error != nil {
+            switch info.debugIntent {
+            case .broadcast:
+                return String(localized: "Check raw transaction/signature, wallet signer state, nonce, gas, and provider rejection details.")
+            case .batch:
+                return String(localized: "Open the raw response and match failed batch ids to their request methods.")
+            case .simulation:
+                return String(localized: "Compare call params, block tag, gas estimate, and revert message between attempts.")
+            default:
+                return String(localized: "Check provider error code/message, request id, auth headers, and retry timing.")
+            }
+        }
+
+        switch info.debugIntent {
+        case .batch:
+            return String(localized: "Verify each subcall belongs together and watch for mixed read/write calls in one request.")
+        case .broadcast:
+            return String(localized: "Follow the returned transaction hash/signature into receipt or confirmation polling.")
+        case .simulation:
+            return String(localized: "Compare block tag, calldata, gas, and returned value before sending a transaction.")
+        case .logs:
+            return String(localized: "Check block range, topic filters, returned tx hash, and receipt correlation.")
+        case .subscription:
+            return String(localized: "Follow subscribe id, notifications, unsubscribe, and any dropped WebSocket frames.")
+        case .provider:
+            return String(localized: "Use this as provider/chain baseline before comparing app calls.")
+        case .read:
+            return String(localized: "Compare account, commitment/block tag, and result size across providers or retries.")
+        case .unknown:
+            return String(localized: "Inspect raw JSON-RPC params and response body to classify this method.")
+        }
+    }
+}
+
+private extension Web3RPCDebugIntent {
+    var displayName: String {
+        switch self {
+        case .batch:
+            String(localized: "Batch")
+        case .broadcast:
+            String(localized: "Broadcast")
+        case .simulation:
+            String(localized: "Simulation")
+        case .logs:
+            String(localized: "Logs")
+        case .subscription:
+            String(localized: "Subscription")
+        case .provider:
+            String(localized: "Provider")
+        case .read:
+            String(localized: "Read")
+        case .unknown:
+            String(localized: "Unknown")
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .batch:
+            String(localized: "Multiple JSON-RPC calls shipped together")
+        case .broadcast:
+            String(localized: "Write-like transaction/signature path")
+        case .simulation:
+            String(localized: "Dry-run or gas/compute estimation")
+        case .logs:
+            String(localized: "Event, receipt, or transaction lookup")
+        case .subscription:
+            String(localized: "Realtime subscription lifecycle")
+        case .provider:
+            String(localized: "Provider, chain, or node baseline")
+        case .read:
+            String(localized: "State read with no expected write")
+        case .unknown:
+            String(localized: "Method needs manual inspection")
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .broadcast:
+            .orange
+        case .simulation:
+            .blue
+        case .logs:
+            .purple
+        case .subscription:
+            .indigo
+        case .batch:
+            .teal
+        case .provider:
+            .secondary
+        case .read:
+            .green
+        case .unknown:
+            .secondary
+        }
+    }
 }
 
 private extension Web3RPCFamily {
@@ -347,9 +523,9 @@ private extension Web3RPCFamily {
     var longDisplayName: String {
         switch self {
         case .evm:
-            "EVM JSON-RPC"
+            "EVM RPC"
         case .solana:
-            "Solana JSON-RPC"
+            "Solana RPC"
         }
     }
 }

@@ -194,18 +194,18 @@ struct HeaderColumnStoreTests {
         #expect(store.isBuiltInColumnVisible("url"))
     }
 
-    @Test("AI built-in column is hidden by default but can be enabled")
-    func aiBuiltInColumnDefaultVisibility() {
+    @Test("Protocol built-in column is visible by default and can be hidden")
+    func protocolBuiltInColumnDefaultVisibility() {
         let store = makeCleanStore()
 
-        #expect(!store.isBuiltInColumnVisible("ai"))
-        store.toggleBuiltInColumn("ai")
         #expect(store.isBuiltInColumnVisible("ai"))
+        store.toggleBuiltInColumn("ai")
+        #expect(!store.isBuiltInColumnVisible("ai"))
 
         let store2 = HeaderColumnStore()
-        #expect(store2.isBuiltInColumnVisible("ai"))
-        store2.toggleBuiltInColumn("ai")
         #expect(!store2.isBuiltInColumnVisible("ai"))
+        store2.toggleBuiltInColumn("ai")
+        #expect(store2.isBuiltInColumnVisible("ai"))
     }
 
     @Test("Hidden built-in columns persist")

@@ -17,9 +17,9 @@ struct GRPCInspectorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .unsupported:
                 InspectorEmptyStateView(
-                    String(localized: "Empty gRPC Data"),
+                    String(localized: "No gRPC Metadata"),
                     systemImage: "point.3.connected.trianglepath.dotted",
-                    description: String(localized: "This transaction does not include gRPC metadata or length-prefixed messages.")
+                    description: String(localized: "Open this tab when a request uses application/grpc metadata or length-prefixed gRPC messages.")
                 )
             case let .loaded(inspection):
                 inspectorContent(inspection)

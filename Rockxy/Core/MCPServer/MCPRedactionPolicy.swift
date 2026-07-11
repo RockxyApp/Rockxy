@@ -225,8 +225,16 @@ struct MCPRedactionPolicy {
         options: [.caseInsensitive]
     )
 
+    private static let sensitiveBodyKeyAlternation: String = [
+        sensitiveBodyKeys,
+        sensitiveQueryParams.subtracting(["key"]),
+    ]
+    .flatMap { $0 }
+    .map { NSRegularExpression.escapedPattern(for: $0) }
+    .joined(separator: "|")
+
     private static let bodySecretPatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: #"("(?:password|passwd|pwd|secret|client_secret|private_key|credentials)")\s*:\s*\#(jsonScalarPattern)"#,
+        pattern: #"("(?:\#(sensitiveBodyKeyAlternation))")\s*:\s*\#(jsonScalarPattern)"#,
         options: [.caseInsensitive]
     )
 
@@ -236,10 +244,7 @@ struct MCPRedactionPolicy {
     )
 
     private static let xmlSensitivePatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: """
-        <(password|passwd|secret|token|access_token|api_key|apikey\
-        |client_secret|private_key|credentials)>([^<]*)</
-        """,
+        pattern: #"<(\#(sensitiveBodyKeyAlternation))>([^<]*)</"#,
         options: [.caseInsensitive]
     )
 
@@ -249,7 +254,7 @@ struct MCPRedactionPolicy {
     )
 
     private static let genericKeyValuePatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: #"(?i)((?:password|passwd|secret|token|api_key|apikey)[\s]*[:=][\s]*)\S+"#,
+        pattern: #"(?i)((?:\#(sensitiveBodyKeyAlternation))[\s]*[:=][\s]*)\S+"#,
         options: []
     )
     // swiftlint:enable force_try

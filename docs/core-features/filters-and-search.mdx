@@ -31,6 +31,7 @@ This is the fastest way to move from “everything” to “the part of the syst
 Use toolbar filters when you want to refine within the current scope:
 
 - protocol,
+- AI, Web3 RPC, gRPC, WebSocket, or GraphQL traffic families when detected,
 - content family,
 - status-code range,
 - or a more advanced filter expression.
@@ -60,6 +61,13 @@ Use search when you already know a clue:
 1. scope to the relevant API host,
 2. filter to GraphQL or JSON-oriented traffic,
 3. inspect operation names and payloads in the request body.
+
+### Isolate AI or Web3 traffic
+
+1. scope to the client app or provider domain,
+2. filter to AI or Web3 RPC traffic,
+3. inspect the protocol-specific tab for provider, model, stream, tool-call, JSON-RPC method, batch, chain, or error hints,
+4. switch back to Headers, Body, Raw, or Timeline for the underlying HTTP evidence.
 
 ### Clean up mobile device noise
 
@@ -93,6 +101,9 @@ That distinction keeps the debugging loop clear.
 <CardGroup cols={2}>
   <Card title="Traffic Capture" icon="radar" href="/features/traffic-capture">
     Learn the broader capture model around filtering and selection.
+  </Card>
+  <Card title="AI and Web3 Inspection" icon="sparkles" href="/features/ai-web3-inspection">
+    Use protocol-aware labels and inspector tabs for model and RPC traffic.
   </Card>
   <Card title="Workspaces" icon="table-columns" href="/features/workspaces">
     Keep multiple filtered investigations open at once.

@@ -883,7 +883,8 @@ extension HTTPProxyHandler {
         let transaction = HTTPTransaction(
             request: requestData,
             response: responseData,
-            state: .completed
+            state: .completed,
+            x402Info: X402Detector.detect(request: requestData, response: responseData)
         )
         transaction.measuredDuration = requestElapsedDuration()
         transaction.sourcePort = clientSourcePort

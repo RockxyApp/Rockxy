@@ -214,7 +214,7 @@ final class HeaderColumnStore {
     private static let discoveredResKey = RockxyIdentity.current.defaultsKey("discoveredResHeaders")
     private static let hiddenColumnsKey = RockxyIdentity.current.defaultsKey("hiddenBuiltInColumns")
     private static let visibleDefaultHiddenColumnsKey = RockxyIdentity.current.defaultsKey("visibleDefaultHiddenBuiltInColumns")
-    private static let defaultHiddenBuiltInColumns: Set<String> = ["ai"]
+    private static let defaultHiddenBuiltInColumns: Set<String> = []
 
     // Internal dedup sets for O(1) membership checks during incremental discovery
     private var discoveredRequestHeaderSet: Set<String> = []

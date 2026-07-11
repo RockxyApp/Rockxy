@@ -34,6 +34,7 @@
           "features/traffic-capture",
           "core-features/filters-and-search",
           "features/https-interception",
+          "features/ai-web3-inspection",
           "features/websocket",
           "features/websocket-protobuf",
           "features/graphql",

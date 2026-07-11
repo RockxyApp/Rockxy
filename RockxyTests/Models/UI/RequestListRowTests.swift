@@ -133,7 +133,56 @@ struct RequestListRowTests {
 
         #expect(row.aiTrafficSignal.isLikelyAI)
         #expect(row.aiTrafficSignal.provider == .openAICompatible)
-        #expect(row.aiTrafficSignal.tableLabel == "AI")
+        #expect(row.aiTrafficSignal.kind == .api)
+        #expect(row.aiTrafficSignal.tableLabel == "AI API")
+        #expect(row.smartBadgeText == "AI API")
+        #expect(row.smartBadgeTooltip?.contains("OpenAI-compatible") == true)
+    }
+
+    @Test("AI session signal is extracted from known native app hosts")
+    func aiSessionTrafficSignal() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://chatgpt.com/",
+            statusCode: nil
+        )
+        transaction.clientApp = "ChatGPT"
+
+        let row = RequestListRow(from: transaction)
+
+        #expect(row.aiTrafficSignal.isLikelyAI)
+        #expect(row.aiTrafficSignal.provider == .chatGPT)
+        #expect(row.aiTrafficSignal.kind == .session)
+        #expect(row.smartBadgeText == "AI Session")
+        #expect(row.smartBadgeTooltip?.contains("body hidden") == true)
+    }
+
+    @Test("Smart badge text summarizes Web3 RPC metadata")
+    func web3SmartBadgeText() {
+        let normal = RequestListRow(from: TestFixtures.makeWeb3RPCTransaction())
+        let error = RequestListRow(from: TestFixtures.makeWeb3RPCTransaction(
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        ))
+
+        #expect(normal.smartBadgeText == "Web3")
+        #expect(normal.smartBadgeTooltip?.contains("rpc.example.com") == true)
+        #expect(error.smartBadgeText == "RPC ERR")
+        #expect(error.smartBadgeTooltip?.contains("-32000") == true)
+    }
+
+    @Test("Protocol column labels ordinary and structured traffic")
+    func protocolColumnFallbackLabels() {
+        let http = RequestListRow(from: TestFixtures.makeTransaction(url: "http://example.com/test"))
+        let https = RequestListRow(from: TestFixtures.makeTransaction(url: "https://example.com/test"))
+        let webSocket = RequestListRow(from: TestFixtures.makeWebSocketTransaction())
+        let graphQL = RequestListRow(from: TestFixtures.makeGraphQLTransaction())
+        let grpc = RequestListRow(from: TestFixtures.makeGRPCTransaction())
+
+        #expect(http.smartBadgeText == "HTTP")
+        #expect(https.smartBadgeText == "HTTPS")
+        #expect(webSocket.smartBadgeText == "WS")
+        #expect(graphQL.smartBadgeText == "GraphQL")
+        #expect(grpc.smartBadgeText == "gRPC")
     }
 
     @Test("Body sizes extracted from request and response")
@@ -241,14 +290,16 @@ struct RequestListRowTests {
         #expect(RequestListRow.compare(https, http, using: descriptors) == false)
     }
 
-    @Test("Sort by AI groups ordinary traffic before AI traffic")
+    @Test("Sort by protocol label")
     func sortByAI() {
-        let ordinary = makeRow(host: "example.com")
         let ai = makeRow(host: "api.openai.com", path: "/v1/responses")
+        let ordinary = makeRow(host: "example.com")
         let descriptors = [NSSortDescriptor(key: "ai", ascending: true)]
 
-        #expect(RequestListRow.compare(ordinary, ai, using: descriptors) == true)
-        #expect(RequestListRow.compare(ai, ordinary, using: descriptors) == false)
+        #expect(ai.smartBadgeText == "AI API")
+        #expect(ordinary.smartBadgeText == "HTTPS")
+        #expect(RequestListRow.compare(ai, ordinary, using: descriptors) == true)
+        #expect(RequestListRow.compare(ordinary, ai, using: descriptors) == false)
     }
 
     @Test("SSL state can represent intercepted HTTPS separately from tunneled HTTPS")
