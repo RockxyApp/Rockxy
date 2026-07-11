@@ -22,9 +22,20 @@ nonisolated enum AITrafficDetector {
 
     static func signal(snapshot: AITrafficSnapshot) -> AITrafficSignal {
         if let provider = provider(from: snapshot) {
-            return AITrafficSignal(isLikelyAI: true, provider: provider)
+            return AITrafficSignal(
+                isLikelyAI: true,
+                provider: provider,
+                kind: signalKind(for: snapshot),
+                evidence: evidence(for: snapshot)
+            )
         }
-        return AITrafficSignal(isLikelyAI: isLikelyAI(snapshot: snapshot), provider: nil)
+        let likely = isLikelyAI(snapshot: snapshot)
+        return AITrafficSignal(
+            isLikelyAI: likely,
+            provider: nil,
+            kind: likely ? .heuristic : .none,
+            evidence: likely ? evidence(for: snapshot) : []
+        )
     }
 
     static func isLikelyAI(snapshot: AITrafficSnapshot) -> Bool {
@@ -85,6 +96,8 @@ nonisolated enum AITrafficDetector {
 
         return AIInspection(
             provider: resolvedProvider,
+            kind: signalKind(for: snapshot),
+            evidence: evidence(for: snapshot),
             model: stringValue(forKey: "model", in: requestJSON)
                 ?? stringValue(forKey: "model", in: responseJSON),
             endpoint: snapshot.path.isEmpty ? snapshot.urlString : snapshot.path,
@@ -107,6 +120,18 @@ nonisolated enum AITrafficDetector {
         let path = snapshot.path.lowercased()
         let headerNames = snapshot.requestHeaders.map { $0.name.lowercased() }
 
+        if host == "chatgpt.com"
+            || host.hasSuffix(".chatgpt.com")
+            || host == "desktop.chat.openai.com"
+            || host.hasSuffix(".desktop.chat.openai.com")
+        {
+            return .chatGPT
+        }
+        if host == "claude.ai"
+            || host.hasSuffix(".claude.ai")
+        {
+            return .claude
+        }
         if host.contains("anthropic.com") || headerNames.contains("anthropic-version") {
             return .anthropic
         }
@@ -121,6 +146,71 @@ nonisolated enum AITrafficDetector {
             return .openAICompatible
         }
         return nil
+    }
+
+    private static func signalKind(for snapshot: AITrafficSnapshot) -> AITrafficSignalKind {
+        if hasVisibleAIAPIEvidence(snapshot) {
+            return .api
+        }
+        if isKnownNativeSession(snapshot) || hasHiddenTLSOnlyBody(snapshot) {
+            return .session
+        }
+        return .heuristic
+    }
+
+    private static func hasVisibleAIAPIEvidence(_ snapshot: AITrafficSnapshot) -> Bool {
+        let path = snapshot.path.lowercased()
+        if path.contains("/v1/responses")
+            || path.contains("/v1/chat/completions")
+            || path.contains("/v1/messages")
+            || path.contains("/v1/embeddings")
+            || path.contains("/chat/completions")
+            || path.contains("/embeddings")
+        {
+            return true
+        }
+
+        let requestPrefix = snapshot.requestBody
+            .flatMap { String(bytes: $0.prefix(maxQuickScanBytes), encoding: .utf8)?.lowercased() } ?? ""
+        let responsePrefix = snapshot.responseBody
+            .flatMap { String(bytes: $0.prefix(maxQuickScanBytes), encoding: .utf8)?.lowercased() } ?? ""
+        return requestPrefix.contains(#""model""#)
+            || responsePrefix.contains(#""usage""#)
+            || headerValue(named: "anthropic-version", in: snapshot.requestHeaders) != nil
+    }
+
+    private static func isKnownNativeSession(_ snapshot: AITrafficSnapshot) -> Bool {
+        let host = snapshot.host.lowercased()
+        return host == "chatgpt.com"
+            || host.hasSuffix(".chatgpt.com")
+            || host == "desktop.chat.openai.com"
+            || host.hasSuffix(".desktop.chat.openai.com")
+            || host == "claude.ai"
+            || host.hasSuffix(".claude.ai")
+    }
+
+    private static func hasHiddenTLSOnlyBody(_ snapshot: AITrafficSnapshot) -> Bool {
+        let method = snapshot.requestMethod.uppercased()
+        let scheme = snapshot.scheme.lowercased()
+        return method == "CONNECT"
+            || ((scheme == "https" || scheme == "wss") && snapshot.requestBody == nil && snapshot.responseBody == nil)
+    }
+
+    private static func evidence(for snapshot: AITrafficSnapshot) -> [String] {
+        var values: [String] = []
+        if provider(from: snapshot) != nil {
+            values.append("known host")
+        }
+        if hasVisibleAIAPIEvidence(snapshot) {
+            values.append("api fields")
+        }
+        if snapshot.scheme.lowercased() == "wss" || headerValue(named: "upgrade", in: snapshot.requestHeaders)?.lowercased() == "websocket" {
+            values.append("websocket")
+        }
+        if hasHiddenTLSOnlyBody(snapshot) {
+            values.append("body hidden")
+        }
+        return Array(NSOrderedSet(array: values).compactMap { $0 as? String })
     }
 
     private static func provider(from requestJSON: [String: Any]?, responseJSON: [String: Any]?) -> AIProvider? {
@@ -456,6 +546,7 @@ struct AITrafficSnapshot: Sendable {
     init(transaction: HTTPTransaction) {
         requestMethod = transaction.request.method
         urlString = transaction.request.url.absoluteString
+        scheme = transaction.request.url.scheme ?? ""
         host = transaction.request.host
         path = transaction.request.path
         requestHeaders = transaction.request.headers
@@ -468,6 +559,7 @@ struct AITrafficSnapshot: Sendable {
 
     let requestMethod: String
     let urlString: String
+    let scheme: String
     let host: String
     let path: String
     let requestHeaders: [HTTPHeader]
@@ -482,6 +574,8 @@ struct AITrafficSnapshot: Sendable {
 
 struct AIInspection: Equatable, Sendable {
     let provider: AIProvider
+    let kind: AITrafficSignalKind
+    let evidence: [String]
     let model: String?
     let endpoint: String
     let isStreaming: Bool
@@ -498,21 +592,46 @@ struct AIInspection: Equatable, Sendable {
 enum AIProvider: String, Sendable {
     case openAICompatible
     case anthropic
+    case chatGPT
+    case claude
 
     var displayName: String {
         switch self {
         case .openAICompatible: "OpenAI-compatible"
         case .anthropic: "Anthropic"
+        case .chatGPT: "ChatGPT"
+        case .claude: "Claude"
         }
     }
+}
+
+enum AITrafficSignalKind: String, Equatable, Sendable {
+    case none
+    case api
+    case session
+    case heuristic
 }
 
 struct AITrafficSignal: Equatable, Sendable {
     let isLikelyAI: Bool
     let provider: AIProvider?
+    let kind: AITrafficSignalKind
+    let evidence: [String]
 
     var tableLabel: String {
-        isLikelyAI ? "AI" : ""
+        guard isLikelyAI else {
+            return ""
+        }
+        switch kind {
+        case .api:
+            return "AI API"
+        case .session:
+            return "AI Session"
+        case .heuristic:
+            return "Likely AI"
+        case .none:
+            return "AI"
+        }
     }
 
     var accessibilityLabel: String {
@@ -520,9 +639,10 @@ struct AITrafficSignal: Equatable, Sendable {
             return ""
         }
         if let provider {
-            return "Likely AI model traffic: \(provider.displayName)"
+            let evidenceLabel = evidence.isEmpty ? "" : " (\(evidence.joined(separator: ", ")))"
+            return "\(tableLabel): \(provider.displayName)\(evidenceLabel)"
         }
-        return "Likely AI model traffic"
+        return tableLabel
     }
 }
 

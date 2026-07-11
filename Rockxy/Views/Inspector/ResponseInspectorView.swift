@@ -8,8 +8,8 @@ import SwiftUI
 /// Right half of the inspector split view. Provides tabbed access to response-side data:
 /// headers, body (with format picker), Set-Cookie headers, auth, and timing breakdown.
 /// Also supports optional body preview tabs from PreviewTabStore.
-/// Conditionally shows protocol-specific tabs (WebSocket, GraphQL, gRPC) when the selected
-/// transaction has protocol-specific data.
+/// Shows protocol-specific tabs alongside ordinary response tabs so multiple inspections can
+/// coexist for the same transaction.
 struct ResponseInspectorView: View {
     // MARK: Internal
 
@@ -50,8 +50,8 @@ struct ResponseInspectorView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
 
-    private var hasProtocolTab: Bool {
-        transaction.webSocketConnection != nil || transaction.web3RPCInfo != nil || transaction.graphQLInfo != nil
+    private var hasProtocolTabs: Bool {
+        !ProtocolTabKind.availableTabs(for: transaction).isEmpty
     }
 
     private var httpsPromptModel: HTTPSInspectionPromptModel? {
@@ -78,14 +78,6 @@ struct ResponseInspectorView: View {
 
     private var inspectorTabBar: some View {
         InspectorTabStrip {
-            if hasProtocolTab {
-                protocolTabButtons
-
-                Divider()
-                    .frame(height: max(14, metrics.controlFontSize + 2))
-                    .padding(.horizontal, 4)
-            }
-
             ForEach(ResponseInspectorTab.availableTabs(hasAIInspection: hasAIInspection), id: \.self) { tab in
                 InspectorTabButton(
                     title: tab.displayName,
@@ -97,8 +89,6 @@ struct ResponseInspectorView: View {
                     selectedTab = tab
                 }
             }
-
-            grpcTabButton
 
             if !previewTabStore.responseTabs.isEmpty {
                 Divider()
@@ -117,6 +107,14 @@ struct ResponseInspectorView: View {
                 }
             }
 
+            if hasProtocolTabs {
+                Divider()
+                    .frame(height: max(14, metrics.controlFontSize + 2))
+                    .padding(.horizontal, 4)
+
+                protocolTabButtons
+            }
+
             Divider()
                 .frame(height: max(14, metrics.controlFontSize + 2))
                 .padding(.horizontal, 4)
@@ -128,48 +126,15 @@ struct ResponseInspectorView: View {
     }
 
     @ViewBuilder private var protocolTabButtons: some View {
-        if transaction.webSocketConnection != nil {
+        ForEach(ProtocolTabKind.availableTabs(for: transaction), id: \.self) { tab in
             InspectorTabButton(
-                title: String(localized: "WebSocket"),
-                isActive: protocolTab == .websocket
+                title: tab.displayName,
+                isActive: protocolTab == tab
             ) {
                 selectionIntent = .protocolSpecific
-                protocolTab = .websocket
+                protocolTab = tab
                 selectedPreviewTab = nil
             }
-        }
-
-        if transaction.web3RPCInfo != nil {
-            InspectorTabButton(
-                title: String(localized: "Web3/RPC"),
-                isActive: protocolTab == .web3
-            ) {
-                selectionIntent = .protocolSpecific
-                protocolTab = .web3
-                selectedPreviewTab = nil
-            }
-        }
-
-        if transaction.graphQLInfo != nil {
-            InspectorTabButton(
-                title: String(localized: "GraphQL"),
-                isActive: protocolTab == .graphql
-            ) {
-                selectionIntent = .protocolSpecific
-                protocolTab = .graphql
-                selectedPreviewTab = nil
-            }
-        }
-    }
-
-    private var grpcTabButton: some View {
-        InspectorTabButton(
-            title: "gRPC",
-            isActive: protocolTab == .grpc
-        ) {
-            selectionIntent = .protocolSpecific
-            protocolTab = .grpc
-            selectedPreviewTab = nil
         }
     }
 
@@ -315,6 +280,8 @@ struct ResponseInspectorView: View {
         Group {
             if let proto = protocolTab {
                 switch proto {
+                case .ai:
+                    AIInspectorView(transaction: transaction)
                 case .websocket:
                     WebSocketInspectorView(transaction: transaction)
                 case .web3:
@@ -546,11 +513,6 @@ struct ResponseInspectorView: View {
     }
 
     private func syncInspectorStateForTransaction() {
-        let supportsAIInspection = hasAIInspection
-        if selectedTab == .ai, !supportsAIInspection {
-            selectedTab = .headers
-        }
-
         if let selectedPreviewTab,
            !previewTabStore.responseTabs.contains(where: { $0.id == selectedPreviewTab.id })
         {
@@ -561,15 +523,12 @@ struct ResponseInspectorView: View {
         switch selectionIntent {
         case .automatic:
             protocolTab = ProtocolTabKind.defaultFor(transaction)
-            if protocolTab == nil, supportsAIInspection {
-                selectedTab = .ai
-            }
         case .native,
              .preview:
             protocolTab = nil
         case .protocolSpecific:
             if let protocolTab,
-               ProtocolTabKind.isSupported(protocolTab, by: transaction)
+               ProtocolTabKind.hasDetectedSignal(protocolTab, in: transaction)
             {
                 return
             }
@@ -808,7 +767,8 @@ struct HTTPSInspectionPromptModel: Equatable {
 
 /// Protocol-specific tab selection for the response inspector.
 /// Separate from ResponseInspectorTab to avoid showing protocol tabs for all transactions.
-enum ProtocolTabKind {
+enum ProtocolTabKind: Hashable {
+    case ai
     case websocket
     case web3
     case graphql
@@ -816,8 +776,27 @@ enum ProtocolTabKind {
 
     // MARK: Internal
 
+    /// Returns the protocol/smart tabs that should be visible for a transaction.
+    /// AI and Web3 stay visible even without metadata so their inspectors can render empty states.
+    static func availableTabs(for transaction: HTTPTransaction) -> [ProtocolTabKind] {
+        var tabs: [ProtocolTabKind] = []
+        if transaction.webSocketConnection != nil {
+            tabs.append(.websocket)
+        }
+        if transaction.graphQLInfo != nil {
+            tabs.append(.graphql)
+        }
+        tabs.append(.ai)
+        tabs.append(.web3)
+        tabs.append(.grpc)
+        return tabs
+    }
+
     /// Returns the default protocol tab for a transaction, or nil for plain HTTP.
     static func defaultFor(_ transaction: HTTPTransaction) -> ProtocolTabKind? {
+        if AITrafficDetector.isLikelyAI(transaction: transaction) {
+            return .ai
+        }
         if transaction.webSocketConnection != nil {
             return .websocket
         }
@@ -835,6 +814,23 @@ enum ProtocolTabKind {
 
     static func isSupported(_ tab: ProtocolTabKind, by transaction: HTTPTransaction) -> Bool {
         switch tab {
+        case .ai:
+            true
+        case .websocket:
+            transaction.webSocketConnection != nil
+        case .web3:
+            true
+        case .graphql:
+            transaction.graphQLInfo != nil
+        case .grpc:
+            true
+        }
+    }
+
+    static func hasDetectedSignal(_ tab: ProtocolTabKind, in transaction: HTTPTransaction) -> Bool {
+        switch tab {
+        case .ai:
+            AITrafficDetector.isLikelyAI(transaction: transaction)
         case .websocket:
             transaction.webSocketConnection != nil
         case .web3:
@@ -842,7 +838,22 @@ enum ProtocolTabKind {
         case .graphql:
             transaction.graphQLInfo != nil
         case .grpc:
-            true
+            GRPCDetector.isGRPC(transaction: transaction)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .ai:
+            "AI"
+        case .websocket:
+            String(localized: "WebSocket")
+        case .web3:
+            String(localized: "Web3")
+        case .graphql:
+            String(localized: "GraphQL")
+        case .grpc:
+            "gRPC"
         }
     }
 }

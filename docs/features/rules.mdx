@@ -86,6 +86,8 @@ Most Rockxy traffic modification tools work best when you scope them to:
 - HTTP method,
 - or a small regex that maps cleanly to the endpoint you are testing.
 
+For AI and Web3 traffic, start with the same matching strategy. Rockxy can label and inspect model calls, JSON-RPC traffic, and x402-style payment hints, but traffic rules still match the HTTP layer: URL, method, and headers. They do not currently match individual AI model names, tool calls, JSON-RPC methods, chain IDs, wallet addresses, transaction hashes, or batch subcalls.
+
 <Note>
 URL patterns use standard regular expressions. To match a literal dot in a domain name, escape it with a backslash: `api\.example\.com`. To match any path under a domain, use `https://api\.example\.com/.*`.
 </Note>

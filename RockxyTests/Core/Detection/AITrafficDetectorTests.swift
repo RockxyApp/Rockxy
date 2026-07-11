@@ -30,6 +30,7 @@ struct AITrafficDetectorTests {
         let inspection = try #require(AITrafficDetector.detect(transaction: transaction))
 
         #expect(inspection.provider == .openAICompatible)
+        #expect(inspection.kind == .api)
         #expect(inspection.model == "gpt-4.1-mini")
         #expect(inspection.isStreaming)
         #expect(inspection.usage?.inputTokens == 920)
@@ -60,6 +61,26 @@ struct AITrafficDetectorTests {
         #expect(inspection.unavailableFields.contains("usage"))
     }
 
+    @Test("Known AI app session is detected without visible body metadata")
+    func nativeAISessionIsDetectedFromHostEvidence() throws {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://chatgpt.com/",
+            statusCode: nil
+        )
+        transaction.clientApp = "ChatGPT"
+
+        let signal = AITrafficDetector.signal(transaction: transaction)
+        let inspection = try #require(AITrafficDetector.detect(transaction: transaction))
+
+        #expect(signal.tableLabel == "AI Session")
+        #expect(signal.evidence.contains("body hidden"))
+        #expect(inspection.provider == .chatGPT)
+        #expect(inspection.kind == .session)
+        #expect(inspection.model == nil)
+        #expect(inspection.usage == nil)
+    }
+
     @Test("Ordinary HTTP traffic does not expose AI inspection")
     func ordinaryHTTPTrafficDoesNotExposeAIInspection() {
         let transaction = TestFixtures.makeTransaction(
@@ -82,7 +103,9 @@ struct AITrafficDetectorTests {
         )
 
         #expect(AITrafficDetector.isLikelyAI(transaction: transaction))
-        #expect(ResponseInspectorTab.availableTabs(hasAIInspection: true).contains(.ai))
+        #expect(!ResponseInspectorTab.availableTabs(hasAIInspection: true).contains(.ai))
+        #expect(ProtocolTabKind.availableTabs(for: transaction).contains(.ai))
+        #expect(ProtocolTabKind.defaultFor(transaction) == .ai)
     }
 
     private func makeTransaction(

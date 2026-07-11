@@ -49,12 +49,30 @@ struct RequestListRow: Identifiable {
         web3RPCProviderHost = transaction.web3RPCInfo?.providerHost
         web3RPCErrorCode = transaction.web3RPCInfo?.error?.code
         isWebSocket = transaction.webSocketConnection != nil
+        isGraphQL = transaction.graphQLInfo != nil
+        isGRPC = GRPCDetector.isGRPC(transaction: transaction)
         webSocketFrameCount = transaction.webSocketConnection?.frameCount ?? 0
         sourcePort = transaction.sourcePort
         sequenceNumber = transaction.sequenceNumber
         requestHeaders = transaction.request.headers
         responseHeaders = transaction.response?.headers
         self.sslState = sslState ?? Self.defaultSSLState(forScheme: scheme)
+        smartBadgeText = Self.smartBadgeText(
+            aiTrafficSignal: aiTrafficSignal,
+            web3RPCInfo: transaction.web3RPCInfo,
+            isGRPC: isGRPC,
+            isGraphQL: isGraphQL,
+            isWebSocket: isWebSocket,
+            scheme: scheme
+        )
+        smartBadgeTooltip = Self.smartBadgeTooltip(
+            aiTrafficSignal: aiTrafficSignal,
+            web3RPCInfo: transaction.web3RPCInfo,
+            isGRPC: isGRPC,
+            isGraphQL: isGraphQL,
+            isWebSocket: isWebSocket,
+            scheme: scheme
+        )
     }
 
     // MARK: Internal
@@ -81,6 +99,8 @@ struct RequestListRow: Identifiable {
     let highlightColor: HighlightColor?
     let isTLSFailure: Bool
     let aiTrafficSignal: AITrafficSignal
+    let smartBadgeText: String
+    let smartBadgeTooltip: String?
     let graphQLOpName: String?
     let graphQLOpType: String?
     let isWeb3RPC: Bool
@@ -88,6 +108,8 @@ struct RequestListRow: Identifiable {
     let web3RPCProviderHost: String?
     let web3RPCErrorCode: Int?
     let isWebSocket: Bool
+    let isGraphQL: Bool
+    let isGRPC: Bool
     let webSocketFrameCount: Int
     let sourcePort: UInt16?
 
@@ -180,7 +202,7 @@ extension RequestListRow {
         case "ssl":
             compareInt(lhs.sslState.rawValue, rhs.sslState.rawValue)
         case "ai":
-            compareAISignal(lhs, rhs)
+            lhs.smartBadgeText.localizedCompare(rhs.smartBadgeText)
         case "queryName":
             compareQueryName(lhs, rhs)
         case "client":
@@ -229,6 +251,66 @@ extension RequestListRow {
         return "\(batch.web3RequestCount) calls"
     }
 
+    private static func smartBadgeText(
+        aiTrafficSignal: AITrafficSignal,
+        web3RPCInfo: Web3RPCInfo?,
+        isGRPC: Bool,
+        isGraphQL: Bool,
+        isWebSocket: Bool,
+        scheme: String
+    )
+        -> String
+    {
+        if aiTrafficSignal.isLikelyAI {
+            return aiTrafficSignal.tableLabel
+        }
+        if let web3RPCInfo {
+            return web3RPCInfo.error == nil ? "Web3" : "RPC ERR"
+        }
+        if isGRPC {
+            return "gRPC"
+        }
+        if isGraphQL {
+            return "GraphQL"
+        }
+        if isWebSocket {
+            return "WS"
+        }
+        return scheme.uppercased() == "HTTPS" ? "HTTPS" : "HTTP"
+    }
+
+    private static func smartBadgeTooltip(
+        aiTrafficSignal: AITrafficSignal,
+        web3RPCInfo: Web3RPCInfo?,
+        isGRPC: Bool,
+        isGraphQL: Bool,
+        isWebSocket: Bool,
+        scheme: String
+    )
+        -> String?
+    {
+        if !aiTrafficSignal.accessibilityLabel.isEmpty {
+            return aiTrafficSignal.accessibilityLabel
+        }
+        if let web3RPCInfo {
+            if let error = web3RPCInfo.error {
+                let code = error.code.map { " \($0)" } ?? ""
+                return "Web3 RPC error\(code) from \(web3RPCInfo.providerHost)"
+            }
+            return "Web3 RPC traffic from \(web3RPCInfo.providerHost)"
+        }
+        if isGRPC {
+            return "gRPC request"
+        }
+        if isGraphQL {
+            return "GraphQL request"
+        }
+        if isWebSocket {
+            return "WebSocket connection"
+        }
+        return "\(scheme.uppercased() == "HTTPS" ? "HTTPS" : "HTTP") request"
+    }
+
     private static func compareInt(_ lhs: Int, _ rhs: Int) -> ComparisonResult {
         if lhs < rhs {
             return .orderedAscending
@@ -262,27 +344,6 @@ extension RequestListRow {
             }
             return .orderedSame
         }
-    }
-
-    private static func compareBool(_ lhs: Bool, _ rhs: Bool) -> ComparisonResult {
-        switch (lhs, rhs) {
-        case (false, true):
-            .orderedAscending
-        case (true, false):
-            .orderedDescending
-        default:
-            .orderedSame
-        }
-    }
-
-    private static func compareAISignal(_ lhs: RequestListRow, _ rhs: RequestListRow) -> ComparisonResult {
-        let presence = compareBool(lhs.aiTrafficSignal.isLikelyAI, rhs.aiTrafficSignal.isLikelyAI)
-        if presence != .orderedSame {
-            return presence
-        }
-        let lhsProvider = lhs.aiTrafficSignal.provider?.displayName ?? ""
-        let rhsProvider = rhs.aiTrafficSignal.provider?.displayName ?? ""
-        return lhsProvider.localizedCompare(rhsProvider)
     }
 
     private static func defaultSSLState(forScheme scheme: String) -> SSLState {

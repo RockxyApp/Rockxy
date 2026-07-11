@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Added AI traffic inspection for recognized model API traffic, including provider/model hints, streaming state, usage fields when present, tool-call summaries, retrieval hints, and warnings for unavailable fields.
+- Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
+- Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
+- Added a default Protocol column and protocol filters that make AI, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
 - Added a compact advanced filter builder with expanded request/response fields, AND/OR row connectors, saved presets, and inspector match highlighting for security/debugging workflows.
 - Added Upstream Proxy core support for routing outbound traffic through HTTP/HTTPS proxies, with Community caps for SOCKS5, authentication, and bypass-list size enforced by app policy.
 - Added WebSocket Protobuf heuristic decoding infrastructure for inspecting binary frame payloads without requiring schema uploads.
@@ -19,6 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Improved sidebar grouping cleanup when selected domain/app groups disappear, keeping active filters and sidebar state aligned.
 
 ### Changed
+
+- Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
+- Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
 ## [0.28.0] - 2026-06-25
 

@@ -227,6 +227,49 @@ struct InspectorRoutingTests {
         #expect(ProtocolTabKind.isSupported(.grpc, by: tx))
     }
 
+    @Test("Plain HTTP transaction exposes empty AI and Web3 tabs")
+    func httpExposesEmptyAIAndWeb3Tabs() {
+        let tx = TestFixtures.makeTransaction()
+        let tabs = ProtocolTabKind.availableTabs(for: tx)
+
+        #expect(tabs == [.ai, .web3, .grpc])
+        #expect(!tabs.contains(.websocket))
+        #expect(!tabs.contains(.graphql))
+        #expect(ProtocolTabKind.defaultFor(tx) == nil)
+        #expect(ProtocolTabKind.isSupported(.ai, by: tx))
+        #expect(ProtocolTabKind.isSupported(.web3, by: tx))
+        #expect(!ProtocolTabKind.hasDetectedSignal(.ai, in: tx))
+        #expect(!ProtocolTabKind.hasDetectedSignal(.web3, in: tx))
+    }
+
+    @Test("AI and Web3 tabs coexist when both signals are present")
+    func aiAndWeb3TabsCoexist() {
+        let tx = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses"
+        )
+        tx.web3RPCInfo = makeWeb3RPCTransaction().web3RPCInfo
+
+        let tabs = ProtocolTabKind.availableTabs(for: tx)
+
+        #expect(tabs.contains(.ai))
+        #expect(tabs.contains(.web3))
+        #expect(ProtocolTabKind.defaultFor(tx) == .ai)
+    }
+
+    @Test("Detected dynamic tabs stay before always-visible AI Web3 gRPC tail")
+    func protocolTabOrderKeepsAlwaysVisibleTabsAtEnd() {
+        let tx = TestFixtures.makeWebSocketTransaction()
+        tx.graphQLInfo = GraphQLInfo(
+            operationName: "SubscribeBlocks",
+            operationType: .subscription,
+            query: "subscription SubscribeBlocks { block { number } }",
+            variables: nil
+        )
+
+        #expect(ProtocolTabKind.availableTabs(for: tx) == [.websocket, .graphql, .ai, .web3, .grpc])
+    }
+
     @Test("Switching WS → HTTP clears protocol tab")
     func wsToHttpClearsProtocol() {
         let wsTx = TestFixtures.makeWebSocketTransaction()

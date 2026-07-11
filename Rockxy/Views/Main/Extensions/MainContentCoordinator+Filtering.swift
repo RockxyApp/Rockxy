@@ -91,6 +91,7 @@ extension MainContentCoordinator {
             deriveFilteredRows()
             return
         }
+        let smartFilter = SmartTrafficFilter.parse(filterCriteria.searchText)
         filteredTransactions = baseList.filter { transaction in
             if transaction.isTLSFailure {
                 return false
@@ -114,10 +115,15 @@ extension MainContentCoordinator {
                 }
             }
             if filterCriteria.isSearchEnabled, !filterCriteria.searchText.isEmpty {
-                let searchText = filterCriteria.searchText.lowercased()
-                let targetValue = fieldValue(for: filterCriteria.searchField, in: transaction)
-                guard targetValue.lowercased().contains(searchText) else {
+                guard smartFilter.matches(transaction) else {
                     return false
+                }
+                let searchText = smartFilter.remainingSearchText.lowercased()
+                if !searchText.isEmpty {
+                    let targetValue = fieldValue(for: filterCriteria.searchField, in: transaction)
+                    guard targetValue.lowercased().contains(searchText) else {
+                        return false
+                    }
                 }
             }
             if !filterCriteria.methods.isEmpty {
@@ -251,6 +257,7 @@ extension MainContentCoordinator {
             deriveFilteredRows(for: workspace)
             return
         }
+        let smartFilter = SmartTrafficFilter.parse(workspace.filterCriteria.searchText)
         workspace.filteredTransactions = baseList.filter { transaction in
             if transaction.isTLSFailure {
                 return false
@@ -274,10 +281,15 @@ extension MainContentCoordinator {
                 }
             }
             if workspace.filterCriteria.isSearchEnabled, !workspace.filterCriteria.searchText.isEmpty {
-                let searchText = workspace.filterCriteria.searchText.lowercased()
-                let targetValue = fieldValue(for: workspace.filterCriteria.searchField, in: transaction)
-                guard targetValue.lowercased().contains(searchText) else {
+                guard smartFilter.matches(transaction) else {
                     return false
+                }
+                let searchText = smartFilter.remainingSearchText.lowercased()
+                if !searchText.isEmpty {
+                    let targetValue = fieldValue(for: workspace.filterCriteria.searchField, in: transaction)
+                    guard targetValue.lowercased().contains(searchText) else {
+                        return false
+                    }
                 }
             }
             if !workspace.filterCriteria.methods.isEmpty {

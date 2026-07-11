@@ -77,6 +77,54 @@ struct GistPublishPayloadBuilderTests {
         #expect(serialized.contains("[REDACTED]"))
     }
 
+    @Test("Redacts AI prompt, RAG, tool args, and x402 metadata before publishing")
+    func redactsAIAndPaymentEvidence() throws {
+        var request = TestFixtures.makeRequest(
+            method: "POST",
+            url: "https://api.example.com/v1/responses?payment_payload=query-payment-secret",
+            headers: [
+                HTTPHeader(name: "Content-Type", value: "application/json"),
+                HTTPHeader(name: "X-Payment", value: "header-payment-secret"),
+            ]
+        )
+        request.body = Data(
+            """
+            {
+              "model": "debug-model",
+              "messages": [{"role": "user", "content": "sensitive prompt text"}],
+              "tool_calls": [{"function": {"arguments": "{\\"api_key\\":\\"tool-secret\\"}"}}],
+              "retrieved_context": "private RAG snippet",
+              "paymentProof": "payment-proof-secret"
+            }
+            """.utf8
+        )
+        request.contentType = .json
+        let transaction = HTTPTransaction(request: request, state: .completed)
+        var response = TestFixtures.makeResponse(
+            statusCode: 200,
+            body: Data(#"{"snippet":"private retrieved response","x-payment-response":"payment-response-secret"}"#.utf8)
+        )
+        response.contentType = .json
+        transaction.response = response
+
+        let payload = try GistPublishPayloadBuilder().build(
+            transactions: [transaction],
+            options: GistPublishOptions(redactSensitiveData: true)
+        )
+        let serialized = payload.files.values.joined(separator: "\n")
+
+        #expect(!serialized.contains("query-payment-secret"))
+        #expect(!serialized.contains("header-payment-secret"))
+        #expect(!serialized.contains("sensitive prompt text"))
+        #expect(!serialized.contains("tool-secret"))
+        #expect(!serialized.contains("private RAG snippet"))
+        #expect(!serialized.contains("payment-proof-secret"))
+        #expect(!serialized.contains("private retrieved response"))
+        #expect(!serialized.contains("payment-response-secret"))
+        #expect(serialized.contains("debug-model"))
+        #expect(serialized.contains("[REDACTED]"))
+    }
+
     @Test("Includes WebSocket frames only when selected transactions contain frames")
     func includesWebSocketFramesWhenPresent() throws {
         let http = TestFixtures.makeTransaction()
