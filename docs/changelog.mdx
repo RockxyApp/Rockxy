@@ -6,6 +6,21 @@ rss: true
 
 # Changelog
 
+<Update label="Unreleased" description="AI, Web3, and protocol inspection">
+  ### Added
+
+  - Added AI traffic inspection for recognized model API traffic, including provider/model hints, streaming state, usage fields when present, tool-call summaries, retrieval hints, and warnings for unavailable fields.
+  - Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
+  - Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
+  - Added a default Protocol column and protocol filters that make AI, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
+
+  ### Changed
+
+  - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
+  - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
+
+</Update>
+
 <Update label="June 2026" description="v0.28.0">
   ### Added
 

@@ -31,7 +31,7 @@ struct SessionStoreMigrationTests {
         let store = try SessionStore(directory: dir)
         let version = try await store.schemaVersion()
 
-        #expect(version >= 1)
+        #expect(version >= 2)
     }
 
     @Test("Second initialization skips migration")
@@ -57,7 +57,7 @@ struct SessionStoreMigrationTests {
         let store = try SessionStore(directory: dir)
         let version = try await store.schemaVersion()
 
-        #expect(version >= 1)
+        #expect(version >= 2)
     }
 
     @Test("Save and load transaction after migration")
@@ -78,6 +78,44 @@ struct SessionStoreMigrationTests {
         #expect(loaded[0].comment == "test comment")
     }
 
+    @Test("Save and load preserves Web3 RPC metadata")
+    func saveLoadPreservesWeb3RPCMetadata() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try SessionStore(directory: dir)
+        let transaction = TestFixtures.makeWeb3RPCTransaction(
+            method: nil,
+            batch: Web3RPCBatchSummary(
+                requestCount: 2,
+                web3RequestCount: 2,
+                responseCount: 2,
+                errorCount: 1,
+                methods: ["eth_chainId", "eth_blockNumber"]
+            ),
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+
+        try await store.saveTransaction(transaction)
+        let loaded = try await store.loadTransaction(byID: transaction.id)
+        let info = try #require(loaded?.web3RPCInfo)
+
+        #expect(info.family == .evm)
+        #expect(info.providerHost == "rpc.example.com")
+        #expect(info.method == nil)
+        #expect(info.requestID == nil)
+        #expect(info.batch?.requestCount == 2)
+        #expect(info.batch?.web3RequestCount == 2)
+        #expect(info.batch?.responseCount == 2)
+        #expect(info.batch?.errorCount == 1)
+        #expect(info.batch?.methods == ["eth_chainId", "eth_blockNumber"])
+        #expect(info.error?.code == -32_000)
+        #expect(info.error?.message == "rate limited")
+        #expect(info.chainHint?.chainID == "0x1")
+        #expect(info.requestPayloadSize == transaction.web3RPCInfo?.requestPayloadSize)
+        #expect(info.responsePayloadSize == transaction.web3RPCInfo?.responsePayloadSize)
+    }
+
     @Test("Migrated columns have correct defaults")
     func migratedColumnDefaults() async throws {
         let dir = try makeTempDir()
@@ -95,6 +133,7 @@ struct SessionStoreMigrationTests {
         #expect(loaded[0].comment == nil)
         #expect(loaded[0].highlightColor == nil)
         #expect(loaded[0].clientApp == nil)
+        #expect(loaded[0].web3RPCInfo == nil)
     }
 
     // MARK: Private

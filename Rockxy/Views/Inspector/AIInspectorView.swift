@@ -20,11 +20,15 @@ struct AIInspectorView: View {
                 VStack(spacing: 0) {
                     summaryStrip(inspection)
                     Divider()
-                    HSplitView {
-                        eventList(inspection)
-                            .frame(minWidth: 220, idealWidth: 280, maxWidth: 360)
-                        detailPane(inspection)
-                            .frame(minWidth: 280, maxWidth: .infinity)
+                    if inspection.kind == .session {
+                        sessionPane(inspection)
+                    } else {
+                        HSplitView {
+                            eventList(inspection)
+                                .frame(minWidth: 220, idealWidth: 280, maxWidth: 360)
+                            detailPane(inspection)
+                                .frame(minWidth: 280, maxWidth: .infinity)
+                        }
                     }
                 }
             } else {
@@ -78,11 +82,24 @@ struct AIInspectorView: View {
 
     private func summaryStrip(_ inspection: AIInspection) -> some View {
         VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                badge(inspection.kind.displayName, color: inspection.kind == .session ? .teal : .accentColor)
+                if inspection.kind == .session {
+                    badge(String(localized: "TLS only"), color: .orange)
+                } else if inspection.isStreaming {
+                    badge(String(localized: "Stream"), color: .blue)
+                }
+                if !inspection.toolCalls.isEmpty {
+                    badge(String(localized: "Tool"), color: .orange)
+                }
+                Spacer(minLength: 0)
+            }
+
             HStack(spacing: 18) {
                 summaryItem(String(localized: "Provider"), value: inspection.provider.displayName)
                 summaryItem(String(localized: "Model"), value: inspection.model ?? String(localized: "Unavailable"))
                 summaryItem(String(localized: "Finish"), value: finishLabel(for: inspection))
-                summaryItem(String(localized: "Confidence"), value: confidenceLabel(for: inspection))
+                summaryItem(String(localized: "Evidence"), value: evidenceLabel(for: inspection))
             }
 
             Text(unavailableSummary(for: inspection))
@@ -95,6 +112,40 @@ struct AIInspectorView: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.5))
+    }
+
+    private func sessionPane(_ inspection: AIInspection) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(String(localized: "Captured app session"))
+                            .font(.system(size: metrics.primaryFontSize, weight: .semibold))
+                        metadataPair(String(localized: "App"), value: transaction.clientApp ?? String(localized: "Unknown"))
+                        metadataPair(String(localized: "Host"), value: transaction.request.host)
+                        metadataPair(String(localized: "Transport"), value: sessionTransportLabel)
+                    }
+                }
+
+                warningCard(
+                    title: String(localized: "Body unavailable"),
+                    message: String(localized: "Rockxy can identify this AI app session, but model, tokens, and tools need decrypted API evidence."),
+                    color: .orange
+                )
+
+                sectionCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        sectionHeader(String(localized: "Suggested Check"))
+                        Text(String(localized: "Open SSL Proxying for this host or capture SDK traffic with HTTPS_PROXY when debugging local apps."))
+                            .font(.system(size: metrics.metadataFontSize))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
     }
 
     private func summaryItem(_ label: String, value: String) -> some View {
@@ -167,6 +218,7 @@ struct AIInspectorView: View {
     private func detailPane(_ inspection: AIInspection) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                debugFocusSection(inspection)
                 timingSection(inspection)
                 usageSection(inspection)
                 toolChainSection(inspection)
@@ -176,6 +228,20 @@ struct AIInspectorView: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func debugFocusSection(_ inspection: AIInspection) -> some View {
+        sectionCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    sectionHeader(String(localized: "Debug Focus"))
+                    badge(aiDebugFocusLabel(inspection), color: aiDebugFocusColor(inspection))
+                    Spacer(minLength: 0)
+                }
+                metadataPair(String(localized: "Outcome"), value: aiDebugOutcome(inspection))
+                metadataPair(String(localized: "Next Check"), value: aiDebugNextCheck(inspection))
+            }
         }
     }
 
@@ -316,6 +382,35 @@ struct AIInspectorView: View {
         }
     }
 
+    private func warningCard(title: String, message: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: metrics.secondaryFontSize, weight: .semibold))
+            Text(message)
+                .font(.system(size: metrics.metadataFontSize))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(color)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(color.opacity(0.35), lineWidth: 0.5)
+        }
+    }
+
+    private func sectionCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            }
+    }
+
     @ViewBuilder private var selectedEventSection: some View {
         if let selectedEvent {
             VStack(alignment: .leading, spacing: 8) {
@@ -352,6 +447,16 @@ struct AIInspectorView: View {
         .font(.system(size: metrics.metadataFontSize, design: .monospaced))
     }
 
+    private func badge(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.system(size: metrics.badgeFontSize, weight: .semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.12), in: Capsule())
+            .foregroundStyle(color)
+    }
+
     private func unavailableText(_ text: String) -> some View {
         Text(text)
             .font(.system(size: metrics.metadataFontSize))
@@ -367,6 +472,81 @@ struct AIInspectorView: View {
         case .tools:
             events.filter { $0.category == .tool }
         }
+    }
+
+    private func aiDebugFocusLabel(_ inspection: AIInspection) -> String {
+        if inspection.warnings.contains(where: { $0.severity == .error }) {
+            return String(localized: "Provider Error")
+        }
+        if inspection.isStreaming, !inspection.toolCalls.isEmpty {
+            return String(localized: "Streaming Tool")
+        }
+        if inspection.isStreaming {
+            return String(localized: "Streaming")
+        }
+        if !inspection.toolCalls.isEmpty {
+            return String(localized: "Tool Call")
+        }
+        if !inspection.retrieval.isEmpty {
+            return String(localized: "Retrieval")
+        }
+        if inspection.usage == nil {
+            return String(localized: "Metadata Sparse")
+        }
+        return String(localized: "Completion")
+    }
+
+    private func aiDebugFocusColor(_ inspection: AIInspection) -> Color {
+        if inspection.warnings.contains(where: { $0.severity == .error }) {
+            return .red
+        }
+        if !inspection.toolCalls.isEmpty {
+            return .orange
+        }
+        if inspection.isStreaming {
+            return .blue
+        }
+        if !inspection.retrieval.isEmpty {
+            return .green
+        }
+        return .secondary
+    }
+
+    private func aiDebugOutcome(_ inspection: AIInspection) -> String {
+        if let warning = inspection.warnings.first(where: { $0.severity == .error }) {
+            return warning.message
+        }
+        if let statusCode = transaction.response?.statusCode,
+           statusCode >= 400
+        {
+            return String(localized: "HTTP \(statusCode) from provider")
+        }
+        if inspection.isStreaming {
+            return String(localized: "\(inspection.events.count) captured stream events, finish \(finishLabel(for: inspection))")
+        }
+        return String(localized: "Finish \(finishLabel(for: inspection))")
+    }
+
+    private func aiDebugNextCheck(_ inspection: AIInspection) -> String {
+        if inspection.warnings.contains(where: { $0.severity == .error }) {
+            return String(localized: "Check provider error body, request id, auth, rate-limit headers, and retry timing.")
+        }
+        if inspection.isStreaming, !inspection.toolCalls.isEmpty {
+            return String(localized: "Filter Tools and verify partial arguments, final tool call state, and stream completion.")
+        }
+        if inspection.isStreaming {
+            return String(localized: "Check event count, final event, interruption signs, and first-token/overall duration.")
+        }
+        if !inspection.toolCalls.isEmpty {
+            return String(localized: "Verify declared tool name, arguments, completion state, and app-side tool result follow-up.")
+        }
+        if !inspection.retrieval.isEmpty {
+            return String(localized: "Review retrieved sources, score, and sensitive-data risk before sharing traces.")
+        }
+        if inspection.usage == nil {
+            return String(localized: "Confirm provider adapter, response body visibility, and whether usage is omitted by this endpoint.")
+        }
+        return String(localized: "Compare model, tokens, finish reason, and latency against adjacent retries.")
     }
 
     private func durationLabel(_ duration: TimeInterval?) -> String {
@@ -400,6 +580,23 @@ struct AIInspectorView: View {
             : String(localized: "observed")
     }
 
+    private func evidenceLabel(for inspection: AIInspection) -> String {
+        if inspection.evidence.isEmpty {
+            return confidenceLabel(for: inspection)
+        }
+        return inspection.evidence.joined(separator: ", ")
+    }
+
+    private var sessionTransportLabel: String {
+        if transaction.webSocketConnection != nil || transaction.request.url.scheme?.lowercased() == "wss" {
+            return String(localized: "WebSocket / TLS")
+        }
+        if transaction.request.method.caseInsensitiveCompare("CONNECT") == .orderedSame {
+            return String(localized: "CONNECT / TLS")
+        }
+        return String(localized: "HTTPS / TLS")
+    }
+
     private func unavailableSummary(for inspection: AIInspection) -> String {
         if inspection.unavailableFields.isEmpty {
             return String(localized: "All displayed values come from visible captured traffic.")
@@ -414,4 +611,19 @@ private enum AIInspectorEventFilter: Hashable {
     case all
     case stream
     case tools
+}
+
+private extension AITrafficSignalKind {
+    var displayName: String {
+        switch self {
+        case .api:
+            String(localized: "AI API")
+        case .session:
+            String(localized: "AI Session")
+        case .heuristic:
+            String(localized: "Likely AI")
+        case .none:
+            String(localized: "AI")
+        }
+    }
 }

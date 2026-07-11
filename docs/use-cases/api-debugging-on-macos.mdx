@@ -16,6 +16,8 @@ Rockxy is most useful when you need to debug the request that the real client se
 5. add a rule only if you need to change behavior,
 6. export HAR or cURL once you have isolated the issue.
 
+For AI and Web3 work, the same loop applies: capture the real model or RPC request, use protocol filters and the Protocol column to find it, then inspect the AI or Web3 tab alongside Headers, Body, Raw, and Timeline.
+
 ## Why a system-level proxy debugger helps
 
 Browser DevTools and API clients are helpful, but they do not always show:
@@ -30,6 +32,7 @@ Rockxy fills that gap.
 ## Best pages to keep open together
 
 - [Traffic Capture](/features/traffic-capture)
+- [AI and Web3 Inspection](/features/ai-web3-inspection)
 - [Filters and Search](/core-features/filters-and-search)
 - [Request Replay](/features/request-replay)
 - [Sessions and HAR](/features/sessions)
@@ -42,5 +45,8 @@ Rockxy fills that gap.
   </Card>
   <Card title="MCP Integration" icon="plug" href="/features/mcp">
     Bring real captured API traffic into Claude.
+  </Card>
+  <Card title="AI and Web3 Inspection" icon="sparkles" href="/features/ai-web3-inspection">
+    Understand model calls, JSON-RPC traffic, and payment-flow hints without leaving the normal inspector.
   </Card>
 </CardGroup>

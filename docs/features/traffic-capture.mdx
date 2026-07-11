@@ -55,7 +55,7 @@ Above the request list, the main content switcher gives you different perspectiv
 
 The toolbar supports protocol filters, URL search, and an optional advanced filter bar:
 
-- **Protocol filters** — narrow to HTTP, HTTPS, WebSocket, GraphQL, and related traffic classes.
+- **Protocol filters** — narrow to HTTP, HTTPS, WebSocket, GraphQL, AI, Web3 RPC, gRPC, and related traffic classes.
 - **URL search** — search the selected field from the search bar.
 - **Advanced filters** — combine structured rules such as method, status, domain, path, client app, or request state.
 - **Sidebar scope** — selecting an app, domain, pinned item, or saved item scopes the request list.
@@ -66,7 +66,7 @@ Combine multiple filters to isolate exactly the traffic you need. For example, f
 
 ## Request Inspector
 
-Select any request in the traffic list to open the inspector panel. The inspector splits into a request side (Headers, Query, Body, Cookies, Raw, Synopsis, Comments) and a response side (Headers, Body, Set-Cookie, Auth, Timeline — plus WebSocket and GraphQL when applicable). Switch tabs to inspect each part of the transaction:
+Select any request in the traffic list to open the inspector panel. The inspector splits into a request side (Headers, Query, Body, Cookies, Raw, Synopsis, Comments) and a response side (Headers, Body, Set-Cookie, Auth, Timeline — plus WebSocket, GraphQL, AI, Web3, and gRPC when applicable). Switch tabs to inspect each part of the transaction:
 
 ### Headers
 
@@ -106,6 +106,10 @@ On the response side, shows the frame list for any connection that completed an 
 
 On the response side, shows the parsed operation with query text and variables for any detected GraphQL request. See [GraphQL Support](/features/graphql) for details.
 
+### AI and Web3
+
+On the response side, protocol-specific tabs summarize recognized AI model calls, Web3 JSON-RPC requests, and x402-style payment-flow hints while keeping the original headers, bodies, raw payload, and timing available in the normal inspector tabs. See [AI and Web3 Inspection](/features/ai-web3-inspection) for details.
+
 ## Session Management
 
 Rockxy stores active traffic in an in-memory ring buffer with a default capacity of 50,000 transactions. When the buffer exceeds the limit, the oldest entries are evicted from the active workspace so the UI stays responsive.
@@ -124,6 +128,9 @@ When the live buffer reaches capacity, older active rows are evicted automatical
 | HTTPS | Full | Via CONNECT tunnel with MITM certificate generation |
 | WebSocket | Full | Frame-level capture after HTTP upgrade |
 | GraphQL-over-HTTP | Auto-detected | POST requests to `/graphql` endpoints with `query` field |
+| AI model APIs | Auto-detected | Provider/model, stream, usage, tool-call, retrieval, and warning hints when visible |
+| Web3 JSON-RPC | Auto-detected | EVM and Solana-style HTTP RPC request ID, method, batch, error, chain, and transaction hints |
+| gRPC | Inspector support | Dedicated protocol tab for unary and streaming protobuf-style traffic |
 
 ## Allow List
 
@@ -200,6 +207,9 @@ See [Sessions & HAR](/features/sessions) for full details on save/export workflo
   </Card>
   <Card title="GraphQL Detection" icon="diagram-project" href="/features/graphql">
     Automatic GraphQL-over-HTTP operation detection and inspection
+  </Card>
+  <Card title="AI and Web3 Inspection" icon="sparkles" href="/features/ai-web3-inspection">
+    Detect and inspect model calls, JSON-RPC traffic, and x402-style payment hints.
   </Card>
   <Card title="Traffic Rules" icon="filter" href="/features/rules">
     Block, redirect, throttle, or modify requests with rules

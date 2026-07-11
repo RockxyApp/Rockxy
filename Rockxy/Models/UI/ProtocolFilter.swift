@@ -8,7 +8,10 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     case http
     case https
     case websocket
+    case ai
+    case aiSession
     case web3RPC
+    case rpcError
     case json
     case xml
     case js
@@ -29,7 +32,7 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
     // MARK: Internal
 
     static var contentFilters: [ProtocolFilter] {
-        [.all, .http, .https, .websocket, .web3RPC, .json, .xml, .js, .css, .graphql, .grpc, .document, .media, .form, .font, .other]
+        [.all, .http, .https, .websocket, .ai, .aiSession, .web3RPC, .rpcError, .json, .xml, .js, .css, .graphql, .grpc, .document, .media, .form, .font, .other]
     }
 
     static var statusFilters: [ProtocolFilter] {
@@ -42,7 +45,10 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
         case .http: "HTTP"
         case .https: "HTTPS"
         case .websocket: "WebSocket"
-        case .web3RPC: "Web3/RPC"
+        case .ai: "AI API"
+        case .aiSession: "AI Session"
+        case .web3RPC: "Web3"
+        case .rpcError: "RPC Error"
         case .json: "JSON"
         case .xml: "XML"
         case .js: "JS"
@@ -85,8 +91,15 @@ enum ProtocolFilter: String, CaseIterable, Hashable {
             return transaction.request.url.scheme == "https"
         case .websocket:
             return transaction.webSocketConnection != nil
+        case .ai:
+            let signal = AITrafficDetector.signal(transaction: transaction)
+            return signal.isLikelyAI && signal.kind != .session
+        case .aiSession:
+            return AITrafficDetector.signal(transaction: transaction).kind == .session
         case .web3RPC:
             return transaction.web3RPCInfo != nil
+        case .rpcError:
+            return transaction.web3RPCInfo?.error != nil
         case .json:
             return transaction.response?.contentType == .json || transaction.request.contentType == .json
         case .xml:

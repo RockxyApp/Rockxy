@@ -83,6 +83,22 @@ actor SessionStore {
             Self.txGraphqlOpName <- transaction.graphQLInfo?.operationName,
             Self.txGraphqlOpType <- transaction.graphQLInfo?.operationType.rawValue,
             Self.txGraphqlQuery <- transaction.graphQLInfo?.query,
+            Self.txWeb3Family <- transaction.web3RPCInfo?.family.rawValue,
+            Self.txWeb3ProviderHost <- transaction.web3RPCInfo?.providerHost,
+            Self.txWeb3Method <- transaction.web3RPCInfo?.method,
+            Self.txWeb3RequestId <- transaction.web3RPCInfo?.requestID,
+            Self.txWeb3BatchRequestCount <- transaction.web3RPCInfo?.batch?.requestCount,
+            Self.txWeb3BatchRPCRequestCount <- transaction.web3RPCInfo?.batch?.web3RequestCount,
+            Self.txWeb3BatchResponseCount <- transaction.web3RPCInfo?.batch?.responseCount,
+            Self.txWeb3BatchErrorCount <- transaction.web3RPCInfo?.batch?.errorCount,
+            Self.txWeb3BatchMethods <- encodeWeb3BatchMethods(transaction.web3RPCInfo?.batch?.methods),
+            Self.txWeb3ErrorCode <- transaction.web3RPCInfo?.error?.code,
+            Self.txWeb3ErrorMessage <- transaction.web3RPCInfo?.error?.message,
+            Self.txWeb3ChainId <- transaction.web3RPCInfo?.chainHint?.chainID,
+            Self.txWeb3TransactionHash <- transaction.web3RPCInfo?.transactionHash,
+            Self.txWeb3BlockIdentifier <- transaction.web3RPCInfo?.blockIdentifier,
+            Self.txWeb3RequestPayloadSize <- transaction.web3RPCInfo?.requestPayloadSize,
+            Self.txWeb3ResponsePayloadSize <- transaction.web3RPCInfo?.responsePayloadSize,
             Self.txIsPinned <- (transaction.isPinned ? 1 : 0),
             Self.txIsSaved <- (transaction.isSaved ? 1 : 0),
             Self.txComment <- transaction.comment,
@@ -275,6 +291,22 @@ actor SessionStore {
     private static let txGraphqlOpName = SQLite.Expression<String?>("graphql_op_name")
     private static let txGraphqlOpType = SQLite.Expression<String?>("graphql_op_type")
     private static let txGraphqlQuery = SQLite.Expression<String?>("graphql_query")
+    private static let txWeb3Family = SQLite.Expression<String?>("web3_family")
+    private static let txWeb3ProviderHost = SQLite.Expression<String?>("web3_provider_host")
+    private static let txWeb3Method = SQLite.Expression<String?>("web3_method")
+    private static let txWeb3RequestId = SQLite.Expression<String?>("web3_request_id")
+    private static let txWeb3BatchRequestCount = SQLite.Expression<Int?>("web3_batch_request_count")
+    private static let txWeb3BatchRPCRequestCount = SQLite.Expression<Int?>("web3_batch_rpc_request_count")
+    private static let txWeb3BatchResponseCount = SQLite.Expression<Int?>("web3_batch_response_count")
+    private static let txWeb3BatchErrorCount = SQLite.Expression<Int?>("web3_batch_error_count")
+    private static let txWeb3BatchMethods = SQLite.Expression<String?>("web3_batch_methods")
+    private static let txWeb3ErrorCode = SQLite.Expression<Int?>("web3_error_code")
+    private static let txWeb3ErrorMessage = SQLite.Expression<String?>("web3_error_message")
+    private static let txWeb3ChainId = SQLite.Expression<String?>("web3_chain_id")
+    private static let txWeb3TransactionHash = SQLite.Expression<String?>("web3_transaction_hash")
+    private static let txWeb3BlockIdentifier = SQLite.Expression<String?>("web3_block_identifier")
+    private static let txWeb3RequestPayloadSize = SQLite.Expression<Int?>("web3_request_payload_size")
+    private static let txWeb3ResponsePayloadSize = SQLite.Expression<Int?>("web3_response_payload_size")
     private static let txIsPinned = SQLite.Expression<Int>("is_pinned")
     private static let txIsSaved = SQLite.Expression<Int>("is_saved")
     private static let txComment = SQLite.Expression<String?>("comment")
@@ -399,14 +431,14 @@ actor SessionStore {
     }
 
     private func migrateSchemaIfNeeded() throws {
-        let currentVersion = try schemaVersion()
+        var currentVersion = try schemaVersion()
 
         if currentVersion == 0 {
             let columns = try existingColumnNames(table: "transactions")
             if columns.contains("is_pinned") {
                 try setSchemaVersion(1)
+                currentVersion = 1
                 Self.logger.info("Schema version bootstrapped to v1 (columns already present)")
-                return
             }
         }
 
@@ -417,6 +449,24 @@ actor SessionStore {
                 "ALTER TABLE transactions ADD COLUMN comment TEXT",
                 "ALTER TABLE transactions ADD COLUMN highlight_color TEXT",
                 "ALTER TABLE transactions ADD COLUMN client_app TEXT",
+            ]),
+            (2, [
+                "ALTER TABLE transactions ADD COLUMN web3_family TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_provider_host TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_method TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_request_id TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_batch_request_count INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_batch_rpc_request_count INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_batch_response_count INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_batch_error_count INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_batch_methods TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_error_code INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_error_message TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_chain_id TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_transaction_hash TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_block_identifier TEXT",
+                "ALTER TABLE transactions ADD COLUMN web3_request_payload_size INTEGER",
+                "ALTER TABLE transactions ADD COLUMN web3_response_payload_size INTEGER",
             ]),
         ]
 
@@ -618,6 +668,8 @@ actor SessionStore {
             )
         }
 
+        let web3RPCInfo = deserializeWeb3RPCInfo(from: row)
+
         let transaction = HTTPTransaction(
             id: id,
             timestamp: Date(timeIntervalSince1970: row[Self.txTimestamp]),
@@ -627,6 +679,7 @@ actor SessionStore {
         transaction.response = response
         transaction.timingInfo = timingInfo
         transaction.graphQLInfo = graphQLInfo
+        transaction.web3RPCInfo = web3RPCInfo
         transaction.isPinned = row[Self.txIsPinned] != 0
         transaction.isSaved = row[Self.txIsSaved] != 0
         transaction.comment = row[Self.txComment]
@@ -642,6 +695,59 @@ actor SessionStore {
         }
 
         return transaction
+    }
+
+    private func deserializeWeb3RPCInfo(from row: Row) -> Web3RPCInfo? {
+        guard let familyValue = row[Self.txWeb3Family],
+              let family = Web3RPCFamily(rawValue: familyValue),
+              let providerHost = row[Self.txWeb3ProviderHost]
+        else {
+            return nil
+        }
+
+        let batch = deserializeWeb3BatchSummary(from: row)
+        let error = deserializeWeb3Error(from: row)
+        let chainHint = row[Self.txWeb3ChainId].map { Web3RPCChainHint(chainID: $0) }
+
+        return Web3RPCInfo(
+            family: family,
+            providerHost: providerHost,
+            method: row[Self.txWeb3Method],
+            requestID: row[Self.txWeb3RequestId],
+            batch: batch,
+            error: error,
+            chainHint: chainHint,
+            transactionHash: row[Self.txWeb3TransactionHash],
+            blockIdentifier: row[Self.txWeb3BlockIdentifier],
+            requestPayloadSize: row[Self.txWeb3RequestPayloadSize],
+            responsePayloadSize: row[Self.txWeb3ResponsePayloadSize]
+        )
+    }
+
+    private func deserializeWeb3BatchSummary(from row: Row) -> Web3RPCBatchSummary? {
+        guard let requestCount = row[Self.txWeb3BatchRequestCount],
+              let web3RequestCount = row[Self.txWeb3BatchRPCRequestCount],
+              let errorCount = row[Self.txWeb3BatchErrorCount]
+        else {
+            return nil
+        }
+
+        return Web3RPCBatchSummary(
+            requestCount: requestCount,
+            web3RequestCount: web3RequestCount,
+            responseCount: row[Self.txWeb3BatchResponseCount],
+            errorCount: errorCount,
+            methods: decodeWeb3BatchMethods(row[Self.txWeb3BatchMethods])
+        )
+    }
+
+    private func deserializeWeb3Error(from row: Row) -> Web3RPCError? {
+        let code = row[Self.txWeb3ErrorCode]
+        let message = row[Self.txWeb3ErrorMessage]
+        guard code != nil || message != nil else {
+            return nil
+        }
+        return Web3RPCError(code: code, message: message)
     }
 
     // MARK: - Log Entry Deserialization
@@ -696,6 +802,28 @@ actor SessionStore {
             }
             return HTTPHeader(name: name, value: value)
         }
+    }
+
+    private func encodeWeb3BatchMethods(_ methods: [String]?) -> String? {
+        guard let methods else {
+            return nil
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: methods),
+              let json = String(data: data, encoding: .utf8) else
+        {
+            return nil
+        }
+        return json
+    }
+
+    private func decodeWeb3BatchMethods(_ json: String?) -> [String] {
+        guard let json,
+              let data = json.data(using: .utf8),
+              let methods = try? JSONSerialization.jsonObject(with: data) as? [String] else
+        {
+            return []
+        }
+        return methods
     }
 
     // MARK: - LogSource Encoding

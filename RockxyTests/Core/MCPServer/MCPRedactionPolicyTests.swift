@@ -173,6 +173,50 @@ struct MCPRedactionPolicyTests {
         #expect(redacted.contains("public"))
     }
 
+    @Test("Redacts AI prompt, tool, and retrieval JSON fields")
+    func redactAIProtocolJSONFields() {
+        let body = """
+        {
+          "model": "debug-model",
+          "messages": [{"role": "user", "content": "customer secret prompt"}],
+          "tool_calls": [{"function": {"arguments": "{\\"token\\":\\"tool-secret\\"}"}}],
+          "retrieved_context": "RAG snippet with private customer context",
+          "embedding": [0.1, 0.2, 0.3]
+        }
+        """
+
+        let redacted = enabledPolicy.redactJSONBody(body)
+
+        #expect(redacted.contains(#""model":"debug-model""#) || redacted.contains(#""model": "debug-model""#))
+        #expect(!redacted.contains("customer secret prompt"))
+        #expect(!redacted.contains("tool-secret"))
+        #expect(!redacted.contains("private customer context"))
+        #expect(!redacted.contains("0.1"))
+        #expect(redacted.contains("[REDACTED]"))
+    }
+
+    @Test("Redacts x402 payment metadata JSON fields")
+    func redactX402PaymentJSONFields() {
+        let body = """
+        {
+          "x-payment": "payment-header-secret",
+          "paymentPayload": "encoded-payment-payload",
+          "paymentProof": "proof-secret",
+          "maxAmountRequired": "1000",
+          "asset": "USDC"
+        }
+        """
+
+        let redacted = enabledPolicy.redactJSONBody(body)
+
+        #expect(!redacted.contains("payment-header-secret"))
+        #expect(!redacted.contains("encoded-payment-payload"))
+        #expect(!redacted.contains("proof-secret"))
+        #expect(!redacted.contains("1000"))
+        #expect(redacted.contains("USDC"))
+        #expect(redacted.contains("[REDACTED]"))
+    }
+
     @Test("Leaves generic key fields intact in JSON bodies")
     func preserveGenericJSONKeyField() throws {
         let body = #"{"items":[{"key":"foo","value":"bar"}]}"#
@@ -318,6 +362,23 @@ struct MCPRedactionPolicyTests {
         #expect(!redacted.contains(">secret<"))
         #expect(redacted.contains("[REDACTED]"))
         #expect(redacted.contains("<user>john</user>"))
+    }
+
+    @Test("Redacts protocol-sensitive XML and generic text")
+    func redactProtocolSensitiveXMLAndText() {
+        let policy = MCPRedactionPolicy(isEnabled: true)
+        let xml = "<root><prompt>private prompt</prompt><paymentProof>proof-secret</paymentProof><mode>debug</mode></root>"
+        let text = "tool_calls={\"arguments\":\"secret-args\"}\npayment_payload=encoded-payment\nstatus=ok"
+
+        let redactedXML = policy.redactXMLBody(xml)
+        let redactedText = policy.redactGenericText(text)
+
+        #expect(!redactedXML.contains("private prompt"))
+        #expect(!redactedXML.contains("proof-secret"))
+        #expect(redactedXML.contains("<mode>debug</mode>"))
+        #expect(!redactedText.contains("secret-args"))
+        #expect(!redactedText.contains("encoded-payment"))
+        #expect(redactedText.contains("status=ok"))
     }
 
     @Test("Redacts generic text Bearer tokens")

@@ -23,7 +23,8 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         timingInfo: TimingInfo? = nil,
         webSocketConnection: WebSocketConnection? = nil,
         graphQLInfo: GraphQLInfo? = nil,
-        web3RPCInfo: Web3RPCInfo? = nil
+        web3RPCInfo: Web3RPCInfo? = nil,
+        x402Info: X402Info? = nil
     ) {
         self.id = id
         self.timestamp = timestamp
@@ -34,6 +35,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         self.webSocketConnection = webSocketConnection
         self.graphQLInfo = graphQLInfo
         self.web3RPCInfo = web3RPCInfo
+        self.x402Info = x402Info
     }
 
     // MARK: Internal
@@ -48,6 +50,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var webSocketConnection: WebSocketConnection?
     var graphQLInfo: GraphQLInfo?
     var web3RPCInfo: Web3RPCInfo?
+    var x402Info: X402Info?
     var sourcePort: UInt16?
     var clientApp: String?
     var comment: String?

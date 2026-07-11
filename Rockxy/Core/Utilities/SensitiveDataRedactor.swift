@@ -26,6 +26,8 @@ struct SensitiveDataRedactor {
         "x-access-token",
         "x-csrf-token",
         "x-xsrf-token",
+        "x-payment",
+        "x-payment-response",
     ]
 
     static let sensitiveQueryParams: Set<String> = [
@@ -53,6 +55,37 @@ struct SensitiveDataRedactor {
         "recoveryphrase",
         "signature",
         "client_secret",
+        "clientsecret",
+        "provider_key",
+        "provider-key",
+        "providerkey",
+        "rpc_key",
+        "rpc-key",
+        "rpckey",
+        "rpc_url",
+        "rpc-url",
+        "rpcurl",
+        "wallet_key",
+        "wallet-key",
+        "walletkey",
+        "wallet_secret",
+        "wallet-secret",
+        "walletsecret",
+        "payment",
+        "payment_payload",
+        "payment-payload",
+        "paymentpayload",
+        "payment_header",
+        "payment-header",
+        "paymentheader",
+        "payment_proof",
+        "payment-proof",
+        "paymentproof",
+        "x-payment",
+        "x-payment-response",
+        "maxamountrequired",
+        "max_amount_required",
+        "max-amount-required",
         "key",
     ]
 
@@ -61,6 +94,42 @@ struct SensitiveDataRedactor {
         .union([
             "credentials",
             "id_token",
+            "prompt",
+            "prompts",
+            "messages",
+            "input",
+            "instructions",
+            "system_prompt",
+            "system-prompt",
+            "systemprompt",
+            "developer_message",
+            "developer-message",
+            "developermessage",
+            "tools",
+            "tool",
+            "tool_calls",
+            "tool-calls",
+            "toolcalls",
+            "tool_call",
+            "tool-call",
+            "toolcall",
+            "function_call",
+            "function-call",
+            "functioncall",
+            "arguments",
+            "args",
+            "retrieved_context",
+            "retrieved-context",
+            "retrievedcontext",
+            "rag_context",
+            "rag-context",
+            "ragcontext",
+            "context",
+            "snippet",
+            "embedding",
+            "embeddings",
+            "vector",
+            "vectors",
         ])
 
     let isEnabled: Bool
@@ -189,25 +258,12 @@ struct SensitiveDataRedactor {
     )
 
     private static let bodySecretKeyPattern = [
-        "password",
-        "passwd",
-        "pwd",
-        "secret",
-        "client_secret",
-        "private_key",
-        "private-key",
-        "privatekey",
-        "seed",
-        "seed_phrase",
-        "seed-phrase",
-        "seedphrase",
-        "mnemonic",
-        "recovery_phrase",
-        "recovery-phrase",
-        "recoveryphrase",
-        "signature",
-        "credentials",
-    ].joined(separator: "|")
+        sensitiveBodyKeys,
+        sensitiveQueryParams.subtracting(["key"]),
+    ]
+    .flatMap { $0 }
+    .map { NSRegularExpression.escapedPattern(for: $0) }
+    .joined(separator: "|")
 
     private static let bodySecretPatternRegex: NSRegularExpression = try! NSRegularExpression(
         pattern: #"("(?:\#(bodySecretKeyPattern))")\s*:\s*\#(jsonScalarPattern)"#,
@@ -215,12 +271,7 @@ struct SensitiveDataRedactor {
     )
 
     private static let xmlSensitivePatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: """
-        <(password|passwd|secret|token|access_token|api_key|apikey\
-        |client_secret|private_key|private-key|privatekey|seed|seed_phrase|seed-phrase\
-        |seedphrase|mnemonic|recovery_phrase|recovery-phrase|recoveryphrase|signature\
-        |credentials)>([^<]*)</
-        """,
+        pattern: #"<(\#(bodySecretKeyPattern))>([^<]*)</"#,
         options: [.caseInsensitive]
     )
 
@@ -230,7 +281,7 @@ struct SensitiveDataRedactor {
     )
 
     private static let genericKeyValuePatternRegex: NSRegularExpression = try! NSRegularExpression(
-        pattern: #"(?i)((?:password|passwd|secret|token|api_key|apikey|private_key|privatekey|seed_phrase|seedphrase|mnemonic|signature)[\s]*[:=][\s]*)\S+"#,
+        pattern: #"(?i)((?:\#(bodySecretKeyPattern))[\s]*[:=][\s]*)\S+"#,
         options: []
     )
     // swiftlint:enable force_try

@@ -11,9 +11,9 @@ enum ResponseInspectorTab: String, CaseIterable {
 
     // MARK: Internal
 
-    static func availableTabs(hasAIInspection: Bool) -> [ResponseInspectorTab] {
+    static func availableTabs(hasAIInspection _: Bool) -> [ResponseInspectorTab] {
         allCases.filter { tab in
-            hasAIInspection || tab != .ai
+            tab != .ai
         }
     }
 

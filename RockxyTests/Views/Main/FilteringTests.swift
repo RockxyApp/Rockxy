@@ -162,6 +162,25 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions[0].id == httpsOk.id)
     }
 
+    @Test("AI and RPC error protocol filters match captured metadata")
+    func smartProtocolFilters() {
+        let coordinator = MainContentCoordinator()
+        let ai = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses"
+        )
+        let rpcError = TestFixtures.makeWeb3RPCTransaction(
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+        let ordinary = TestFixtures.makeTransaction(url: "https://example.com/test")
+        coordinator.transactions = [ai, rpcError, ordinary]
+
+        coordinator.filterCriteria.activeProtocolFilters = [.ai, .rpcError]
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [ai.id, rpcError.id])
+    }
+
     // MARK: - Sidebar Filters
 
     @Test("Sidebar domain filters by suffix match")
@@ -358,6 +377,72 @@ struct FilteringTests {
         ]
         coordinator.recomputeFilteredTransactions()
         #expect(coordinator.filteredTransactions.count == coordinator.transactions.count)
+    }
+
+    // MARK: - Smart Search Tokens
+
+    @Test("Smart search filters AI traffic and applies remaining text")
+    func smartSearchAIWithRemainingText() {
+        let coordinator = MainContentCoordinator()
+        let match = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses"
+        )
+        let wrongPath = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.anthropic.com/v1/messages"
+        )
+        let ordinary = TestFixtures.makeTransaction(url: "https://api.example.com/reports/responses")
+        coordinator.transactions = [match, wrongPath, ordinary]
+        coordinator.filterCriteria.searchField = .path
+        coordinator.filterCriteria.searchText = "is:ai responses"
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [match.id])
+    }
+
+    @Test("Smart search filters Web3 RPC method, provider, and errors")
+    func smartSearchWeb3Metadata() {
+        let coordinator = MainContentCoordinator()
+        let match = TestFixtures.makeWeb3RPCTransaction(
+            method: nil,
+            batch: Web3RPCBatchSummary(
+                requestCount: 2,
+                web3RequestCount: 2,
+                responseCount: 2,
+                errorCount: 1,
+                methods: ["eth_chainId", "eth_getLogs"]
+            ),
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+        let wrongMethod = TestFixtures.makeWeb3RPCTransaction(
+            method: "eth_blockNumber",
+            error: Web3RPCError(code: -32_000, message: "rate limited")
+        )
+        let noError = TestFixtures.makeWeb3RPCTransaction(method: "eth_getLogs")
+        coordinator.transactions = [match, wrongMethod, noError]
+        coordinator.filterCriteria.searchText = "is:web3 rpc_error:true rpc:eth_getLogs provider:rpc.example.com"
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [match.id])
+    }
+
+    @Test("Smart provider search matches AI provider names")
+    func smartSearchAIProviderName() {
+        let coordinator = MainContentCoordinator()
+        let ai = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.openai.com/v1/responses"
+        )
+        let ordinary = TestFixtures.makeTransaction(url: "https://api.example.com/test")
+        coordinator.transactions = [ai, ordinary]
+        coordinator.filterCriteria.searchText = "provider:openai"
+
+        coordinator.recomputeFilteredTransactions()
+
+        #expect(coordinator.filteredTransactions.map(\.id) == [ai.id])
     }
 
     // MARK: - New Field Cases

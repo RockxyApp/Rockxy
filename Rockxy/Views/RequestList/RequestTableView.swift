@@ -202,7 +202,7 @@ struct RequestTableView: NSViewRepresentable {
     private static func makeColumns() -> [NSTableColumn] {
         let specs: [ColumnSpec] = [
             ColumnSpec(id: "status", title: "", width: 22, minWidth: 22),
-            ColumnSpec(id: "ai", title: String(localized: "AI"), width: 38, minWidth: 32),
+            ColumnSpec(id: "ai", title: String(localized: "Protocol"), width: 92, minWidth: 64),
             ColumnSpec(id: "row", title: String(localized: "ID"), width: 46, minWidth: 36),
             ColumnSpec(id: "url", title: String(localized: "URL"), width: 300, minWidth: 200),
             ColumnSpec(id: "client", title: String(localized: "Client"), width: 120, minWidth: 60),
@@ -232,7 +232,11 @@ struct RequestTableView: NSViewRepresentable {
                 column.resizingMask = []
                 column.maxWidth = 22
             } else if spec.id == "ai" {
-                column.maxWidth = 44
+                column.maxWidth = 112
+                column.sortDescriptorPrototype = NSSortDescriptor(
+                    key: spec.id,
+                    ascending: true
+                )
             } else if spec.id == "ssl" {
                 column.maxWidth = 42
             } else {
@@ -632,7 +636,7 @@ extension RequestTableView {
 
             switch columnID {
             case "status": return 22
-            case "ai": return 38
+            case "ai": return 92
             case "row": return 46
             case "ssl": return 38
             default: break
@@ -657,7 +661,7 @@ extension RequestTableView {
                     text = rowData.clientApp ?? ""
                     font = metrics.appKitFont()
                 case "ai":
-                    text = rowData.aiTrafficSignal.tableLabel
+                    text = rowData.smartBadgeText
                     font = metrics.appKitFont(weight: .semibold)
                 case "method":
                     text = rowData.method
@@ -1530,7 +1534,7 @@ extension RequestTableView {
             // Built-in column visibility
             let builtInColumns: [(id: String, title: String)] = [
                 ("status", String(localized: "Status Icon")),
-                ("ai", String(localized: "AI")),
+                ("ai", String(localized: "Protocol")),
                 ("row", "#"),
                 ("url", String(localized: "URL")),
                 ("client", String(localized: "Client")),
@@ -2126,12 +2130,10 @@ extension RequestTableView {
 
             case "ai":
                 cell.alignment = .center
-                cell.stringValue = rowData.aiTrafficSignal.tableLabel
-                cell.toolTip = rowData.aiTrafficSignal.accessibilityLabel.isEmpty
-                    ? nil
-                    : rowData.aiTrafficSignal.accessibilityLabel
+                cell.stringValue = rowData.smartBadgeText
+                cell.toolTip = rowData.smartBadgeTooltip
                 cell.font = metrics.appKitFont(weight: .semibold)
-                cell.textColor = rowData.aiTrafficSignal.isLikelyAI ? .controlAccentColor : .tertiaryLabelColor
+                cell.textColor = protocolTextColor(for: rowData)
 
             case "method":
                 cell.alignment = .center
@@ -2227,6 +2229,21 @@ extension RequestTableView {
                 } else {
                     cell.stringValue = ""
                 }
+            }
+        }
+
+        private func protocolTextColor(for row: RequestListRow) -> NSColor {
+            switch row.smartBadgeText {
+            case "RPC ERR":
+                .systemRed
+            case "Web3":
+                .systemGreen
+            case "AI API", "AI Session", "Likely AI":
+                .controlAccentColor
+            case "gRPC", "GraphQL", "WS":
+                .systemBlue
+            default:
+                .secondaryLabelColor
             }
         }
 
