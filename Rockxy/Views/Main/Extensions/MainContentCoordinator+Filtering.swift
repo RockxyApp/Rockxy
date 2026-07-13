@@ -25,6 +25,11 @@ extension MainContentCoordinator {
             }
         }
         workspace.filteredRows = rows
+        let visibleIDs = Set(workspace.filteredTransactions.map(\.id))
+        workspace.selectedTransactionIDs.formIntersection(visibleIDs)
+        if let selected = workspace.selectedTransaction, !visibleIDs.contains(selected.id) {
+            workspace.selectedTransaction = nil
+        }
         // lastDeriveWasAppendOnly is NOT reset here — it persists until the table
         // reads it in updateNSView and the next derive cycle overwrites it.
         workspace.refreshToken += 1
@@ -60,10 +65,23 @@ extension MainContentCoordinator {
 
     // MARK: - Filtered Transactions
 
+    /// Reveals the compound filter editor on first use, then appends one rule per invocation.
+    func addAdvancedFilterRule() {
+        if isFilterBarVisible {
+            filterRules.append(FilterRule())
+        } else {
+            if filterRules.isEmpty {
+                filterRules = [FilterRule()]
+            }
+            isFilterBarVisible = true
+        }
+        recomputeFilteredTransactions()
+    }
+
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {
         let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
         if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, activeRules.isEmpty,
-           activeSortDescriptors.isEmpty
+           activeSortDescriptors.isEmpty, !hasWorkspaceVisibilityRules(activeWorkspace)
         {
             filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
             activeWorkspace.lastDeriveWasAppendOnly = true
@@ -86,7 +104,7 @@ extension MainContentCoordinator {
         }
 
         let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
-        guard !filterCriteria.isEmpty || !activeRules.isEmpty else {
+        guard !filterCriteria.isEmpty || !activeRules.isEmpty || hasWorkspaceVisibilityRules(activeWorkspace) else {
             filteredTransactions = baseList.filter { !$0.isTLSFailure }
             deriveFilteredRows()
             return
@@ -94,6 +112,9 @@ extension MainContentCoordinator {
         let smartFilter = SmartTrafficFilter.parse(filterCriteria.searchText)
         filteredTransactions = baseList.filter { transaction in
             if transaction.isTLSFailure {
+                return false
+            }
+            if !isVisibleInWorkspaceScope(transaction, workspace: activeWorkspace) {
                 return false
             }
             if let exactTransactionID = filterCriteria.exactTransactionID,
@@ -226,7 +247,8 @@ extension MainContentCoordinator {
             isFilterBarVisible: workspace.isFilterBarVisible
         )
         if workspace.filterCriteria.sidebarScope == .allTraffic,
-           workspace.filterCriteria.isEmpty, activeRules.isEmpty, workspace.activeSortDescriptors.isEmpty
+           workspace.filterCriteria.isEmpty, activeRules.isEmpty, workspace.activeSortDescriptors.isEmpty,
+           !hasWorkspaceVisibilityRules(workspace)
         {
             workspace.filteredTransactions.append(contentsOf: batch.filter { !$0.isTLSFailure })
             workspace.lastDeriveWasAppendOnly = true
@@ -252,7 +274,7 @@ extension MainContentCoordinator {
             in: workspace.filterRules,
             isFilterBarVisible: workspace.isFilterBarVisible
         )
-        guard !workspace.filterCriteria.isEmpty || !activeRules.isEmpty else {
+        guard !workspace.filterCriteria.isEmpty || !activeRules.isEmpty || hasWorkspaceVisibilityRules(workspace) else {
             workspace.filteredTransactions = baseList.filter { !$0.isTLSFailure }
             deriveFilteredRows(for: workspace)
             return
@@ -260,6 +282,9 @@ extension MainContentCoordinator {
         let smartFilter = SmartTrafficFilter.parse(workspace.filterCriteria.searchText)
         workspace.filteredTransactions = baseList.filter { transaction in
             if transaction.isTLSFailure {
+                return false
+            }
+            if !isVisibleInWorkspaceScope(transaction, workspace: workspace) {
                 return false
             }
             if let exactTransactionID = workspace.filterCriteria.exactTransactionID,
@@ -341,5 +366,21 @@ extension MainContentCoordinator {
             return true
         }
         deriveFilteredRows(for: workspace)
+    }
+
+    private func hasWorkspaceVisibilityRules(_ workspace: WorkspaceState) -> Bool {
+        workspace.activeFocusSet != nil
+            || workspace.activeTrafficSignal != nil
+            || !workspace.mutedTrafficSources.isEmpty
+    }
+
+    private func isVisibleInWorkspaceScope(_ transaction: HTTPTransaction, workspace: WorkspaceState) -> Bool {
+        if workspace.mutedTrafficSources.contains(where: { $0.matches(transaction) }) {
+            return false
+        }
+        if let signal = workspace.activeTrafficSignal, !signal.matches(transaction) {
+            return false
+        }
+        return workspace.activeFocusSet?.matches(transaction) ?? true
     }
 }

@@ -137,12 +137,28 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: sidebarBinding) {
-                favoritesSection
-                allSection
+            Picker(String(localized: "Navigator"), selection: navigatorModeBinding) {
+                ForEach(FocusNavigatorMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
             }
-            .listStyle(.sidebar)
-            .font(.system(size: metrics.sidebarNavigationFontSize))
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            Group {
+                switch coordinator.focusNavigatorMode {
+                case .browse:
+                    browseList
+                case .focus:
+                    focusList
+                case .library:
+                    libraryList
+                }
+            }
 
             SidebarBottomBar(
                 filterText: $sidebarFilterText,
@@ -153,6 +169,14 @@ struct SidebarView: View {
             AddFavoriteView(
                 coordinator: coordinator,
                 isPresented: $isAddFavoritePresented
+            )
+        }
+        .sheet(item: $editingFocusSet) { focusSet in
+            FocusSetEditorSheet(
+                initialValue: focusSet,
+                transactions: coordinator.transactions,
+                isCreating: !coordinator.activeWorkspace.focusSets.contains { $0.id == focusSet.id },
+                onSave: coordinator.saveFocusSet
             )
         }
         .background(
@@ -169,6 +193,8 @@ struct SidebarView: View {
 
     @State private var sidebarFilterText = ""
     @State private var isAddFavoritePresented = false
+    @State private var editingFocusSet: FocusSet?
+    @State private var isMutedSourcesPresented = false
     @State private var expandedDomainNodeIDs: Set<String> = []
     @Environment(\.appUIDisplayMetrics) private var metrics
 
@@ -179,11 +205,172 @@ struct SidebarView: View {
         )
     }
 
+    private var navigatorModeBinding: Binding<FocusNavigatorMode> {
+        Binding(
+            get: { coordinator.focusNavigatorMode },
+            set: { coordinator.focusNavigatorMode = $0 }
+        )
+    }
+
     private var appNodes: [AppInfo] {
         coordinator.appNodes
     }
 
     // MARK: - Sections
+
+    private var browseList: some View {
+        List(selection: sidebarBinding) {
+            allSection
+            signalsSection
+        }
+        .listStyle(.sidebar)
+        .font(.system(size: metrics.sidebarNavigationFontSize))
+    }
+
+    private var focusList: some View {
+        List {
+            Section(String(localized: "Focus Sets")) {
+                if coordinator.activeWorkspace.focusSets.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(String(localized: "No Focus Sets"), systemImage: "scope")
+                            .font(.system(size: metrics.sidebarNavigationFontSize, weight: .medium))
+                        Text(String(localized: "Save a reusable app, domain, or path scope."))
+                            .font(.system(size: metrics.sidebarSecondaryFontSize))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(coordinator.activeWorkspace.focusSets) { focusSet in
+                        Button {
+                            coordinator.applyFocusSet(focusSet)
+                        } label: {
+                            Label {
+                                HStack {
+                                    Text(focusSet.name).lineLimit(1)
+                                    Spacer()
+                                    Text(String(localized: "\(focusSet.ruleCount) rules"))
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: coordinator.activeWorkspace.activeFocusSetID == focusSet.id
+                                    ? "scope" : "circle.dashed")
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(String(localized: "Edit…")) { editingFocusSet = focusSet }
+                            Button(String(localized: "Duplicate")) { coordinator.duplicateFocusSet(focusSet) }
+                            Divider()
+                            Button(String(localized: "Delete"), role: .destructive) {
+                                coordinator.deleteFocusSet(focusSet)
+                            }
+                        }
+                    }
+                }
+
+                Button {
+                    editingFocusSet = coordinator.makeFocusSetFromCurrentScope()
+                } label: {
+                    Label(String(localized: "Create Focus Set…"), systemImage: "plus")
+                }
+            }
+
+            Section(String(localized: "Noise Control")) {
+                Button {
+                    isMutedSourcesPresented.toggle()
+                } label: {
+                    Label {
+                        HStack {
+                            Text(String(localized: "Muted Sources"))
+                            Spacer()
+                            Text("\(coordinator.activeWorkspace.mutedTrafficSources.count)")
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "eye.slash")
+                    }
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: $isMutedSourcesPresented, arrowEdge: .trailing) {
+                    mutedSourcesPopover
+                }
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    private var libraryList: some View {
+        List(selection: sidebarBinding) {
+            favoritesSection
+        }
+        .listStyle(.sidebar)
+        .font(.system(size: metrics.sidebarNavigationFontSize))
+    }
+
+    private var signalsSection: some View {
+        Section(String(localized: "Signals")) {
+            ForEach(TrafficSignal.allCases) { signal in
+                signalRow(signal)
+            }
+        }
+    }
+
+    private func signalRow(_ signal: TrafficSignal) -> some View {
+        let isActive = coordinator.activeWorkspace.activeTrafficSignal == signal
+        return Button {
+            coordinator.toggleTrafficSignal(signal)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: signal.systemImage)
+                    .frame(width: 16)
+                Text(signal.title)
+                Spacer(minLength: 8)
+                Text("\(coordinator.trafficSignalCount(signal))")
+                    .font(.system(size: metrics.sidebarBadgeFontSize).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: metrics.sidebarBadgeFontSize, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(isActive ? Color.accentColor.opacity(0.12) : Color.clear)
+        .help(isActive
+            ? String(localized: "Show all captured traffic")
+            : String(localized: "Show only \(signal.title.lowercased()) traffic"))
+    }
+
+    private var mutedSourcesPopover: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(localized: "Muted Sources"))
+                .font(.headline)
+            if coordinator.activeWorkspace.mutedTrafficSources.isEmpty {
+                Text(String(localized: "No sources are muted in this workspace."))
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(coordinator.activeWorkspace.mutedTrafficSources)) { source in
+                    HStack {
+                        Label(source.title, systemImage: source.systemImage)
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(coordinator.mutedTransactionCount(for: source))")
+                            .foregroundStyle(.secondary)
+                        Button(String(localized: "Unmute")) {
+                            coordinator.unmuteTrafficSource(source)
+                        }
+                    }
+                }
+                Divider()
+                Button(String(localized: "Unmute All"), action: coordinator.unmuteAllTrafficSources)
+            }
+        }
+        .padding(16)
+        .frame(width: 360)
+    }
 
     private var favoritesSection: some View {
         Section {
@@ -553,6 +740,13 @@ struct SidebarView: View {
             Label(String(localized: "Sort by Alphabet"), systemImage: "textformat.abc")
         }
 
+        Button {
+            coordinator.muteTrafficSource(.host(domain))
+            coordinator.focusNavigatorMode = .focus
+        } label: {
+            Label(String(localized: "Mute Source"), systemImage: "eye.slash")
+        }
+
         Divider()
 
         Menu {
@@ -801,6 +995,15 @@ struct SidebarView: View {
             coordinator.sortAppNodesAlphabetically()
         } label: {
             Label(String(localized: "Sort by Alphabet"), systemImage: "textformat.abc")
+        }
+
+        Button {
+            for domain in app.domains {
+                coordinator.muteTrafficSource(.host(domain))
+            }
+            coordinator.focusNavigatorMode = .focus
+        } label: {
+            Label(String(localized: "Mute App Sources"), systemImage: "eye.slash")
         }
 
         Divider()

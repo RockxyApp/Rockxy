@@ -14,6 +14,8 @@ enum FooterActionKind: String, CaseIterable {
     case breakpoint
     case networkConditions
     case proxyOverride
+
+    static let defaultQuickTools: [Self] = [.breakpoint, .mapLocal, .scripting, .networkConditions]
 }
 
 // MARK: - FooterActionDescriptor
@@ -26,8 +28,12 @@ struct FooterActionDescriptor: Identifiable, Equatable {
     let isActive: Bool
     let isEnabled: Bool
 
-    static func toolingActions(isAllowListActive: Bool, isProxyOverridden: Bool = false) -> [Self] {
-        var actions: [Self] = [
+    static func toolingActions(
+        isAllowListActive: Bool,
+        isProxyOverridden: Bool = false,
+        quickTools: [FooterActionKind] = FooterActionKind.defaultQuickTools
+    ) -> [Self] {
+        let catalog: [Self] = [
             .init(
                 id: .blockList,
                 title: String(localized: "Block List"),
@@ -86,6 +92,7 @@ struct FooterActionDescriptor: Identifiable, Equatable {
             ),
         ]
 
+        var actions = quickTools.compactMap { kind in catalog.first { $0.id == kind } }
         if isProxyOverridden {
             actions.append(.init(
                 id: .proxyOverride,
@@ -109,7 +116,7 @@ private struct FooterToolingButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(descriptor.title)
+            Label(descriptor.title, systemImage: descriptor.systemImage)
                 .modifier(FooterToolingChrome(
                     isActive: descriptor.isActive,
                     isEnabled: descriptor.isEnabled,
@@ -204,8 +211,8 @@ private struct FooterToolingChrome: ViewModifier {
             .font(.system(size: metrics.badgeFontSize, weight: .semibold))
             .foregroundStyle(Color.white)
             .lineLimit(1)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
             .background(backgroundColor, in: Capsule())
             .opacity(isEnabled ? 1 : 0.45)
     }
@@ -217,7 +224,7 @@ private struct FooterToolingChrome: ViewModifier {
             return Color.accentColor
         }
         if isHovered, isEnabled {
-            return Color(nsColor: .secondaryLabelColor)
+            return Color(nsColor: .secondaryLabelColor).opacity(0.86)
         }
         return Color(nsColor: .tertiaryLabelColor)
     }
@@ -293,7 +300,7 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            leftButtons
+            quickTools
             Spacer(minLength: 24)
             centerStatus
             Spacer(minLength: 24)
@@ -321,24 +328,6 @@ struct StatusBarView: View {
 
     private var formattedDataSize: String {
         ByteCountFormatter.string(fromByteCount: totalDataSize, countStyle: .file)
-    }
-
-    private var leftButtons: some View {
-        HStack(spacing: 8) {
-            FooterPrimaryButton(title: String(localized: "Clear"), action: onClear)
-            FooterPrimaryButton(
-                title: activeFilterCount > 0
-                    ? String(localized: "Filter (\(activeFilterCount))")
-                    : String(localized: "Filter"),
-                isActive: isFilterBarVisible || activeFilterCount > 0,
-                action: onFilter
-            )
-            FooterPrimaryButton(
-                title: String(localized: "Auto Select"),
-                isActive: isAutoSelectEnabled,
-                action: onAutoSelect
-            )
-        }
     }
 
     private var centerStatus: some View {
@@ -398,7 +387,18 @@ struct StatusBarView: View {
                 .foregroundStyle(Color.accentColor)
                 .help("Captured download throughput")
 
-            toolingButtons
+            if let proxyOverride = FooterActionDescriptor.toolingActions(
+                isAllowListActive: isAllowListActive,
+                isProxyOverridden: isProxyOverridden,
+                quickTools: []
+            ).first(where: { $0.id == .proxyOverride }) {
+                FooterProxyOverrideButton(
+                    descriptor: proxyOverride,
+                    proxyHost: proxyHost,
+                    proxyPort: proxyPort,
+                    onSwitchOff: onSwitchOffProxyOverride
+                )
+            }
 
             if isAllowListActive {
                 statusPill(String(localized: "Allow List"), color: Color.accentColor)
@@ -424,24 +424,44 @@ struct StatusBarView: View {
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
+    @AppStorage("footerQuickToolOrder") private var quickToolOrder = FooterActionKind.defaultQuickTools
+        .map(\.rawValue)
+        .joined(separator: ",")
+    @State private var isCustomizingQuickTools = false
 
-    @ViewBuilder
-    private var toolingButtons: some View {
-        ForEach(FooterActionDescriptor.toolingActions(
-            isAllowListActive: isAllowListActive,
-            isProxyOverridden: isProxyOverridden
-        )) { descriptor in
-            if descriptor.id == .proxyOverride {
-                FooterProxyOverrideButton(
-                    descriptor: descriptor,
-                    proxyHost: proxyHost,
-                    proxyPort: proxyPort,
-                    onSwitchOff: onSwitchOffProxyOverride
-                )
-            } else {
+    private var selectedQuickTools: [FooterActionKind] {
+        let decoded = quickToolOrder.split(separator: ",").compactMap { FooterActionKind(rawValue: String($0)) }
+        let unique = decoded.reduce(into: [FooterActionKind]()) { result, item in
+            if item != .proxyOverride, !result.contains(item) { result.append(item) }
+        }
+        return unique.count == 4 ? unique : FooterActionKind.defaultQuickTools
+    }
+
+    private var quickTools: some View {
+        HStack(spacing: 6) {
+            ForEach(FooterActionDescriptor.toolingActions(
+                isAllowListActive: isAllowListActive,
+                quickTools: selectedQuickTools
+            )) { descriptor in
                 FooterToolingButton(descriptor: descriptor) {
                     performAction(descriptor.id)
                 }
+            }
+            Button {
+                isCustomizingQuickTools.toggle()
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "Customize Quick Tools"))
+            .popover(isPresented: $isCustomizingQuickTools, arrowEdge: .bottom) {
+                FooterQuickToolsEditor(
+                    selection: selectedQuickTools,
+                    onSave: { quickToolOrder = $0.map(\.rawValue).joined(separator: ",") },
+                    onReset: {
+                        quickToolOrder = FooterActionKind.defaultQuickTools.map(\.rawValue).joined(separator: ",")
+                    }
+                )
             }
         }
     }
@@ -475,6 +495,103 @@ struct StatusBarView: View {
         case .proxyOverride:
             break
         }
+    }
+}
+
+private struct FooterQuickToolsEditor: View {
+    let onSave: ([FooterActionKind]) -> Void
+    let onReset: () -> Void
+
+    init(
+        selection: [FooterActionKind],
+        onSave: @escaping ([FooterActionKind]) -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        _selection = State(initialValue: selection)
+        self.onSave = onSave
+        self.onReset = onReset
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(String(localized: "Customize Quick Tools"))
+                .font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 8) {
+                ForEach(selection.indices, id: \.self) { index in
+                    GridRow {
+                        Text(String(localized: "Slot \(index + 1)"))
+                            .frame(width: 44, alignment: .leading)
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                            Menu {
+                                ForEach(availableKinds(for: index), id: \.self) { kind in
+                                    Button {
+                                        selection[index] = kind
+                                    } label: {
+                                        if selection[index] == kind {
+                                            Label(descriptor(for: kind).title, systemImage: "checkmark")
+                                        } else {
+                                            Text(descriptor(for: kind).title)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Color.clear
+                                    .frame(width: 126, height: 24)
+                                    .contentShape(Rectangle())
+                            }
+                            .menuStyle(.borderlessButton)
+                            .controlSize(.small)
+                            .accessibilityLabel(descriptor(for: selection[index]).title)
+                            HStack(spacing: 8) {
+                                Text(descriptor(for: selection[index]).title)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 8)
+                            .allowsHitTesting(false)
+                        }
+                        .frame(width: 126, height: 24, alignment: .leading)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            HStack {
+                Button(String(localized: "Reset Defaults")) {
+                    selection = FooterActionKind.defaultQuickTools
+                    onReset()
+                }
+                Spacer()
+                Button(String(localized: "Done")) { onSave(selection) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(16)
+        .frame(width: 250)
+        .onChange(of: selection) { _, value in onSave(value) }
+    }
+
+    @State private var selection: [FooterActionKind]
+
+    private func availableKinds(for index: Int) -> [FooterActionKind] {
+        FooterActionKind.allCases.filter { kind in
+            kind != .proxyOverride && (kind == selection[index] || !selection.contains(kind))
+        }
+    }
+
+    private func descriptor(for kind: FooterActionKind) -> FooterActionDescriptor {
+        FooterActionDescriptor.toolingActions(
+            isAllowListActive: false,
+            quickTools: [kind]
+        )[0]
     }
 }
 

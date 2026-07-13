@@ -54,11 +54,11 @@ struct ProxyToolbarContent: ToolbarContent {
                 coordinator.toggleInspectorRight()
             } label: {
                 Label(
-                    String(localized: "Right Inspector"),
+                    String(localized: "Context Dock"),
                     systemImage: "sidebar.trailing"
                 )
             }
-            .help(String(localized: "Show or hide the right inspector panel"))
+            .help(String(localized: "Show or hide the Context Dock"))
         }
 
         // Center: status indicator

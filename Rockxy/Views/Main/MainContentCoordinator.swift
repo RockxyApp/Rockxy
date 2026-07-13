@@ -246,6 +246,16 @@ final class MainContentCoordinator {
         set { activeWorkspace.inspectorLayout = newValue }
     }
 
+    var isContextDockVisible: Bool {
+        get { activeWorkspace.isContextDockVisible }
+        set { activeWorkspace.isContextDockVisible = newValue }
+    }
+
+    var focusNavigatorMode: FocusNavigatorMode {
+        get { activeWorkspace.focusNavigatorMode }
+        set { activeWorkspace.focusNavigatorMode = newValue }
+    }
+
     var selectedLogEntry: LogEntry? {
         get { activeWorkspace.selectedLogEntry }
         set { activeWorkspace.selectedLogEntry = newValue }

@@ -17,6 +17,7 @@ final class WorkspaceState: Identifiable {
         self.title = title
         self.isClosable = isClosable
         self.filterCriteria = initialFilter
+        self.focusSets = FocusSetPersistence.load()
     }
 
     // MARK: Internal
@@ -31,7 +32,17 @@ final class WorkspaceState: Identifiable {
     var activeMainTab: MainTab = .traffic
     var sidebarSelection: SidebarItem?
     var inspectorTab: InspectorTab = .headers
-    var inspectorLayout: InspectorLayout = .hidden
+    var inspectorLayout: InspectorLayout = .bottom
+    var isContextDockVisible = true
+    var focusNavigatorMode: FocusNavigatorMode = .browse
+    var activeTrafficSignal: TrafficSignal?
+    var focusSets: [FocusSet] = []
+    var activeFocusSetID: UUID?
+    var mutedTrafficSources: Set<MutedTrafficSource> = []
+
+    var activeFocusSet: FocusSet? {
+        focusSets.first { $0.id == activeFocusSetID }
+    }
 
     // Selection
     var selectedTransaction: HTTPTransaction?

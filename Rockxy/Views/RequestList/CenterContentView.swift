@@ -46,7 +46,14 @@ struct CenterContentView: View {
                         coordinator.filterCriteria.isSearchEnabled = $0
                         coordinator.recomputeFilteredTransactions()
                     }
-                )
+                ),
+                isAdvancedFilterVisible: coordinator.isFilterBarVisible,
+                advancedFilterCount: advancedRuleCount,
+                onAddFilter: coordinator.addAdvancedFilterRule,
+                onToggleAdvancedFilters: {
+                    coordinator.isFilterBarVisible.toggle()
+                    coordinator.recomputeFilteredTransactions()
+                }
             )
 
             if coordinator.isFilterBarVisible {
@@ -132,46 +139,38 @@ struct CenterContentView: View {
 
     private var inspectorWorkspace: some View {
         GeometryReader { proxy in
-            switch coordinator.inspectorLayout {
-            case .hidden:
-                tableContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .right:
-                HSplitView {
-                    tableContent
-                        .frame(
-                            minWidth: Self.minimumRightPaneWidth,
-                            idealWidth: max(Self.minimumRightPaneWidth, proxy.size.width * 0.5)
-                        )
-                    InspectorPanelView(coordinator: coordinator)
-                        .frame(
-                            minWidth: Self.minimumRightPaneWidth,
-                            idealWidth: max(Self.minimumRightPaneWidth, proxy.size.width * 0.5)
-                        )
-                }
-                .id("right-inspector-split")
-            case .bottom:
+            if coordinator.inspectorLayout == .hidden {
+                upperWorkspace(availableWidth: proxy.size.width)
+            } else {
                 VSplitView {
-                    tableContent
+                    upperWorkspace(availableWidth: proxy.size.width)
                         .frame(
                             minHeight: Self.minimumBottomTableHeight,
-                            idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height / 3)
+                            idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height * 0.58)
                         )
                     InspectorPanelView(coordinator: coordinator)
                         .frame(
                             minHeight: Self.minimumBottomInspectorHeight,
-                            idealHeight: max(Self.minimumBottomInspectorHeight, proxy.size.height * 2 / 3)
+                            idealHeight: max(Self.minimumBottomInspectorHeight, proxy.size.height * 0.42)
                         )
                 }
-                .id("bottom-inspector-split")
+                .id("horizontal-inspector-split")
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private static let minimumRightPaneWidth: CGFloat = 300
     private static let minimumBottomTableHeight: CGFloat = 200
     private static let minimumBottomInspectorHeight: CGFloat = 200
+    private static let minimumTrafficWidth: CGFloat = 420
+    private static let contextDockWidth: CGFloat = 300
+
+    private var advancedRuleCount: Int {
+        FilterRuleEvaluator.activeRules(
+            in: coordinator.filterRules,
+            isFilterBarVisible: coordinator.isFilterBarVisible
+        ).count
+    }
 
     private var activeFilterCount: Int {
         coordinator.filterCriteria.activeFilterCount
@@ -179,6 +178,9 @@ struct CenterContentView: View {
                 in: coordinator.filterRules,
                 isFilterBarVisible: coordinator.isFilterBarVisible
             ).count
+            + (coordinator.activeWorkspace.activeTrafficSignal == nil ? 0 : 1)
+            + (coordinator.activeWorkspace.activeFocusSet == nil ? 0 : 1)
+            + (coordinator.activeWorkspace.mutedTrafficSources.isEmpty ? 0 : 1)
     }
 
     private var tableContent: some View {
@@ -201,4 +203,26 @@ struct CenterContentView: View {
             mainCoordinator: coordinator
         )
     }
+
+    @ViewBuilder
+    private func upperWorkspace(availableWidth: CGFloat) -> some View {
+        if coordinator.isContextDockVisible, availableWidth >= Self.minimumWidthForContextDock {
+            HSplitView {
+                tableContent
+                    .frame(minWidth: Self.minimumTrafficWidth, maxWidth: .infinity)
+                ContextDockView(coordinator: coordinator)
+                    .frame(
+                        minWidth: Self.contextDockWidth,
+                        idealWidth: Self.contextDockWidth,
+                        maxWidth: 420
+                    )
+            }
+            .id("traffic-context-dock-split")
+        } else {
+            tableContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private static let minimumWidthForContextDock: CGFloat = 760
 }

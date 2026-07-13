@@ -151,6 +151,12 @@ final class WorkspaceStore {
         )
         duplicate.activeMainTab = source.activeMainTab
         duplicate.inspectorLayout = source.inspectorLayout
+        duplicate.isContextDockVisible = source.isContextDockVisible
+        duplicate.focusNavigatorMode = source.focusNavigatorMode
+        duplicate.activeTrafficSignal = source.activeTrafficSignal
+        duplicate.focusSets = source.focusSets
+        duplicate.activeFocusSetID = source.activeFocusSetID
+        duplicate.mutedTrafficSources = source.mutedTrafficSources
         duplicate.filterRules = source.filterRules
         duplicate.isFilterBarVisible = source.isFilterBarVisible
 

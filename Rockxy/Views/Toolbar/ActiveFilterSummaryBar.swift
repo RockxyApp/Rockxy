@@ -16,6 +16,27 @@ struct ActiveFilterSummaryBar: View {
         if hasActiveFilters {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
+                    if let signal = coordinator.activeWorkspace.activeTrafficSignal {
+                        FilterChip(label: String(localized: "Signal: \(signal.title)")) {
+                            coordinator.toggleTrafficSignal(signal)
+                        }
+                    }
+
+                    if let focusSet = coordinator.activeWorkspace.activeFocusSet {
+                        FilterChip(label: String(localized: "Focus: \(focusSet.name)")) {
+                            coordinator.applyFocusSet(nil)
+                        }
+                    }
+
+                    if !coordinator.activeWorkspace.mutedTrafficSources.isEmpty {
+                        FilterChip(
+                            label: String(
+                                localized: "\(coordinator.activeWorkspace.mutedTrafficSources.count) muted sources"
+                            ),
+                            onRemove: coordinator.unmuteAllTrafficSources
+                        )
+                    }
+
                     if let domain = coordinator.filterCriteria.sidebarDomain {
                         let pathPrefix = coordinator.filterCriteria.sidebarPathPrefix ?? ""
                         FilterChip(
@@ -116,7 +137,10 @@ struct ActiveFilterSummaryBar: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasActiveFilters: Bool {
-        coordinator.filterCriteria.sidebarDomain != nil
+        coordinator.activeWorkspace.activeTrafficSignal != nil
+            || coordinator.activeWorkspace.activeFocusSet != nil
+            || !coordinator.activeWorkspace.mutedTrafficSources.isEmpty
+            || coordinator.filterCriteria.sidebarDomain != nil
             || coordinator.filterCriteria.sidebarPathPrefix != nil
             || coordinator.filterCriteria.sidebarApp != nil
             || coordinator.filterCriteria.sidebarScope == .saved
@@ -133,6 +157,9 @@ struct ActiveFilterSummaryBar: View {
         coordinator.sidebarSelection = nil
         coordinator.isFilterBarVisible = false
         coordinator.filterRules = [FilterRule()]
+        coordinator.activeWorkspace.activeTrafficSignal = nil
+        coordinator.activeWorkspace.activeFocusSetID = nil
+        coordinator.activeWorkspace.mutedTrafficSources.removeAll()
         coordinator.recomputeFilteredTransactions()
     }
 }

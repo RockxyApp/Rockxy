@@ -4,13 +4,13 @@ import SwiftUI
 
 // MARK: - MainContentCoordinator + Layout
 
-/// Coordinator extension for inspector panel layout toggling (right, bottom, hidden).
+/// Coordinator extension for the horizontal inspector and independent Context Dock.
 extension MainContentCoordinator {
     // MARK: - Inspector Layout
 
     func toggleInspectorRight() {
         withAnimation(.smooth(duration: 0.18)) {
-            inspectorLayout = (inspectorLayout == .right) ? .hidden : .right
+            isContextDockVisible.toggle()
         }
     }
 
