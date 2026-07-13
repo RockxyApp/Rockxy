@@ -49,19 +49,64 @@ enum TrafficSignal: String, CaseIterable, Identifiable {
         }
     }
 
+    var explanation: String {
+        switch self {
+        case .errors:
+            String(localized: "HTTP 4xx/5xx responses and failed transports")
+        case .slow:
+            String(localized: "Requests taking at least one second")
+        case .webSocket:
+            String(localized: "WebSocket sessions and valid upgrade handshakes")
+        case .graphQL:
+            String(localized: "GraphQL operations confirmed from captured request data")
+        case .rulesHit:
+            String(localized: "Requests affected by a matching debugging rule")
+        }
+    }
+
     func matches(_ transaction: HTTPTransaction) -> Bool {
         switch self {
         case .errors:
-            (transaction.response?.statusCode ?? 0) >= 400 || transaction.state == .failed
+            return transaction.state == .failed
+                || transaction.response.map { (400 ... 599).contains($0.statusCode) } == true
         case .slow:
-            (transaction.timingInfo?.totalDuration ?? transaction.measuredDuration ?? 0) >= 1
+            guard let duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration else {
+                return false
+            }
+            return duration >= Self.slowThreshold
         case .webSocket:
-            transaction.webSocketConnection != nil
+            return isWebSocket(transaction)
         case .graphQL:
-            transaction.graphQLInfo != nil
+            return transaction.graphQLInfo != nil
         case .rulesHit:
-            transaction.matchedRuleID != nil
+            return transaction.matchedRuleID != nil
+                || transaction.matchedRuleName != nil
+                || transaction.matchedRuleActionSummary != nil
+                || transaction.matchedRulePattern != nil
         }
+    }
+
+    private static let slowThreshold: TimeInterval = 1
+
+    private func isWebSocket(_ transaction: HTTPTransaction) -> Bool {
+        if transaction.webSocketConnection != nil {
+            return true
+        }
+        let scheme = transaction.request.url.scheme?.lowercased()
+        if scheme == "ws" || scheme == "wss" {
+            return true
+        }
+        let upgrade = transaction.request.headers.contains {
+            $0.name.caseInsensitiveCompare("Upgrade") == .orderedSame
+                && $0.value.caseInsensitiveCompare("websocket") == .orderedSame
+        }
+        let connection = transaction.request.headers.contains {
+            $0.name.caseInsensitiveCompare("Connection") == .orderedSame
+                && $0.value.lowercased().split(separator: ",").contains {
+                    $0.trimmingCharacters(in: .whitespaces) == "upgrade"
+                }
+        }
+        return upgrade && connection
     }
 }
 

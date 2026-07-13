@@ -2,6 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 
+// MARK: - MainWindowLayoutMetrics
+
+enum MainWindowLayoutMetrics {
+    static let defaultWidth: CGFloat = 1_200
+    static let defaultHeight: CGFloat = 760
+    static let minimumWidth: CGFloat = 960
+    static let minimumHeight: CGFloat = 620
+}
+
 // MARK: - ContentView
 
 /// Root view of the main window. Sets up a two-column `NavigationSplitView` with
@@ -44,6 +53,10 @@ struct ContentView: View {
                 }
             }
         }
+        .frame(
+            minWidth: MainWindowLayoutMetrics.minimumWidth,
+            minHeight: MainWindowLayoutMetrics.minimumHeight
+        )
         .background {
             WorkspaceWindowAccessor(
                 coordinator: coordinator,

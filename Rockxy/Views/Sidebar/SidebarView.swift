@@ -309,9 +309,16 @@ struct SidebarView: View {
     }
 
     private var signalsSection: some View {
-        Section(String(localized: "Signals")) {
+        Section {
             ForEach(TrafficSignal.allCases) { signal in
                 signalRow(signal)
+            }
+        } header: {
+            Text(String(localized: "Signals"))
+        } footer: {
+            if let activeSignal = coordinator.activeWorkspace.activeTrafficSignal {
+                Text(activeSignal.explanation)
+                    .font(.system(size: metrics.sidebarSecondaryFontSize))
             }
         }
     }
@@ -340,8 +347,8 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         .listRowBackground(isActive ? Color.accentColor.opacity(0.12) : Color.clear)
         .help(isActive
-            ? String(localized: "Show all captured traffic")
-            : String(localized: "Show only \(signal.title.lowercased()) traffic"))
+            ? String(localized: "Clear \(signal.title) · \(signal.explanation)")
+            : String(localized: "Show \(signal.title) · \(signal.explanation)"))
     }
 
     private var mutedSourcesPopover: some View {

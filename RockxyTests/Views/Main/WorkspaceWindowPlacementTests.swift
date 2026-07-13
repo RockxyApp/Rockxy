@@ -1,10 +1,20 @@
 import AppKit
-import Testing
 @testable import Rockxy
+import Testing
 
 @MainActor
 @Suite("Workspace window placement")
 struct WorkspaceWindowPlacementTests {
+    @Test("Main window opens at a useful traffic-debugging size")
+    func mainWindowLayoutMetrics() {
+        #expect(MainWindowLayoutMetrics.defaultWidth == 1_200)
+        #expect(MainWindowLayoutMetrics.defaultHeight == 760)
+        #expect(MainWindowLayoutMetrics.minimumWidth == 960)
+        #expect(MainWindowLayoutMetrics.minimumHeight == 620)
+        #expect(MainWindowLayoutMetrics.defaultWidth >= MainWindowLayoutMetrics.minimumWidth)
+        #expect(MainWindowLayoutMetrics.defaultHeight >= MainWindowLayoutMetrics.minimumHeight)
+    }
+
     @Test("Workspace tabs distribute available width before shrinking")
     func workspaceTabsDistributeAvailableWidth() {
         #expect(RockxyWorkspaceWindowManager.workspaceTabWidth(availableWidth: 1_200, tabCount: 2) == 600)

@@ -24,7 +24,7 @@ struct FocusSetEditorSheet: View {
         VStack(spacing: 0) {
             sheetHeader
             Divider()
-            editorForm
+            editorContent
             Divider()
             actionBar
         }
@@ -55,14 +55,17 @@ struct FocusSetEditorSheet: View {
         .frame(height: 58)
     }
 
-    private var editorForm: some View {
-        Form {
-            LabeledContent(String(localized: "Name")) {
-                TextField(String(localized: "For example: Checkout API"), text: $draft.name)
-                    .textFieldStyle(.roundedBorder)
-            }
+    private var editorContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
+                fieldRow(
+                    String(localized: "Name"),
+                    placeholder: String(localized: "For example: Checkout API"),
+                    text: $draft.name
+                )
 
-            Section(String(localized: "Include")) {
+                sectionHeader(String(localized: "Include"))
+
                 suggestionField(
                     String(localized: "Application"),
                     placeholder: String(localized: "Any application"),
@@ -81,9 +84,9 @@ struct FocusSetEditorSheet: View {
                     text: $draft.pathPrefix,
                     suggestions: pathSuggestions
                 )
-            }
 
-            Section(String(localized: "Exclude")) {
+                sectionHeader(String(localized: "Exclude"))
+
                 suggestionField(
                     String(localized: "Domain"),
                     placeholder: String(localized: "No excluded domain"),
@@ -97,10 +100,11 @@ struct FocusSetEditorSheet: View {
                     suggestions: pathSuggestions
                 )
             }
+            Spacer(minLength: 0)
         }
-        .formStyle(.columns)
         .controlSize(.regular)
         .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var actionBar: some View {
@@ -129,7 +133,8 @@ struct FocusSetEditorSheet: View {
         text: Binding<String>,
         suggestions: [String]
     ) -> some View {
-        LabeledContent(title) {
+        GridRow {
+            fieldLabel(title)
             HStack(spacing: 6) {
                 TextField(placeholder, text: text)
                     .textFieldStyle(.roundedBorder)
@@ -143,11 +148,44 @@ struct FocusSetEditorSheet: View {
                     }
                 } label: {
                     Image(systemName: "chevron.down")
+                        .frame(width: 14, height: 18)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
                 .help(String(localized: "Choose from captured traffic"))
             }
+            .frame(width: 360)
+        }
+    }
+
+    private func fieldRow(_ title: String, placeholder: String, text: Binding<String>) -> some View {
+        GridRow {
+            fieldLabel(title)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 360)
+        }
+    }
+
+    private func fieldLabel(_ title: String) -> some View {
+        Text(title)
+            .foregroundStyle(.secondary)
+            .frame(width: 104, alignment: .trailing)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        GridRow {
+            Divider()
+                .gridCellColumns(2)
+                .overlay(alignment: .leading) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.trailing, 8)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                }
+                .padding(.vertical, 4)
         }
     }
 

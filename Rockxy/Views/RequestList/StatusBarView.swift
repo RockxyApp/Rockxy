@@ -544,6 +544,7 @@ private struct FooterQuickToolsEditor: View {
                                     .contentShape(Rectangle())
                             }
                             .menuStyle(.borderlessButton)
+                            .menuIndicator(.hidden)
                             .controlSize(.small)
                             .accessibilityLabel(descriptor(for: selection[index]).title)
                             HStack(spacing: 8) {

@@ -3,17 +3,80 @@ import Foundation
 import Testing
 
 struct FocusNavigatorStateTests {
-    @Test("Traffic signals classify status, timing, and rule effects")
-    func trafficSignalMatching() {
-        let error = TestFixtures.makeTransaction(statusCode: 503)
-        let slow = TestFixtures.makeTransactionWithTiming(ttfb: 1.2)
-        let ruled = TestFixtures.makeTransaction()
-        ruled.matchedRuleID = UUID()
+    @Test("Errors include HTTP failures but exclude redirects and intentional blocks")
+    func errorSignalMatching() {
+        let clientError = TestFixtures.makeTransaction(statusCode: 404)
+        let serverError = TestFixtures.makeTransaction(statusCode: 503)
+        let redirect = TestFixtures.makeTransaction(statusCode: 302)
+        let failed = TestFixtures.makeTransaction()
+        failed.state = .failed
+        let blocked = TestFixtures.makeTransaction()
+        blocked.state = .blocked
 
-        #expect(TrafficSignal.errors.matches(error))
-        #expect(!TrafficSignal.errors.matches(slow))
-        #expect(TrafficSignal.slow.matches(slow))
-        #expect(TrafficSignal.rulesHit.matches(ruled))
+        #expect(TrafficSignal.errors.matches(clientError))
+        #expect(TrafficSignal.errors.matches(serverError))
+        #expect(TrafficSignal.errors.matches(failed))
+        #expect(!TrafficSignal.errors.matches(redirect))
+        #expect(!TrafficSignal.errors.matches(blocked))
+    }
+
+    @Test("Slow uses measured duration with a one-second threshold")
+    func slowSignalMatching() {
+        let belowThreshold = TestFixtures.makeTransaction()
+        belowThreshold.measuredDuration = 0.999
+        let atThreshold = TestFixtures.makeTransaction()
+        atThreshold.measuredDuration = 1
+        let timed = TestFixtures.makeTransactionWithTiming(ttfb: 1.2)
+        let unavailable = TestFixtures.makeTransaction()
+
+        #expect(!TrafficSignal.slow.matches(belowThreshold))
+        #expect(TrafficSignal.slow.matches(atThreshold))
+        #expect(TrafficSignal.slow.matches(timed))
+        #expect(!TrafficSignal.slow.matches(unavailable))
+    }
+
+    @Test("WebSocket recognizes schemes and valid HTTP upgrade handshakes")
+    func webSocketSignalMatching() {
+        let scheme = TestFixtures.makeTransaction(url: "wss://socket.example.com/events")
+        let upgrade = TestFixtures.makeTransaction()
+        upgrade.request.headers = [
+            HTTPHeader(name: "Upgrade", value: "websocket"),
+            HTTPHeader(name: "Connection", value: "keep-alive, Upgrade"),
+        ]
+        let incompleteUpgrade = TestFixtures.makeTransaction()
+        incompleteUpgrade.request.headers = [HTTPHeader(name: "Upgrade", value: "websocket")]
+
+        #expect(TrafficSignal.webSocket.matches(scheme))
+        #expect(TrafficSignal.webSocket.matches(upgrade))
+        #expect(!TrafficSignal.webSocket.matches(incompleteUpgrade))
+    }
+
+    @Test("GraphQL requires parsed operation metadata")
+    func graphQLSignalMatching() {
+        let graphQL = TestFixtures.makeTransaction(url: "https://api.example.com/graphql")
+        graphQL.graphQLInfo = GraphQLInfo(
+            operationName: "Checkout",
+            operationType: .mutation,
+            query: "mutation Checkout { checkout }",
+            variables: nil
+        )
+        let pathOnly = TestFixtures.makeTransaction(url: "https://api.example.com/graphql")
+
+        #expect(TrafficSignal.graphQL.matches(graphQL))
+        #expect(!TrafficSignal.graphQL.matches(pathOnly))
+    }
+
+    @Test("Rules Hit supports current and legacy rule metadata")
+    func rulesHitSignalMatching() {
+        let current = TestFixtures.makeTransaction()
+        current.matchedRuleID = UUID()
+        let legacy = TestFixtures.makeTransaction()
+        legacy.matchedRuleName = "Block telemetry"
+        let untouched = TestFixtures.makeTransaction()
+
+        #expect(TrafficSignal.rulesHit.matches(current))
+        #expect(TrafficSignal.rulesHit.matches(legacy))
+        #expect(!TrafficSignal.rulesHit.matches(untouched))
     }
 
     @Test("Toggling a traffic signal filters and then restores traffic")

@@ -33,6 +33,11 @@ struct RockxyApp: App {
             }
         }
         .windowToolbarStyle(.unified)
+        .defaultSize(
+            width: MainWindowLayoutMetrics.defaultWidth,
+            height: MainWindowLayoutMetrics.defaultHeight
+        )
+        .defaultPosition(.center)
         .commands {
             RockxyMenuCommands(lifecycleState: lifecycleState)
         }
