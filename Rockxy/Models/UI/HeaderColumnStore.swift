@@ -65,7 +65,9 @@ final class HeaderColumnStore {
 
     @discardableResult
     func addColumn(headerName: String, source: HeaderColumnSource) -> HeaderColumn {
-        if let existing = columns.first(where: { $0.headerName == headerName && $0.source == source }) {
+        if let existing = columns.first(where: {
+            $0.source == source && $0.headerName.caseInsensitiveCompare(headerName) == .orderedSame
+        }) {
             return existing
         }
         let column = HeaderColumn(headerName: headerName, source: source)
@@ -89,7 +91,9 @@ final class HeaderColumnStore {
     }
 
     func isColumnDefined(headerName: String, source: HeaderColumnSource) -> Bool {
-        columns.contains { $0.headerName == headerName && $0.source == source }
+        columns.contains {
+            $0.source == source && $0.headerName.caseInsensitiveCompare(headerName) == .orderedSame
+        }
     }
 
     func moveColumn(from sourceIndex: Int, to destinationIndex: Int) {

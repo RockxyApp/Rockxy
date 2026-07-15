@@ -12,17 +12,27 @@ extension MainContentCoordinator {
             throw RockxyNearbyTransferError.emptyTransfer
         }
 
-        await clearSession()
+        let workspaceTitle = String(session.metadata.title.prefix(80))
+        let destinationWorkspace: WorkspaceState = if workspaceStore.canCreateWorkspace {
+            workspaceStore.createWorkspace(
+                title: workspaceTitle.isEmpty ? String(localized: "Rockxy iOS") : workspaceTitle
+            )
+        } else {
+            activeWorkspace
+        }
 
         for transaction in importedTransactions {
             transaction.sequenceNumber = nextSequenceNumber
             nextSequenceNumber += 1
             transactions.append(transaction)
-            updateDomainTree(for: transaction)
-            updateAppNodes(for: transaction)
+            updateDomainGroupingIndex(for: transaction, in: destinationWorkspace)
+            updateAppNodes(for: transaction, in: destinationWorkspace)
         }
+        refreshDomainTree(for: destinationWorkspace)
+        destinationWorkspace.filteredTransactions = importedTransactions.filter { !$0.isTLSFailure }
+        destinationWorkspace.lastDeriveWasAppendOnly = false
+        deriveFilteredRows(for: destinationWorkspace)
         rebuildObservedDomainsByApp()
-        recomputeFilteredTransactions()
         headerColumnStore.updateDiscoveredHeaders(from: transactions)
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
 
@@ -35,7 +45,7 @@ extension MainContentCoordinator {
         )
         activeToast = ToastMessage(
             style: .success,
-            text: String(localized: "Received \(importedTransactions.count) requests from \(safeDeviceName)")
+            text: String(localized: "Added \(importedTransactions.count) iOS requests from \(safeDeviceName)")
         )
     }
 

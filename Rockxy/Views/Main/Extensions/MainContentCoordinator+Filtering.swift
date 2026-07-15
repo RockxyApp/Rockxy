@@ -78,6 +78,38 @@ extension MainContentCoordinator {
         recomputeFilteredTransactions()
     }
 
+    /// Adds a context-menu filter through the same rule collection used by the visible filter editor.
+    func applyContextFilter(_ suggestion: ContextFilterSuggestion, excluding: Bool = false) {
+        var rule = FilterRule(
+            field: suggestion.field,
+            filterOperator: excluding ? suggestion.excludeOperator : suggestion.includeOperator,
+            value: suggestion.value
+        )
+        if let placeholderIndex = filterRules.firstIndex(where: {
+            $0.isEnabled && $0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            rule.id = filterRules[placeholderIndex].id
+            rule.connector = filterRules[placeholderIndex].connector
+            filterRules[placeholderIndex] = rule
+        } else {
+            filterRules.append(rule)
+        }
+        isFilterBarVisible = true
+        recomputeFilteredTransactions()
+    }
+
+    var availableTransactionCountForCurrentScope: Int {
+        let baseList: [HTTPTransaction] = switch filterCriteria.sidebarScope {
+        case .saved:
+            allSavedTransactions
+        case .pinned:
+            allPinnedTransactions
+        case .allTraffic:
+            transactions
+        }
+        return baseList.count { !$0.isTLSFailure }
+    }
+
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {
         let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
         if filterCriteria.sidebarScope == .allTraffic, filterCriteria.isEmpty, activeRules.isEmpty,

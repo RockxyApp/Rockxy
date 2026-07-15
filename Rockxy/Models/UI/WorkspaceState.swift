@@ -11,12 +11,18 @@ final class WorkspaceState: Identifiable {
         id: UUID = UUID(),
         title: String = String(localized: "All Traffic"),
         isClosable: Bool = true,
-        initialFilter: FilterCriteria = .empty
+        initialFilter: FilterCriteria = .empty,
+        inspectorLayout: InspectorLayout = .hidden,
+        isContextDockVisible: Bool = false,
+        allowsAutomaticInspectorReveal: Bool = true
     ) {
         self.id = id
         self.title = title
         self.isClosable = isClosable
         self.filterCriteria = initialFilter
+        self.inspectorLayout = inspectorLayout
+        self.isContextDockVisible = isContextDockVisible
+        self.allowsAutomaticInspectorReveal = allowsAutomaticInspectorReveal
         self.focusSets = FocusSetPersistence.load()
     }
 
@@ -32,8 +38,9 @@ final class WorkspaceState: Identifiable {
     var activeMainTab: MainTab = .traffic
     var sidebarSelection: SidebarItem?
     var inspectorTab: InspectorTab = .headers
-    var inspectorLayout: InspectorLayout = .bottom
-    var isContextDockVisible = true
+    var inspectorLayout: InspectorLayout
+    var isContextDockVisible: Bool
+    var allowsAutomaticInspectorReveal: Bool
     var focusNavigatorMode: FocusNavigatorMode = .browse
     var activeTrafficSignal: TrafficSignal?
     var focusSets: [FocusSet] = []

@@ -7,11 +7,17 @@ import os
 final class WorkspaceStore {
     // MARK: Lifecycle
 
-    init(maxWorkspaces: Int = 8) {
+    init(
+        maxWorkspaces: Int = 8,
+        layoutPreferences: WorkspaceLayoutPreferences = WorkspaceLayoutPreferences()
+    ) {
         self.maxWorkspaces = max(maxWorkspaces, 1)
-        let defaultWorkspace = WorkspaceState(
+        self.layoutPreferences = layoutPreferences
+        let defaultWorkspace = Self.makeWorkspace(
             title: String(localized: "All Traffic"),
-            isClosable: false
+            isClosable: false,
+            filter: .empty,
+            layoutPreferences: layoutPreferences
         )
         self.workspaces = [defaultWorkspace]
         self.activeWorkspaceID = defaultWorkspace.id
@@ -47,10 +53,11 @@ final class WorkspaceStore {
             Self.logger.warning("Maximum workspace count (\(self.maxWorkspaces)) reached")
             return activeWorkspace
         }
-        let workspace = WorkspaceState(
+        let workspace = Self.makeWorkspace(
             title: title,
             isClosable: true,
-            initialFilter: filter
+            filter: filter,
+            layoutPreferences: layoutPreferences
         )
         workspaces.append(workspace)
         activeWorkspaceID = workspace.id
@@ -152,6 +159,7 @@ final class WorkspaceStore {
         duplicate.activeMainTab = source.activeMainTab
         duplicate.inspectorLayout = source.inspectorLayout
         duplicate.isContextDockVisible = source.isContextDockVisible
+        duplicate.allowsAutomaticInspectorReveal = source.allowsAutomaticInspectorReveal
         duplicate.focusNavigatorMode = source.focusNavigatorMode
         duplicate.activeTrafficSignal = source.activeTrafficSignal
         duplicate.focusSets = source.focusSets
@@ -183,7 +191,33 @@ final class WorkspaceStore {
         workspace.title = newTitle
     }
 
+    func rememberBottomInspectorVisibility(_ isVisible: Bool) {
+        layoutPreferences.rememberBottomInspectorVisibility(isVisible)
+    }
+
+    func rememberContextDockVisibility(_ isVisible: Bool) {
+        layoutPreferences.rememberContextDockVisibility(isVisible)
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "WorkspaceStore")
+    private let layoutPreferences: WorkspaceLayoutPreferences
+
+    private static func makeWorkspace(
+        title: String,
+        isClosable: Bool,
+        filter: FilterCriteria,
+        layoutPreferences: WorkspaceLayoutPreferences
+    ) -> WorkspaceState {
+        let preferredBottomVisibility = layoutPreferences.preferredBottomInspectorVisibility
+        return WorkspaceState(
+            title: title,
+            isClosable: isClosable,
+            initialFilter: filter,
+            inspectorLayout: preferredBottomVisibility == true ? .bottom : .hidden,
+            isContextDockVisible: layoutPreferences.preferredContextDockVisibility,
+            allowsAutomaticInspectorReveal: preferredBottomVisibility == nil
+        )
+    }
 }

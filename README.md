@@ -45,6 +45,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsor" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Support Rockxy on Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -366,25 +367,31 @@ Good first issues are labeled [`good first issue`](https://github.com/RockxyApp/
 
 ## Sponsors & Partners
 
-Rockxy is built and maintained by independent developers. Sponsorships fund continued development, security audits, and new features.
+Rockxy is independently maintained. Sponsorships help fund continued development, release infrastructure, documentation, and security work.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Support Rockxy on Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Sponsor_Rockxy-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor Rockxy" />
   </a>
 </p>
 
+Rockxy is fiscally hosted by [Open Source Collective](https://docs.oscollective.org/). Contributions and project expenses are recorded on Rockxy's [public Open Collective page](https://opencollective.com/rockxy), giving supporters a transparent view of how funds are received and used.
+
 | Tier | Benefits |
 |------|----------|
-| **Gold Sponsor** | Logo on README + docs site, priority feature requests, direct support channel |
+| **Gold Sponsor** | Logo on README + docs site, named acknowledgment in release notes |
 | **Silver Sponsor** | Logo on README, named acknowledgment in release notes |
 | **Bronze Sponsor** | Named acknowledgment in README and docs |
-| **Partner** | Co-development, integration support, early access to upcoming features |
+| **Partner** | Public acknowledgment for verified project collaborations |
 
 **Partnership inquiries** — developer tool companies, security firms, and enterprise teams looking for custom integrations or white-label solutions: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## Support
 
+- [Open Collective](https://opencollective.com/rockxy/donate) — contribute to Rockxy through its transparent project budget
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — support Rockxy's development
 - [GitHub Issues](https://github.com/RockxyApp/Rockxy/issues) — bug reports and feature requests
 - [GitHub Discussions](https://github.com/RockxyApp/Rockxy/discussions) — questions and community chat

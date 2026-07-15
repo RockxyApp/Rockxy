@@ -16,6 +16,7 @@ struct InspectorPanelView: View {
                 HSplitView {
                     RequestInspectorView(
                         transaction: transaction,
+                        coordinator: coordinator,
                         previewTabStore: coordinator.previewTabStore,
                         highlightContext: highlightContext
                     )

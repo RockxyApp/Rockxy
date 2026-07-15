@@ -139,6 +139,10 @@
         ]
       },
       {
+        "group": "Community",
+        "pages": ["support"]
+      },
+      {
         "group": "Development",
         "pages": [
           "development/architecture",
@@ -164,6 +168,11 @@
           "anchor": "Releases",
           "href": "https://github.com/RockxyApp/Rockxy/releases",
           "icon": "download"
+        },
+        {
+          "anchor": "Fund Rockxy",
+          "href": "https://opencollective.com/rockxy/donate",
+          "icon": "heart"
         }
       ]
     }
@@ -172,7 +181,7 @@
     "links": [
       {
         "label": "Support",
-        "href": "mailto:rockxyapp@gmail.com"
+        "href": "/support"
       }
     ],
     "primary": {

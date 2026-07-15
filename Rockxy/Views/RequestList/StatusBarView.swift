@@ -269,6 +269,29 @@ private struct FooterPrimaryButton: View {
 
 // MARK: - StatusBarView
 
+enum StatusBarRequestSummary {
+    static func text(
+        visibleCount: Int,
+        availableCount: Int,
+        selectedCount: Int,
+        activeFilterCount: Int
+    ) -> String {
+        if activeFilterCount > 0, visibleCount != availableCount {
+            if selectedCount > 0 {
+                return String(localized: "\(selectedCount) selected · \(visibleCount) of \(availableCount) shown")
+            }
+            return String(localized: "\(visibleCount) of \(availableCount) requests")
+        }
+        if visibleCount == 0 {
+            return String(localized: "No requests")
+        }
+        if selectedCount > 0 {
+            return String(localized: "\(selectedCount)/\(visibleCount) rows selected")
+        }
+        return String(localized: "\(visibleCount) requests")
+    }
+}
+
 /// Bottom status bar showing request counts, bandwidth stats (upload/download speed),
 /// and quick-action buttons for clearing, toggling filters, and auto-select mode.
 struct StatusBarView: View {
@@ -276,6 +299,7 @@ struct StatusBarView: View {
 
     let totalCount: Int
     let selectedCount: Int
+    var availableCount: Int?
     var isProxyRunning: Bool = false
     var proxyHost: String = "127.0.0.1"
     var proxyPort: Int = 9_090
@@ -317,13 +341,12 @@ struct StatusBarView: View {
     // MARK: Private
 
     private var statusText: String {
-        if totalCount == 0 {
-            return String(localized: "No requests")
-        }
-        if selectedCount > 0 {
-            return String(localized: "\(selectedCount)/\(totalCount) rows selected")
-        }
-        return String(localized: "\(totalCount) requests")
+        StatusBarRequestSummary.text(
+            visibleCount: totalCount,
+            availableCount: availableCount ?? totalCount,
+            selectedCount: selectedCount,
+            activeFilterCount: activeFilterCount
+        )
     }
 
     private var formattedDataSize: String {
@@ -460,6 +483,9 @@ struct StatusBarView: View {
                     onSave: { quickToolOrder = $0.map(\.rawValue).joined(separator: ",") },
                     onReset: {
                         quickToolOrder = FooterActionKind.defaultQuickTools.map(\.rawValue).joined(separator: ",")
+                    },
+                    onDone: {
+                        isCustomizingQuickTools = false
                     }
                 )
             }
@@ -501,15 +527,18 @@ struct StatusBarView: View {
 private struct FooterQuickToolsEditor: View {
     let onSave: ([FooterActionKind]) -> Void
     let onReset: () -> Void
+    let onDone: () -> Void
 
     init(
         selection: [FooterActionKind],
         onSave: @escaping ([FooterActionKind]) -> Void,
-        onReset: @escaping () -> Void
+        onReset: @escaping () -> Void,
+        onDone: @escaping () -> Void
     ) {
         _selection = State(initialValue: selection)
         self.onSave = onSave
         self.onReset = onReset
+        self.onDone = onDone
     }
 
     var body: some View {
@@ -571,8 +600,11 @@ private struct FooterQuickToolsEditor: View {
                     onReset()
                 }
                 Spacer()
-                Button(String(localized: "Done")) { onSave(selection) }
-                    .keyboardShortcut(.defaultAction)
+                Button(String(localized: "Done")) {
+                    onSave(selection)
+                    onDone()
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(16)

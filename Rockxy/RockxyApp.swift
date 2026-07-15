@@ -19,6 +19,21 @@ final class AppLifecycleState {
 
 @main
 struct RockxyApp: App {
+    // MARK: Lifecycle
+
+    @MainActor
+    init() {
+        let coordinator = MainContentCoordinator()
+        _mainCoordinator = State(initialValue: coordinator)
+
+        // Nearby transfer belongs to the app lifecycle, not the main-window
+        // lifecycle. macOS can restore Rockxy with no open windows, and the
+        // iPhone must still be able to discover it while the app is running.
+        if !RockxyIdentity.isRunningTests {
+            RockxyNearbyTransferReceiver.shared.start(coordinator: coordinator)
+        }
+    }
+
     // MARK: Internal
 
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -335,7 +350,7 @@ struct RockxyApp: App {
 
     private static let identity = RockxyIdentity.current
 
-    @State private var mainCoordinator = MainContentCoordinator()
+    @State private var mainCoordinator: MainContentCoordinator
 
     @State private var lifecycleState = AppLifecycleState()
 
@@ -660,12 +675,20 @@ struct RockxyMenuCommands: Commands {
 
             Divider()
 
-            Button(String(localized: "Toggle Dock to Bottom Window")) {
+            Button(
+                actions?.isBottomInspectorVisible == true
+                    ? String(localized: "Hide Bottom Inspector")
+                    : String(localized: "Show Bottom Inspector")
+            ) {
                 actions?.toggleInspectorBottom()
             }
             .keyboardShortcut("]", modifiers: [.command, .control])
 
-            Button(String(localized: "Toggle Dock to Right Window")) {
+            Button(
+                actions?.isContextDockVisible == true
+                    ? String(localized: "Hide Context Dock")
+                    : String(localized: "Show Context Dock")
+            ) {
                 actions?.toggleInspectorRight()
             }
             .keyboardShortcut("\\", modifiers: [.command, .control])
@@ -1202,7 +1225,12 @@ struct RockxyMenuCommands: Commands {
             link.addAttribute(.link, value: homepage, range: NSRange(location: 0, length: link.length))
             credits.append(link)
         }
-        credits.append(NSAttributedString(string: String(localized: "\n\nOpenAPI HTML export includes Swagger UI, licensed under Apache-2.0.")))
+        credits
+            .append(
+                NSAttributedString(
+                    string: String(localized: "\n\nOpenAPI HTML export includes Swagger UI, licensed under Apache-2.0.")
+                )
+            )
 
         var options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: RockxyIdentity.current.displayName,

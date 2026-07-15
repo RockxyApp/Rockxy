@@ -66,7 +66,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarApp = nil
             filterCriteria.sidebarScope = .saved
             filterCriteria.exactTransactionID = nil
-            selectedTransaction = nil
+            selectTransaction(nil)
             recomputeFilteredTransactions()
         case .allPinned:
             filterCriteria.sidebarDomain = nil
@@ -74,7 +74,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarApp = nil
             filterCriteria.sidebarScope = .pinned
             filterCriteria.exactTransactionID = nil
-            selectedTransaction = nil
+            selectTransaction(nil)
             recomputeFilteredTransactions()
         case let .pinnedTransaction(id):
             filterCriteria.sidebarDomain = nil
@@ -83,7 +83,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .pinned
             filterCriteria.exactTransactionID = nil
             recomputeFilteredTransactions()
-            selectedTransaction = transaction(for: id)
+            selectTransaction(transaction(for: id))
         case let .savedTransaction(id):
             filterCriteria.sidebarDomain = nil
             filterCriteria.sidebarPathPrefix = nil
@@ -91,7 +91,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .saved
             filterCriteria.exactTransactionID = nil
             recomputeFilteredTransactions()
-            selectedTransaction = transaction(for: id)
+            selectTransaction(transaction(for: id))
         default:
             filterCriteria.sidebarDomain = nil
             filterCriteria.sidebarPathPrefix = nil

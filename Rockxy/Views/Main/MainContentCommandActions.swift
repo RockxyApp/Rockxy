@@ -24,6 +24,14 @@ struct MainContentCommandActions {
         coordinator.selectedTransaction != nil
     }
 
+    var isBottomInspectorVisible: Bool {
+        coordinator.inspectorLayout == .bottom
+    }
+
+    var isContextDockVisible: Bool {
+        coordinator.isContextDockVisible
+    }
+
     var canExportOpenAPI: Bool {
         coordinator.transactions.contains(where: OpenAPIExporter.isEligible)
             || coordinator.filteredTransactions.contains(where: OpenAPIExporter.isEligible)
@@ -192,9 +200,7 @@ struct MainContentCommandActions {
     }
 
     func hideInspector() {
-        withAnimation(.smooth(duration: 0.18)) {
-            coordinator.inspectorLayout = .hidden
-        }
+        coordinator.hideInspector()
     }
 
     func switchTab(_ tab: MainTab) {

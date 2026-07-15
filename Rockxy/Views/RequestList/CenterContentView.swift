@@ -76,6 +76,7 @@ struct CenterContentView: View {
             StatusBarView(
                 totalCount: coordinator.filteredTransactions.count,
                 selectedCount: selectedIDs.count,
+                availableCount: coordinator.availableTransactionCountForCurrentScope,
                 isProxyRunning: coordinator.isProxyRunning,
                 proxyHost: AppSettingsManager.shared.settings.effectiveListenAddress,
                 proxyPort: coordinator.activeProxyPort,

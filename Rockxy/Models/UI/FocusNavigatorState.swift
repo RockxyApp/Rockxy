@@ -164,6 +164,54 @@ struct FocusSet: Identifiable, Codable, Equatable {
     var ruleCount: Int {
         [appName, domain, pathPrefix, excludedDomain, excludedPathPrefix].count { !$0.isEmpty }
     }
+
+    var includedRules: [FocusSetRuleDescriptor] {
+        var rules: [FocusSetRuleDescriptor] = []
+        if !appName.isEmpty {
+            rules.append(FocusSetRuleDescriptor(scope: .include, kind: .application, pattern: appName))
+        }
+        if !domain.isEmpty {
+            rules.append(FocusSetRuleDescriptor(scope: .include, kind: .domain, pattern: domain))
+        }
+        if !pathPrefix.isEmpty {
+            rules.append(FocusSetRuleDescriptor(scope: .include, kind: .pathPrefix, pattern: pathPrefix))
+        }
+        return rules
+    }
+
+    var excludedRules: [FocusSetRuleDescriptor] {
+        var rules: [FocusSetRuleDescriptor] = []
+        if !excludedDomain.isEmpty {
+            rules.append(FocusSetRuleDescriptor(scope: .exclude, kind: .domain, pattern: excludedDomain))
+        }
+        if !excludedPathPrefix.isEmpty {
+            rules.append(FocusSetRuleDescriptor(scope: .exclude, kind: .pathPrefix, pattern: excludedPathPrefix))
+        }
+        return rules
+    }
+}
+
+// MARK: - FocusSetRuleDescriptor
+
+struct FocusSetRuleDescriptor: Identifiable, Equatable {
+    enum Scope: String {
+        case include
+        case exclude
+    }
+
+    enum Kind: String {
+        case application
+        case domain
+        case pathPrefix
+    }
+
+    let scope: Scope
+    let kind: Kind
+    let pattern: String
+
+    var id: String {
+        "\(scope.rawValue):\(kind.rawValue):\(pattern)"
+    }
 }
 
 // MARK: - FocusSetPersistence

@@ -133,7 +133,7 @@ struct ContentView: View {
             )
         ) {
             if let invitation = nearbyTransferReceiver.pendingInvitation {
-                Button(String(localized: "Accept and Replace Current Session")) {
+                Button(String(localized: "Accept and Add iOS Workspace")) {
                     nearbyTransferReceiver.approve(invitation)
                 }
                 Button(String(localized: "Decline"), role: .cancel) {
@@ -143,7 +143,7 @@ struct ContentView: View {
         } message: {
             if let invitation = nearbyTransferReceiver.pendingInvitation {
                 Text(
-                    "Code: \(invitation.verificationCode)\n\n\(invitation.sessionTitle) contains \(invitation.transactionCount) requests. Confirm the same code appears on \(invitation.deviceName). Accepting replaces the current Mac session."
+                    "Code: \(invitation.verificationCode)\n\n\(invitation.sessionTitle) contains \(invitation.transactionCount) requests. Confirm the same code appears on \(invitation.deviceName). Your current Mac traffic will stay intact."
                 )
             }
         }

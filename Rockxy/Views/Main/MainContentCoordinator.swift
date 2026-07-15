@@ -36,9 +36,15 @@ enum ProxyDisplayState: Equatable {
 final class MainContentCoordinator {
     // MARK: Lifecycle
 
-    init(policy: any AppPolicy = DefaultAppPolicy()) {
+    init(
+        policy: any AppPolicy = DefaultAppPolicy(),
+        workspaceLayoutPreferences: WorkspaceLayoutPreferences = WorkspaceLayoutPreferences()
+    ) {
         self.policy = policy
-        self.workspaceStore = WorkspaceStore(maxWorkspaces: policy.maxWorkspaceTabs)
+        self.workspaceStore = WorkspaceStore(
+            maxWorkspaces: policy.maxWorkspaceTabs,
+            layoutPreferences: workspaceLayoutPreferences
+        )
     }
 
     deinit {
@@ -203,7 +209,12 @@ final class MainContentCoordinator {
 
     var selectedTransaction: HTTPTransaction? {
         get { activeWorkspace.selectedTransaction }
-        set { activeWorkspace.selectedTransaction = newValue }
+        set {
+            activeWorkspace.selectedTransaction = newValue
+            if newValue != nil {
+                revealInspectorForSelectionIfNeeded()
+            }
+        }
     }
 
     var selectedTransactionIDs: Set<UUID> {
