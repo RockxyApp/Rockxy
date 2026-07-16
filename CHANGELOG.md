@@ -29,6 +29,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
 - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
+## [0.30.0] - 2026-07-16
+
+### Added
+
+- Added a redesigned Focus Navigator with Browse, Focus, and Library modes for moving between all traffic, reusable investigation scopes, saved requests, and pinned requests.
+- Added reusable Focus Sets, traffic signals, and noise controls for isolating errors, slow requests, WebSocket or GraphQL activity, rule hits, selected apps, domains, and paths without deleting captured traffic.
+- Added a Context Dock that keeps request and response details available while navigating the traffic list.
+- Added encrypted nearby iPhone session transfers into a dedicated iOS workspace so current Mac traffic remains available.
+
+### Fixed
+
+- Fixed Quick Tools customization so every part of each dropdown field opens its menu reliably.
+- Kept selection state aligned when focus, signal, noise, or filter changes hide previously selected requests.
+
+### Changed
+
+- Refined workspace navigation, inspector layout, selection behavior, and persisted layout preferences for a clearer debugging workflow.
+- Kept nearby iPhone transfer discovery available while Rockxy is running, including when macOS restores the app without a main window.
+- Improved captured-value filtering so apps, domains, and paths are easier to reuse in focused investigations.
+
 ## [0.29.0] - 2026-07-12
 
 ### Added

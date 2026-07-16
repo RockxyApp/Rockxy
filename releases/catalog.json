@@ -5,6 +5,18 @@
   "catalog_url": "https://raw.githubusercontent.com/RockxyApp/Rockxy/main/releases/catalog.json",
   "releases": [
     {
+      "version": "0.30.0",
+      "build": "47",
+      "release_date": "2026-07-16T00:00:00Z",
+      "release_tag": "v0.30.0",
+      "download_url": "https://github.com/RockxyApp/Rockxy/releases/download/v0.30.0/Rockxy-0.30.0-47.dmg",
+      "checksum_sha256": "72ff3e1cb5032e9ce01b0ebbbee472f8fd1418db79bfd52a5e9d530ca6b15920",
+      "dmg_length": 30260251,
+      "sparkle_ed_signature": "Jc+UTNZKKw1DML8pue4icdBWovO0Wb7Ys1RmyGt5vPOQeX+jszLhrTxhUKE5GiRLwNFLN1P6K97+aMu7dUh0AA==",
+      "release_notes_url": "https://github.com/RockxyApp/Rockxy/releases/tag/v0.30.0",
+      "minimum_system_version": "14.0"
+    },
+    {
       "version": "0.29.0",
       "build": "46",
       "release_date": "2026-07-12T00:00:00Z",

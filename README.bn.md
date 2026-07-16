@@ -59,20 +59,25 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.29.0** — 2026-07-12
+**v0.30.0** — 2026-07-16
 
 ### Added
 
-- Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.
-- Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
-- Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
-- Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
+- Added a redesigned Focus Navigator with Browse, Focus, and Library modes for moving between all traffic, reusable investigation scopes, saved requests, and pinned requests.
+- Added reusable Focus Sets, traffic signals, and noise controls for isolating errors, slow requests, WebSocket or GraphQL activity, rule hits, selected apps, domains, and paths without deleting captured traffic.
+- Added a Context Dock that keeps request and response details available while navigating the traffic list.
+- Added encrypted nearby iPhone session transfers into a dedicated iOS workspace so current Mac traffic remains available.
+
+### Fixed
+
+- Fixed Quick Tools customization so every part of each dropdown field opens its menu reliably.
+- Kept selection state aligned when focus, signal, noise, or filter changes hide previously selected requests.
 
 ### Changed
 
-- Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.
-- Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
-- Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.
+- Refined workspace navigation, inspector layout, selection behavior, and persisted layout preferences for a clearer debugging workflow.
+- Kept nearby iPhone transfer discovery available while Rockxy is running, including when macOS restores the app without a main window.
+- Improved captured-value filtering so apps, domains, and paths are easier to reuse in focused investigations.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

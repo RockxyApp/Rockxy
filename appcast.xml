@@ -6,31 +6,36 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.29.0 (build 46)</title>
-      <pubDate>Sun, 12 Jul 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-07-12T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.30.0 (build 47)</title>
+      <pubDate>Thu, 16 Jul 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-07-16T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.29.0/Rockxy-0.29.0-46.dmg"
-        sparkle:version="46"
-        sparkle:shortVersionString="0.29.0"
-        sparkle:edSignature="cvC3nqvMSzA31TsAPLLDAeZt3YNBz/ImFUIjLJse1ym6czmtHIIwK5oRdmHko++EHn6az+aw2/jsyGwBUKaJAQ=="
-        length="29562802"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.30.0/Rockxy-0.30.0-47.dmg"
+        sparkle:version="47"
+        sparkle:shortVersionString="0.30.0"
+        sparkle:edSignature="Jc+UTNZKKw1DML8pue4icdBWovO0Wb7Ys1RmyGt5vPOQeX+jszLhrTxhUKE5GiRLwNFLN1P6K97+aMu7dUh0AA=="
+        length="30260251"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.29.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.30.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.</li>
-  <li>Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.</li>
-  <li>Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.</li>
-  <li>Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.</li>
+  <li>Added a redesigned Focus Navigator with Browse, Focus, and Library modes for moving between all traffic, reusable investigation scopes, saved requests, and pinned requests.</li>
+  <li>Added reusable Focus Sets, traffic signals, and noise controls for isolating errors, slow requests, WebSocket or GraphQL activity, rule hits, selected apps, domains, and paths without deleting captured traffic.</li>
+  <li>Added a Context Dock that keeps request and response details available while navigating the traffic list.</li>
+  <li>Added encrypted nearby iPhone session transfers into a dedicated iOS workspace so current Mac traffic remains available.</li>
+</ul>
+<h3>Fixed</h3>
+<ul>
+  <li>Fixed Quick Tools customization so every part of each dropdown field opens its menu reliably.</li>
+  <li>Kept selection state aligned when focus, signal, noise, or filter changes hide previously selected requests.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
-  <li>Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.</li>
-  <li>Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.</li>
-  <li>Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.</li>
+  <li>Refined workspace navigation, inspector layout, selection behavior, and persisted layout preferences for a clearer debugging workflow.</li>
+  <li>Kept nearby iPhone transfer discovery available while Rockxy is running, including when macOS restores the app without a main window.</li>
+  <li>Improved captured-value filtering so apps, domains, and paths are easier to reuse in focused investigations.</li>
 </ul>
       ]]></description>
     </item>
