@@ -169,10 +169,10 @@ final class RockxyNearbyTransferReceiver: @unchecked Sendable {
     }
 
     private func receiveNext(_ context: ConnectionContext) {
-        context.connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1_024) { [
-            weak self,
-            weak context
-        ] data, _, isComplete, error in
+        context.connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: 64 * 1_024
+        ) { [weak self, weak context] data, _, isComplete, error in
             guard let self, let context else {
                 return
             }

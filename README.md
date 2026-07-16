@@ -380,12 +380,12 @@ Rockxy is independently maintained. Sponsorships help fund continued development
 
 Rockxy is fiscally hosted by [Open Source Collective](https://docs.oscollective.org/). Contributions and project expenses are recorded on Rockxy's [public Open Collective page](https://opencollective.com/rockxy), giving supporters a transparent view of how funds are received and used.
 
-| Tier | Benefits |
-|------|----------|
-| **Gold Sponsor** | Logo on README + docs site, named acknowledgment in release notes |
-| **Silver Sponsor** | Logo on README, named acknowledgment in release notes |
-| **Bronze Sponsor** | Named acknowledgment in README and docs |
-| **Partner** | Public acknowledgment for verified project collaborations |
+| Tier | Contribution | What it supports |
+|------|--------------|------------------|
+| **Backer** | From $5/month | Open-source maintenance, documentation, testing, and releases |
+| **Builder** | From $25/month | Regression testing, performance improvements, and everyday debugging workflows |
+| **Sponsor** | $100/month | Long-term maintenance of a privacy-focused tool that remains freely available to developers |
+| **Sustaining Sponsor** | $500/month | Focused maintenance and product development, including release automation and protocol support |
 
 **Partnership inquiries** — developer tool companies, security firms, and enterprise teams looking for custom integrations or white-label solutions: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 

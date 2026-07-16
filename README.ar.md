@@ -47,6 +47,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsor" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -370,22 +371,28 @@ open Rockxy.xcodeproj
 تم إنشاء Rockxy وصيانته بواسطة مطورين مستقلين. تمول الرعاية التطوير المستمر وعمليات التدقيق الأمني ​​والميزات الجديدة.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Sponsor_Rockxy-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor Rockxy" />
   </a>
 </p>
 
-| الطبقة | الفوائد |
-|------|----------|
-| **الراعي الذهبي** | الشعار على موقع README + docs، وطلبات الميزات ذات الأولوية، وقناة الدعم المباشر |
-| **الراعي الفضي** | الشعار الموجود على ملف README، مُسمى بالإقرار في ملاحظات الإصدار |
-| **الراعي البرونزي** | الإقرار المسمى في README والمستندات |
-| **شريك** | التطوير المشترك ودعم التكامل والوصول المبكر إلى الميزات القادمة |
+تستضيف [Open Source Collective](https://docs.oscollective.org/) مشروع Rockxy ماليًا. تُسجَّل المساهمات ونفقات المشروع في [صفحة Rockxy العامة على Open Collective](https://opencollective.com/rockxy)، مما يمنح الداعمين رؤية شفافة لكيفية استلام الأموال واستخدامها.
+
+| الفئة | المساهمة | ما الذي تدعمه |
+|------|----------|----------------|
+| **Backer** | ابتداءً من 5 دولارات شهريًا | صيانة المشروع مفتوح المصدر، والتوثيق، والاختبارات، والإصدارات |
+| **Builder** | ابتداءً من 25 دولارًا شهريًا | اختبارات الانحدار، وتحسينات الأداء، ومسارات عمل تصحيح الأخطاء اليومية |
+| **Sponsor** | 100 دولار شهريًا | الصيانة طويلة الأمد لأداة تركز على الخصوصية وتظل متاحة مجانًا للمطورين |
+| **Sustaining Sponsor** | 500 دولار شهريًا | صيانة وتطوير مركزان، بما في ذلك أتمتة الإصدارات ودعم البروتوكولات |
 
 **استفسارات الشراكة** — شركات أدوات المطورين وشركات الأمان وفرق المؤسسات التي تبحث عن عمليات تكامل مخصصة أو حلول ذات علامة بيضاء: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## الدعم
 
+- [Open Collective](https://opencollective.com/rockxy/donate) - المساهمة في Rockxy من خلال ميزانية المشروع الشفافة
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) - دعم تطوير Rockxy
 - [قضايا جيثب](https://github.com/RockxyApp/Rockxy/issues) - تقارير الأخطاء وطلبات الميزات
 - [مناقشات جيثب](https://github.com/RockxyApp/Rockxy/discussions) - الأسئلة والدردشة المجتمعية

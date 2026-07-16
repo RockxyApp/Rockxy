@@ -45,6 +45,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsor" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -368,22 +369,28 @@ I buoni primi numeri sono etichettati [`good first issue`](https://github.com/Ro
 Rockxy è costruito e gestito da sviluppatori indipendenti. Le sponsorizzazioni finanziano lo sviluppo continuo, i controlli di sicurezza e le nuove funzionalità.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Sponsor_Rockxy-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor Rockxy" />
   </a>
 </p>
 
-| Livello | Vantaggi |
-|------|----------|
-| **Sponsor d'oro** | Logo sul sito README + documenti, richieste di funzionalità prioritarie, canale di supporto diretto |
-| **Sponsor d'argento** | Logo su README, riconoscimento denominato nelle note di rilascio |
-| **Sponsor di bronzo** | Riconoscimento denominato in README e documenti |
-| **Socio** | Co-sviluppo, supporto all'integrazione, accesso anticipato alle funzionalità imminenti |
+Rockxy &egrave; ospitato fiscalmente da [Open Source Collective](https://docs.oscollective.org/). I contributi e le spese del progetto sono registrati sulla [pagina pubblica Open Collective di Rockxy](https://opencollective.com/rockxy), offrendo una visione trasparente di come i fondi vengono ricevuti e utilizzati.
+
+| Livello | Contributo | Cosa supporta |
+|---------|------------|--------------|
+| **Backer** | Da $5/mese | Manutenzione open source, documentazione, test e release |
+| **Builder** | Da $25/mese | Test di regressione, miglioramenti delle prestazioni e workflow quotidiani di debug |
+| **Sponsor** | $100/mese | Manutenzione a lungo termine di uno strumento attento alla privacy e gratuito per gli sviluppatori |
+| **Sustaining Sponsor** | $500/mese | Manutenzione e sviluppo del prodotto mirati, inclusi automazione delle release e supporto dei protocolli |
 
 **Richieste di partenariato** - società di strumenti di sviluppo, società di sicurezza e team aziendali alla ricerca di integrazioni personalizzate o soluzioni white label: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## Supporto
 
+- [Open Collective](https://opencollective.com/rockxy/donate) — contribuisci a Rockxy tramite il suo budget di progetto trasparente
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — sostenere lo sviluppo di Rockxy
 - [Problemi di GitHub](https://github.com/RockxyApp/Rockxy/issues) — segnalazioni di bug e richieste di funzionalità
 - [Discussioni su GitHub](https://github.com/RockxyApp/Rockxy/discussions) - domande e chat della comunità
