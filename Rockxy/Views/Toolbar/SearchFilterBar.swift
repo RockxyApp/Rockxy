@@ -9,6 +9,10 @@ struct SearchFilterBar: View {
     @Binding var searchText: String
     @Binding var filterField: FilterField
     @Binding var isEnabled: Bool
+    let isAdvancedFilterVisible: Bool
+    let advancedFilterCount: Int
+    let onAddFilter: () -> Void
+    let onToggleAdvancedFilters: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -37,6 +41,33 @@ struct SearchFilterBar: View {
                 }
                 .buttonStyle(.borderless)
             }
+
+            Divider()
+                .frame(height: 18)
+
+            Button(action: onAddFilter) {
+                Label(String(localized: "Add Filter"), systemImage: "plus")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help(String(localized: "Add a compound filter rule"))
+
+            Button(action: onToggleAdvancedFilters) {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease")
+                    if advancedFilterCount > 0 {
+                        Text("\(advancedFilterCount)")
+                            .monospacedDigit()
+                    }
+                    Image(systemName: isAdvancedFilterVisible ? "chevron.up" : "chevron.down")
+                        .font(.caption2)
+                }
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help(isAdvancedFilterVisible
+                ? String(localized: "Hide compound filters")
+                : String(localized: "Show compound filters"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, max(4, (metrics.fontSize - 10) / 3))

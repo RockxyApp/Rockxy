@@ -2,6 +2,15 @@ import AppKit
 import Combine
 import SwiftUI
 
+// MARK: - MainWindowLayoutMetrics
+
+enum MainWindowLayoutMetrics {
+    static let defaultWidth: CGFloat = 1_200
+    static let defaultHeight: CGFloat = 760
+    static let minimumWidth: CGFloat = 960
+    static let minimumHeight: CGFloat = 620
+}
+
 // MARK: - ContentView
 
 /// Root view of the main window. Sets up a two-column `NavigationSplitView` with
@@ -44,6 +53,10 @@ struct ContentView: View {
                 }
             }
         }
+        .frame(
+            minWidth: MainWindowLayoutMetrics.minimumWidth,
+            minHeight: MainWindowLayoutMetrics.minimumHeight
+        )
         .background {
             WorkspaceWindowAccessor(
                 coordinator: coordinator,
@@ -86,6 +99,7 @@ struct ContentView: View {
             coordinator.loadInitialRules()
             coordinator.refreshProxyOverrideStatus()
             coordinator.startProxyOnLaunchIfNeeded()
+            nearbyTransferReceiver.start(coordinator: coordinator)
         }
         .modifier(ConditionalScriptingWindowOpeners(isEnabled: managesLifecycle, openWindow: openWindow))
         .alert(
@@ -105,6 +119,32 @@ struct ContentView: View {
         } message: {
             if let error = coordinator.proxyError {
                 Text(error)
+            }
+        }
+        .alert(
+            nearbyTransferTitle,
+            isPresented: Binding(
+                get: { nearbyTransferReceiver.pendingInvitation != nil },
+                set: { isPresented in
+                    if !isPresented, let invitation = nearbyTransferReceiver.pendingInvitation {
+                        nearbyTransferReceiver.decline(invitation)
+                    }
+                }
+            )
+        ) {
+            if let invitation = nearbyTransferReceiver.pendingInvitation {
+                Button(String(localized: "Accept and Add iOS Workspace")) {
+                    nearbyTransferReceiver.approve(invitation)
+                }
+                Button(String(localized: "Decline"), role: .cancel) {
+                    nearbyTransferReceiver.decline(invitation)
+                }
+            }
+        } message: {
+            if let invitation = nearbyTransferReceiver.pendingInvitation {
+                Text(
+                    "Code: \(invitation.verificationCode)\n\n\(invitation.sessionTitle) contains \(invitation.transactionCount) requests. Confirm the same code appears on \(invitation.deviceName). Your current Mac traffic will stay intact."
+                )
             }
         }
         .sheet(item: $coordinator.importPreview) { preview in
@@ -149,10 +189,19 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
     @Bindable private var coordinator: MainContentCoordinator
+    @State private var nearbyTransferReceiver = RockxyNearbyTransferReceiver.shared
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
     private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool
     private let representedWorkspaceID: UUID?
+
+    private var nearbyTransferTitle: String {
+        guard let invitation = nearbyTransferReceiver.pendingInvitation else {
+            return String(localized: "Receive Rockxy iOS Session")
+        }
+        return String(localized: "Receive from \(invitation.deviceName)?")
+    }
 
     private func handleSystemProxyWarningAction(_ action: SystemProxyWarning.Action?) {
         switch action {
@@ -180,7 +229,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Workspace Window Accessor
+// MARK: - WorkspaceWindowAccessor
 
 private struct WorkspaceWindowAccessor: NSViewRepresentable {
     let coordinator: MainContentCoordinator
@@ -200,6 +249,8 @@ private struct WorkspaceWindowAccessor: NSViewRepresentable {
     }
 }
 
+// MARK: - WorkspaceWindowAnchorView
+
 @MainActor
 private final class WorkspaceWindowAnchorView: NSView {
     weak var coordinator: MainContentCoordinator?
@@ -213,21 +264,21 @@ private final class WorkspaceWindowAnchorView: NSView {
     func attachIfReady() {
         guard representedWorkspaceID == nil,
               let window,
-              let coordinator else {
+              let coordinator else
+        {
             return
         }
         RockxyWorkspaceWindowManager.shared.registerPrimaryWindow(window, coordinator: coordinator)
     }
 }
 
-// MARK: - Conditional Lifecycle Modifiers
+// MARK: - ConditionalContentWindowNotificationHandlers
 
 private struct ConditionalContentWindowNotificationHandlers: ViewModifier {
     let isEnabled: Bool
     let coordinator: MainContentCoordinator
     let openWindow: OpenWindowAction
 
-    @ViewBuilder
     func body(content: Content) -> some View {
         if isEnabled {
             content.modifier(ContentWindowNotificationHandlers(coordinator: coordinator, openWindow: openWindow))
@@ -237,11 +288,12 @@ private struct ConditionalContentWindowNotificationHandlers: ViewModifier {
     }
 }
 
+// MARK: - ConditionalScriptingWindowOpeners
+
 private struct ConditionalScriptingWindowOpeners: ViewModifier {
     let isEnabled: Bool
     let openWindow: OpenWindowAction
 
-    @ViewBuilder
     func body(content: Content) -> some View {
         if isEnabled {
             content.modifier(ScriptingWindowOpeners(openWindow: openWindow))
@@ -251,7 +303,7 @@ private struct ConditionalScriptingWindowOpeners: ViewModifier {
     }
 }
 
-// MARK: - Content Window Notification Handlers
+// MARK: - ContentWindowNotificationHandlers
 
 private struct ContentWindowNotificationHandlers: ViewModifier {
     let coordinator: MainContentCoordinator

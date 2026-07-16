@@ -8,12 +8,9 @@ struct FooterActionDescriptorTests {
         let actions = FooterActionDescriptor.toolingActions(isAllowListActive: false)
 
         #expect(actions.map(\.id) == [
-            .blockList,
-            .allowList,
+            .breakpoint,
             .mapLocal,
             .scripting,
-            .mapRemote,
-            .breakpoint,
             .networkConditions,
         ])
     }
@@ -31,12 +28,9 @@ struct FooterActionDescriptorTests {
 
         #expect(!inactive.contains { $0.id == .proxyOverride })
         #expect(active.map(\.id) == [
-            .blockList,
-            .allowList,
+            .breakpoint,
             .mapLocal,
             .scripting,
-            .mapRemote,
-            .breakpoint,
             .networkConditions,
             .proxyOverride,
         ])
@@ -73,11 +67,8 @@ struct FooterActionDescriptorTests {
         let actions = FooterActionDescriptor.toolingActions(isAllowListActive: false)
 
         #expect(actions.allSatisfy { !$0.systemImage.isEmpty })
-        #expect(actions.first { $0.id == .blockList }?.systemImage == "hand.raised.slash")
-        #expect(actions.first { $0.id == .allowList }?.systemImage == "checkmark.shield")
         #expect(actions.first { $0.id == .mapLocal }?.systemImage == "folder.badge.gearshape")
         #expect(actions.first { $0.id == .scripting }?.systemImage == "curlybraces")
-        #expect(actions.first { $0.id == .mapRemote }?.systemImage == "arrow.triangle.branch")
         #expect(actions.first { $0.id == .breakpoint }?.systemImage == "pause.circle")
         #expect(actions.first { $0.id == .networkConditions }?.systemImage == "speedometer")
 
@@ -91,7 +82,10 @@ struct FooterActionDescriptorTests {
 
     @Test("Allow List active state reflects manager state")
     func activeStates() {
-        let tooling = FooterActionDescriptor.toolingActions(isAllowListActive: true)
+        let tooling = FooterActionDescriptor.toolingActions(
+            isAllowListActive: true,
+            quickTools: [.allowList, .mapLocal, .scripting, .networkConditions]
+        )
 
         #expect(tooling.first { $0.id == .allowList }?.isActive == true)
     }
@@ -100,7 +94,7 @@ struct FooterActionDescriptorTests {
     func toolActionsRemainInline() {
         let actions = FooterActionDescriptor.toolingActions(isAllowListActive: false)
 
-        #expect(FooterActionKind.allCases.filter { $0 != .proxyOverride } == actions.map(\.id))
+        #expect(FooterActionKind.defaultQuickTools == actions.map(\.id))
     }
 }
 

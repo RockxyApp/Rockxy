@@ -137,12 +137,28 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: sidebarBinding) {
-                favoritesSection
-                allSection
+            Picker(String(localized: "Navigator"), selection: navigatorModeBinding) {
+                ForEach(FocusNavigatorMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
             }
-            .listStyle(.sidebar)
-            .font(.system(size: metrics.sidebarNavigationFontSize))
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            Group {
+                switch coordinator.focusNavigatorMode {
+                case .browse:
+                    browseList
+                case .focus:
+                    focusList
+                case .library:
+                    libraryList
+                }
+            }
 
             SidebarBottomBar(
                 filterText: $sidebarFilterText,
@@ -154,6 +170,17 @@ struct SidebarView: View {
                 coordinator: coordinator,
                 isPresented: $isAddFavoritePresented
             )
+        }
+        .sheet(item: $editingFocusSet) { focusSet in
+            FocusSetEditorSheet(
+                initialValue: focusSet,
+                transactions: coordinator.transactions,
+                isCreating: !coordinator.activeWorkspace.focusSets.contains { $0.id == focusSet.id },
+                onSave: saveFocusSetFromSidebar
+            )
+        }
+        .sheet(isPresented: $isMutedSourcesPresented) {
+            NoiseControlManagerSheet(coordinator: coordinator)
         }
         .background(
             // Keep the sidebar invalidated when SSL proxying presentation changes.
@@ -169,6 +196,14 @@ struct SidebarView: View {
 
     @State private var sidebarFilterText = ""
     @State private var isAddFavoritePresented = false
+    @State private var editingFocusSet: FocusSet?
+    @State private var isMutedSourcesPresented = false
+    @State private var expandedFocusSetIDs: Set<UUID> = []
+    @State private var isAppsExpanded = false
+    @State private var isDomainsExpanded = false
+    @State private var isPinnedExpanded = false
+    @State private var isSavedExpanded = false
+    @State private var expandedAppNames: Set<String> = []
     @State private var expandedDomainNodeIDs: Set<String> = []
     @Environment(\.appUIDisplayMetrics) private var metrics
 
@@ -179,18 +214,206 @@ struct SidebarView: View {
         )
     }
 
+    private var navigatorModeBinding: Binding<FocusNavigatorMode> {
+        Binding(
+            get: { coordinator.focusNavigatorMode },
+            set: { coordinator.focusNavigatorMode = $0 }
+        )
+    }
+
     private var appNodes: [AppInfo] {
-        coordinator.appNodes
+        SidebarSearchFilter.apps(coordinator.appNodes, query: sidebarFilterText)
+    }
+
+    private var domainTree: [DomainNode] {
+        SidebarSearchFilter.domainTree(coordinator.domainTree, query: sidebarFilterText)
+    }
+
+    private var focusSets: [FocusSet] {
+        SidebarSearchFilter.focusSets(coordinator.activeWorkspace.focusSets, query: sidebarFilterText)
+    }
+
+    private var pinnedTransactions: [HTTPTransaction] {
+        SidebarSearchFilter.transactions(coordinator.allPinnedTransactions, query: sidebarFilterText)
+    }
+
+    private var savedTransactions: [HTTPTransaction] {
+        SidebarSearchFilter.transactions(coordinator.allSavedTransactions, query: sidebarFilterText)
+    }
+
+    private var filteredFavorites: [SidebarItem] {
+        SidebarSearchFilter.favorites(coordinator.favorites, query: sidebarFilterText)
+    }
+
+    private var visibleSignals: [TrafficSignal] {
+        SidebarSearchFilter.trafficSignals(TrafficSignal.allCases, query: sidebarFilterText)
     }
 
     // MARK: - Sections
 
+    private var browseList: some View {
+        List(selection: sidebarBinding) {
+            allSection
+            signalsSection
+        }
+        .listStyle(.sidebar)
+        .font(.system(size: metrics.sidebarNavigationFontSize))
+    }
+
+    private var focusList: some View {
+        List {
+            Section {
+                if focusSets.isEmpty {
+                    Label(
+                        SidebarSearchFilter.hasQuery(sidebarFilterText)
+                            ? String(localized: "No Matching Focus Sets")
+                            : String(localized: "No Focus Sets"),
+                        systemImage: "scope"
+                    )
+                        .font(.system(size: metrics.sidebarNavigationFontSize, weight: .medium))
+                        .help(String(localized: "Create a reusable app, domain, or path scope."))
+                    .padding(.vertical, 4)
+                } else {
+                    ForEach(focusSets) { focusSet in
+                        FocusSetSidebarRow(
+                            focusSet: focusSet,
+                            isActive: coordinator.activeWorkspace.activeFocusSetID == focusSet.id,
+                            isExpanded: focusSetExpansionBinding(for: focusSet.id),
+                            onApply: { applyFocusSetFromSidebar(focusSet) }
+                        )
+                        .listRowBackground(
+                            coordinator.activeWorkspace.activeFocusSetID == focusSet.id
+                                ? Color.accentColor.opacity(0.09)
+                                : Color.clear
+                        )
+                        .contextMenu {
+                            Button(String(localized: "Apply")) { applyFocusSetFromSidebar(focusSet) }
+                            Button(expandedFocusSetIDs.contains(focusSet.id)
+                                ? String(localized: "Collapse Rules")
+                                : String(localized: "Expand Rules"))
+                            {
+                                toggleFocusSetExpansion(focusSet.id)
+                            }
+                            Divider()
+                            Button(String(localized: "Edit…")) { editingFocusSet = focusSet }
+                            Button(String(localized: "Duplicate")) { coordinator.duplicateFocusSet(focusSet) }
+                            Divider()
+                            Button(String(localized: "Delete"), role: .destructive) {
+                                coordinator.deleteFocusSet(focusSet)
+                            }
+                        }
+                    }
+                }
+            } header: {
+                sidebarSectionHeader(
+                    title: String(localized: "Focus Sets"),
+                    actionTitle: String(localized: "Add"),
+                    actionLabel: String(localized: "Create Focus Set"),
+                    action: { editingFocusSet = coordinator.makeFocusSetFromCurrentScope() }
+                )
+                .padding(.top, 4)
+            }
+
+            Section {
+                EmptyView()
+            } header: {
+                sidebarSectionHeader(
+                    title: String(localized: "Noise Control"),
+                    actionTitle: String(localized: "Configure"),
+                    actionLabel: String(localized: "Configure Noise Control"),
+                    action: { isMutedSourcesPresented = true }
+                )
+            }
+        }
+        .listStyle(.sidebar)
+    }
+
+    private var libraryList: some View {
+        List(selection: sidebarBinding) {
+            favoritesSection
+        }
+        .listStyle(.sidebar)
+        .font(.system(size: metrics.sidebarNavigationFontSize))
+    }
+
+    private var signalsSection: some View {
+        Section {
+            ForEach(visibleSignals) { signal in
+                signalRow(signal)
+            }
+        } header: {
+            Text(String(localized: "Signals"))
+        } footer: {
+            if let activeSignal = coordinator.activeWorkspace.activeTrafficSignal {
+                Text(activeSignal.explanation)
+                    .font(.system(size: metrics.sidebarSecondaryFontSize))
+            }
+        }
+    }
+
+    private func sidebarSectionHeader(
+        title: String,
+        actionTitle: String,
+        actionLabel: String,
+        action: @escaping () -> Void
+    )
+        -> some View
+    {
+        HStack(spacing: 8) {
+            Text(title)
+            Spacer(minLength: 8)
+            Button(action: action) {
+                Label(actionTitle, systemImage: "plus")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .foregroundStyle(.primary)
+            .help(actionLabel)
+            .accessibilityLabel(actionLabel)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func signalRow(_ signal: TrafficSignal) -> some View {
+        let isActive = coordinator.activeWorkspace.activeTrafficSignal == signal
+        return Button {
+            coordinator.toggleTrafficSignal(signal)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: signal.systemImage)
+                    .frame(width: 16)
+                Text(signal.title)
+                Spacer(minLength: 8)
+                Text("\(coordinator.trafficSignalCount(signal))")
+                    .font(.system(size: metrics.sidebarBadgeFontSize).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: metrics.sidebarBadgeFontSize, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(isActive ? Color.accentColor.opacity(0.12) : Color.clear)
+        .help(isActive
+            ? String(localized: "Clear \(signal.title) · \(signal.explanation)")
+            : String(localized: "Show \(signal.title) · \(signal.explanation)"))
+    }
+
     private var favoritesSection: some View {
         Section {
-            DisclosureGroup {
-                let pinned = coordinator.allPinnedTransactions
+            DisclosureGroup(isExpanded: searchAwareExpansionBinding(for: $isPinnedExpanded)) {
+                let pinned = pinnedTransactions
                 if pinned.isEmpty {
-                    Text(String(localized: "No pinned items"))
+                    Text(
+                        SidebarSearchFilter.hasQuery(sidebarFilterText)
+                            ? String(localized: "No matching pinned items")
+                            : String(localized: "No pinned items")
+                    )
                         .foregroundStyle(.secondary)
                         .font(.system(size: metrics.sidebarSecondaryFontSize))
                         .frame(minHeight: metrics.sidebarRowHeight, alignment: .center)
@@ -215,17 +438,21 @@ struct SidebarView: View {
                 }
             } label: {
                 Label(String(localized: "Pinned"), systemImage: "pin.fill")
-                    .badge(coordinator.allPinnedTransactions.count)
+                    .badge(pinnedTransactions.count)
                     .tag(SidebarItem.allPinned)
                     .frame(minHeight: metrics.sidebarRowHeight)
                     .contentShape(Rectangle())
                     .onTapGesture { coordinator.selectSidebarItem(.allPinned) }
             }
 
-            DisclosureGroup {
-                let saved = coordinator.allSavedTransactions
+            DisclosureGroup(isExpanded: searchAwareExpansionBinding(for: $isSavedExpanded)) {
+                let saved = savedTransactions
                 if saved.isEmpty {
-                    Text(String(localized: "No saved items"))
+                    Text(
+                        SidebarSearchFilter.hasQuery(sidebarFilterText)
+                            ? String(localized: "No matching saved items")
+                            : String(localized: "No saved items")
+                    )
                         .foregroundStyle(.secondary)
                         .font(.system(size: metrics.sidebarSecondaryFontSize))
                         .frame(minHeight: metrics.sidebarRowHeight, alignment: .center)
@@ -249,14 +476,14 @@ struct SidebarView: View {
                 }
             } label: {
                 Label(String(localized: "Saved"), systemImage: "tray.full.fill")
-                    .badge(coordinator.allSavedTransactions.count)
+                    .badge(savedTransactions.count)
                     .tag(SidebarItem.allSaved)
                     .frame(minHeight: metrics.sidebarRowHeight)
                     .contentShape(Rectangle())
                     .onTapGesture { coordinator.selectSidebarItem(.allSaved) }
             }
 
-            ForEach(coordinator.favorites, id: \.self) { item in
+            ForEach(filteredFavorites, id: \.self) { item in
                 favoriteRow(item)
             }
         } header: {
@@ -269,9 +496,9 @@ struct SidebarView: View {
 
     private var allSection: some View {
         Section {
-            DisclosureGroup {
+            DisclosureGroup(isExpanded: searchAwareExpansionBinding(for: $isAppsExpanded)) {
                 ForEach(appNodes) { app in
-                    DisclosureGroup {
+                    DisclosureGroup(isExpanded: appExpansionBinding(for: app.name)) {
                         ForEach(app.domains, id: \.self) { domain in
                             domainLabel(domain, requestCount: 0)
                         }
@@ -298,13 +525,20 @@ struct SidebarView: View {
                     .onTapGesture { coordinator.selectSidebarItem(.allApps) }
             }
 
-            DisclosureGroup {
-                ForEach(coordinator.domainTree) { node in
+            DisclosureGroup(isExpanded: searchAwareExpansionBinding(for: $isDomainsExpanded)) {
+                ForEach(domainTree) { node in
                     domainRow(node)
                 }
             } label: {
                 Label(String(localized: "Domains"), systemImage: "globe")
-                    .badge(coordinator.totalDomainCount)
+                    .badge(
+                        SidebarSearchFilter.hasQuery(sidebarFilterText)
+                            ? SidebarSearchFilter.domainMatchCount(
+                                coordinator.domainTree,
+                                query: sidebarFilterText
+                            )
+                            : coordinator.totalDomainCount
+                    )
                     .tag(SidebarItem.allDomains)
                     .frame(minHeight: metrics.sidebarRowHeight)
                     .contentShape(Rectangle())
@@ -441,13 +675,63 @@ struct SidebarView: View {
 
     private func domainExpansionBinding(for nodeID: String) -> Binding<Bool> {
         Binding {
-            expandedDomainNodeIDs.contains(nodeID)
+            SidebarSearchFilter.hasQuery(sidebarFilterText) || expandedDomainNodeIDs.contains(nodeID)
         } set: { isExpanded in
             if isExpanded {
                 expandedDomainNodeIDs.insert(nodeID)
             } else {
                 expandedDomainNodeIDs.remove(nodeID)
             }
+        }
+    }
+
+    private func appExpansionBinding(for appName: String) -> Binding<Bool> {
+        Binding {
+            SidebarSearchFilter.hasQuery(sidebarFilterText) || expandedAppNames.contains(appName)
+        } set: { isExpanded in
+            if isExpanded {
+                expandedAppNames.insert(appName)
+            } else {
+                expandedAppNames.remove(appName)
+            }
+        }
+    }
+
+    private func focusSetExpansionBinding(for id: UUID) -> Binding<Bool> {
+        Binding {
+            SidebarSearchFilter.hasQuery(sidebarFilterText) || expandedFocusSetIDs.contains(id)
+        } set: { isExpanded in
+            if isExpanded {
+                expandedFocusSetIDs.insert(id)
+            } else {
+                expandedFocusSetIDs.remove(id)
+            }
+        }
+    }
+
+    private func toggleFocusSetExpansion(_ id: UUID) {
+        if expandedFocusSetIDs.contains(id) {
+            expandedFocusSetIDs.remove(id)
+        } else {
+            expandedFocusSetIDs.insert(id)
+        }
+    }
+
+    private func applyFocusSetFromSidebar(_ focusSet: FocusSet) {
+        expandedFocusSetIDs.insert(focusSet.id)
+        coordinator.applyFocusSet(focusSet)
+    }
+
+    private func saveFocusSetFromSidebar(_ focusSet: FocusSet) {
+        expandedFocusSetIDs.insert(focusSet.id)
+        coordinator.saveFocusSet(focusSet)
+    }
+
+    private func searchAwareExpansionBinding(for binding: Binding<Bool>) -> Binding<Bool> {
+        Binding {
+            SidebarSearchFilter.hasQuery(sidebarFilterText) || binding.wrappedValue
+        } set: { isExpanded in
+            binding.wrappedValue = isExpanded
         }
     }
 
@@ -551,6 +835,13 @@ struct SidebarView: View {
             coordinator.sortDomainTreeAlphabetically()
         } label: {
             Label(String(localized: "Sort by Alphabet"), systemImage: "textformat.abc")
+        }
+
+        Button {
+            coordinator.muteTrafficSource(.host(domain))
+            coordinator.focusNavigatorMode = .focus
+        } label: {
+            Label(String(localized: "Mute Source"), systemImage: "eye.slash")
         }
 
         Divider()
@@ -801,6 +1092,15 @@ struct SidebarView: View {
             coordinator.sortAppNodesAlphabetically()
         } label: {
             Label(String(localized: "Sort by Alphabet"), systemImage: "textformat.abc")
+        }
+
+        Button {
+            for domain in app.domains {
+                coordinator.muteTrafficSource(.host(domain))
+            }
+            coordinator.focusNavigatorMode = .focus
+        } label: {
+            Label(String(localized: "Mute App Sources"), systemImage: "eye.slash")
         }
 
         Divider()

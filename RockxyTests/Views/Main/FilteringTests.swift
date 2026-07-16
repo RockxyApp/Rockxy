@@ -61,6 +61,30 @@ struct FilteringTests {
 
     // MARK: - Search by Field
 
+    @Test("Add Filter reveals the existing first rule")
+    func addFilterRevealsExistingRule() {
+        let coordinator = MainContentCoordinator()
+        #expect(!coordinator.isFilterBarVisible)
+        #expect(coordinator.filterRules.count == 1)
+
+        coordinator.addAdvancedFilterRule()
+
+        #expect(coordinator.isFilterBarVisible)
+        #expect(coordinator.filterRules.count == 1)
+    }
+
+    @Test("Add Filter appends rules while the editor is visible")
+    func addFilterAppendsRule() {
+        let coordinator = MainContentCoordinator()
+        coordinator.isFilterBarVisible = true
+
+        coordinator.addAdvancedFilterRule()
+        coordinator.addAdvancedFilterRule()
+
+        #expect(coordinator.filterRules.count == 3)
+        #expect(Set(coordinator.filterRules.map(\.id)).count == 3)
+    }
+
     @Test("Search by URL field matches URL substring")
     func searchByURL() {
         let coordinator = makeCoordinator()

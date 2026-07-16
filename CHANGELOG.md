@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Added nearby iPhone transfers as a dedicated iOS workspace so the current Mac traffic remains available.
+- Kept the nearby-transfer receiver discoverable while Rockxy is running, even when macOS restores the app without a main window.
 - Added AI traffic inspection for recognized model API traffic, including provider/model hints, streaming state, usage fields when present, tool-call summaries, retrieval hints, and warnings for unavailable fields.
 - Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
 - Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.

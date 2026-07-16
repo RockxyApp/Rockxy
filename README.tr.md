@@ -45,6 +45,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsor" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -368,22 +369,28 @@ Bkz. **[KATKIDA BULUNAN.md](CONTRIBUTING.md)** kurulum talimatları, kod stili v
 Rockxy bağımsız geliştiriciler tarafından oluşturulmuş ve bakımı yapılmıştır. Sponsorluklar sürekli geliştirmeyi, güvenlik denetimlerini ve yeni özellikleri finanse eder.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Sponsor_Rockxy-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor Rockxy" />
   </a>
 </p>
 
-| Seviye | Faydaları |
-|------|----------|
-| **Altın Sponsor** | README+ docs sitesinde logo, öncelikli özellik istekleri, doğrudan destek kanalı |
-| **Gümüş Sponsor** | README'de logo, sürüm notlarında adı geçen onay |
-| **Bronz Sponsor** | README ve dokümanlarda adlandırılmış onay |
-| **Ortak** | Ortak geliştirme, entegrasyon desteği, gelecek özelliklere erken erişim |
+Rockxy, [Open Source Collective](https://docs.oscollective.org/) tarafından mali olarak barındırılır. Katkılar ve proje giderleri [Rockxy'nin herkese açık Open Collective sayfasında](https://opencollective.com/rockxy) kaydedilir; böylece destekçiler fonların nasıl alındığını ve kullanıldığını şeffaf biçimde görebilir.
+
+| Seviye | Katkı | Neyi destekler |
+|--------|-------|----------------|
+| **Backer** | Aylık $5'ten başlayan | Açık kaynak bakımı, dokümantasyon, testler ve sürümler |
+| **Builder** | Aylık $25'ten başlayan | Regresyon testleri, performans iyileştirmeleri ve günlük hata ayıklama iş akışları |
+| **Sponsor** | Aylık $100 | Gizlilik odaklı ve geliştiricilere ücretsiz sunulan bir aracın uzun vadeli bakımı |
+| **Sustaining Sponsor** | Aylık $500 | Sürüm otomasyonu ve protokol desteği dahil odaklı bakım ve ürün geliştirme |
 
 **Ortaklık soruları** — özel entegrasyonlar veya beyaz etiket çözümleri arayan geliştirici aracı şirketleri, güvenlik firmaları ve kurumsal ekipler: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## Destek
 
+- [Open Collective](https://opencollective.com/rockxy/donate) — şeffaf proje bütçesi aracılığıyla Rockxy'ye katkıda bulunun
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — Rockxy'nin gelişimini desteklemek
 - [GitHub Sorunları](https://github.com/RockxyApp/Rockxy/issues) — hata raporları ve özellik istekleri
 - [GitHub Tartışmaları](https://github.com/RockxyApp/Rockxy/discussions) — sorular ve topluluk sohbeti
