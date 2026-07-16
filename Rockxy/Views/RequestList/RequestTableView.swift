@@ -759,6 +759,10 @@ extension RequestTableView {
             lastClickedColumn = clickedCol
 
             buildCopyGroup(menu, transaction: transaction)
+            if ContextFilterSuggestion.tableCell(columnID: clickedCol, transaction: transaction) != nil {
+                menu.addItem(.separator())
+                buildFilterGroup(menu, transaction: transaction)
+            }
             menu.addItem(.separator())
             buildRepeatGroup(menu, transaction: transaction)
             menu.addItem(.separator())
@@ -789,6 +793,34 @@ extension RequestTableView {
         func handleCopyCellValue(_ sender: NSMenuItem) {
             let col = lastClickedColumn ?? "url"
             withCoordinator(sender) { $0.copyCellValue(for: $1, column: col) }
+        }
+
+        @objc
+        func handleFilterCellValue(_ sender: NSMenuItem) {
+            let columnID = lastClickedColumn ?? "url"
+            withCoordinator(sender) { coordinator, transaction in
+                guard let suggestion = ContextFilterSuggestion.tableCell(
+                    columnID: columnID,
+                    transaction: transaction
+                ) else {
+                    return
+                }
+                coordinator.applyContextFilter(suggestion)
+            }
+        }
+
+        @objc
+        func handleExcludeCellValue(_ sender: NSMenuItem) {
+            let columnID = lastClickedColumn ?? "url"
+            withCoordinator(sender) { coordinator, transaction in
+                guard let suggestion = ContextFilterSuggestion.tableCell(
+                    columnID: columnID,
+                    transaction: transaction
+                ) else {
+                    return
+                }
+                coordinator.applyContextFilter(suggestion, excluding: true)
+            }
         }
 
         @objc
@@ -1257,6 +1289,21 @@ extension RequestTableView {
             )
             copyAsItem.submenu = copyAsSubmenu
             menu.addItem(copyAsItem)
+        }
+
+        private func buildFilterGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
+            menu.addItem(menuItem(
+                String(localized: "Filter by Value"),
+                action: #selector(handleFilterCellValue(_:)),
+                symbol: "line.3.horizontal.decrease.circle",
+                transaction: transaction
+            ))
+            menu.addItem(menuItem(
+                String(localized: "Exclude Value"),
+                action: #selector(handleExcludeCellValue(_:)),
+                symbol: "line.3.horizontal.decrease.circle.fill",
+                transaction: transaction
+            ))
         }
 
         private func buildRepeatGroup(_ menu: NSMenu, transaction: HTTPTransaction) {

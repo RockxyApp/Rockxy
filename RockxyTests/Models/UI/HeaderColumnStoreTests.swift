@@ -38,6 +38,17 @@ struct HeaderColumnStoreTests {
         #expect(store.columns.count == 1)
     }
 
+    @Test("Header names are deduplicated case-insensitively")
+    func addDuplicateWithDifferentCasing() {
+        let store = makeCleanStore()
+        let first = store.addColumn(headerName: "x-request-id", source: .request)
+        let second = store.addColumn(headerName: "X-Request-ID", source: .request)
+
+        #expect(first.id == second.id)
+        #expect(store.columns.count == 1)
+        #expect(store.isColumnDefined(headerName: "X-REQUEST-ID", source: .request))
+    }
+
     @Test("Same header name different source are separate")
     func differentSource() {
         let store = makeCleanStore()

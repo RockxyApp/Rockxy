@@ -7,6 +7,7 @@ struct RequestInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    let coordinator: MainContentCoordinator
     var previewTabStore: PreviewTabStore
     var highlightContext: InspectorHighlightContext = .empty
 
@@ -130,7 +131,12 @@ struct RequestInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(headers: transaction.request.headers, highlightContext: highlightContext)
+                HeaderKeyValueTable(
+                    headers: transaction.request.headers,
+                    highlightContext: highlightContext,
+                    source: .request,
+                    coordinator: coordinator
+                )
                     .padding()
             }
         }

@@ -1,8 +1,6 @@
-/// Controls the inspector panel's position relative to the request list.
-/// `.hidden` collapses the inspector entirely; `.right` and `.bottom` correspond
-/// to the horizontal/vertical split layout toggle in the toolbar.
+/// Controls the horizontal inspector below the request list.
+/// The former right inspector is now the independent Context Dock.
 enum InspectorLayout: Equatable {
     case hidden
-    case right
     case bottom
 }

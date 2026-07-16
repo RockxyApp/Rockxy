@@ -45,6 +45,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs Welcome" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsor" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -56,16 +57,24 @@
 ---
 
 <!-- BEGIN GENERATED: latest-release -->
-## Cea mai recentă lansare cu etichete
+## Latest Tagged Release
 
-**v0.27.2** — 2026-06-18
+**v0.29.0** — 2026-07-12
 
-### Schimbat
+### Added
 
-- Îmbunătățiți controalele privind confidențialitatea metadatelor
-- Rafinați aspectul dezvăluirii metadatelor
+- Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.
+- Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
+- Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
+- Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
 
-Vezi [CHANGELOG.md](CHANGELOG.md) pentru istoricul complet al lansărilor.
+### Changed
+
+- Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.
+- Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
+- Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
 
 ## Repere actuale ale filialei
@@ -360,22 +369,28 @@ Primele numere bune sunt etichetate [`good first issue`](https://github.com/Rock
 Rockxy este construit și întreținut de dezvoltatori independenți. Sponsorizările finanțează dezvoltarea continuă, audituri de securitate și funcții noi.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Sponsor_Rockxy-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Sponsor Rockxy" />
   </a>
 </p>
 
-| Nivelul | Beneficii |
-|------|----------|
-| **Sponsor de aur** | Logo pe site-ul README + docs, solicitări de funcții prioritare, canal de asistență directă |
-| **Sponsor de argint** | Sigla pe README, denumită confirmare în notele de lansare |
-| **Sponsor de bronz** | Confirmare numită în README și în documente |
-| **Partener** | Co-dezvoltare, suport pentru integrare, acces timpuriu la funcțiile viitoare |
+Rockxy este găzduit fiscal de [Open Source Collective](https://docs.oscollective.org/). Contribuțiile și cheltuielile proiectului sunt înregistrate pe [pagina publică Open Collective a Rockxy](https://opencollective.com/rockxy), oferind o imagine transparentă asupra modului în care fondurile sunt primite și utilizate.
+
+| Nivel | Contribuție | Ce susține |
+|-------|-------------|------------|
+| **Backer** | De la $5/lună | Mentenanță open source, documentație, testare și lansări |
+| **Builder** | De la $25/lună | Testare de regresie, îmbunătățiri de performanță și fluxuri zilnice de depanare |
+| **Sponsor** | $100/lună | Mentenanța pe termen lung a unui instrument orientat spre confidențialitate și gratuit pentru dezvoltatori |
+| **Sustaining Sponsor** | $500/lună | Mentenanță și dezvoltare concentrată a produsului, inclusiv automatizarea lansărilor și suport pentru protocoale |
 
 **Cereri de parteneriat** — companii de instrumente de dezvoltare, firme de securitate și echipe de întreprinderi care caută integrări personalizate sau soluții cu etichetă albă: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## Sprijin
 
+- [Open Collective](https://opencollective.com/rockxy/donate) — contribuie la Rockxy prin bugetul transparent al proiectului
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) — sprijină dezvoltarea lui Rockxy
 - [Probleme GitHub](https://github.com/RockxyApp/Rockxy/issues) — rapoarte de erori și solicitări de caracteristici
 - [Discuții GitHub](https://github.com/RockxyApp/Rockxy/discussions) — întrebări și chat comunitar

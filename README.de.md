@@ -45,6 +45,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="Lizenz" /></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs willkommen" /></a>
   <a href="https://github.com/sponsors/LocNguyenHuu"><img src="https://img.shields.io/badge/sponsor-GitHub%20Sponsors-ea4aaa" alt="Sponsern" /></a>
+  <a href="https://opencollective.com/rockxy/donate"><img src="https://img.shields.io/badge/Open%20Collective-support%20Rockxy-7FADF2?logo=opencollective&logoColor=white" alt="Open Collective" /></a>
 </p>
 
 <p align="center">
@@ -58,16 +59,20 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.28.0** — 2026-06-25
+**v0.29.0** — 2026-07-12
 
 ### Added
 
-- Added a dedicated gRPC inspector for protobuf traffic, making unary and streaming gRPC responses easier to identify and inspect.
+- Added dedicated model API traffic inspection with provider and model hints, streaming state, usage details when available, tool-call summaries, retrieval hints, and clear unavailable-field warnings.
+- Added Web3 JSON-RPC inspection for EVM and Solana-style HTTP RPC traffic, including provider host, request ID, method, batch summary, error, chain, transaction, payload, and debug-intent details.
+- Added x402-style payment-flow hints for payment-required and retry-oriented HTTP traffic.
+- Added a default Protocol column and protocol filters that make model API, Web3 RPC, gRPC, GraphQL, WebSocket, and HTTP traffic easier to scan in the request list.
 
-### Fixed
+### Changed
 
-- Kept protocol-specific inspector tabs visible and ordered consistently so gRPC details stay easy to find during response review.
-- Fixed a launch-time readiness check that could crash or stall while Rockxy refreshed proxy and developer setup state.
+- Kept model API, Web3, and gRPC inspector tabs together at the end of the inspector tab row for a more consistent response-review workflow.
+- Clarified that rules and debugging tools continue to match URL, HTTP method, and headers rather than model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
+- Refined General settings so proxy controls, certificate status, and certificate actions are easier to scan.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
@@ -360,22 +365,28 @@ Einsteigerfreundliche Issues sind mit [`good first issue`](https://github.com/Ro
 Rockxy wird von unabh&auml;ngigen Entwicklern gebaut und gewartet. Sponsoring finanziert die kontinuierliche Entwicklung, Sicherheits&uuml;berpr&uuml;fungen und neue Funktionen.
 
 <p align="center">
+  <a href="https://opencollective.com/rockxy/donate">
+    <img src="https://img.shields.io/badge/Support_on_Open_Collective-7FADF2?style=for-the-badge&logo=opencollective&logoColor=white" alt="Open Collective" />
+  </a>
   <a href="https://github.com/sponsors/LocNguyenHuu">
     <img src="https://img.shields.io/badge/Rockxy_sponsern-ea4aaa?style=for-the-badge&logo=githubsponsors&logoColor=white" alt="Rockxy sponsern" />
   </a>
 </p>
 
-| Stufe | Vorteile |
-|-------|----------|
-| **Gold Sponsor** | Logo auf README + Docs-Seite, priorisierte Feature-Anfragen, dedizierter Support-Kanal |
-| **Silver Sponsor** | Logo auf README, namentliche Erw&auml;hnung in Release-Notes |
-| **Bronze Sponsor** | Namentliche Erw&auml;hnung in README und Dokumentation |
-| **Partner** | Co-Entwicklung, Integrations-Support, fr&uuml;her Zugang zu kommenden Features |
+Rockxy wird finanziell vom [Open Source Collective](https://docs.oscollective.org/) betreut. Beitr&auml;ge und Projektausgaben werden auf der [&ouml;ffentlichen Open-Collective-Seite von Rockxy](https://opencollective.com/rockxy) erfasst, sodass Unterst&uuml;tzende transparent nachvollziehen k&ouml;nnen, wie Mittel eingehen und verwendet werden.
+
+| Stufe | Beitrag | Unterst&uuml;tzt |
+|-------|---------|---------------|
+| **Backer** | Ab $5/Monat | Open-Source-Wartung, Dokumentation, Tests und Releases |
+| **Builder** | Ab $25/Monat | Regressionstests, Leistungsverbesserungen und allt&auml;gliche Debugging-Workflows |
+| **Sponsor** | $100/Monat | Langfristige Wartung eines datenschutzorientierten Tools, das f&uuml;r Entwickler kostenlos bleibt |
+| **Sustaining Sponsor** | $500/Monat | Konzentrierte Wartung und Produktentwicklung, einschlie&szlig;lich Release-Automatisierung und Protokollunterst&uuml;tzung |
 
 **Partnerschaftsanfragen** &mdash; Entwicklertool-Unternehmen, Sicherheitsfirmen und Enterprise-Teams, die individuelle Integrationen oder White-Label-L&ouml;sungen suchen: [rockxyapp@gmail.com](mailto:rockxyapp@gmail.com)
 
 ## Support
 
+- [Open Collective](https://opencollective.com/rockxy/donate) &mdash; &uuml;ber das transparente Projektbudget zu Rockxy beitragen
 - [GitHub Sponsors](https://github.com/sponsors/LocNguyenHuu) &mdash; Rockxys Entwicklung unterst&uuml;tzen
 - [GitHub Issues](https://github.com/RockxyApp/Rockxy/issues) &mdash; Fehlerberichte und Feature-Anfragen
 - [GitHub Discussions](https://github.com/RockxyApp/Rockxy/discussions) &mdash; Fragen und Community-Chat

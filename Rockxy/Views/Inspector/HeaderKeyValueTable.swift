@@ -6,6 +6,8 @@ import SwiftUI
 struct HeaderKeyValueTable: View {
     let headers: [HTTPHeader]
     var highlightContext: InspectorHighlightContext = .empty
+    var source: HeaderColumnSource?
+    var coordinator: MainContentCoordinator?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,6 +81,65 @@ struct HeaderKeyValueTable: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
         }
+        .contentShape(Rectangle())
+        .contextMenu {
+            headerContextMenu(header)
+        }
+    }
+
+    @ViewBuilder
+    private func headerContextMenu(_ header: HTTPHeader) -> some View {
+        Button(String(localized: "Copy Header Name")) {
+            copyToPasteboard(header.name)
+        }
+        Button(String(localized: "Copy Header Value")) {
+            copyToPasteboard(header.value)
+        }
+        Button(String(localized: "Copy Name: Value")) {
+            copyToPasteboard("\(header.name): \(header.value)")
+        }
+
+        if let source, let coordinator {
+            Divider()
+
+            Button(addColumnTitle(for: source)) {
+                coordinator.headerColumnStore.addColumn(headerName: header.name, source: source)
+            }
+            .disabled(
+                header.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || coordinator.headerColumnStore.isColumnDefined(headerName: header.name, source: source)
+            )
+
+            Divider()
+
+            Button(String(localized: "Filter by Value")) {
+                if let suggestion = ContextFilterSuggestion.header(header, source: source) {
+                    coordinator.applyContextFilter(suggestion)
+                }
+            }
+            .disabled(ContextFilterSuggestion.header(header, source: source) == nil)
+
+            Button(String(localized: "Exclude Value")) {
+                if let suggestion = ContextFilterSuggestion.header(header, source: source) {
+                    coordinator.applyContextFilter(suggestion, excluding: true)
+                }
+            }
+            .disabled(ContextFilterSuggestion.header(header, source: source) == nil)
+        }
+    }
+
+    private func addColumnTitle(for source: HeaderColumnSource) -> String {
+        switch source {
+        case .request:
+            String(localized: "Add Request Header as Column")
+        case .response:
+            String(localized: "Add Response Header as Column")
+        }
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 }
 

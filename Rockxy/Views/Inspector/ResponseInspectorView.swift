@@ -350,7 +350,12 @@ struct ResponseInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(headers: response.headers, highlightContext: highlightContext)
+                HeaderKeyValueTable(
+                    headers: response.headers,
+                    highlightContext: highlightContext,
+                    source: .response,
+                    coordinator: coordinator
+                )
                     .padding()
             }
         }
