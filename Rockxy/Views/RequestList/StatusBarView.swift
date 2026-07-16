@@ -550,45 +550,46 @@ private struct FooterQuickToolsEditor: View {
                     GridRow {
                         Text(String(localized: "Slot \(index + 1)"))
                             .frame(width: 44, alignment: .leading)
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(Color(nsColor: .controlBackgroundColor))
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                            Menu {
-                                ForEach(availableKinds(for: index), id: \.self) { kind in
-                                    Button {
-                                        selection[index] = kind
-                                    } label: {
-                                        if selection[index] == kind {
-                                            Label(descriptor(for: kind).title, systemImage: "checkmark")
-                                        } else {
-                                            Text(descriptor(for: kind).title)
-                                        }
+                        Menu {
+                            ForEach(availableKinds(for: index), id: \.self) { kind in
+                                Button {
+                                    selection[index] = kind
+                                } label: {
+                                    if selection[index] == kind {
+                                        Label(descriptor(for: kind).title, systemImage: "checkmark")
+                                    } else {
+                                        Text(descriptor(for: kind).title)
                                     }
                                 }
-                            } label: {
-                                Color.clear
-                                    .frame(width: 126, height: 24)
-                                    .contentShape(Rectangle())
                             }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .controlSize(.small)
-                            .accessibilityLabel(descriptor(for: selection[index]).title)
-                            HStack(spacing: 8) {
-                                Text(descriptor(for: selection[index]).title)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                        } label: {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                                HStack(spacing: 8) {
+                                    Text(descriptor(for: selection[index]).title)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                    Spacer(minLength: 8)
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 8)
                             }
-                            .padding(.horizontal, 8)
-                            .allowsHitTesting(false)
+                            .frame(width: 126, height: 24)
+                            .contentShape(Rectangle())
                         }
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .controlSize(.small)
                         .frame(width: 126, height: 24, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .accessibilityLabel(descriptor(for: selection[index]).title)
+                        .accessibilityIdentifier("footerQuickTools.slot\(index + 1)")
                     }
                 }
             }
