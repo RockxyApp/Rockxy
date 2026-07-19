@@ -6,8 +6,11 @@ import Testing
 
 @MainActor
 struct ToolWindowReadabilityTests {
+    // MARK: Internal
+
     @Test("Tool window display metrics derive from Appearance font size")
     func toolWindowDisplayMetricsDeriveFromAppearanceFontSize() {
+        // swiftlint:disable large_tuple
         let cases: [(
             fontSize: Int,
             body: CGFloat,
@@ -27,6 +30,7 @@ struct ToolWindowReadabilityTests {
             (20, 20, 19, 18, 19, 35, 33, 30, 20, 17),
             (28, 28, 27, 26, 27, 43, 41, 38, 28, 25),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -65,6 +69,7 @@ struct ToolWindowReadabilityTests {
 
     @Test("Settings display metrics derive from Appearance font size")
     func settingsDisplayMetricsDeriveFromAppearanceFontSize() {
+        // swiftlint:disable large_tuple
         let cases: [(fontSize: Int, width: CGFloat, height: CGFloat, labelWidth: CGFloat, controlHeight: CGFloat)] = [
             (10, 820, 600, 160, 24),
             (12, 820, 600, 160, 24),
@@ -73,6 +78,7 @@ struct ToolWindowReadabilityTests {
             (20, 820, 600, 160, 32),
             (28, 820, 600, 160, 40),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -94,13 +100,17 @@ struct ToolWindowReadabilityTests {
     @Test("Settings scene and tabs use display metrics")
     func settingsSceneAndTabsUseDisplayMetrics() throws {
         let appSource = try readProjectFile("Rockxy/RockxyApp.swift")
-        #expect(appSource.contains("Settings {\n            AppUIDisplayMetricsProvider"), "Settings scene must inherit Appearance display metrics")
+        #expect(
+            appSource.contains("Settings {\n            AppUIDisplayMetricsProvider"),
+            "Settings scene must inherit Appearance display metrics"
+        )
 
         let files = [
             "Rockxy/Views/Settings/SettingsView.swift",
             "Rockxy/Views/Settings/GeneralSettingsTab.swift",
             "Rockxy/Views/Settings/AppearanceSettingsTab.swift",
             "Rockxy/Views/Settings/PrivacySettingsTab.swift",
+            "Rockxy/Views/Settings/AssistantSettingsTab.swift",
             "Rockxy/Views/Settings/MCPSettingsTab.swift",
             "Rockxy/Views/Settings/GitHubSettingsTab.swift",
             "Rockxy/Views/Settings/PluginsSettingsTab.swift",
@@ -115,6 +125,43 @@ struct ToolWindowReadabilityTests {
             let source = try readProjectFile(file)
             #expect(source.contains("SettingsDisplayMetrics"), "\(file) should derive settings metrics from Appearance")
         }
+    }
+
+    @Test("Assistant dock follows Appearance typography and keeps protocol summaries monospaced")
+    func assistantDockUsesDisplayMetrics() throws {
+        let source = try readProjectFile("Rockxy/Views/Inspector/ContextDockView.swift")
+
+        #expect(source.contains("@Environment(\\.appUIDisplayMetrics)"))
+        #expect(source.contains("appMetrics.swiftUIFont(size:"))
+        #expect(source.contains("monospaced: true"))
+        #expect(!source.contains(".font(.caption"))
+        #expect(!source.contains(".font(.callout"))
+        #expect(!source.contains(".font(.subheadline"))
+        #expect(!source.contains(".disabled(isBusy || primaryTransaction == nil)"))
+        #expect(!source.contains(".disabled(conversationIsEmpty && !isBusy)"))
+        #expect(source.contains("Ask Rockxy AI Assistant…"))
+        #expect(source.contains("Text(String(localized: \"Details\"))"))
+        #expect(source.contains("Text(String(localized: \"AI Assistant\"))"))
+        #expect(source.contains("ContextDetailsView(coordinator: coordinator)"))
+        #expect(source.contains("AIAssistantDockView(coordinator: coordinator)"))
+    }
+
+    @Test("Assistant settings use shared section and field components")
+    func assistantSettingsUseSharedComponents() throws {
+        let source = try readProjectFile("Rockxy/Views/Settings/AssistantSettingsTab.swift")
+        let components = try readProjectFile("Rockxy/Views/Settings/SettingsSectionComponents.swift")
+
+        #expect(source.components(separatedBy: "SettingsSectionCard(").count - 1 == 5)
+        #expect(source.contains("SettingsFieldRow"))
+        #expect(source.contains("SettingsIndentedContent"))
+        #expect(source.contains("Global Model Library"))
+        #expect(source.contains("Download & Use"))
+        #expect(source.contains("Global Default"))
+        #expect(source.contains("HStack(spacing: 20)"))
+        #expect(!source.contains("LazyVGrid("))
+        #expect(components.contains("SettingsDisplayMetrics"))
+        #expect(components.contains("controlBackgroundColor"))
+        #expect(components.contains("separatorColor).opacity(0.62)"))
     }
 
     @Test("Custom tool windows are wrapped in display metrics provider")
@@ -208,7 +255,10 @@ struct ToolWindowReadabilityTests {
 
         for file in files {
             let source = try readProjectFile(file)
-            #expect(source.contains(".frame(\n            minWidth: max("), "\(file) should use scalable min window dimensions")
+            #expect(
+                source.contains(".frame(\n            minWidth: max("),
+                "\(file) should use scalable min window dimensions"
+            )
             for snippet in forbiddenSnippets {
                 #expect(!source.contains(snippet), "\(file) must not pin exact window size \(snippet)")
             }
@@ -253,7 +303,10 @@ struct ToolWindowReadabilityTests {
 
         for file in files {
             let source = try readProjectFile(file)
-            #expect(source.contains(".frame(width: 1_200, height: 672)"), "\(file) should match Scripting window height")
+            #expect(
+                source.contains(".frame(width: 1_200, height: 672)"),
+                "\(file) should match Scripting window height"
+            )
             #expect(source.contains(".frame(minHeight: toolMetrics.tableRowHeight * 8, maxHeight: .infinity)"))
             for snippet in forbiddenSnippets {
                 #expect(!source.contains(snippet), "\(file) must not keep \(snippet)")
@@ -275,7 +328,10 @@ struct ToolWindowReadabilityTests {
 
         for file in files {
             let source = try readProjectFile(file)
-            #expect(!source.contains(".padding(.top, toolMetrics.footerTopPadding)"), "\(file) should mirror Scripting footer spacing")
+            #expect(
+                !source.contains(".padding(.top, toolMetrics.footerTopPadding)"),
+                "\(file) should mirror Scripting footer spacing"
+            )
         }
     }
 
@@ -348,7 +404,10 @@ struct ToolWindowReadabilityTests {
             let source = try readProjectFile(file)
             #expect(source.contains("ToolWindowDisplayMetrics"), "\(file) should use tool metrics from Appearance")
             for snippet in forbiddenSnippets {
-                #expect(!source.contains(snippet), "\(file) must not keep compact fixed setting-window layout \(snippet)")
+                #expect(
+                    !source.contains(snippet),
+                    "\(file) must not keep compact fixed setting-window layout \(snippet)"
+                )
             }
         }
     }
@@ -459,9 +518,27 @@ struct ToolWindowReadabilityTests {
 
         for file in files {
             let source = try readProjectFile(file)
-            #expect(source.contains("toolMetrics.contentHorizontalPadding"), "\(file) should use shared horizontal padding")
+            #expect(
+                source.contains("toolMetrics.contentHorizontalPadding"),
+                "\(file) should use shared horizontal padding"
+            )
             #expect(source.contains("toolMetrics.footerBottomPadding"), "\(file) should use shared footer padding")
             #expect(!source.contains(".padding(.horizontal, 22)"), "\(file) should not use old oversized padding")
+        }
+    }
+
+    // MARK: Private
+
+    private enum ResolveError: Error, CustomStringConvertible {
+        case rootNotFound(filePath: String)
+
+        // MARK: Internal
+
+        var description: String {
+            switch self {
+            case let .rootNotFound(filePath):
+                "Could not locate RockxyTests directory from \(filePath)"
+            }
         }
     }
 
@@ -500,16 +577,5 @@ struct ToolWindowReadabilityTests {
         }
         url.deleteLastPathComponent()
         return url
-    }
-
-    private enum ResolveError: Error, CustomStringConvertible {
-        case rootNotFound(filePath: String)
-
-        var description: String {
-            switch self {
-            case let .rootNotFound(filePath):
-                "Could not locate RockxyTests directory from \(filePath)"
-            }
-        }
     }
 }

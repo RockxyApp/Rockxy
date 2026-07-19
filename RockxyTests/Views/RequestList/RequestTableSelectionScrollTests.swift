@@ -1,12 +1,57 @@
 import AppKit
-import SwiftUI
 @testable import Rockxy
+import SwiftUI
 import Testing
 
 @MainActor
 struct RequestTableSelectionScrollTests {
+    @Test("Request table keeps ID before Protocol by default")
+    func requestTableKeepsIDBeforeProtocolByDefault() {
+        let columnIDs = RequestTableView.makeColumns().map { $0.identifier.rawValue }
+
+        #expect(Array(columnIDs.prefix(4)) == ["status", "row", "ai", "url"])
+    }
+
+    @Test("Request table migrates only the legacy default column order")
+    func requestTableMigratesOnlyLegacyDefaultColumnOrder() {
+        let legacyOrder = [
+            "status", "ai", "row", "url", "client", "method", "state", "code", "time",
+            "duration", "requestSize", "responseSize", "ssl", "queryName",
+        ]
+        let legacyTable = makeTableView(
+            rowCount: 0,
+            coordinator: makeCoordinator(),
+            columns: legacyOrder
+        )
+
+        RequestTableView.migrateLegacyDefaultColumnOrder(in: legacyTable)
+
+        #expect(
+            legacyTable.tableColumns.map { $0.identifier.rawValue }
+                == [
+                    "status", "row", "ai", "url", "client", "method", "state", "code", "time",
+                    "duration", "requestSize", "responseSize", "ssl", "queryName",
+                ]
+        )
+
+        let customizedOrder = [
+            "status", "url", "row", "ai", "client", "method", "state", "code", "time",
+            "duration", "requestSize", "responseSize", "ssl", "queryName",
+        ]
+        let customizedTable = makeTableView(
+            rowCount: 0,
+            coordinator: makeCoordinator(),
+            columns: customizedOrder
+        )
+
+        RequestTableView.migrateLegacyDefaultColumnOrder(in: customizedTable)
+
+        #expect(customizedTable.tableColumns.map { $0.identifier.rawValue } == customizedOrder)
+    }
+
     @Test("Appearance display metrics keep default request table density")
     func appearanceDisplayMetricsKeepDefaultRequestTableDensity() {
+        // swiftlint:disable large_tuple
         let cases: [(
             fontSize: Int,
             control: CGFloat,
@@ -39,6 +84,7 @@ struct RequestTableSelectionScrollTests {
             (20, 19, 19, 18, 17, 20, 19, 18, 18, 27, 12, 16, 18, 19, 14, 35, 18, 32, 36, 42, 34, 30),
             (28, 27, 27, 26, 25, 28, 27, 26, 26, 32, 12, 16, 18, 27, 14, 43, 18, 40, 44, 50, 42, 38),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -75,6 +121,7 @@ struct RequestTableSelectionScrollTests {
 
     @Test("Developer Setup display metrics derive from Appearance font size")
     func developerSetupDisplayMetricsDeriveFromAppearanceFontSize() {
+        // swiftlint:disable large_tuple
         let cases: [(
             fontSize: Int,
             title: CGFloat,
@@ -95,6 +142,7 @@ struct RequestTableSelectionScrollTests {
             (20, 25, 21, 20, 19, 18, 17, 20, 44, 88),
             (28, 33, 29, 28, 27, 26, 25, 28, 52, 96),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -748,6 +796,21 @@ struct RequestTableSelectionScrollTests {
         scrollView.hasVerticalScroller = true
         scrollView.documentView = documentView
         return scrollView
+    }
+
+    private func makeCoordinator() -> RequestTableView.Coordinator {
+        var selectedIDs = Set<UUID>()
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: [],
+            refreshToken: 0,
+            isAppendOnly: false,
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        return RequestTableView.Coordinator(parent: parent)
     }
 
     private func makeTableView(

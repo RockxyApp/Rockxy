@@ -8,14 +8,16 @@ final class WebSocketConnection: @unchecked Sendable {
     init(upgradeRequest: HTTPRequestData, frames: [WebSocketFrameData] = []) {
         self.upgradeRequest = upgradeRequest
         self._frames = frames
-        self.totalPayloadSize = frames.reduce(0) { $0 + $1.payload.count }
+        self._totalPayloadSize = frames.reduce(0) { $0 + $1.payload.count }
     }
 
     // MARK: Internal
 
     let upgradeRequest: HTTPRequestData
 
-    private(set) var totalPayloadSize: Int = 0
+    var totalPayloadSize: Int {
+        lock.withLock { _totalPayloadSize }
+    }
 
     var frames: [WebSocketFrameData] {
         lock.withLock { _frames }
@@ -36,7 +38,21 @@ final class WebSocketConnection: @unchecked Sendable {
     func addFrame(_ frame: WebSocketFrameData) {
         lock.withLock {
             _frames.append(frame)
-            totalPayloadSize += frame.payload.count
+            _totalPayloadSize += frame.payload.count
+        }
+    }
+
+    @discardableResult
+    func addFrame(_ frame: WebSocketFrameData, maximumTotalPayloadSize: Int) -> Bool {
+        lock.withLock {
+            guard frame.payload.count <= maximumTotalPayloadSize,
+                  _totalPayloadSize <= maximumTotalPayloadSize - frame.payload.count else
+            {
+                return false
+            }
+            _frames.append(frame)
+            _totalPayloadSize += frame.payload.count
+            return true
         }
     }
 
@@ -44,4 +60,5 @@ final class WebSocketConnection: @unchecked Sendable {
 
     private let lock = NSLock()
     private var _frames: [WebSocketFrameData]
+    private var _totalPayloadSize: Int
 }

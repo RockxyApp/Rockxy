@@ -19,17 +19,47 @@ final class AppSettingsManager {
 
     static let shared = AppSettingsManager()
 
+    var appUI: AppUISettings
+    var appTheme: AppTheme
+
     var settings: AppSettings {
         didSet {
             syncAppearanceStateFromSettings()
         }
     }
 
-    var appUI: AppUISettings
-    var appTheme: AppTheme
-
     func save() {
         AppSettingsStorage.save(settings)
+    }
+
+    func updateAssistantConfiguration(
+        _ configuration: AssistantProviderConfiguration?,
+        enabled: Bool? = nil
+    ) {
+        settings.assistantProviderConfiguration = configuration
+        if let enabled {
+            settings.debugAssistantModelAccessEnabled = enabled
+        }
+        save()
+    }
+
+    func selectAssistantConfiguration(_ configurationID: UUID) {
+        guard settings.assistantProviderConfigurations.contains(where: { $0.id == configurationID }) else {
+            return
+        }
+        settings.activeAssistantProviderID = configurationID
+        save()
+    }
+
+    func removeAssistantConfiguration(_ configurationID: UUID) {
+        settings.assistantProviderConfigurations.removeAll { $0.id == configurationID }
+        if settings.activeAssistantProviderID == configurationID {
+            settings.activeAssistantProviderID = settings.assistantProviderConfigurations.first?.id
+        }
+        if settings.assistantProviderConfigurations.isEmpty {
+            settings.debugAssistantModelAccessEnabled = false
+        }
+        save()
     }
 
     func updateProxyPort(_ port: Int) {

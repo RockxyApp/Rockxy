@@ -129,14 +129,40 @@ struct CenterContentView: View {
 
     // MARK: Private
 
+    private static let minimumBottomTableHeight: CGFloat = 200
+    private static let minimumBottomInspectorHeight: CGFloat = 200
+    private static let minimumTrafficWidth: CGFloat = 420
+    private static let contextDockWidth: CGFloat = 380
+
+    private static let minimumWidthForContextDock: CGFloat = 820
+
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
 
     @State private var selectedIDs: Set<UUID> = []
+    @State private var isNarrowInvestigationPresented = false
 
     /// Stable reference to the Allow List singleton so SwiftUI's Observation framework
     /// tracks access to `isActive` inside `body` and re-renders the status bar when
     /// the master toggle changes.
     private let allowListManager = AllowListManager.shared
+
+    private var advancedRuleCount: Int {
+        FilterRuleEvaluator.activeRules(
+            in: coordinator.filterRules,
+            isFilterBarVisible: coordinator.isFilterBarVisible
+        ).count
+    }
+
+    private var activeFilterCount: Int {
+        coordinator.filterCriteria.activeFilterCount
+            + FilterRuleEvaluator.activeRules(
+                in: coordinator.filterRules,
+                isFilterBarVisible: coordinator.isFilterBarVisible
+            ).count
+            + (coordinator.activeWorkspace.activeTrafficSignal == nil ? 0 : 1)
+            + (coordinator.activeWorkspace.activeFocusSet == nil ? 0 : 1)
+            + (coordinator.activeWorkspace.mutedTrafficSources.isEmpty ? 0 : 1)
+    }
 
     private var inspectorWorkspace: some View {
         GeometryReader { proxy in
@@ -159,29 +185,6 @@ struct CenterContentView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private static let minimumBottomTableHeight: CGFloat = 200
-    private static let minimumBottomInspectorHeight: CGFloat = 200
-    private static let minimumTrafficWidth: CGFloat = 420
-    private static let contextDockWidth: CGFloat = 300
-
-    private var advancedRuleCount: Int {
-        FilterRuleEvaluator.activeRules(
-            in: coordinator.filterRules,
-            isFilterBarVisible: coordinator.isFilterBarVisible
-        ).count
-    }
-
-    private var activeFilterCount: Int {
-        coordinator.filterCriteria.activeFilterCount
-            + FilterRuleEvaluator.activeRules(
-                in: coordinator.filterRules,
-                isFilterBarVisible: coordinator.isFilterBarVisible
-            ).count
-            + (coordinator.activeWorkspace.activeTrafficSignal == nil ? 0 : 1)
-            + (coordinator.activeWorkspace.activeFocusSet == nil ? 0 : 1)
-            + (coordinator.activeWorkspace.mutedTrafficSources.isEmpty ? 0 : 1)
     }
 
     private var tableContent: some View {
@@ -219,11 +222,27 @@ struct CenterContentView: View {
                     )
             }
             .id("traffic-context-dock-split")
+        } else if coordinator.isContextDockVisible {
+            tableContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topTrailing) {
+                    Button {
+                        isNarrowInvestigationPresented = true
+                    } label: {
+                        Label(String(localized: "Ask Assistant"), systemImage: "sparkles")
+                    }
+                    .controlSize(.small)
+                    .padding(8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .padding(8)
+                }
+                .sheet(isPresented: $isNarrowInvestigationPresented) {
+                    ContextDockView(coordinator: coordinator)
+                        .frame(minWidth: 560, idealWidth: 580, minHeight: 580, idealHeight: 620)
+                }
         } else {
             tableContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
-
-    private static let minimumWidthForContextDock: CGFloat = 760
 }

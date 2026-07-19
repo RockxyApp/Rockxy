@@ -83,6 +83,7 @@ struct RequestTableView: NSViewRepresentable {
         // Column state persistence: AppKit owns width and order, HeaderColumnStore owns visibility
         tableView.autosaveName = RockxyIdentity.current.defaultsKey("requestTable")
         tableView.autosaveTableColumns = true
+        Self.migrateLegacyDefaultColumnOrder(in: tableView)
 
         // Re-apply HeaderColumnStore visibility after AppKit restores autosaved state
         if let store = mainCoordinator?.headerColumnStore {
@@ -199,11 +200,11 @@ struct RequestTableView: NSViewRepresentable {
         return formatter
     }()
 
-    private static func makeColumns() -> [NSTableColumn] {
+    static func makeColumns() -> [NSTableColumn] {
         let specs: [ColumnSpec] = [
             ColumnSpec(id: "status", title: "", width: 22, minWidth: 22),
-            ColumnSpec(id: "ai", title: String(localized: "Protocol"), width: 92, minWidth: 64),
             ColumnSpec(id: "row", title: String(localized: "ID"), width: 46, minWidth: 36),
+            ColumnSpec(id: "ai", title: String(localized: "Protocol"), width: 92, minWidth: 64),
             ColumnSpec(id: "url", title: String(localized: "URL"), width: 300, minWidth: 200),
             ColumnSpec(id: "client", title: String(localized: "Client"), width: 120, minWidth: 60),
             ColumnSpec(id: "method", title: String(localized: "Method"), width: 82, minWidth: 72),
@@ -248,6 +249,26 @@ struct RequestTableView: NSViewRepresentable {
 
             return column
         }
+    }
+
+    static func migrateLegacyDefaultColumnOrder(in tableView: NSTableView) {
+        let legacyBuiltInOrder = [
+            "status", "ai", "row", "url", "client", "method", "state", "code", "time",
+            "duration", "requestSize", "responseSize", "ssl", "queryName",
+        ]
+        let columnIDs = tableView.tableColumns.map { $0.identifier.rawValue }
+        guard columnIDs.count >= legacyBuiltInOrder.count,
+              Array(columnIDs.prefix(legacyBuiltInOrder.count)) == legacyBuiltInOrder,
+              columnIDs.dropFirst(legacyBuiltInOrder.count).allSatisfy({ columnID in
+                  columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.")
+              }),
+              let protocolIndex = columnIDs.firstIndex(of: "ai"),
+              let rowIndex = columnIDs.firstIndex(of: "row")
+        else {
+            return
+        }
+
+        tableView.moveColumn(protocolIndex, toColumn: rowIndex)
     }
 }
 

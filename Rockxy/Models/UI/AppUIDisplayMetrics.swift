@@ -158,10 +158,18 @@ struct AppUIDisplayMetrics: Equatable {
     }
 
     func swiftUIFont(weight: Font.Weight = .regular, monospaced: Bool = false) -> Font {
+        swiftUIFont(size: fontSize, weight: weight, monospaced: monospaced)
+    }
+
+    func swiftUIFont(
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        monospaced: Bool = false
+    ) -> Font {
         if monospaced || settings.useMonospacedFont {
-            return .system(size: fontSize, weight: weight, design: .monospaced)
+            return .system(size: size, weight: weight, design: .monospaced)
         }
-        return .system(size: fontSize, weight: weight)
+        return .system(size: size, weight: weight)
     }
 }
 

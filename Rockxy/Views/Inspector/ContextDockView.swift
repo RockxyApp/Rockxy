@@ -1,15 +1,14 @@
 import SwiftUI
 
-/// Native, selection-aware support inspector beside the traffic table.
-/// Raw payload remains in the horizontal inspector below.
+/// Native two-tab shell for request diagnostics and the conversational AI workflow.
 struct ContextDockView: View {
     let coordinator: MainContentCoordinator
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker(String(localized: "Context Dock"), selection: $mode) {
-                Text(String(localized: "Context")).tag(Mode.context)
-                Text(String(localized: "Ask")).tag(Mode.ask)
+            Picker(String(localized: "Inspector"), selection: selectedTab) {
+                Text(String(localized: "Details")).tag(ContextDockTab.details)
+                Text(String(localized: "AI Assistant")).tag(ContextDockTab.aiAssistant)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -18,627 +17,973 @@ struct ContextDockView: View {
 
             Divider()
 
-            switch mode {
-            case .context:
-                contextContent
-            case .ask:
-                askContent
+            switch coordinator.activeWorkspace.contextDockTab {
+            case .details:
+                ContextDetailsView(coordinator: coordinator)
+            case .aiAssistant:
+                AIAssistantDockView(coordinator: coordinator)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(localized: "Context Dock"))
+        .accessibilityLabel(String(localized: "Inspector"))
     }
 
-    @State private var mode: Mode = .context
-
-    private enum Mode {
-        case context
-        case ask
+    private var selectedTab: Binding<ContextDockTab> {
+        Binding(
+            get: { coordinator.activeWorkspace.contextDockTab },
+            set: { coordinator.activeWorkspace.contextDockTab = $0 }
+        )
     }
+}
 
-    private struct ContextInsight: Identifiable {
-        let id: String
-        let title: String
-        let detail: String
-        let systemImage: String
-        let color: Color
-    }
+/// A selection-aware conversation with Rockxy's debugging assistant.
+/// Captured traffic is attached as context; provider configuration remains secondary plumbing.
+private struct AIAssistantDockView: View {
+    // MARK: Internal
 
-    private struct TimingPhase: Identifiable {
-        let id: String
-        let title: String
-        let duration: TimeInterval
-    }
+    let coordinator: MainContentCoordinator
 
-    @ViewBuilder
-    private var contextContent: some View {
-        if selectedTransactions.count > 1 {
-            multiSelectionContent
-        } else if let transaction = coordinator.selectedTransaction {
-            singleSelectionContent(transaction)
-                .id(transaction.id)
-        } else {
-            noSelectionContent
-        }
-    }
-
-    private var noSelectionContent: some View {
+    var body: some View {
         VStack(spacing: 0) {
-            ContentUnavailableView {
-                Label(String(localized: "No Selection"), systemImage: "cursorarrow.click.2")
-            } description: {
-                Text(coordinator.isProxyRunning
-                    ? String(localized: "Select a request to see diagnostics and related traffic.")
-                    : String(localized: "Start capture, then select a request to inspect its context."))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+            assistantHeader
             Divider()
-            HStack {
-                Label(
-                    coordinator.isProxyRunning
-                        ? String(localized: "Capture Running")
-                        : String(localized: "Capture Stopped"),
-                    systemImage: coordinator.isProxyRunning ? "record.circle" : "stop.circle"
+            attachedContextHeader
+            Divider()
+            conversationTranscript
+            Divider()
+            promptComposer
+        }
+        .background(Color(nsColor: .textBackgroundColor))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "Rockxy AI Assistant"))
+        .sheet(item: reviewPackBinding) { pack in
+            DebugAssistantReviewDataSheet(
+                pack: pack,
+                configuration: coordinator.activeWorkspace.debugAssistantReviewConfiguration,
+                modelAccessEnabled: coordinator.activeWorkspace.debugAssistantReviewModelAccessEnabled,
+                onSend: coordinator.sendDebugAssistantReview,
+                onDismiss: coordinator.dismissDebugAssistantReview
+            )
+        }
+        .alert(
+            String(localized: "Rename Conversation"),
+            isPresented: renameConversationBinding
+        ) {
+            TextField(String(localized: "Conversation name"), text: $conversationRenameDraft)
+            Button(String(localized: "Cancel"), role: .cancel) {}
+            Button(String(localized: "Rename")) {
+                guard let conversationBeingRenamed else {
+                    return
+                }
+                coordinator.renameDebugAssistantConversation(
+                    conversationBeingRenamed.id,
+                    title: conversationRenameDraft
                 )
-                Spacer()
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .frame(height: 38)
-            .background(Color(nsColor: .windowBackgroundColor))
         }
-    }
-
-    private func singleSelectionContent(_ transaction: HTTPTransaction) -> some View {
-        VStack(spacing: 0) {
-            selectionHeader(transaction)
-            Divider()
-
-            List {
-                overviewSection(transaction)
-                insightSection(transaction)
-                timingSection(transaction)
-                payloadSection(transaction)
-                relatedSection(transaction)
-                toolsSection(transaction)
-            }
-            .listStyle(.inset)
-
-            Divider()
-            singleSelectionActionBar(transaction)
-        }
-    }
-
-    private func selectionHeader(_ transaction: HTTPTransaction) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Circle()
-                .fill(statusColor(for: transaction))
-                .frame(width: 9, height: 9)
-                .padding(.top, 5)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(transaction.request.method)
-                        .font(.caption.weight(.semibold).monospaced())
-                    Text(transaction.response.map { String($0.statusCode) } ?? String(localized: "Pending"))
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(statusColor(for: transaction))
+        .confirmationDialog(
+            String(localized: "Delete this conversation?"),
+            isPresented: deleteConversationBinding,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Delete Conversation"), role: .destructive) {
+                guard let conversationPendingDeletion else {
+                    return
                 }
-                Text(transaction.request.host)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(transaction.request.path)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                coordinator.deleteDebugAssistantConversation(conversationPendingDeletion.id)
             }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private func overviewSection(_ transaction: HTTPTransaction) -> some View {
-        Section(String(localized: "Overview")) {
-            nativeValueRow(String(localized: "Outcome"), outcomeText(for: transaction), color: statusColor(for: transaction))
-            nativeValueRow(String(localized: "Application"), transaction.clientApp ?? String(localized: "Unknown"))
-            nativeValueRow(String(localized: "Protocol"), transaction.request.httpVersion)
-            nativeValueRow(String(localized: "Transport"), transportText(for: transaction))
-            nativeValueRow(String(localized: "Duration"), durationText(for: transaction))
-            nativeValueRow(String(localized: "Transferred"), transferredText(for: transaction))
-            if let sourcePort = transaction.sourcePort {
-                nativeValueRow(String(localized: "Source Port"), String(sourcePort))
-            }
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "This removes the conversation from this workspace history."))
         }
     }
 
-    private func insightSection(_ transaction: HTTPTransaction) -> some View {
-        Section(String(localized: "Insights")) {
-            ForEach(insights(for: transaction)) { insight in
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: insight.systemImage)
-                        .foregroundStyle(insight.color)
-                        .frame(width: 16)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(insight.title)
-                            .font(.subheadline.weight(.medium))
-                        Text(insight.detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .listRowBackground(insight.color.opacity(0.08))
-            }
-        }
+    // MARK: Private
+
+    private static let activeTurnID = "debug-assistant-active-turn"
+    private static let transcriptBottomID = "debug-assistant-transcript-bottom"
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+    @Environment(\.openSettings) private var openSettings
+    @FocusState private var isComposerFocused: Bool
+    @State private var isConversationSwitcherPresented = false
+    @State private var conversationSearch = ""
+    @State private var conversationBeingRenamed: DebugAssistantConversation?
+    @State private var conversationRenameDraft = ""
+    @State private var conversationPendingDeletion: DebugAssistantConversation?
+
+    private var draftBinding: Binding<String> {
+        Binding(
+            get: { coordinator.activeWorkspace.debugAssistantDraft },
+            set: { coordinator.activeWorkspace.debugAssistantDraft = $0 }
+        )
     }
 
-    @ViewBuilder
-    private func timingSection(_ transaction: HTTPTransaction) -> some View {
-        if let timing = transaction.timingInfo {
-            let phases = timingPhases(timing)
-            let slowest = phases.max { $0.duration < $1.duration }
-            Section(String(localized: "Timing")) {
-                if let slowest {
-                    nativeValueRow(String(localized: "Slowest Phase"), slowest.title)
-                }
-                ForEach(phases) { phase in
-                    LabeledContent(phase.title) {
-                        Text(phaseDurationText(phase.duration, total: timing.totalDuration))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.caption)
+    private var reviewPackBinding: Binding<InvestigationContextPack?> {
+        Binding(
+            get: { coordinator.activeWorkspace.debugAssistantReviewPack },
+            set: { value in
+                if value == nil {
+                    coordinator.dismissDebugAssistantReview()
                 }
             }
-        }
+        )
     }
 
-    private func payloadSection(_ transaction: HTTPTransaction) -> some View {
-        Section(String(localized: "Payload")) {
-            nativeValueRow(
-                String(localized: "Request"),
-                payloadSummary(body: transaction.request.body, contentType: transaction.request.contentType)
-            )
-            nativeValueRow(
-                String(localized: "Response"),
-                payloadSummary(body: transaction.response?.body, contentType: transaction.response?.contentType)
-            )
-            nativeValueRow(String(localized: "Request Headers"), "\(transaction.request.headers.count)")
-            nativeValueRow(String(localized: "Response Headers"), "\(transaction.response?.headers.count ?? 0)")
-            if transaction.response?.bodyTruncated == true {
-                Label(String(localized: "Response body was truncated during capture"), systemImage: "scissors")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+    private var renameConversationBinding: Binding<Bool> {
+        Binding(
+            get: { conversationBeingRenamed != nil },
+            set: { isPresented in
+                if !isPresented {
+                    conversationBeingRenamed = nil
+                    conversationRenameDraft = ""
+                }
             }
-        }
+        )
     }
 
-    private func relatedSection(_ transaction: HTTPTransaction) -> some View {
-        let related = relatedTransactions(to: transaction)
-        return Section(String(localized: "Related Requests")) {
-            if related.isEmpty {
-                Text(String(localized: "No other requests to this host in the current session."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(related.prefix(6)) { item in
-                    Button {
-                        coordinator.selectedTransactionIDs = [item.id]
-                        coordinator.selectTransaction(item)
-                    } label: {
-                        HStack(spacing: 7) {
-                            Circle()
-                                .fill(statusColor(for: item))
-                                .frame(width: 6, height: 6)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(item.request.path)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Text(relativeTimeText(item.timestamp, from: transaction.timestamp))
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 6)
-                            Text(item.response.map { String($0.statusCode) } ?? "—")
-                                .monospacedDigit()
-                                .foregroundStyle(statusColor(for: item))
-                        }
-                        .font(.caption)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+    private var deleteConversationBinding: Binding<Bool> {
+        Binding(
+            get: { conversationPendingDeletion != nil },
+            set: { isPresented in
+                if !isPresented {
+                    conversationPendingDeletion = nil
                 }
             }
-        }
+        )
     }
 
-    private func toolsSection(_ transaction: HTTPTransaction) -> some View {
-        Section(String(localized: "Rules & Tools")) {
-            if transaction.matchedRuleID != nil {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(transaction.matchedRuleName ?? String(localized: "Rule matched"))
-                        if let summary = transaction.matchedRuleActionSummary {
-                            Text(summary).font(.caption).foregroundStyle(.secondary)
-                        }
-                        if let pattern = transaction.matchedRulePattern {
-                            Text(pattern).font(.caption2.monospaced()).foregroundStyle(.tertiary)
-                        }
-                    }
-                } icon: {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+    private var filteredConversations: [DebugAssistantConversation] {
+        coordinator.activeWorkspace.debugAssistantConversations
+            .filter { $0.matches(conversationSearch) }
+            .sorted {
+                if $0.isPinned != $1.isPinned {
+                    return $0.isPinned && !$1.isPinned
                 }
-            } else {
-                Label(String(localized: "No rule modified this request"), systemImage: "minus.circle")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                return $0.updatedAt > $1.updatedAt
             }
-        }
     }
 
-    private func singleSelectionActionBar(_ transaction: HTTPTransaction) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                coordinator.replayTransaction(transaction)
-            } label: {
-                Label(String(localized: "Replay"), systemImage: "arrow.clockwise")
-            }
-            .disabled(transaction.webSocketConnection != nil)
-            .help(transaction.webSocketConnection == nil
-                ? String(localized: "Replay this request")
-                : String(localized: "WebSocket transactions cannot be replayed as HTTP requests"))
-
-            Button {
-                coordinator.togglePin(for: transaction)
-            } label: {
-                Image(systemName: transaction.isPinned ? "pin.slash" : "pin")
-            }
-            .help(transaction.isPinned ? String(localized: "Unpin Evidence") : String(localized: "Pin Evidence"))
-
-            Spacer(minLength: 0)
-
-            Button {
-                coordinator.createBreakpointRule(for: transaction)
-            } label: {
-                Label(String(localized: "Create Rule"), systemImage: "plus.circle")
-            }
-        }
-        .controlSize(.small)
-        .padding(.horizontal, 10)
-        .frame(height: 42)
-        .background(Color(nsColor: .windowBackgroundColor))
+    private var assistantConfiguration: AssistantProviderConfiguration? {
+        AppSettingsManager.shared.settings.assistantProviderConfiguration
     }
 
-    private var multiSelectionContent: some View {
-        VStack(spacing: 0) {
-            List {
-                Section(String(localized: "Selection")) {
-                    nativeValueRow(String(localized: "Requests"), "\(selectedTransactions.count)")
-                    nativeValueRow(
-                        String(localized: "Hosts"),
-                        "\(Set(selectedTransactions.map { $0.request.host }).count)"
-                    )
-                    nativeValueRow(
-                        String(localized: "Errors"),
-                        "\(selectedErrorCount)",
-                        color: selectedErrorCount > 0 ? .red : .secondary
-                    )
-                    nativeValueRow(
-                        String(localized: "Rules Hit"),
-                        "\(selectedTransactions.count { $0.matchedRuleID != nil })"
-                    )
-                    nativeValueRow(String(localized: "Transferred"), selectedTransferredText)
-                }
-
-                Section(String(localized: "Inspector")) {
-                    Text(String(localized: "Select one request to inspect payload and timing details."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .listStyle(.inset)
-
-            Divider()
-            HStack(spacing: 8) {
-                Button {
-                    NotificationCenter.default.post(name: .openDiffWindow, object: nil)
-                } label: {
-                    Label(String(localized: "Compare"), systemImage: "arrow.left.arrow.right")
-                }
-                .disabled(selectedTransactions.count != 2)
-                Spacer()
-                Button {
-                    coordinator.presentExport(format: .har)
-                } label: {
-                    Label(String(localized: "Export Selection"), systemImage: "square.and.arrow.up")
-                }
-            }
-            .controlSize(.small)
-            .padding(.horizontal, 10)
-            .frame(height: 42)
-            .background(Color(nsColor: .windowBackgroundColor))
-        }
+    private var configuredModelIsAvailable: Bool {
+        AppSettingsManager.shared.settings.debugAssistantModelAccessEnabled
+            && assistantConfiguration?.isComplete == true
     }
 
-    private var askContent: some View {
-        VStack(spacing: 0) {
-            ContentUnavailableView {
-                Label(String(localized: "Ask is staged"), systemImage: "sparkles")
-            } description: {
-                Text(String(localized: "AI chat requires capability and redaction review before captured data is sent."))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            Divider()
-            HStack {
-                Label(String(localized: "Local context only"), systemImage: "lock.shield")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(String(localized: "Review Data")) {}
-                    .controlSize(.small)
-                    .disabled(true)
-            }
-            .padding(.horizontal, 10)
-            .frame(height: 42)
-            .background(Color(nsColor: .windowBackgroundColor))
+    private var configuredModelLabel: String {
+        guard let assistantConfiguration, assistantConfiguration.isComplete else {
+            return String(localized: "No Configured Model")
         }
+        return String(
+            localized: "Global Default · \(assistantConfiguration.kind.title) · \(assistantConfiguration.model)"
+        )
+    }
+
+    private var modelSelectionLabel: String {
+        guard coordinator.activeWorkspace.debugAssistantUsesConfiguredModel,
+              configuredModelIsAvailable else
+        {
+            return String(localized: "Local Analysis (No AI)")
+        }
+        return configuredModelLabel
     }
 
     private var selectedTransactions: [HTTPTransaction] {
         coordinator.resolveSelectedTransactions()
     }
 
-    private var selectedErrorCount: Int {
-        selectedTransactions.count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
+    private var primaryTransaction: HTTPTransaction? {
+        selectedTransactions.first ?? coordinator.selectedTransaction
     }
 
-    private var selectedTransferredText: String {
-        let bytes = selectedTransactions.reduce(Int64(0)) { partial, transaction in
-            partial + Int64(transaction.request.body?.count ?? 0)
-                + Int64(transaction.response?.body?.count ?? 0)
+    private var contextTransactions: [HTTPTransaction] {
+        guard let primaryTransaction else {
+            return []
         }
-        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-    }
-
-    private func insights(for transaction: HTTPTransaction) -> [ContextInsight] {
-        var values: [ContextInsight] = []
-        appendOutcomeInsight(for: transaction, to: &values)
-        appendTimingInsights(for: transaction, to: &values)
-        appendProtocolInsights(for: transaction, to: &values)
-        appendCaptureInsights(for: transaction, to: &values)
-
-        if values.isEmpty {
-            values.append(ContextInsight(
-                id: "healthy",
-                title: String(localized: "No unusual behavior detected"),
-                detail: String(localized: "Status, timing, payload, and rule checks look normal."),
-                systemImage: "checkmark.circle",
-                color: .secondary
-            ))
+        var values = selectedTransactions.isEmpty ? [primaryTransaction] : selectedTransactions
+        var seen = Set(values.map(\.id))
+        for transaction in coordinator.transactions
+            .filter({ $0.request.host == primaryTransaction.request.host })
+            .sorted(by: {
+                abs($0.timestamp.timeIntervalSince(primaryTransaction.timestamp))
+                    < abs($1.timestamp.timeIntervalSince(primaryTransaction.timestamp))
+            })
+            .prefix(20)
+            where seen.insert(transaction.id).inserted
+        {
+            values.append(transaction)
         }
         return values
     }
 
-    private func appendOutcomeInsight(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        if let status = transaction.response?.statusCode, status >= 400 {
-            values.append(ContextInsight(
-                id: "http-error",
-                title: String(localized: "HTTP error \(status)"),
-                detail: String(localized: "Inspect the response payload and nearby requests to this host."),
-                systemImage: "exclamationmark.triangle.fill",
-                color: .red
-            ))
-        } else if transaction.state == .failed {
-            values.append(ContextInsight(
-                id: "transport-error",
-                title: String(localized: "Transport failed"),
-                detail: String(localized: "No successful response was captured for this request."),
-                systemImage: "xmark.octagon.fill",
-                color: .red
-            ))
-        }
+    private var conversationIsEmpty: Bool {
+        coordinator.activeWorkspace.debugAssistantMessages.isEmpty
     }
 
-    private func appendTimingInsights(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        guard let duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration else {
-            return
+    private var isBusy: Bool {
+        if coordinator.activeWorkspace.isPreparingDebugAssistantReview {
+            return true
         }
-        if let baseline = hostDurationBaseline(for: transaction), duration > baseline * 1.5, duration - baseline > 0.1 {
-            let percent = Int(((duration / baseline) - 1) * 100)
-            values.append(ContextInsight(
-                id: "host-baseline",
-                title: String(localized: "Slower than this host's recent requests"),
-                detail: String(localized: "About \(percent)% slower than the session median of \(formatDuration(baseline))."),
-                systemImage: "chart.line.uptrend.xyaxis",
-                color: .orange
-            ))
-        } else if duration >= 1 {
-            values.append(ContextInsight(
-                id: "slow",
-                title: String(localized: "Slow request"),
-                detail: String(localized: "Total duration is \(formatDuration(duration))."),
-                systemImage: "hourglass",
-                color: .orange
-            ))
+        if case .investigating = coordinator.activeWorkspace.debugAssistantState {
+            return true
         }
-
-        guard let timing = transaction.timingInfo, timing.totalDuration > 0 else {
-            return
+        if case .streaming = coordinator.activeWorkspace.modelInvestigationState {
+            return true
         }
-        if timing.timeToFirstByte / timing.totalDuration >= 0.6, timing.timeToFirstByte >= 0.25 {
-            values.append(ContextInsight(
-                id: "ttfb",
-                title: String(localized: "Server wait dominates"),
-                detail: String(localized: "Time to first byte accounts for most of the request duration."),
-                systemImage: "server.rack",
-                color: .orange
-            ))
-        } else if timing.contentTransfer / timing.totalDuration >= 0.6, timing.contentTransfer >= 0.25 {
-            values.append(ContextInsight(
-                id: "transfer",
-                title: String(localized: "Content transfer dominates"),
-                detail: String(localized: "Payload transfer accounts for most of the request duration."),
-                systemImage: "arrow.down.circle",
-                color: .orange
-            ))
-        }
+        return false
     }
 
-    private func appendProtocolInsights(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        if transaction.webSocketConnection != nil {
-            values.append(ContextInsight(
-                id: "websocket",
-                title: String(localized: "WebSocket connection"),
-                detail: String(localized: "Use the horizontal inspector to review individual frames."),
-                systemImage: "arrow.left.arrow.right",
-                color: .blue
-            ))
-        }
-        if let graphQL = transaction.graphQLInfo {
-            let operation = graphQL.operationName ?? String(localized: "Unnamed operation")
-            values.append(ContextInsight(
-                id: "graphql",
-                title: String(localized: "GraphQL \(graphQL.operationType.rawValue)"),
-                detail: operation,
-                systemImage: "point.3.connected.trianglepath.dotted",
-                color: .purple
-            ))
-        }
-        if transaction.matchedRuleID != nil {
-            values.append(ContextInsight(
-                id: "rule",
-                title: String(localized: "A rule affected this request"),
-                detail: transaction.matchedRuleActionSummary ?? String(localized: "Review Rules & Tools below."),
-                systemImage: "wand.and.stars",
-                color: .green
-            ))
-        }
+    private var canSendDraft: Bool {
+        !isBusy
+            && !coordinator.activeWorkspace.debugAssistantDraft
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func appendCaptureInsights(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        if transaction.response?.bodyTruncated == true {
-            values.append(ContextInsight(
-                id: "truncated",
-                title: String(localized: "Response body is incomplete"),
-                detail: String(localized: "The captured response exceeded the configured buffer limit."),
-                systemImage: "scissors",
-                color: .orange
-            ))
+    private var contextStatusText: String {
+        guard primaryTransaction != nil else {
+            return String(localized: "Waiting for traffic context")
         }
-        let relatedErrors = relatedTransactions(to: transaction).count {
-            ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed
-        }
-        if relatedErrors >= 2 {
-            values.append(ContextInsight(
-                id: "repeated-errors",
-                title: String(localized: "Repeated host errors"),
-                detail: String(localized: "\(relatedErrors) nearby requests to this host also failed."),
-                systemImage: "exclamationmark.arrow.triangle.2.circlepath",
-                color: .red
-            ))
-        }
+        return String(localized: "\(contextTransactions.count) requests attached · Local first")
     }
 
-    private func relatedTransactions(to transaction: HTTPTransaction) -> [HTTPTransaction] {
-        coordinator.transactions
-            .filter { $0.id != transaction.id && $0.request.host == transaction.request.host }
-            .sorted {
-                abs($0.timestamp.timeIntervalSince(transaction.timestamp))
-                    < abs($1.timestamp.timeIntervalSince(transaction.timestamp))
+    private var streamingText: String {
+        guard case let .streaming(_, _, _, _, text) = coordinator.activeWorkspace.modelInvestigationState else {
+            return ""
+        }
+        return text
+    }
+
+    private var assistantHeader: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(coordinator.activeWorkspace.debugAssistantConversationTitle)
+                    .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
+                    .lineLimit(1)
+                Text(contextStatusText)
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
             }
-    }
 
-    private func hostDurationBaseline(for transaction: HTTPTransaction) -> TimeInterval? {
-        let values = relatedTransactions(to: transaction)
-            .prefix(20)
-            .compactMap { $0.timingInfo?.totalDuration ?? $0.measuredDuration }
-            .sorted()
-        guard !values.isEmpty else {
-            return nil
+            Spacer(minLength: 6)
+
+            Button {
+                isConversationSwitcherPresented.toggle()
+            } label: {
+                Label(String(localized: "History"), systemImage: "clock.arrow.circlepath")
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .keyboardShortcut("k", modifiers: .command)
+            .help(String(localized: "Search conversations (⌘K)"))
+            .popover(isPresented: $isConversationSwitcherPresented, arrowEdge: .top) {
+                conversationSwitcher
+            }
+
+            Button {
+                coordinator.newDebugAssistantConversation()
+                isConversationSwitcherPresented = false
+                isComposerFocused = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help(String(localized: "New conversation"))
         }
-        let middle = values.count / 2
-        if values.count.isMultiple(of: 2) {
-            return (values[middle - 1] + values[middle]) / 2
+        .padding(.horizontal, 12)
+        .frame(minHeight: max(48, appMetrics.primaryFontSize + 30))
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var conversationSwitcher: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(String(localized: "Conversations"))
+                    .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
+                Spacer(minLength: 8)
+                Text("⌘K")
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(
+                    String(localized: "Search titles and messages"),
+                    text: $conversationSearch
+                )
+                .textFieldStyle(.plain)
+            }
+            .font(assistantFont(appMetrics.controlFontSize))
+            .padding(.horizontal, 8)
+            .frame(height: max(30, appMetrics.controlFontSize + 16))
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+            }
+
+            Text(String(localized: "RECENT"))
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .foregroundStyle(.secondary)
+
+            if filteredConversations.isEmpty {
+                VStack(spacing: 6) {
+                    Image(systemName: conversationSearch.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    Text(conversationSearch.isEmpty
+                        ? String(localized: "Your conversations will appear here.")
+                        : String(localized: "No matching conversations."))
+                        .font(assistantFont(appMetrics.secondaryFontSize))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(filteredConversations) { conversation in
+                            conversationHistoryRow(conversation)
+                        }
+                    }
+                }
+            }
+
+            Text(String(localized: "Searches conversation titles and message text · ↵ Open"))
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        return values[middle]
+        .padding(12)
+        .frame(width: 352, height: 320)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
-    private func timingPhases(_ timing: TimingInfo) -> [TimingPhase] {
-        [
-            TimingPhase(id: "dns", title: String(localized: "DNS"), duration: timing.dnsLookup),
-            TimingPhase(id: "connect", title: String(localized: "Connect"), duration: timing.tcpConnection),
-            TimingPhase(id: "tls", title: String(localized: "TLS"), duration: timing.tlsHandshake),
-            TimingPhase(id: "wait", title: String(localized: "Server Wait"), duration: timing.timeToFirstByte),
-            TimingPhase(id: "transfer", title: String(localized: "Transfer"), duration: timing.contentTransfer),
-        ]
+    @ViewBuilder private var attachedContextHeader: some View {
+        if let transaction = primaryTransaction {
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(statusColor(for: transaction))
+                    .frame(width: 7, height: 7)
+                    .padding(.top, 5)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "ATTACHED TRAFFIC · LOCAL"))
+                        .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(requestSummary(for: transaction))
+                        .font(assistantFont(appMetrics.secondaryFontSize, monospaced: true))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 4)
+
+                Label("\(contextTransactions.count)", systemImage: "paperclip")
+                    .font(assistantFont(appMetrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
+                    .help(String(localized: "Requests currently attached as local context"))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .textBackgroundColor))
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: "cursorarrow.click.2")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(String(localized: "No traffic attached"))
+                        .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                    Text(String(localized: "Select a request to give the assistant local context."))
+                        .font(assistantFont(appMetrics.metadataFontSize))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color(nsColor: .textBackgroundColor))
+        }
     }
 
-    private func nativeValueRow(_ label: String, _ value: String, color: Color = .secondary) -> some View {
-        LabeledContent(label) {
-            Text(value)
-                .foregroundStyle(color)
-                .multilineTextAlignment(.trailing)
+    private var conversationTranscript: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if conversationIsEmpty {
+                        welcomeMessage
+                    }
+
+                    ForEach(coordinator.activeWorkspace.debugAssistantMessages) { message in
+                        conversationMessage(message)
+                            .id(message.id)
+                    }
+
+                    activeAssistantTurn
+                        .id(Self.activeTurnID)
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.transcriptBottomID)
+                }
+                .padding(10)
+            }
+            .onChange(of: coordinator.activeWorkspace.debugAssistantMessages.count) {
+                scrollToBottom(proxy)
+            }
+            .onChange(of: streamingText) {
+                scrollToBottom(proxy)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var welcomeMessage: some View {
+        assistantBubble {
+            Text(primaryTransaction == nil
+                ?
+                String(
+                    localized: "Select requests and ask what happened. Captured traffic stays local until you review data for a model."
+                )
+                :
+                String(
+                    localized: "I’ve attached the selected request and nearby traffic. Ask me what failed, what changed, or what to try next."
+                ))
+                .font(assistantFont(appMetrics.primaryFontSize))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if primaryTransaction != nil {
+                suggestionGrid
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    private var suggestionGrid: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(DebugAssistantRecipe.allCases) { recipe in
+                Button {
+                    coordinator.startDebugAssistant(recipe)
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: recipe.systemImage)
+                            .frame(width: 15)
+                            .foregroundStyle(.tint)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(recipe.title)
+                                .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                            Text(recipe.detail)
+                                .font(assistantFont(appMetrics.metadataFontSize))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(isBusy)
+            }
+        }
+    }
+
+    @ViewBuilder private var activeAssistantTurn: some View {
+        switch coordinator.activeWorkspace.debugAssistantState {
+        case .idle,
+             .result:
+            modelAssistantTurn
+        case let .investigating(_, recipe):
+            workEvent(
+                title: String(localized: "Investigating \(recipe.title.lowercased())"),
+                detail: String(
+                    localized: "Reviewing the selected request and \(max(contextTransactions.count - 1, 0)) related calls locally."
+                ),
+                cancel: coordinator.cancelDebugAssistant
+            )
+        case let .failed(message):
+            failureTurn(message)
+        }
+    }
+
+    @ViewBuilder private var modelAssistantTurn: some View {
+        switch coordinator.activeWorkspace.modelInvestigationState {
+        case .idle,
+             .completed:
+            EmptyView()
+        case let .streaming(_, provider, model, endpointHost, text):
+            assistantBubble {
+                HStack(spacing: 7) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(text.isEmpty ? String(localized: "Thinking…") : String(localized: "Responding…"))
+                        .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                    Spacer(minLength: 0)
+                    Button(String(localized: "Stop")) {
+                        coordinator.cancelDebugAssistantModelAnalysis()
+                    }
+                    .controlSize(.mini)
+                }
+                if !text.isEmpty {
+                    Text(text)
+                        .font(assistantFont(appMetrics.primaryFontSize))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Text("\(provider.title) · \(model) · \(endpointHost)")
+                    .font(assistantFont(appMetrics.metadataFontSize, monospaced: true))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        case let .failed(message):
+            assistantBubble {
+                Label(
+                    String(localized: "I couldn’t complete the model response."),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(assistantFont(appMetrics.secondaryFontSize, weight: .semibold))
+                .foregroundStyle(.red)
+                Text(message)
+                    .font(assistantFont(appMetrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(String(localized: "Review & Retry")) {
+                    coordinator.prepareDebugAssistantReview()
+                }
+                .controlSize(.small)
+            }
+        }
+    }
+
+    private var promptComposer: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if primaryTransaction != nil, !isBusy, !conversationIsEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(DebugAssistantRecipe.allCases.prefix(2)) { recipe in
+                            Button(recipe.prompt) {
+                                coordinator.startDebugAssistant(recipe)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+                            .font(assistantFont(appMetrics.metadataFontSize))
+                        }
+                    }
+                }
+            }
+
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField(
+                    primaryTransaction == nil
+                        ? String(localized: "Ask Rockxy AI Assistant…")
+                        : String(localized: "Ask about this traffic…"),
+                    text: draftBinding,
+                    axis: .vertical
+                )
+                .textFieldStyle(.plain)
+                .font(assistantFont(appMetrics.primaryFontSize))
+                .lineLimit(1 ... 4)
+                .focused($isComposerFocused)
+                .onSubmit(sendDraft)
+                .disabled(isBusy)
+
+                Button(String(localized: "Send"), action: sendDraft)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .font(assistantFont(appMetrics.controlFontSize, weight: .semibold))
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!canSendDraft)
+                    .help(String(localized: "Send message"))
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(isComposerFocused ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard !isBusy else {
+                    return
+                }
+                isComposerFocused = true
+            }
+
+            HStack(spacing: 8) {
+                Menu {
+                    Button {
+                        coordinator.activeWorkspace.debugAssistantUsesConfiguredModel = false
+                    } label: {
+                        Label(
+                            String(localized: "Local Analysis (No AI)"),
+                            systemImage: coordinator.activeWorkspace.debugAssistantUsesConfiguredModel
+                                ? "circle" : "checkmark"
+                        )
+                    }
+
+                    Divider()
+
+                    Button {
+                        coordinator.activeWorkspace.debugAssistantUsesConfiguredModel = true
+                    } label: {
+                        Label(
+                            configuredModelLabel,
+                            systemImage: coordinator.activeWorkspace.debugAssistantUsesConfiguredModel
+                                ? "checkmark" : "circle"
+                        )
+                    }
+                    .disabled(!configuredModelIsAvailable)
+
+                    Divider()
+
+                    Button {
+                        RockxySettingsTab.select(.assistant)
+                        openSettings()
+                    } label: {
+                        Label(String(localized: "Manage AI Models…"), systemImage: "gearshape")
+                    }
+                } label: {
+                    Label(modelSelectionLabel, systemImage: "cpu")
+                        .lineLimit(1)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.visible)
+                .controlSize(.mini)
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .fixedSize()
+                .help(String(localized: "Choose local analysis or the app-wide AI model"))
+
+                Spacer(minLength: 4)
+
+                Text(String(localized: "Local review before send"))
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text("⌘↵")
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private func conversationHistoryRow(_ conversation: DebugAssistantConversation) -> some View {
+        Button {
+            coordinator.selectDebugAssistantConversation(conversation.id)
+            isConversationSwitcherPresented = false
+            isComposerFocused = true
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        if conversation.isPinned {
+                            Image(systemName: "pin.fill")
+                                .font(assistantFont(appMetrics.metadataFontSize))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(conversation.title)
+                            .font(assistantFont(appMetrics.secondaryFontSize, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    Text(conversation.preview)
+                        .font(assistantFont(appMetrics.metadataFontSize))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 6)
+                Text(relativeDateLabel(conversation.updatedAt))
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                conversation.id == coordinator.activeWorkspace.debugAssistantConversationID
+                    ? Color(nsColor: .selectedContentBackgroundColor).opacity(0.16)
+                    : Color.clear,
+                in: RoundedRectangle(cornerRadius: 7)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button {
+                coordinator.togglePinnedDebugAssistantConversation(conversation.id)
+            } label: {
+                Label(
+                    conversation.isPinned ? String(localized: "Unpin") : String(localized: "Pin"),
+                    systemImage: conversation.isPinned ? "pin.slash" : "pin"
+                )
+            }
+            Button {
+                conversationBeingRenamed = conversation
+                conversationRenameDraft = conversation.title
+            } label: {
+                Label(String(localized: "Rename"), systemImage: "pencil")
+            }
+            Divider()
+            Button(role: .destructive) {
+                conversationPendingDeletion = conversation
+            } label: {
+                Label(String(localized: "Delete"), systemImage: "trash")
+            }
+        }
+        .accessibilityLabel("\(conversation.title), \(conversation.preview)")
+    }
+
+    @ViewBuilder
+    private func conversationMessage(_ message: DebugAssistantMessage) -> some View {
+        switch message.role {
+        case .user:
+            userBubble(message.text)
+        case .assistant:
+            VStack(alignment: .leading, spacing: 8) {
+                if let investigation = message.investigation {
+                    completedWorkEvent(investigation)
+                }
+
+                assistantBubble {
+                    Text(message.text.isEmpty
+                        ? String(localized: "The model completed without returning text.")
+                        : message.text)
+                        .font(assistantFont(appMetrics.primaryFontSize))
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let investigation = message.investigation {
+                        investigationDetails(investigation)
+                    }
+
+                    if let modelResult = message.modelResult {
+                        modelAttribution(modelResult)
+                    }
+                }
+            }
+        }
+    }
+
+    private func userBubble(_ text: String) -> some View {
+        HStack {
+            Spacer(minLength: 44)
+            Text(text)
+                .font(assistantFont(appMetrics.primaryFontSize))
+                .foregroundStyle(.white)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "You: \(text)"))
+    }
+
+    private func assistantBubble(@ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                Text(String(localized: "Rockxy AI Assistant"))
+                    .font(assistantFont(appMetrics.secondaryFontSize, weight: .semibold))
+                    .foregroundStyle(.tint)
+            }
+            content()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func investigationDetails(_ result: InvestigationResult) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(result.evidence.prefix(3)) { evidence in
+                        Button {
+                            coordinator.revealDebugAssistantEvidence(evidence)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(evidenceColor(evidence.kind))
+                                    .frame(width: 6, height: 6)
+                                Text("\(evidence.kind.title) · \(evidence.title)")
+                                    .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(evidenceColor(evidence.kind).opacity(0.7), lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(evidence.sourceTransactionID == nil)
+                        .help(evidence.detail)
+                    }
+                }
+            }
+
+            Text(result.nextStep)
+                .font(assistantFont(appMetrics.secondaryFontSize))
+                .foregroundStyle(.tint)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if isCurrentResult(result),
+               coordinator.activeWorkspace.debugAssistantUsesConfiguredModel,
+               configuredModelIsAvailable
+            {
+                HStack(spacing: 8) {
+                    if coordinator.activeWorkspace.isPreparingDebugAssistantReview {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(String(localized: "Preparing redacted preview…"))
+                            .font(assistantFont(appMetrics.secondaryFontSize))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button {
+                            coordinator.prepareDebugAssistantReview()
+                        } label: {
+                            Label(String(localized: "Continue With Model"), systemImage: "lock.shield")
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    private func modelAttribution(_ result: ModelInvestigationResult) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(result.provider.title) · \(result.model) · \(result.endpointHost)")
+                .font(assistantFont(appMetrics.metadataFontSize, monospaced: true))
+                .foregroundStyle(.secondary)
                 .lineLimit(2)
+                .truncationMode(.middle)
+            if let usage = result.usage {
+                Text(String(localized: "Usage · \(usage.inputTokens) input · \(usage.outputTokens) output"))
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .font(.caption)
     }
 
-    private func outcomeText(for transaction: HTTPTransaction) -> String {
-        if let response = transaction.response {
-            return "\(response.statusCode) \(response.statusMessage)"
+    private func workEvent(title: String, detail: String, cancel: @escaping () -> Void) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                Text(detail)
+                    .font(assistantFont(appMetrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            Button(String(localized: "Stop"), action: cancel)
+                .controlSize(.mini)
         }
-        return transaction.state == .failed ? String(localized: "Failed") : String(localized: "Pending")
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
-    private func transportText(for transaction: HTTPTransaction) -> String {
-        transaction.request.url.scheme?.uppercased() ?? String(localized: "Unknown")
-    }
-
-    private func payloadSummary(body: Data?, contentType: ContentType?) -> String {
-        let size = ByteCountFormatter.string(fromByteCount: Int64(body?.count ?? 0), countStyle: .file)
-        guard let contentType else {
-            return size
+    private func completedWorkEvent(_ result: InvestigationResult) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            Text(
+                String(
+                    localized: "Reviewed the selected request and \(max(result.scopeTransactionIDs.count - 1, 0)) related calls locally"
+                )
+            )
+            .font(assistantFont(appMetrics.secondaryFontSize))
+            .foregroundStyle(.secondary)
+            .lineLimit(2)
         }
-        return "\(contentType.rawValue) · \(size)"
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
     }
 
-    private func durationText(for transaction: HTTPTransaction) -> String {
-        guard let duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration else {
-            return String(localized: "Unavailable")
+    private func failureTurn(_ message: String) -> some View {
+        assistantBubble {
+            Label(
+                String(localized: "I couldn’t finish that investigation."),
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(assistantFont(appMetrics.secondaryFontSize, weight: .semibold))
+            .foregroundStyle(.red)
+            Text(message)
+                .font(assistantFont(appMetrics.secondaryFontSize))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if primaryTransaction != nil {
+                Button(String(localized: "Try Again")) {
+                    coordinator.startDebugAssistant(.explainFailure)
+                }
+                .controlSize(.small)
+            }
         }
-        return formatDuration(duration)
     }
 
-    private func formatDuration(_ duration: TimeInterval) -> String {
-        if duration < 1 {
-            return String(format: "%.0f ms", duration * 1_000)
+    private func sendDraft() {
+        guard canSendDraft else {
+            return
         }
-        return String(format: "%.2f s", duration)
+        coordinator.sendDebugAssistantMessage()
     }
 
-    private func phaseDurationText(_ duration: TimeInterval, total: TimeInterval) -> String {
-        let percentage = total > 0 ? Int((duration / total) * 100) : 0
-        return "\(formatDuration(duration)) · \(percentage)%"
+    private func isCurrentResult(_ result: InvestigationResult) -> Bool {
+        guard case let .result(current) = coordinator.activeWorkspace.debugAssistantState else {
+            return false
+        }
+        return current == result
     }
 
-    private func transferredText(for transaction: HTTPTransaction) -> String {
-        let bytes = Int64(transaction.request.body?.count ?? 0)
-            + Int64(transaction.response?.body?.count ?? 0)
-        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.18)) {
+                proxy.scrollTo(Self.transcriptBottomID, anchor: .bottom)
+            }
+        }
     }
 
-    private func relativeTimeText(_ timestamp: Date, from reference: Date) -> String {
-        let difference = timestamp.timeIntervalSince(reference)
-        let direction = difference < 0 ? String(localized: "before") : String(localized: "after")
-        return "\(formatDuration(abs(difference))) \(direction)"
+    private func requestSummary(for transaction: HTTPTransaction) -> String {
+        let status = transaction.response.map { String($0.statusCode) } ?? "—"
+        return "\(transaction.request.method) \(status)  \(transaction.request.host)\(transaction.request.path)"
+    }
+
+    private func evidenceColor(_ kind: InvestigationEvidenceKind) -> Color {
+        switch kind {
+        case .observed: .blue
+        case .derived: .purple
+        case .inferred: .orange
+        case .unknown: .secondary
+        }
     }
 
     private func statusColor(for transaction: HTTPTransaction) -> Color {
@@ -652,5 +997,29 @@ struct ContextDockView: View {
         case 500...: return .red
         default: return .secondary
         }
+    }
+
+    private func relativeDateLabel(_ date: Date) -> String {
+        let interval = max(0, Date().timeIntervalSince(date))
+        if interval < 60 {
+            return String(localized: "Now")
+        }
+        if interval < 3_600 {
+            return String(localized: "\(Int(interval / 60))m")
+        }
+        if Calendar.current.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        return date.formatted(.dateTime.weekday(.abbreviated))
+    }
+
+    private func assistantFont(
+        _ size: CGFloat,
+        weight: Font.Weight = .regular,
+        monospaced: Bool = false
+    )
+        -> Font
+    {
+        appMetrics.swiftUIFont(size: size, weight: weight, monospaced: monospaced)
     }
 }

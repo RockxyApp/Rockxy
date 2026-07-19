@@ -3,6 +3,11 @@ import os
 
 // Defines the UI state for a single workspace tab.
 
+enum ContextDockTab: Equatable {
+    case details
+    case aiAssistant
+}
+
 @MainActor @Observable
 final class WorkspaceState: Identifiable {
     // MARK: Lifecycle
@@ -40,16 +45,27 @@ final class WorkspaceState: Identifiable {
     var inspectorTab: InspectorTab = .headers
     var inspectorLayout: InspectorLayout
     var isContextDockVisible: Bool
+    var contextDockTab: ContextDockTab = .details
     var allowsAutomaticInspectorReveal: Bool
+    var debugAssistantState: DebugAssistantState = .idle
+    var modelInvestigationState: ModelInvestigationState = .idle
+    var debugAssistantMessages: [DebugAssistantMessage] = []
+    var debugAssistantDraft = ""
+    var debugAssistantConversationID = UUID()
+    var debugAssistantConversationTitle = String(localized: "New Conversation")
+    var debugAssistantConversationCreatedAt = Date()
+    var debugAssistantConversationUpdatedAt = Date()
+    var debugAssistantConversations: [DebugAssistantConversation] = []
+    var debugAssistantUsesConfiguredModel = true
+    var debugAssistantReviewPack: InvestigationContextPack?
+    var debugAssistantReviewConfiguration: AssistantProviderConfiguration?
+    var debugAssistantReviewModelAccessEnabled = false
+    var isPreparingDebugAssistantReview = false
     var focusNavigatorMode: FocusNavigatorMode = .browse
     var activeTrafficSignal: TrafficSignal?
     var focusSets: [FocusSet] = []
     var activeFocusSetID: UUID?
     var mutedTrafficSources: Set<MutedTrafficSource> = []
-
-    var activeFocusSet: FocusSet? {
-        focusSets.first { $0.id == activeFocusSetID }
-    }
 
     // Selection
     var selectedTransaction: HTTPTransaction?
@@ -82,6 +98,10 @@ final class WorkspaceState: Identifiable {
     var appNodes: [AppInfo] = []
     var appNodeIndexMap: [String: Int] = [:]
 
+    var activeFocusSet: FocusSet? {
+        focusSets.first { $0.id == activeFocusSetID }
+    }
+
     func reset() {
         filteredTransactions.removeAll()
         filteredRows.removeAll()
@@ -90,6 +110,19 @@ final class WorkspaceState: Identifiable {
         selectedTransaction = nil
         selectedLogEntry = nil
         selectedTransactionIDs.removeAll()
+        debugAssistantState = .idle
+        modelInvestigationState = .idle
+        debugAssistantMessages.removeAll()
+        debugAssistantDraft = ""
+        debugAssistantConversationID = UUID()
+        debugAssistantConversationTitle = String(localized: "New Conversation")
+        debugAssistantConversationCreatedAt = Date()
+        debugAssistantConversationUpdatedAt = Date()
+        debugAssistantConversations.removeAll()
+        debugAssistantReviewPack = nil
+        debugAssistantReviewConfiguration = nil
+        debugAssistantReviewModelAccessEnabled = false
+        isPreparingDebugAssistantReview = false
         domainTree.removeAll()
         totalDomainCount = 0
         domainIndexMap.removeAll()

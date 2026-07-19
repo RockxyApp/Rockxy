@@ -7,7 +7,11 @@ enum AppTheme: String, CaseIterable, Identifiable {
     case light
     case dark
 
-    var id: String { rawValue }
+    // MARK: Internal
+
+    var id: String {
+        rawValue
+    }
 
     var displayName: String {
         switch self {
@@ -21,6 +25,13 @@ enum AppTheme: String, CaseIterable, Identifiable {
 // MARK: - AppUISettings
 
 struct AppUISettings: Equatable {
+    static let defaultFontSize = 13
+    static let defaultTabWidth = 2
+    static let allowedFontSizes = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 28]
+    static let allowedTabWidths = [2, 4]
+
+    static let `default` = AppUISettings()
+
     var fontSize: Int = Self.defaultFontSize
     var tabWidth: Int = Self.defaultTabWidth
     var useMonospacedFont = false
@@ -30,13 +41,6 @@ struct AppUISettings: Equatable {
     var bodyScrollBeyondLastLine = false
     var useAlternatingRowBackgroundColors = true
 
-    static let defaultFontSize = 13
-    static let defaultTabWidth = 2
-    static let allowedFontSizes = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 28]
-    static let allowedTabWidths = [2, 4]
-
-    static let `default` = AppUISettings()
-
     static func validFontSize(_ value: Int) -> Int {
         allowedFontSizes.contains(value) ? value : defaultFontSize
     }
@@ -45,6 +49,8 @@ struct AppUISettings: Equatable {
         allowedTabWidths.contains(value) ? value : defaultTabWidth
     }
 }
+
+// MARK: - AppSettings
 
 /// In-memory representation of user preferences, backed by `AppSettingsStorage` (UserDefaults).
 /// Default values match the settings UI's initial state.
@@ -60,6 +66,15 @@ struct AppSettings {
     var autoSelectPort: Bool = true
     var appTheme: AppTheme = .system
     var appUI: AppUISettings = .default
+
+    /// Model access is optional and remains off until the user explicitly enables it.
+    var debugAssistantModelAccessEnabled = false
+
+    /// App-wide model profiles. Credentials remain separate in Keychain and are keyed by profile ID.
+    var assistantProviderConfigurations: [AssistantProviderConfiguration] = []
+
+    /// The profile used by AI Assistant in every workspace.
+    var activeAssistantProviderID: UUID?
 
     /// Master toggle for the Scripting List window. When false, scripts are loaded
     /// but not executed in the proxy pipeline. Default true for backward compat.
@@ -104,6 +119,31 @@ struct AppSettings {
     /// snippet generation and can be nil if the certificate has never been
     /// exported or the export location is unknown.
     var lastExportedRootCAPath: String?
+
+    /// Compatibility accessor for call sites that need only the active global model.
+    var assistantProviderConfiguration: AssistantProviderConfiguration? {
+        get {
+            if let activeAssistantProviderID,
+               let active = assistantProviderConfigurations.first(where: { $0.id == activeAssistantProviderID })
+            {
+                return active
+            }
+            return assistantProviderConfigurations.first
+        }
+        set {
+            guard let newValue else {
+                assistantProviderConfigurations = []
+                activeAssistantProviderID = nil
+                return
+            }
+            if let index = assistantProviderConfigurations.firstIndex(where: { $0.id == newValue.id }) {
+                assistantProviderConfigurations[index] = newValue
+            } else {
+                assistantProviderConfigurations.append(newValue)
+            }
+            activeAssistantProviderID = newValue.id
+        }
+    }
 
     /// The effective listen address derived from `onlyListenOnLocalhost`.
     var effectiveListenAddress: String {
