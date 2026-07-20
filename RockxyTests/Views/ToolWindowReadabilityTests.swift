@@ -146,6 +146,23 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains("AIAssistantDockView(coordinator: coordinator)"))
     }
 
+    @Test("Assistant dock uses a compact native hierarchy with progressive disclosure")
+    func assistantDockKeepsConversationChromeCompact() throws {
+        let source = try readProjectFile("Rockxy/Views/Inspector/ContextDockView.swift")
+
+        #expect(source.contains("ContentUnavailableView"))
+        #expect(source.contains("DisclosureGroup"))
+        #expect(source.contains("Image(systemName: \"arrow.up\")"))
+        #expect(source.contains("accessibilityLabel(String(localized: \"Conversation History\"))"))
+        #expect(source.contains("accessibilityLabel(String(localized: \"New Conversation\"))"))
+        #expect(source.contains("accessibilityLabel(String(localized: \"Send Message\"))"))
+        #expect(!source.contains("ATTACHED TRAFFIC · LOCAL"))
+        #expect(!source.contains("Waiting for traffic context"))
+        #expect(!source.contains("Searches conversation titles and message text"))
+        #expect(!source.contains("Local review before send"))
+        #expect(!source.contains("Text(String(localized: \"Rockxy AI Assistant\"))"))
+    }
+
     @Test("Assistant settings use shared section and field components")
     func assistantSettingsUseSharedComponents() throws {
         let source = try readProjectFile("Rockxy/Views/Settings/AssistantSettingsTab.swift")

@@ -42,6 +42,8 @@ protocol AssistantModelInstallerProtocol: Sendable {
         baseURL: URL
     )
         -> AsyncThrowingStream<AssistantModelInstallEvent, Error>
+
+    func remove(modelID: String, baseURL: URL) async throws
 }
 
 // MARK: - OllamaModelInstaller
@@ -68,6 +70,7 @@ struct OllamaModelInstaller: AssistantModelInstallerProtocol {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
+                    let modelID = try validatedModelID(modelID)
                     var request = URLRequest(url: endpoint("api/pull", baseURL: baseURL))
                     request.httpMethod = "POST"
                     request.timeoutInterval = Self.downloadTimeout
@@ -109,9 +112,34 @@ struct OllamaModelInstaller: AssistantModelInstallerProtocol {
         }
     }
 
+    func remove(modelID: String, baseURL: URL) async throws {
+        do {
+            let modelID = try validatedModelID(modelID)
+            var request = URLRequest(url: endpoint("api/delete", baseURL: baseURL))
+            request.httpMethod = "DELETE"
+            request.timeoutInterval = Self.connectionTimeout
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(
+                withJSONObject: ["model": modelID],
+                options: [.sortedKeys]
+            )
+            let (data, response) = try await transport.data(for: request)
+            guard (200 ... 299).contains(response.statusCode) else {
+                throw AssistantHTTPErrorMapper.error(response: response, body: data, model: modelID)
+            }
+        } catch {
+            throw AssistantHTTPErrorMapper.translated(error)
+        }
+    }
+
     // MARK: Private
 
     private static let downloadTimeout: TimeInterval = 60 * 60
+    private static let connectionTimeout: TimeInterval = 30
+    private static let maxModelIDLength = 256
+    private static let allowedModelIDCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:/-"
+    )
 
     private let transport: any AssistantHTTPTransport
 
@@ -121,6 +149,18 @@ struct OllamaModelInstaller: AssistantModelInstallerProtocol {
             normalized.deleteLastPathComponent()
         }
         return normalized.appendingPathComponent(path)
+    }
+
+    private func validatedModelID(_ value: String) throws -> String {
+        let modelID = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelID.isEmpty,
+              modelID.count <= Self.maxModelIDLength,
+              modelID.unicodeScalars.allSatisfy(Self.allowedModelIDCharacters.contains),
+              !modelID.contains("..") else
+        {
+            throw AssistantProviderError.validation("The local model ID is invalid")
+        }
+        return modelID
     }
 
     private func decode(line: String) throws -> AssistantModelInstallEvent {

@@ -41,7 +41,7 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
     static let shared = AssistantProviderRuntime()
 
     func discoverModels(configuration: AssistantProviderConfiguration) async throws -> [AssistantModel] {
-        try await provider(for: configuration).discoverModels()
+        try await provider(for: configuration, requiresModel: false).discoverModels()
     }
 
     func testConnection(
@@ -49,7 +49,7 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
     )
         async throws -> AssistantConnectionTestResult
     {
-        let provider = try provider(for: configuration)
+        let provider = try provider(for: configuration, requiresModel: true)
         let count = try await provider.testConnection(model: configuration.model)
         return AssistantConnectionTestResult(
             provider: configuration.kind.title,
@@ -65,7 +65,7 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
     )
         async throws -> AsyncThrowingStream<AssistantStreamEvent, Error>
     {
-        try provider(for: configuration).stream(request)
+        try provider(for: configuration, requiresModel: true).stream(request)
     }
 
     // MARK: Private
@@ -74,7 +74,8 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
     private let credentialStorage: any AssistantCredentialStorage
 
     private func provider(
-        for configuration: AssistantProviderConfiguration
+        for configuration: AssistantProviderConfiguration,
+        requiresModel: Bool
     )
         throws -> any AssistantModelProvider
     {
@@ -83,43 +84,56 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
                 "\(configuration.kind.title) has a separate provider adapter that is not installed."
             )
         }
-        guard configuration.isComplete, let endpoint = configuration.endpointURL else {
+        guard let endpoint = configuration.endpointURL else {
             throw AssistantProviderError.notConfigured
         }
-        if configuration.kind == .openAI, !isOfficialOpenAIEndpoint(endpoint) {
+        if requiresModel, configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw AssistantProviderError.notConfigured
+        }
+        guard configuration.endpointSecurity.permitsCapturedData else {
+            throw AssistantProviderError.insecureEndpoint
+        }
+        let descriptor = configuration.kind.descriptor
+        if !descriptor.endpointPolicy.permits(endpoint, security: configuration.endpointSecurity) {
             throw AssistantProviderError.invalidEndpoint
         }
         let credential = try credentialStorage.load(providerID: configuration.id) ?? ""
         if configuration.kind.requiresCredential, credential.isEmpty {
             throw AssistantProviderError.credentialMissing
         }
-        switch configuration.kind {
-        case .openAI:
+        switch descriptor.apiDialect {
+        case .openAIResponses:
             return OpenAIResponsesProvider(
                 baseURL: endpoint,
                 apiKey: credential,
                 transport: transport
             )
-        case .openAICompatible:
-            return OpenAICompatibleAssistantProvider(
+        case .anthropicMessages:
+            return AnthropicAssistantProvider(
                 baseURL: endpoint,
                 apiKey: credential,
                 transport: transport
             )
-        case .ollama:
+        case .geminiGenerateContent:
+            return GeminiAssistantProvider(
+                baseURL: endpoint,
+                apiKey: credential,
+                transport: transport
+            )
+        case .openAIChatCompletions:
+            return OpenAICompatibleAssistantProvider(
+                kind: configuration.kind,
+                capabilities: descriptor.capabilities,
+                baseURL: endpoint,
+                apiKey: credential,
+                transport: transport
+            )
+        case .ollamaNative:
             return OllamaAssistantProvider(baseURL: endpoint, transport: transport)
-        default:
+        case .appleFoundationModels:
             throw AssistantProviderError.capabilityMismatch(
-                "\(configuration.kind.title) requires its native provider adapter."
+                "The Apple Foundation Models adapter is unavailable on this macOS version."
             )
         }
-    }
-
-    private func isOfficialOpenAIEndpoint(_ url: URL) -> Bool {
-        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return url.scheme?.lowercased() == "https"
-            && url.host?.lowercased() == "api.openai.com"
-            && url.port == nil
-            && path == "v1"
     }
 }

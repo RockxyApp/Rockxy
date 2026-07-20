@@ -30,7 +30,15 @@ struct OllamaAssistantProvider: AssistantModelProvider {
                 guard let id = value["name"] as? String, !id.isEmpty else {
                     return nil
                 }
-                return AssistantModel(id: id, displayName: id)
+                let details = value["details"] as? [String: Any]
+                return AssistantModel(
+                    id: id,
+                    displayName: id,
+                    sizeBytes: (value["size"] as? NSNumber)?.int64Value,
+                    digest: value["digest"] as? String,
+                    parameterSize: details?["parameter_size"] as? String,
+                    quantizationLevel: details?["quantization_level"] as? String
+                )
             }
         } catch {
             throw AssistantHTTPErrorMapper.translated(error)
@@ -60,6 +68,7 @@ struct OllamaAssistantProvider: AssistantModelProvider {
                                 ["role": "system", "content": request.instructions],
                                 ["role": "user", "content": request.input],
                             ],
+                            "options": ["num_predict": request.maxOutputTokens],
                             "stream": true,
                         ],
                         options: [.sortedKeys]

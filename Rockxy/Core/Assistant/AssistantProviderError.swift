@@ -5,6 +5,7 @@ enum AssistantProviderError: LocalizedError, Equatable {
     case notConfigured
     case credentialMissing
     case invalidEndpoint
+    case insecureEndpoint
     case authentication
     case permission
     case rateLimited(retryAfterSeconds: Int?)
@@ -29,6 +30,8 @@ enum AssistantProviderError: LocalizedError, Equatable {
             String(localized: "The provider credential is missing. Replace it in Settings.")
         case .invalidEndpoint:
             String(localized: "The configured provider endpoint is invalid.")
+        case .insecureEndpoint:
+            String(localized: "Remote model endpoints must use HTTPS. Plain HTTP is allowed only on this Mac.")
         case .authentication:
             String(localized: "The provider rejected the saved credential.")
         case .permission:

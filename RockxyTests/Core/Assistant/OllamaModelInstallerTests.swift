@@ -76,6 +76,41 @@ struct OllamaModelInstallerTests {
             Issue.record("Unexpected error: \(error)")
         }
     }
+
+    @Test("Ollama delete uses the native model lifecycle endpoint")
+    func deleteFixture() async throws {
+        let transport = OllamaPullFixtureTransport(lines: [])
+        let installer = OllamaModelInstaller(transport: transport)
+
+        try await installer.remove(
+            modelID: "registry.example/model:4b",
+            baseURL: #require(URL(string: "http://127.0.0.1:11434/v1"))
+        )
+
+        let request = try #require(await transport.lastRequest())
+        #expect(request.url?.absoluteString == "http://127.0.0.1:11434/api/delete")
+        #expect(request.httpMethod == "DELETE")
+        let body = try #require(request.httpBody)
+        let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(object["model"] as? String == "registry.example/model:4b")
+    }
+
+    @Test("Ollama rejects unsafe model identifiers before network access")
+    func invalidModelID() async throws {
+        let installer = OllamaModelInstaller(transport: OllamaPullFixtureTransport(lines: []))
+
+        do {
+            for try await _ in try installer.install(
+                modelID: "../unsafe\nmodel",
+                baseURL: #require(URL(string: "http://127.0.0.1:11434"))
+            ) {}
+            Issue.record("Expected invalid model ID error")
+        } catch let error as AssistantProviderError {
+            #expect(error == .validation("The local model ID is invalid"))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
 }
 
 // MARK: - OllamaPullFixtureTransport

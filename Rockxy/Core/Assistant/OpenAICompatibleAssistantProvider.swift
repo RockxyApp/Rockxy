@@ -3,7 +3,15 @@ import Foundation
 struct OpenAICompatibleAssistantProvider: AssistantModelProvider {
     // MARK: Lifecycle
 
-    init(baseURL: URL, apiKey: String, transport: any AssistantHTTPTransport) {
+    init(
+        kind: AssistantProviderKind = .openAICompatible,
+        capabilities: AssistantProviderCapabilities = .compatible,
+        baseURL: URL,
+        apiKey: String,
+        transport: any AssistantHTTPTransport
+    ) {
+        self.kind = kind
+        self.capabilities = capabilities
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.transport = transport
@@ -11,8 +19,8 @@ struct OpenAICompatibleAssistantProvider: AssistantModelProvider {
 
     // MARK: Internal
 
-    let kind = AssistantProviderKind.openAICompatible
-    let capabilities = AssistantProviderCapabilities.compatible
+    let kind: AssistantProviderKind
+    let capabilities: AssistantProviderCapabilities
 
     func discoverModels() async throws -> [AssistantModel] {
         var request = URLRequest(url: endpoint("models"))

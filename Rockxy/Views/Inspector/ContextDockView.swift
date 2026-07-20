@@ -1,7 +1,11 @@
 import SwiftUI
 
+// MARK: - ContextDockView
+
 /// Native two-tab shell for request diagnostics and the conversational AI workflow.
 struct ContextDockView: View {
+    // MARK: Internal
+
     let coordinator: MainContentCoordinator
 
     var body: some View {
@@ -29,6 +33,8 @@ struct ContextDockView: View {
         .accessibilityLabel(String(localized: "Inspector"))
     }
 
+    // MARK: Private
+
     private var selectedTab: Binding<ContextDockTab> {
         Binding(
             get: { coordinator.activeWorkspace.contextDockTab },
@@ -36,6 +42,8 @@ struct ContextDockView: View {
         )
     }
 }
+
+// MARK: - AIAssistantDockView
 
 /// A selection-aware conversation with Rockxy's debugging assistant.
 /// Captured traffic is attached as context; provider configuration remains secondary plumbing.
@@ -187,9 +195,9 @@ private struct AIAssistantDockView: View {
         guard coordinator.activeWorkspace.debugAssistantUsesConfiguredModel,
               configuredModelIsAvailable else
         {
-            return String(localized: "Local Analysis (No AI)")
+            return String(localized: "Built-in")
         }
-        return configuredModelLabel
+        return assistantConfiguration?.model ?? String(localized: "Model")
     }
 
     private var selectedTransactions: [HTTPTransaction] {
@@ -243,13 +251,6 @@ private struct AIAssistantDockView: View {
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var contextStatusText: String {
-        guard primaryTransaction != nil else {
-            return String(localized: "Waiting for traffic context")
-        }
-        return String(localized: "\(contextTransactions.count) requests attached · Local first")
-    }
-
     private var streamingText: String {
         guard case let .streaming(_, _, _, _, text) = coordinator.activeWorkspace.modelInvestigationState else {
             return ""
@@ -259,27 +260,22 @@ private struct AIAssistantDockView: View {
 
     private var assistantHeader: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(coordinator.activeWorkspace.debugAssistantConversationTitle)
-                    .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
-                    .lineLimit(1)
-                Text(contextStatusText)
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.secondary)
-            }
+            Text(coordinator.activeWorkspace.debugAssistantConversationTitle)
+                .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
+                .lineLimit(1)
 
             Spacer(minLength: 6)
 
             Button {
                 isConversationSwitcherPresented.toggle()
             } label: {
-                Label(String(localized: "History"), systemImage: "clock.arrow.circlepath")
+                Image(systemName: "clock.arrow.circlepath")
             }
-            .labelStyle(.titleAndIcon)
             .buttonStyle(.borderless)
             .controlSize(.small)
             .keyboardShortcut("k", modifiers: .command)
             .help(String(localized: "Search conversations (⌘K)"))
+            .accessibilityLabel(String(localized: "Conversation History"))
             .popover(isPresented: $isConversationSwitcherPresented, arrowEdge: .top) {
                 conversationSwitcher
             }
@@ -289,27 +285,22 @@ private struct AIAssistantDockView: View {
                 isConversationSwitcherPresented = false
                 isComposerFocused = true
             } label: {
-                Image(systemName: "plus")
+                Image(systemName: "square.and.pencil")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
             .help(String(localized: "New conversation"))
+            .accessibilityLabel(String(localized: "New Conversation"))
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: max(48, appMetrics.primaryFontSize + 30))
+        .padding(.horizontal, 10)
+        .frame(minHeight: max(36, appMetrics.primaryFontSize + 20))
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var conversationSwitcher: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(String(localized: "Conversations"))
-                    .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
-                Spacer(minLength: 8)
-                Text("⌘K")
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.secondary)
-            }
+            Text(String(localized: "Conversations"))
+                .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -329,19 +320,16 @@ private struct AIAssistantDockView: View {
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
             }
 
-            Text(String(localized: "RECENT"))
-                .font(assistantFont(appMetrics.metadataFontSize))
-                .foregroundStyle(.secondary)
-
             if filteredConversations.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: conversationSearch.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    Text(conversationSearch.isEmpty
-                        ? String(localized: "Your conversations will appear here.")
-                        : String(localized: "No matching conversations."))
-                        .font(assistantFont(appMetrics.secondaryFontSize))
-                        .foregroundStyle(.secondary)
+                ContentUnavailableView {
+                    Label(
+                        conversationSearch.isEmpty
+                            ? String(localized: "No Conversations")
+                            : String(localized: "No Results"),
+                        systemImage: conversationSearch.isEmpty
+                            ? "bubble.left.and.bubble.right"
+                            : "magnifyingglass"
+                    )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -353,11 +341,6 @@ private struct AIAssistantDockView: View {
                     }
                 }
             }
-
-            Text(String(localized: "Searches conversation titles and message text · ↵ Open"))
-                .font(assistantFont(appMetrics.metadataFontSize))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
         }
         .padding(12)
         .frame(width: 352, height: 320)
@@ -366,21 +349,15 @@ private struct AIAssistantDockView: View {
 
     @ViewBuilder private var attachedContextHeader: some View {
         if let transaction = primaryTransaction {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(statusColor(for: transaction))
                     .frame(width: 7, height: 7)
-                    .padding(.top, 5)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(String(localized: "ATTACHED TRAFFIC · LOCAL"))
-                        .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    Text(requestSummary(for: transaction))
-                        .font(assistantFont(appMetrics.secondaryFontSize, monospaced: true))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                }
+                Text(requestSummary(for: transaction))
+                    .font(assistantFont(appMetrics.secondaryFontSize, monospaced: true))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
                 Spacer(minLength: 4)
 
@@ -389,24 +366,26 @@ private struct AIAssistantDockView: View {
                     .foregroundStyle(.secondary)
                     .help(String(localized: "Requests currently attached as local context"))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(minHeight: max(32, appMetrics.secondaryFontSize + 18))
             .background(Color(nsColor: .textBackgroundColor))
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(
+                String(
+                    localized: "Attached traffic: \(requestSummary(for: transaction)), \(contextTransactions.count) requests"
+                )
+            )
         } else {
             HStack(spacing: 8) {
-                Image(systemName: "cursorarrow.click.2")
+                Image(systemName: "paperclip")
                     .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(String(localized: "No traffic attached"))
-                        .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
-                    Text(String(localized: "Select a request to give the assistant local context."))
-                        .font(assistantFont(appMetrics.metadataFontSize))
-                        .foregroundStyle(.secondary)
-                }
+                Text(String(localized: "Select traffic to add context"))
+                    .font(assistantFont(appMetrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(minHeight: max(32, appMetrics.secondaryFontSize + 18))
             .background(Color(nsColor: .textBackgroundColor))
         }
     }
@@ -416,7 +395,7 @@ private struct AIAssistantDockView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     if conversationIsEmpty {
-                        welcomeMessage
+                        emptyConversationView
                     }
 
                     ForEach(coordinator.activeWorkspace.debugAssistantMessages) { message in
@@ -444,53 +423,59 @@ private struct AIAssistantDockView: View {
         .background(Color(nsColor: .textBackgroundColor))
     }
 
-    private var welcomeMessage: some View {
-        assistantBubble {
-            Text(primaryTransaction == nil
-                ?
-                String(
-                    localized: "Select requests and ask what happened. Captured traffic stays local until you review data for a model."
-                )
-                :
-                String(
-                    localized: "I’ve attached the selected request and nearby traffic. Ask me what failed, what changed, or what to try next."
-                ))
-                .font(assistantFont(appMetrics.primaryFontSize))
-                .fixedSize(horizontal: false, vertical: true)
+    private var emptyConversationView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: primaryTransaction == nil ? "bubble.left" : "sparkles")
+                .font(assistantFont(appMetrics.primaryFontSize + 8, weight: .medium))
+                .foregroundStyle(.secondary)
 
-            if primaryTransaction != nil {
+            Text(primaryTransaction == nil
+                ? String(localized: "Ask about captured traffic")
+                : String(localized: "What should I check?"))
+                .font(assistantFont(appMetrics.primaryFontSize, weight: .semibold))
+
+            if primaryTransaction == nil {
+                Text(String(localized: "Select a request or start typing below."))
+                    .font(assistantFont(appMetrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
+            } else {
                 suggestionGrid
-                    .padding(.top, 2)
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
     }
 
     private var suggestionGrid: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        LazyVGrid(
+            columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
+            spacing: 6
+        ) {
             ForEach(DebugAssistantRecipe.allCases) { recipe in
                 Button {
                     coordinator.startDebugAssistant(recipe)
                 } label: {
-                    HStack(spacing: 7) {
+                    HStack(spacing: 6) {
                         Image(systemName: recipe.systemImage)
-                            .frame(width: 15)
-                            .foregroundStyle(.tint)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(recipe.title)
-                                .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
-                            Text(recipe.detail)
-                                .font(assistantFont(appMetrics.metadataFontSize))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
+                            .frame(width: 14)
+                        Text(recipe.title)
+                            .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                            .lineLimit(2)
                         Spacer(minLength: 0)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(isBusy)
+                .help(recipe.detail)
             }
         }
+        .frame(maxWidth: 360)
     }
 
     @ViewBuilder private var activeAssistantTurn: some View {
@@ -501,9 +486,6 @@ private struct AIAssistantDockView: View {
         case let .investigating(_, recipe):
             workEvent(
                 title: String(localized: "Investigating \(recipe.title.lowercased())"),
-                detail: String(
-                    localized: "Reviewing the selected request and \(max(contextTransactions.count - 1, 0)) related calls locally."
-                ),
                 cancel: coordinator.cancelDebugAssistant
             )
         case let .failed(message):
@@ -535,10 +517,12 @@ private struct AIAssistantDockView: View {
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text("\(provider.title) · \(model) · \(endpointHost)")
-                    .font(assistantFont(appMetrics.metadataFontSize, monospaced: true))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                modelSourceLabel(
+                    provider: provider.title,
+                    model: model,
+                    endpointHost: endpointHost,
+                    usage: nil
+                )
             }
         case let .failed(message):
             assistantBubble {
@@ -552,21 +536,31 @@ private struct AIAssistantDockView: View {
                     .font(assistantFont(appMetrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(String(localized: "Review & Retry")) {
-                    coordinator.prepareDebugAssistantReview()
+                HStack(spacing: 8) {
+                    Button(String(localized: "Review & Retry")) {
+                        coordinator.prepareDebugAssistantReview()
+                    }
+                    .controlSize(.small)
+
+                    if assistantConfiguration?.kind == .ollama {
+                        Button(String(localized: "Check Local Model…")) {
+                            RockxySettingsTab.select(.assistant)
+                            openSettings()
+                        }
+                        .controlSize(.small)
+                    }
                 }
-                .controlSize(.small)
             }
         }
     }
 
     private var promptComposer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if primaryTransaction != nil, !isBusy, !conversationIsEmpty {
+            if primaryTransaction != nil, !isBusy, conversationIsEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(DebugAssistantRecipe.allCases.prefix(2)) { recipe in
-                            Button(recipe.prompt) {
+                            Button(recipe.title) {
                                 coordinator.startDebugAssistant(recipe)
                             }
                             .buttonStyle(.bordered)
@@ -592,13 +586,17 @@ private struct AIAssistantDockView: View {
                 .onSubmit(sendDraft)
                 .disabled(isBusy)
 
-                Button(String(localized: "Send"), action: sendDraft)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .font(assistantFont(appMetrics.controlFontSize, weight: .semibold))
-                    .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(!canSendDraft)
-                    .help(String(localized: "Send message"))
+                Button(action: sendDraft) {
+                    Image(systemName: "arrow.up")
+                        .font(assistantFont(appMetrics.controlFontSize, weight: .semibold))
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(!canSendDraft)
+                .help(String(localized: "Send message"))
+                .accessibilityLabel(String(localized: "Send Message"))
             }
             .padding(.leading, 10)
             .padding(.trailing, 6)
@@ -622,7 +620,7 @@ private struct AIAssistantDockView: View {
                         coordinator.activeWorkspace.debugAssistantUsesConfiguredModel = false
                     } label: {
                         Label(
-                            String(localized: "Local Analysis (No AI)"),
+                            String(localized: "Built-in Analysis (No Model)"),
                             systemImage: coordinator.activeWorkspace.debugAssistantUsesConfiguredModel
                                 ? "circle" : "checkmark"
                         )
@@ -662,14 +660,11 @@ private struct AIAssistantDockView: View {
 
                 Spacer(minLength: 4)
 
-                Text(String(localized: "Local review before send"))
+                Image(systemName: "lock.shield")
                     .font(assistantFont(appMetrics.metadataFontSize))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text("⌘↵")
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.tertiary)
+                    .help(String(localized: "Traffic is reviewed and redacted before model access"))
+                    .accessibilityLabel(String(localized: "Privacy review required before model access"))
             }
         }
         .padding(.horizontal, 10)
@@ -778,11 +773,15 @@ private struct AIAssistantDockView: View {
             Spacer(minLength: 44)
             Text(text)
                 .font(assistantFont(appMetrics.primaryFontSize))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
@@ -791,61 +790,55 @@ private struct AIAssistantDockView: View {
 
     private func assistantBubble(@ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                Text(String(localized: "Rockxy AI Assistant"))
-                    .font(assistantFont(appMetrics.secondaryFontSize, weight: .semibold))
-                    .foregroundStyle(.tint)
-            }
             content()
         }
-        .padding(10)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay {
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        }
         .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(localized: "AI Assistant Response"))
     }
 
     private func investigationDetails(_ result: InvestigationResult) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(result.evidence.prefix(3)) { evidence in
-                        Button {
-                            coordinator.revealDebugAssistantEvidence(evidence)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Circle()
-                                    .fill(evidenceColor(evidence.kind))
-                                    .frame(width: 6, height: 6)
-                                Text("\(evidence.kind.title) · \(evidence.title)")
-                                    .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
+            if !result.evidence.isEmpty {
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(result.evidence.prefix(3)) { evidence in
+                            Button {
+                                coordinator.revealDebugAssistantEvidence(evidence)
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(evidenceColor(evidence.kind))
+                                        .frame(width: 6, height: 6)
+                                    Text(evidence.title)
+                                        .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 4)
-                            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(evidenceColor(evidence.kind).opacity(0.7), lineWidth: 1)
-                            }
+                            .buttonStyle(.plain)
+                            .disabled(evidence.sourceTransactionID == nil)
+                            .help(evidence.detail)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(evidence.sourceTransactionID == nil)
-                        .help(evidence.detail)
                     }
+                    .padding(.top, 4)
+                } label: {
+                    Label(
+                        String(localized: "\(result.evidence.count) Findings"),
+                        systemImage: "list.bullet"
+                    )
+                    .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                    .foregroundStyle(.secondary)
                 }
             }
 
-            Text(result.nextStep)
-                .font(assistantFont(appMetrics.secondaryFontSize))
-                .foregroundStyle(.tint)
+            Label(result.nextStep, systemImage: "arrow.turn.down.right")
+                .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if isCurrentResult(result),
@@ -874,59 +867,72 @@ private struct AIAssistantDockView: View {
     }
 
     private func modelAttribution(_ result: ModelInvestigationResult) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(result.provider.title) · \(result.model) · \(result.endpointHost)")
-                .font(assistantFont(appMetrics.metadataFontSize, monospaced: true))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-            if let usage = result.usage {
-                Text(String(localized: "Usage · \(usage.inputTokens) input · \(usage.outputTokens) output"))
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.tertiary)
-            }
-        }
+        modelSourceLabel(
+            provider: result.provider.title,
+            model: result.model,
+            endpointHost: result.endpointHost,
+            usage: result.usage
+        )
     }
 
-    private func workEvent(title: String, detail: String, cancel: @escaping () -> Void) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+    private func modelSourceLabel(
+        provider: String,
+        model: String,
+        endpointHost: String,
+        usage: AssistantUsage?
+    )
+        -> some View
+    {
+        Menu {
+            Button("\(provider) · \(model)") {}
+                .disabled(true)
+            Button(endpointHost) {}
+                .disabled(true)
+            if let usage {
+                Divider()
+                Button(String(localized: "\(usage.inputTokens) input · \(usage.outputTokens) output")) {}
+                    .disabled(true)
+            }
+        } label: {
+            Label(model, systemImage: "cpu")
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .controlSize(.mini)
+        .font(assistantFont(appMetrics.metadataFontSize, monospaced: true))
+        .foregroundStyle(.secondary)
+        .help("\(provider) · \(model) · \(endpointHost)")
+        .accessibilityLabel(String(localized: "Model details: \(provider), \(model), \(endpointHost)"))
+    }
+
+    private func workEvent(title: String, cancel: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
-                Text(detail)
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(title)
+                .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
             Spacer(minLength: 4)
             Button(String(localized: "Stop"), action: cancel)
                 .controlSize(.mini)
         }
-        .padding(8)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func completedWorkEvent(_ result: InvestigationResult) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green)
-            Text(
-                String(
-                    localized: "Reviewed the selected request and \(max(result.scopeTransactionIDs.count - 1, 0)) related calls locally"
-                )
-            )
-            .font(assistantFont(appMetrics.secondaryFontSize))
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
+            Text(String(localized: "Local analysis · \(result.scopeTransactionIDs.count) requests"))
+                .font(assistantFont(appMetrics.metadataFontSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
     }
 
     private func failureTurn(_ message: String) -> some View {

@@ -40,6 +40,7 @@ struct AssistantPromptBuilderTests {
         let configuration = AssistantProviderConfiguration(
             kind: .openAI,
             model: "fixture-model",
+            maxOutputTokens: 777,
             storeResponses: true
         )
 
@@ -50,6 +51,7 @@ struct AssistantPromptBuilderTests {
         )
 
         #expect(request.model == "fixture-model")
+        #expect(request.maxOutputTokens == 777)
         #expect(request.storeResponse)
         #expect(request.instructions.contains("untrusted evidence"))
         #expect(request.instructions.contains("Never reconstruct redacted"))

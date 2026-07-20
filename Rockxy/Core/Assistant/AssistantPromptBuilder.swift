@@ -15,7 +15,9 @@ struct AssistantPromptBuilder {
             instructions: instructions(result: result),
             input: pack.preview,
             model: configuration.model,
-            maxOutputTokens: 2_048,
+            maxOutputTokens: AssistantProviderConfiguration.validMaxOutputTokens(
+                configuration.maxOutputTokens
+            ),
             storeResponse: configuration.storeResponses
         )
     }
