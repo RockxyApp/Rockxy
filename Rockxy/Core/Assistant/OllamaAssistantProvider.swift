@@ -14,43 +14,31 @@ struct OllamaAssistantProvider: AssistantModelProvider {
     let capabilities = AssistantProviderCapabilities.ollama
 
     func discoverModels() async throws -> [AssistantModel] {
-        var request = URLRequest(url: endpoint("api/tags"))
-        request.timeoutInterval = Self.connectionTimeout
         do {
-            let (data, response) = try await transport.data(for: request)
-            guard (200 ... 299).contains(response.statusCode) else {
-                throw AssistantHTTPErrorMapper.error(response: response, body: data, model: "")
+            let inventory = try await modelInventory()
+            var enriched: [AssistantModel] = []
+            enriched.reserveCapacity(inventory.count)
+            for model in inventory {
+                try Task.checkCancellation()
+                enriched.append((try? await modelMetadata(for: model)) ?? model)
             }
-            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let values = object["models"] as? [[String: Any]] else
-            {
-                throw AssistantProviderError.malformedResponse("Ollama returned no models array")
-            }
-            return values.compactMap { value in
-                guard let id = value["name"] as? String, !id.isEmpty else {
-                    return nil
-                }
-                let details = value["details"] as? [String: Any]
-                return AssistantModel(
-                    id: id,
-                    displayName: id,
-                    sizeBytes: (value["size"] as? NSNumber)?.int64Value,
-                    digest: value["digest"] as? String,
-                    parameterSize: details?["parameter_size"] as? String,
-                    quantizationLevel: details?["quantization_level"] as? String
-                )
-            }
+            return enriched
         } catch {
             throw AssistantHTTPErrorMapper.translated(error)
         }
     }
 
     func testConnection(model: String) async throws -> Int {
-        let models = try await discoverModels()
-        guard models.contains(where: { $0.id == model }) else {
-            throw AssistantProviderError.modelNotFound(model)
+        do {
+            let models = try await modelInventory()
+            guard let selected = models.first(where: { $0.id == model }) else {
+                throw AssistantProviderError.modelNotFound(model)
+            }
+            _ = try await modelMetadata(for: selected)
+            return models.count
+        } catch {
+            throw AssistantHTTPErrorMapper.translated(error)
         }
-        return models.count
     }
 
     func stream(_ request: AssistantCompletionRequest) -> AsyncThrowingStream<AssistantStreamEvent, Error> {
@@ -61,6 +49,12 @@ struct OllamaAssistantProvider: AssistantModelProvider {
                     urlRequest.httpMethod = "POST"
                     urlRequest.timeoutInterval = Self.requestTimeout
                     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    var options: [String: Any] = ["num_predict": request.maxOutputTokens]
+                    if let contextWindow = AssistantProviderConfiguration.validContextWindowTokens(
+                        request.contextWindowTokens
+                    ) {
+                        options["num_ctx"] = contextWindow
+                    }
                     urlRequest.httpBody = try JSONSerialization.data(
                         withJSONObject: [
                             "model": request.model,
@@ -68,7 +62,7 @@ struct OllamaAssistantProvider: AssistantModelProvider {
                                 ["role": "system", "content": request.instructions],
                                 ["role": "user", "content": request.input],
                             ],
-                            "options": ["num_predict": request.maxOutputTokens],
+                            "options": options,
                             "stream": true,
                         ],
                         options: [.sortedKeys]
@@ -121,6 +115,72 @@ struct OllamaAssistantProvider: AssistantModelProvider {
             normalized.deleteLastPathComponent()
         }
         return normalized.appendingPathComponent(path)
+    }
+
+    private func modelMetadata(for model: AssistantModel) async throws -> AssistantModel {
+        var request = URLRequest(url: endpoint("api/show"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = Self.connectionTimeout
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(
+            withJSONObject: ["model": model.id],
+            options: [.sortedKeys]
+        )
+        let (data, response) = try await transport.data(for: request)
+        guard (200 ... 299).contains(response.statusCode) else {
+            throw AssistantHTTPErrorMapper.error(response: response, body: data, model: model.id)
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AssistantProviderError.malformedResponse("Ollama returned invalid model metadata")
+        }
+        let modelInfo = object["model_info"] as? [String: Any] ?? [:]
+        let contextWindow = modelInfo
+            .filter { $0.key.hasSuffix(".context_length") }
+            .compactMap { ($0.value as? NSNumber)?.intValue }
+            .filter { $0 > 0 }
+            .max()
+        let capabilities = Set(
+            (object["capabilities"] as? [String] ?? []).compactMap(AssistantModelCapability.init(rawValue:))
+        )
+        return AssistantModel(
+            id: model.id,
+            displayName: model.displayName,
+            inputTokenLimit: contextWindow,
+            outputTokenLimit: model.outputTokenLimit,
+            sizeBytes: model.sizeBytes,
+            digest: model.digest,
+            parameterSize: model.parameterSize,
+            quantizationLevel: model.quantizationLevel,
+            capabilities: capabilities
+        )
+    }
+
+    private func modelInventory() async throws -> [AssistantModel] {
+        var request = URLRequest(url: endpoint("api/tags"))
+        request.timeoutInterval = Self.connectionTimeout
+        let (data, response) = try await transport.data(for: request)
+        guard (200 ... 299).contains(response.statusCode) else {
+            throw AssistantHTTPErrorMapper.error(response: response, body: data, model: "")
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let values = object["models"] as? [[String: Any]] else
+        {
+            throw AssistantProviderError.malformedResponse("Ollama returned no models array")
+        }
+        return values.compactMap { value -> AssistantModel? in
+            guard let id = value["name"] as? String, !id.isEmpty else {
+                return nil
+            }
+            let details = value["details"] as? [String: Any]
+            return AssistantModel(
+                id: id,
+                displayName: id,
+                sizeBytes: (value["size"] as? NSNumber)?.int64Value,
+                digest: value["digest"] as? String,
+                parameterSize: details?["parameter_size"] as? String,
+                quantizationLevel: details?["quantization_level"] as? String
+            )
+        }
     }
 
     private func decode(line: String) throws -> [AssistantStreamEvent] {

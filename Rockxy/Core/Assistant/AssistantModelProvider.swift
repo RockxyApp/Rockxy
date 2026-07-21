@@ -65,7 +65,11 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
     )
         async throws -> AsyncThrowingStream<AssistantStreamEvent, Error>
     {
-        try provider(for: configuration, requiresModel: true).stream(request)
+        let provider = try provider(for: configuration, requiresModel: true)
+        if configuration.kind == .ollama {
+            _ = try await provider.testConnection(model: configuration.model)
+        }
+        return provider.stream(request)
     }
 
     // MARK: Private

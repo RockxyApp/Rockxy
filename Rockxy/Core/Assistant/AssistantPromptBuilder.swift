@@ -11,14 +11,14 @@ struct AssistantPromptBuilder {
     )
         -> AssistantCompletionRequest
     {
-        AssistantCompletionRequest(
+        let contextPlan = AssistantContextBudgeter().plan(for: configuration)
+        return AssistantCompletionRequest(
             instructions: instructions(result: result),
             input: pack.preview,
             model: configuration.model,
-            maxOutputTokens: AssistantProviderConfiguration.validMaxOutputTokens(
-                configuration.maxOutputTokens
-            ),
-            storeResponse: configuration.storeResponses
+            maxOutputTokens: contextPlan.maxOutputTokens,
+            storeResponse: configuration.storeResponses,
+            contextWindowTokens: contextPlan.contextWindowTokens
         )
     }
 

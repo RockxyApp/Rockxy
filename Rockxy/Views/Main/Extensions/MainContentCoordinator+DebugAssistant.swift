@@ -10,7 +10,7 @@ extension MainContentCoordinator {
             return
         }
         workspace.debugAssistantDraft = ""
-        guard !resolveSelectedTransactions().isEmpty else {
+        guard !debugAssistantSelectedTransactions().isEmpty else {
             if workspace.debugAssistantMessages.isEmpty {
                 workspace.debugAssistantConversationTitle = debugAssistantConversationTitle(from: prompt)
                 workspace.debugAssistantConversationUpdatedAt = Date()
@@ -57,15 +57,20 @@ extension MainContentCoordinator {
         workspace.debugAssistantConversationUpdatedAt = conversation.updatedAt
         workspace.debugAssistantMessages = conversation.messages
         workspace.debugAssistantDraft = ""
-        workspace.debugAssistantState = conversation.messages.compactMap(\.investigation).last
-            .map(DebugAssistantState.result)
-            ?? .idle
+        let latestInvestigation = conversation.messages.compactMap(\.investigation).last
+        workspace.debugAssistantState = latestInvestigation.flatMap { result in
+            workspace.selectedTransactionIDs.contains(result.selectedTransactionID)
+                ? DebugAssistantState.result(result)
+                : nil
+        } ?? .idle
         workspace.modelInvestigationState = conversation.messages.compactMap(\.modelResult).last
             .map(ModelInvestigationState.completed) ?? .idle
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
+        workspace.debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
     }
 
     func renameDebugAssistantConversation(_ conversationID: UUID, title: String) {
@@ -107,7 +112,7 @@ extension MainContentCoordinator {
 
     private func startDebugAssistant(_ recipe: DebugAssistantRecipe, prompt: String) {
         let workspace = activeWorkspace
-        let selectedTransactions = resolveSelectedTransactions()
+        let selectedTransactions = debugAssistantSelectedTransactions()
         guard !selectedTransactions.isEmpty else {
             workspace.debugAssistantState = .failed(
                 message: String(localized: "Select at least one request to investigate.")
@@ -123,11 +128,12 @@ extension MainContentCoordinator {
         syncCurrentDebugAssistantConversation(workspace)
         cancelDebugAssistantTask(for: workspace.id)
         let selected = selectedTransactions.map(InvestigationTransactionSnapshot.init(transaction:))
-        let session = debugAssistantRelevantTransactions(selected: selectedTransactions)
+        let session = debugAssistantContextTransactions()
             .map(InvestigationTransactionSnapshot.init(transaction:))
         let runID = UUID()
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
         workspace.modelInvestigationState = .idle
@@ -186,6 +192,7 @@ extension MainContentCoordinator {
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
     }
@@ -197,6 +204,7 @@ extension MainContentCoordinator {
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
     }
@@ -221,11 +229,18 @@ extension MainContentCoordinator {
         workspace.debugAssistantReviewPack = nil
         let settingsSnapshot = assistantSettingsProvider()
         workspace.debugAssistantReviewConfiguration = settingsSnapshot.assistantProviderConfiguration
+        workspace.debugAssistantReviewTrafficScope = workspace.debugAssistantTrafficScope
         workspace.debugAssistantReviewModelAccessEnabled = settingsSnapshot.debugAssistantModelAccessEnabled
+        let contextLimits = settingsSnapshot.assistantProviderConfiguration.map {
+            AssistantContextBudgeter().contextLimits(for: $0)
+        } ?? .default
         let selectedTransactionID = result.selectedTransactionID
         let worker = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
-            let pack = try InvestigationContextBuilder().build(snapshots: snapshots)
+            let pack = try InvestigationContextBuilder().build(
+                snapshots: snapshots,
+                limits: contextLimits
+            )
             try Task.checkCancellation()
             return pack
         }
@@ -267,6 +282,7 @@ extension MainContentCoordinator {
         let workspace = activeWorkspace
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
     }
 
@@ -297,6 +313,15 @@ extension MainContentCoordinator {
             dismissDebugAssistantReview()
             return
         }
+        guard workspace.debugAssistantReviewTrafficScope == workspace.debugAssistantTrafficScope,
+              AssistantTrustPolicy.isReviewedScopeValid(pack, for: result) else
+        {
+            workspace.modelInvestigationState = .failed(
+                message: String(localized: "The traffic scope changed. Review the exact data again before model access.")
+            )
+            dismissDebugAssistantReview()
+            return
+        }
 
         cancelDebugAssistantTask(for: workspace.id)
         let runID = UUID()
@@ -308,6 +333,7 @@ extension MainContentCoordinator {
         )
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.modelInvestigationState = .streaming(
             runID: runID,
@@ -328,7 +354,7 @@ extension MainContentCoordinator {
                 )
                 var text = ""
                 var usage: AssistantUsage?
-                var toolCalls: [AssistantToolCall] = []
+                var blockedToolCallCount = 0
                 for try await event in stream {
                     try Task.checkCancellation()
                     switch event {
@@ -356,14 +382,14 @@ extension MainContentCoordinator {
                     case let .usage(value):
                         usage = value
                     case let .toolCallCompleted(call):
-                        guard toolCalls.count < AssistantExecutionLimits.maxToolCalls,
+                        guard blockedToolCallCount < AssistantExecutionLimits.maxToolCalls,
                               call.arguments.utf8.count <= AssistantExecutionLimits.maxToolArgumentBytes else
                         {
                             throw AssistantProviderError.malformedResponse(
                                 "The streamed tool calls exceeded Rockxy's size limit"
                             )
                         }
-                        toolCalls.append(call)
+                        blockedToolCallCount += 1
                     case .started,
                          .toolCallDelta,
                          .completed,
@@ -385,7 +411,7 @@ extension MainContentCoordinator {
                     endpointHost: configuration.endpointHost,
                     text: text.trimmingCharacters(in: .whitespacesAndNewlines),
                     usage: usage,
-                    toolCalls: toolCalls
+                    blockedToolCallCount: blockedToolCallCount
                 )
                 workspace.modelInvestigationState = .completed(modelResult)
                 workspace.debugAssistantMessages.append(.assistant(modelResult))
@@ -427,6 +453,101 @@ extension MainContentCoordinator {
         revealInspectorForSelectionIfNeeded()
     }
 
+    func setDebugAssistantTrafficScope(_ scope: AssistantTrafficScope) {
+        let workspace = activeWorkspace
+        guard workspace.debugAssistantTrafficScope != scope else {
+            return
+        }
+        cancelDebugAssistantTask(for: workspace.id)
+        workspace.debugAssistantTrafficScope = scope
+        workspace.debugAssistantState = .idle
+        workspace.modelInvestigationState = .idle
+        workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
+        workspace.debugAssistantReviewModelAccessEnabled = false
+        workspace.isPreparingDebugAssistantReview = false
+    }
+
+    func performUserInitiatedDebugAssistantHandoff(
+        _ handoff: AssistantUserHandoff,
+        result: InvestigationResult
+    ) {
+        let workspace = activeWorkspace
+        guard case let .result(currentResult) = workspace.debugAssistantState,
+              currentResult == result,
+              workspace.selectedTransactionIDs.contains(result.selectedTransactionID),
+              let primary = transaction(for: result.selectedTransactionID) else
+        {
+            activeToast = ToastMessage(
+                style: .error,
+                text: String(localized: "Select the original request and run the investigation again.")
+            )
+            return
+        }
+
+        switch handoff {
+        case .prepareReplay,
+             .compose:
+            editAndReplayTransaction(primary)
+        case .export:
+            presentSelectedExport(format: .har)
+        case .share:
+            reviewSelectedTransactionsForGist()
+        }
+    }
+
+    func debugAssistantSelectedTransactions() -> [HTTPTransaction] {
+        let selected = resolveSelectedTransactions()
+        guard let primary = selectedTransaction,
+              selectedTransactionIDs.contains(primary.id),
+              let primaryIndex = selected.firstIndex(where: { $0.id == primary.id }) else
+        {
+            return selected
+        }
+        var ordered = selected
+        ordered.remove(at: primaryIndex)
+        ordered.insert(primary, at: 0)
+        return ordered
+    }
+
+    func debugAssistantContextTransactions() -> [HTTPTransaction] {
+        let selected = debugAssistantSelectedTransactions()
+        let maximumCount = InvestigationContextLimits.default.maxTransactions
+        let boundedSelection = Array(selected.prefix(maximumCount))
+        guard activeWorkspace.debugAssistantTrafficScope == .selectedAndRelated,
+              let primary = boundedSelection.first else
+        {
+            return boundedSelection
+        }
+        var values = boundedSelection
+        var seen = Set(boundedSelection.map(\.id))
+        for transaction in debugAssistantRelatedTransactions(to: primary)
+            where seen.insert(transaction.id).inserted
+        {
+            guard values.count < maximumCount else {
+                break
+            }
+            values.append(transaction)
+        }
+        return values
+    }
+
+    func debugAssistantRelatedTransactionCount() -> Int {
+        guard let primary = debugAssistantSelectedTransactions().first else {
+            return 0
+        }
+        let selectedIDs = selectedTransactionIDs
+        let availableCount = debugAssistantRelatedTransactions(to: primary)
+            .filter { !selectedIDs.contains($0.id) }
+            .count
+        let remainingCapacity = max(
+            0,
+            InvestigationContextLimits.default.maxTransactions - debugAssistantSelectedTransactions().count
+        )
+        return min(availableCount, remainingCapacity)
+    }
+
     func resetDebugAssistantForSelectionChange() {
         let workspace = activeWorkspace
         syncCurrentDebugAssistantConversation(workspace)
@@ -435,8 +556,10 @@ extension MainContentCoordinator {
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
+        workspace.debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
     }
 
     // MARK: Private
@@ -458,8 +581,10 @@ extension MainContentCoordinator {
         workspace.debugAssistantConversationUpdatedAt = Date()
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
+        workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
         workspace.isPreparingDebugAssistantReview = false
+        workspace.debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
     }
 
     private func syncCurrentDebugAssistantConversation(_ workspace: WorkspaceState) {
@@ -524,21 +649,14 @@ extension MainContentCoordinator {
         return values
     }
 
-    private func debugAssistantRelevantTransactions(selected: [HTTPTransaction]) -> [HTTPTransaction] {
-        guard let primary = selected.first else {
-            return []
-        }
-        var values = selected
-        var seen = Set(selected.map(\.id))
-        let related = debugAssistantSessionTransactions()
+    private func debugAssistantRelatedTransactions(to primary: HTTPTransaction) -> [HTTPTransaction] {
+        debugAssistantSessionTransactions()
             .filter { $0.id != primary.id && $0.request.host == primary.request.host }
             .sorted {
                 abs($0.timestamp.timeIntervalSince(primary.timestamp))
                     < abs($1.timestamp.timeIntervalSince(primary.timestamp))
             }
-        for transaction in related.prefix(20) where seen.insert(transaction.id).inserted {
-            values.append(transaction)
-        }
-        return values
+            .prefix(20)
+            .map { $0 }
     }
 }

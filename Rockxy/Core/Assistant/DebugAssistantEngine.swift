@@ -225,7 +225,7 @@ struct DebugAssistantEngine {
             scopeSummary: String(localized: "2 compared requests"),
             summary: String(localized: "The selected request differs from a captured successful baseline."),
             evidence: evidence,
-            nextStep: String(localized: "Reveal the differing request evidence before preparing a replay.")
+            nextStep: String(localized: "Open the selected request in Compose and review every change before sending.")
         )
     }
 
@@ -453,7 +453,7 @@ struct DebugAssistantEngine {
     private func nextStepForFailure(_ primary: InvestigationTransactionSnapshot) -> String {
         switch primary.statusCode {
         case 429:
-            String(localized: "Prepare a delayed replay after reviewing shared data.")
+            String(localized: "Open an editable replay draft and verify it before sending.")
         case 401,
              403:
             String(localized: "Compare authentication evidence with a successful request.")

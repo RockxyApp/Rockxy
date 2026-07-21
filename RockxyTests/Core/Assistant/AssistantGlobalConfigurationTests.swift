@@ -92,6 +92,19 @@ struct AssistantGlobalConfigurationTests {
         #expect(AssistantProviderKind.qwen.descriptor.modelCatalogStrategy == .manualEntry)
         #expect(AssistantProviderKind.qwen.capabilities?.modelDiscovery == false)
         #expect(AssistantProviderKind.qwen.defaultBaseURL.isEmpty)
+        #expect(AssistantProviderKind.doubao.descriptor.modelCatalogStrategy == .manualEntry)
+        #expect(AssistantProviderKind.glm.descriptor.modelCatalogStrategy == .manualEntry)
+    }
+
+    @Test("Capability badges describe the implemented Rockxy path, not vendor-wide claims")
+    func implementedCapabilityTruth() {
+        #expect(AssistantProviderKind.openAI.capabilities?.streaming == true)
+        #expect(AssistantProviderKind.openAI.capabilities?.toolCalling == false)
+        #expect(AssistantProviderKind.openAI.capabilities?.usageReporting == true)
+        #expect(AssistantProviderKind.openAICompatible.capabilities?.modelDiscovery == true)
+        #expect(AssistantProviderKind.openAICompatible.capabilities?.usageReporting == false)
+        #expect(AssistantProviderKind.ollama.capabilities?.toolCalling == false)
+        #expect(AssistantProviderKind.ollama.capabilities?.usageReporting == true)
     }
 
     @Test("Official providers stay pinned while configurable providers remain extensible")

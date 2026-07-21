@@ -57,8 +57,10 @@ final class WorkspaceState: Identifiable {
     var debugAssistantConversationUpdatedAt = Date()
     var debugAssistantConversations: [DebugAssistantConversation] = []
     var debugAssistantUsesConfiguredModel = true
+    var debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
     var debugAssistantReviewPack: InvestigationContextPack?
     var debugAssistantReviewConfiguration: AssistantProviderConfiguration?
+    var debugAssistantReviewTrafficScope: AssistantTrafficScope?
     var debugAssistantReviewModelAccessEnabled = false
     var isPreparingDebugAssistantReview = false
     var focusNavigatorMode: FocusNavigatorMode = .browse
@@ -119,8 +121,10 @@ final class WorkspaceState: Identifiable {
         debugAssistantConversationCreatedAt = Date()
         debugAssistantConversationUpdatedAt = Date()
         debugAssistantConversations.removeAll()
+        debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
         debugAssistantReviewPack = nil
         debugAssistantReviewConfiguration = nil
+        debugAssistantReviewTrafficScope = nil
         debugAssistantReviewModelAccessEnabled = false
         isPreparingDebugAssistantReview = false
         domainTree.removeAll()

@@ -6,6 +6,7 @@ struct DebugAssistantReviewDataSheet: View {
 
     let pack: InvestigationContextPack
     let configuration: AssistantProviderConfiguration?
+    let trafficScope: AssistantTrafficScope
     let modelAccessEnabled: Bool
     let onSend: () -> Void
     let onDismiss: () -> Void
@@ -16,7 +17,7 @@ struct DebugAssistantReviewDataSheet: View {
                 Text(String(localized: "Review Data"))
                     .font(.title2.weight(.semibold))
                 Text(
-                    String(localized: "Inspect the exact redacted payload before the configured provider receives it.")
+                    headerSubtitle
                 )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -42,7 +43,7 @@ struct DebugAssistantReviewDataSheet: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button(String(localized: "Cancel"), action: onDismiss)
-                Button(String(localized: "Send Redacted Data"), action: onSend)
+                Button(primaryActionTitle, action: onSend)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canSend)
@@ -62,12 +63,34 @@ struct DebugAssistantReviewDataSheet: View {
         modelAccessEnabled && configuration?.isComplete == true
     }
 
+    private var isLocalExecution: Bool {
+        configuration?.executionLocation.isLocal == true
+    }
+
+    private var contextPlan: AssistantContextPlan? {
+        configuration.map { AssistantContextBudgeter().plan(for: $0) }
+    }
+
+    private var headerSubtitle: String {
+        if isLocalExecution {
+            return String(localized: "Inspect the exact redacted traffic that the local model will process on this Mac.")
+        }
+        return String(localized: "Inspect the exact redacted traffic before it leaves this Mac.")
+    }
+
+    private var primaryActionTitle: String {
+        isLocalExecution ? String(localized: "Run Locally") : String(localized: "Send Redacted Data")
+    }
+
     private var footerStatus: String {
         if !modelAccessEnabled {
             return String(localized: "Model access is disabled in AI Assistant Settings")
         }
         if configuration?.isComplete != true {
             return String(localized: "Configure a provider and model in AI Assistant Settings")
+        }
+        if isLocalExecution {
+            return String(localized: "Inference stays on this Mac through the configured local endpoint")
         }
         return String(localized: "Only the reviewed redacted payload will be sent")
     }
@@ -84,29 +107,55 @@ struct DebugAssistantReviewDataSheet: View {
                     String(localized: "Destination"),
                     configuration?.baseURL ?? String(localized: "No outbound request")
                 )
-                reviewRow(String(localized: "Platform / Region"), configuration?.region ?? "—")
+                if let region = configuration?.region, !region.isEmpty {
+                    reviewRow(String(localized: "Platform / Region"), region)
+                }
                 reviewRow(
                     String(localized: "Redaction"),
                     configuration?.redactSensitiveData == true
                         ? String(localized: "Enabled")
                         : String(localized: "Unavailable")
                 )
-                reviewRow(
-                    String(localized: "Provider Storage"),
-                    configuration?.storeResponses == true
-                        ? String(localized: "Allowed")
-                        : String(localized: "Disabled where supported")
-                )
+                if !isLocalExecution {
+                    reviewRow(
+                        String(localized: "Provider Storage"),
+                        configuration?.storeResponses == true
+                            ? String(localized: "Allowed")
+                            : String(localized: "Disabled where supported")
+                    )
+                }
+                if let contextWindow = contextPlan?.contextWindowTokens {
+                    reviewRow(
+                        String(localized: "Context Window"),
+                        String(localized: "\(contextWindow.formatted()) tokens")
+                    )
+                }
+                if let outputLimit = contextPlan?.maxOutputTokens {
+                    reviewRow(
+                        String(localized: "Output Limit"),
+                        String(localized: "\(outputLimit.formatted()) tokens")
+                    )
+                }
                 reviewRow(
                     String(localized: "Scope"),
-                    String(localized: "\(pack.manifest.requestCount) captured requests")
+                    scopeDescription
                 )
+                reviewRow(String(localized: "Access"), String(localized: "Read-only analysis"))
                 reviewRow(
                     String(localized: "Outbound Size"),
                     ByteCountFormatter.string(fromByteCount: Int64(pack.manifest.outboundBytes), countStyle: .file)
                 )
             }
             .padding(8)
+        }
+    }
+
+    private var scopeDescription: String {
+        switch trafficScope {
+        case .selectedOnly:
+            String(localized: "\(pack.manifest.requestCount) selected request(s)")
+        case .selectedAndRelated:
+            String(localized: "\(pack.manifest.requestCount) selected and opted-in related request(s)")
         }
     }
 

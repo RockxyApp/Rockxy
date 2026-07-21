@@ -69,6 +69,8 @@ private struct AIAssistantDockView: View {
             DebugAssistantReviewDataSheet(
                 pack: pack,
                 configuration: coordinator.activeWorkspace.debugAssistantReviewConfiguration,
+                trafficScope: coordinator.activeWorkspace.debugAssistantReviewTrafficScope
+                    ?? AssistantTrustPolicy.defaultTrafficScope,
                 modelAccessEnabled: coordinator.activeWorkspace.debugAssistantReviewModelAccessEnabled,
                 onSend: coordinator.sendDebugAssistantReview,
                 onDismiss: coordinator.dismissDebugAssistantReview
@@ -105,6 +107,21 @@ private struct AIAssistantDockView: View {
         } message: {
             Text(String(localized: "This removes the conversation from this workspace history."))
         }
+        .confirmationDialog(
+            String(localized: "Prepare this request for replay?"),
+            isPresented: prepareReplayBinding,
+            titleVisibility: .visible
+        ) {
+            Button(String(localized: "Open in Compose")) {
+                guard let resultPendingReplay else {
+                    return
+                }
+                coordinator.performUserInitiatedDebugAssistantHandoff(.prepareReplay, result: resultPendingReplay)
+            }
+            Button(String(localized: "Cancel"), role: .cancel) {}
+        } message: {
+            Text(String(localized: "Rockxy will create an editable draft. Nothing is sent until you press Send in Compose."))
+        }
     }
 
     // MARK: Private
@@ -120,6 +137,8 @@ private struct AIAssistantDockView: View {
     @State private var conversationBeingRenamed: DebugAssistantConversation?
     @State private var conversationRenameDraft = ""
     @State private var conversationPendingDeletion: DebugAssistantConversation?
+    @State private var isTrustPopoverPresented = false
+    @State private var resultPendingReplay: InvestigationResult?
 
     private var draftBinding: Binding<String> {
         Binding(
@@ -157,6 +176,17 @@ private struct AIAssistantDockView: View {
             set: { isPresented in
                 if !isPresented {
                     conversationPendingDeletion = nil
+                }
+            }
+        )
+    }
+
+    private var prepareReplayBinding: Binding<Bool> {
+        Binding(
+            get: { resultPendingReplay != nil },
+            set: { isPresented in
+                if !isPresented {
+                    resultPendingReplay = nil
                 }
             }
         )
@@ -201,7 +231,7 @@ private struct AIAssistantDockView: View {
     }
 
     private var selectedTransactions: [HTTPTransaction] {
-        coordinator.resolveSelectedTransactions()
+        coordinator.debugAssistantSelectedTransactions()
     }
 
     private var primaryTransaction: HTTPTransaction? {
@@ -209,23 +239,15 @@ private struct AIAssistantDockView: View {
     }
 
     private var contextTransactions: [HTTPTransaction] {
-        guard let primaryTransaction else {
-            return []
-        }
-        var values = selectedTransactions.isEmpty ? [primaryTransaction] : selectedTransactions
-        var seen = Set(values.map(\.id))
-        for transaction in coordinator.transactions
-            .filter({ $0.request.host == primaryTransaction.request.host })
-            .sorted(by: {
-                abs($0.timestamp.timeIntervalSince(primaryTransaction.timestamp))
-                    < abs($1.timestamp.timeIntervalSince(primaryTransaction.timestamp))
-            })
-            .prefix(20)
-            where seen.insert(transaction.id).inserted
-        {
-            values.append(transaction)
-        }
-        return values
+        coordinator.debugAssistantContextTransactions()
+    }
+
+    private var relatedTransactionCount: Int {
+        coordinator.debugAssistantRelatedTransactionCount()
+    }
+
+    private var selectedContextCount: Int {
+        min(selectedTransactions.count, InvestigationContextLimits.default.maxTransactions)
     }
 
     private var conversationIsEmpty: Bool {
@@ -361,15 +383,44 @@ private struct AIAssistantDockView: View {
 
                 Spacer(minLength: 4)
 
-                Label("\(contextTransactions.count)", systemImage: "paperclip")
-                    .font(assistantFont(appMetrics.secondaryFontSize))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "Requests currently attached as local context"))
+                Menu {
+                    Button {
+                        coordinator.setDebugAssistantTrafficScope(.selectedOnly)
+                    } label: {
+                        Label(
+                            String(localized: "Selected Traffic Only (\(selectedContextCount))"),
+                            systemImage: coordinator.activeWorkspace.debugAssistantTrafficScope == .selectedOnly
+                                ? "checkmark" : "circle"
+                        )
+                    }
+
+                    Button {
+                        coordinator.setDebugAssistantTrafficScope(.selectedAndRelated)
+                    } label: {
+                        Label(
+                            String(localized: "Include Related Requests (+\(relatedTransactionCount))"),
+                            systemImage: coordinator.activeWorkspace.debugAssistantTrafficScope == .selectedAndRelated
+                                ? "checkmark" : "circle"
+                        )
+                    }
+                    .disabled(relatedTransactionCount == 0)
+                } label: {
+                    Label("\(contextTransactions.count)", systemImage: "paperclip")
+                        .font(assistantFont(appMetrics.secondaryFontSize))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .controlSize(.small)
+                .help(String(localized: "Choose the read-only traffic scope"))
+                .accessibilityLabel(
+                    String(localized: "Read-only traffic scope, \(contextTransactions.count) requests")
+                )
             }
             .padding(.horizontal, 10)
             .frame(minHeight: max(32, appMetrics.secondaryFontSize + 18))
             .background(Color(nsColor: .textBackgroundColor))
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
             .accessibilityLabel(
                 String(
                     localized: "Attached traffic: \(requestSummary(for: transaction)), \(contextTransactions.count) requests"
@@ -660,11 +711,20 @@ private struct AIAssistantDockView: View {
 
                 Spacer(minLength: 4)
 
-                Image(systemName: "lock.shield")
-                    .font(assistantFont(appMetrics.metadataFontSize))
-                    .foregroundStyle(.secondary)
-                    .help(String(localized: "Traffic is reviewed and redacted before model access"))
-                    .accessibilityLabel(String(localized: "Privacy review required before model access"))
+                Button {
+                    isTrustPopoverPresented.toggle()
+                } label: {
+                    Label(String(localized: "Read-only"), systemImage: "lock.shield")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.mini)
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .foregroundStyle(.secondary)
+                .help(String(localized: "Review the AI Assistant trust boundary"))
+                .accessibilityLabel(String(localized: "Read-only Assistant privacy details"))
+                .popover(isPresented: $isTrustPopoverPresented, arrowEdge: .bottom) {
+                    AssistantTrustPopover()
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -863,16 +923,48 @@ private struct AIAssistantDockView: View {
                     }
                 }
             }
+
+            if isCurrentResult(result) {
+                assistantHandoffButtons(for: result)
+            }
+        }
+    }
+
+    private func assistantHandoffButtons(for result: InvestigationResult) -> some View {
+        HStack(spacing: 6) {
+            ForEach(AssistantTrustPolicy.recommendedHandoffs(for: result.recipe)) { handoff in
+                Button {
+                    if handoff == .prepareReplay {
+                        resultPendingReplay = result
+                    } else {
+                        coordinator.performUserInitiatedDebugAssistantHandoff(handoff, result: result)
+                    }
+                } label: {
+                    Label(handoff.title, systemImage: handoff.systemImage)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
         }
     }
 
     private func modelAttribution(_ result: ModelInvestigationResult) -> some View {
-        modelSourceLabel(
-            provider: result.provider.title,
-            model: result.model,
-            endpointHost: result.endpointHost,
-            usage: result.usage
-        )
+        VStack(alignment: .leading, spacing: 4) {
+            if result.blockedToolCallCount > 0 {
+                Label(
+                    String(localized: "Rockxy blocked \(result.blockedToolCallCount) model action request(s)."),
+                    systemImage: "hand.raised.fill"
+                )
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .foregroundStyle(.orange)
+            }
+            modelSourceLabel(
+                provider: result.provider.title,
+                model: result.model,
+                endpointHost: result.endpointHost,
+                usage: result.usage
+            )
+        }
     }
 
     private func modelSourceLabel(

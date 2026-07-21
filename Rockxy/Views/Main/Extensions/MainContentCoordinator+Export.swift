@@ -39,6 +39,25 @@ extension MainContentCoordinator {
         showExportScope = true
     }
 
+    /// Opens the existing native export review while locking the scope to the user's selection.
+    /// Used by Assistant handoffs so analysis can never widen an export implicitly.
+    func presentSelectedExport(format: TrafficExportFormat) {
+        let selected = resolveSelectedTransactions()
+        let context = ExportScopeContext(
+            format: format,
+            allCount: transactions.count,
+            filteredCount: filteredTransactions.count,
+            selectedCount: selected.count,
+            eligibleAllCount: eligibleExportCount(in: transactions, format: format),
+            eligibleFilteredCount: eligibleExportCount(in: filteredTransactions, format: format),
+            eligibleSelectedCount: eligibleExportCount(in: selected, format: format),
+            initialScope: .selected,
+            restrictsToSelection: true
+        )
+        exportScopeContext = context
+        showExportScope = true
+    }
+
     func executeHARExport(scope: ExportScope) {
         executeExport(format: .har, scope: scope)
     }

@@ -75,6 +75,29 @@ struct ExportScopeContext {
     let eligibleFilteredCount: Int
     let eligibleSelectedCount: Int
     let initialScope: ExportScope
+    let restrictsToSelection: Bool
+
+    init(
+        format: TrafficExportFormat,
+        allCount: Int,
+        filteredCount: Int,
+        selectedCount: Int,
+        eligibleAllCount: Int,
+        eligibleFilteredCount: Int,
+        eligibleSelectedCount: Int,
+        initialScope: ExportScope,
+        restrictsToSelection: Bool = false
+    ) {
+        self.format = format
+        self.allCount = allCount
+        self.filteredCount = filteredCount
+        self.selectedCount = selectedCount
+        self.eligibleAllCount = eligibleAllCount
+        self.eligibleFilteredCount = eligibleFilteredCount
+        self.eligibleSelectedCount = eligibleSelectedCount
+        self.initialScope = initialScope
+        self.restrictsToSelection = restrictsToSelection
+    }
 
     var hasActiveFilter: Bool {
         filteredCount != allCount
@@ -107,7 +130,10 @@ struct ExportScopeContext {
     }
 
     func isEnabled(_ scope: ExportScope) -> Bool {
-        switch scope {
+        if restrictsToSelection, scope != .selected {
+            return false
+        }
+        return switch scope {
         case .all:
             eligibleAllCount > 0
         case .filtered:

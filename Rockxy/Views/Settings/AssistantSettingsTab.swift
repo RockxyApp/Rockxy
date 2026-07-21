@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 
+// swiftlint:disable file_length
+
 // MARK: - AssistantSettingsTab
 
 struct AssistantSettingsTab: View {
@@ -62,12 +64,16 @@ struct AssistantSettingsTab: View {
                 )
             )
         }
+        .sheet(isPresented: $isRuntimeSetupPresented) {
+            AssistantRuntimeSetupSheet(viewModel: viewModel)
+        }
     }
 
     // MARK: Private
 
     @State private var viewModel = AssistantSettingsViewModel()
     @State private var pendingModelRemoval: AssistantModel?
+    @State private var isRuntimeSetupPresented = false
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var settingsMetrics: SettingsDisplayMetrics {
@@ -160,7 +166,7 @@ struct AssistantSettingsTab: View {
                             }
                         }
 
-                        Text(String(localized: "Recommended Starter Models"))
+                        Text(String(localized: "Curated Local Models"))
                             .font(settingsMetrics.secondaryFont(weight: .medium))
 
                         ForEach(AssistantDownloadableModel.recommended) { model in
@@ -179,6 +185,12 @@ struct AssistantSettingsTab: View {
                         }
                         .controlSize(.small)
                         .disabled(viewModel.isRefreshingModelLibrary || viewModel.modelInstallID != nil)
+                        if viewModel.isOllamaReady {
+                            Button(String(localized: "Show Models Folder")) {
+                                viewModel.revealOllamaModelsFolder()
+                            }
+                            .controlSize(.small)
+                        }
                     }
 
                     Label(
@@ -218,7 +230,10 @@ struct AssistantSettingsTab: View {
                     }
                     .controlSize(.small)
                 } else {
-                    Link(String(localized: "Install Ollama…"), destination: viewModel.ollamaDownloadURL)
+                    Button(String(localized: "Set Up Ollama…")) {
+                        viewModel.prepareRuntimeSetup()
+                        isRuntimeSetupPresented = true
+                    }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
@@ -354,6 +369,10 @@ struct AssistantSettingsTab: View {
                 }
             }
 
+            if viewModel.configuration.kind == .ollama {
+                AssistantContextWindowSettingsField(configuration: $viewModel.configuration)
+            }
+
             SettingsFieldRow(String(localized: "Output Limit")) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -433,16 +452,16 @@ struct AssistantSettingsTab: View {
                 Text(String(localized: "Adapter Capabilities"))
                     .font(settingsMetrics.secondaryFont(weight: .medium))
                     .foregroundStyle(.secondary)
-                HStack(spacing: 20) {
+                HStack(spacing: 14) {
                     capabilityLabel(String(localized: "Streaming"), supported: capabilities.streaming)
-                    capabilityLabel(String(localized: "Model Discovery"), supported: capabilities.modelDiscovery)
-                    capabilityLabel(String(localized: "Tool Calls"), supported: capabilities.toolCalling)
+                    capabilityLabel(String(localized: "Discovery"), supported: capabilities.modelDiscovery)
+                    capabilityLabel(String(localized: "Tools"), supported: capabilities.toolCalling)
                     capabilityLabel(String(localized: "Usage"), supported: capabilities.usageReporting)
                 }
-                .frame(maxWidth: settingsMetrics.fieldWidth(420), alignment: .leading)
+                .frame(maxWidth: settingsMetrics.fieldWidth(520), alignment: .leading)
                 Text(
                     String(
-                        localized: "Vision and reasoning availability remains model-specific and is not inferred from the provider name."
+                        localized: "These badges reflect Rockxy's current adapter path. Vision, reasoning, and model-level tool support are not inferred from the provider name."
                     )
                 )
                 .font(settingsMetrics.metadataFont())
@@ -557,6 +576,9 @@ struct AssistantSettingsTab: View {
                         .font(settingsMetrics.metadataFont())
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    Text(model.catalogDetail)
+                        .font(settingsMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
                     Text(model.id)
                         .font(settingsMetrics.metadataFont(monospaced: true))
                         .foregroundStyle(.tertiary)
@@ -598,7 +620,7 @@ struct AssistantSettingsTab: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(model.displayName)
                     .font(settingsMetrics.secondaryFont(weight: .medium))
-                Text(installedModelDetail(model))
+                Text(AssistantInstalledModelDetailFormatter.text(for: model))
                     .font(settingsMetrics.metadataFont())
                     .foregroundStyle(.secondary)
                 Text(model.id)
@@ -700,20 +722,6 @@ struct AssistantSettingsTab: View {
         }
         return details.isEmpty ? model.displayName : "\(model.displayName) · \(details.joined(separator: " / "))"
     }
-
-    private func installedModelDetail(_ model: AssistantModel) -> String {
-        var parts: [String] = []
-        if let parameterSize = model.parameterSize {
-            parts.append(parameterSize)
-        }
-        if let quantizationLevel = model.quantizationLevel {
-            parts.append(quantizationLevel)
-        }
-        if let sizeBytes = model.sizeBytes {
-            parts.append(ByteCountFormatter.string(fromByteCount: sizeBytes, countStyle: .file))
-        }
-        return parts.isEmpty ? String(localized: "Installed in Ollama") : parts.joined(separator: " · ")
-    }
 }
 
 // MARK: - OllamaRuntimeState
@@ -735,7 +743,9 @@ final class AssistantSettingsViewModel {
         credentialStorage: any AssistantCredentialStorage = KeychainAssistantCredentialStorage(),
         runtime: any AssistantProviderRuntimeProtocol = AssistantProviderRuntime.shared,
         modelInstaller: any AssistantModelInstallerProtocol = OllamaModelInstaller.shared,
-        ollamaRuntime: any OllamaRuntimeChecking = OllamaRuntimeChecker.shared
+        ollamaRuntime: any OllamaRuntimeChecking = OllamaRuntimeChecker.shared,
+        runtimeInstaller: any AssistantLocalRuntimeInstalling = OllamaRuntimeInstaller.shared,
+        applicationOpener: any AssistantRuntimeApplicationOpening = NSWorkspaceAssistantRuntimeApplicationOpener()
     ) {
         let manager = manager ?? .shared
         self.manager = manager
@@ -743,6 +753,8 @@ final class AssistantSettingsViewModel {
         self.runtime = runtime
         self.modelInstaller = modelInstaller
         self.ollamaRuntime = ollamaRuntime
+        self.runtimeInstaller = runtimeInstaller
+        self.applicationOpener = applicationOpener
         let saved = manager.settings.assistantProviderConfiguration
         savedConfiguration = saved
         savedConfigurations = manager.settings.assistantProviderConfigurations
@@ -765,6 +777,8 @@ final class AssistantSettingsViewModel {
     private(set) var isBusy = false
     private(set) var isRefreshingModelLibrary = false
     private(set) var ollamaRuntimeState = OllamaRuntimeState.checking
+    private(set) var runtimeSetupState = AssistantRuntimeSetupState.idle
+    private(set) var runtimeInstallDestination = AssistantSettingsViewModel.defaultRuntimeInstallDestination
     private(set) var modelInstallID: String?
     private(set) var modelRemovalID: String?
     private(set) var modelInstallProgress: Double?
@@ -817,6 +831,11 @@ final class AssistantSettingsViewModel {
     }
 
     var ollamaApplicationURL: URL? {
+        if let lastInstalledRuntimeURL,
+           FileManager.default.fileExists(atPath: lastInstalledRuntimeURL.path)
+        {
+            return lastInstalledRuntimeURL
+        }
         if let applicationURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.electron.ollama") {
             return applicationURL
         }
@@ -824,11 +843,12 @@ final class AssistantSettingsViewModel {
         return FileManager.default.fileExists(atPath: standardURL.path) ? standardURL : nil
     }
 
-    var ollamaDownloadURL: URL {
-        guard let url = URL(string: "https://ollama.com/download/mac") else {
-            preconditionFailure("The Ollama download URL must remain valid")
-        }
-        return url
+    var runtimeInstallDestinationDisplayPath: String {
+        runtimeInstallDestination.path.replacingOccurrences(
+            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            with: "~",
+            options: .anchored
+        )
     }
 
     func refreshCredentialState() {
@@ -911,6 +931,9 @@ final class AssistantSettingsViewModel {
                     providerLimit
                 )
             }
+            if let selected = values.first(where: { $0.id == self.configuration.model }) {
+                self.configuration.contextWindowTokens = selected.inputTokenLimit
+            }
             if !self.configuration.model.isEmpty {
                 try self.persistDraft()
             }
@@ -944,6 +967,17 @@ final class AssistantSettingsViewModel {
                 }
                 self.installedOllamaModels = values
                 self.installedOllamaModelIDs = Set(values.map(\.id))
+                if var selected = self.savedConfiguration,
+                   selected.kind == .ollama,
+                   let model = values.first(where: { $0.id == selected.model }),
+                   selected.contextWindowTokens != model.inputTokenLimit
+                {
+                    selected.contextWindowTokens = model.inputTokenLimit
+                    self.manager.updateAssistantConfiguration(selected, enabled: self.isEnabled)
+                    self.savedConfiguration = selected
+                    self.configuration = selected
+                    self.refreshSavedConfigurations()
+                }
             } catch {
                 guard !Task.isCancelled else {
                     return
@@ -964,6 +998,118 @@ final class AssistantSettingsViewModel {
             return
         }
         NSWorkspace.shared.open(applicationURL)
+    }
+
+    func prepareRuntimeSetup() {
+        guard !runtimeSetupState.isBusy else {
+            return
+        }
+        runtimeSetupState = .idle
+    }
+
+    func chooseRuntimeInstallDestination() {
+        guard !runtimeSetupState.isBusy else {
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Choose Ollama Install Location")
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Rockxy will install Ollama.app inside the selected folder.")
+        panel.directoryURL = runtimeInstallDestination
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let selectedURL = panel.url else {
+            return
+        }
+        runtimeInstallDestination = selectedURL.standardizedFileURL
+        runtimeSetupState = .idle
+    }
+
+    func installOllamaRuntime() {
+        guard !runtimeSetupState.isBusy else {
+            return
+        }
+        let destination = runtimeInstallDestination
+        runtimeSetupState = .downloading(receivedBytes: 0, totalBytes: nil)
+        hasError = false
+        runtimeInstallTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                let events = self.runtimeInstaller.install(
+                    runtime: .ollama,
+                    destinationDirectory: destination
+                )
+                for try await event in events {
+                    try Task.checkCancellation()
+                    switch event {
+                    case let .downloading(receivedBytes, totalBytes):
+                        self.runtimeSetupState = .downloading(
+                            receivedBytes: receivedBytes,
+                            totalBytes: totalBytes
+                        )
+                    case .verifying:
+                        self.runtimeSetupState = .verifying
+                    case .installing:
+                        self.runtimeSetupState = .installing
+                    case let .completed(installation):
+                        self.lastInstalledRuntimeURL = installation.applicationURL
+                        self.runtimeSetupState = .starting
+                        try await self.startAndVerifyOllama(at: installation.applicationURL)
+                    }
+                }
+            } catch is CancellationError {
+                self.runtimeSetupState = .idle
+            } catch AssistantProviderError.cancelled {
+                self.runtimeSetupState = .idle
+            } catch {
+                self.runtimeSetupState = .failed(message: error.localizedDescription)
+            }
+            self.runtimeInstallTask = nil
+        }
+    }
+
+    func retryInstalledOllamaRuntime() {
+        guard !runtimeSetupState.isBusy,
+              let applicationURL = ollamaApplicationURL else {
+            return
+        }
+        runtimeSetupState = .starting
+        hasError = false
+        runtimeInstallTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                try await self.startAndVerifyOllama(at: applicationURL)
+            } catch is CancellationError {
+                self.runtimeSetupState = .idle
+            } catch AssistantProviderError.cancelled {
+                self.runtimeSetupState = .idle
+            } catch {
+                self.runtimeSetupState = .failed(message: error.localizedDescription)
+            }
+            self.runtimeInstallTask = nil
+        }
+    }
+
+    func cancelRuntimeInstall() {
+        runtimeInstallTask?.cancel()
+        runtimeInstallTask = nil
+        runtimeSetupState = .idle
+    }
+
+    func revealOllamaModelsFolder() {
+        let modelsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".ollama/models", isDirectory: true)
+        if FileManager.default.fileExists(atPath: modelsURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([modelsURL])
+        } else {
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: modelsURL.deletingLastPathComponent().path)
+        }
     }
 
     func installCustomModel() {
@@ -1006,7 +1152,27 @@ final class AssistantSettingsViewModel {
                             self.modelInstallProgress = min(1, Double(completed) / Double(total))
                         }
                     case .completed:
-                        self.activateOllamaModel(id: model.id, name: model.name, baseURL: baseURL)
+                        var inventory = AssistantProviderConfiguration(kind: .ollama, model: model.id)
+                        inventory.baseURL = baseURL.absoluteString
+                        let installedModel = try? await self.runtime
+                            .discoverModels(configuration: inventory)
+                            .first { $0.id == model.id }
+                        guard !Task.isCancelled else {
+                            return
+                        }
+                        self.activateOllamaModel(
+                            id: model.id,
+                            name: model.name,
+                            baseURL: baseURL,
+                            contextWindowTokens: installedModel?.inputTokenLimit
+                        )
+                        if let installedModel {
+                            self.installedOllamaModels.removeAll { $0.id == model.id }
+                            self.installedOllamaModels.append(installedModel)
+                            self.installedOllamaModels.sort {
+                                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+                            }
+                        }
                         if self.customModelID.trimmingCharacters(in: .whitespacesAndNewlines) == model.id {
                             self.customModelID = ""
                         }
@@ -1035,11 +1201,21 @@ final class AssistantSettingsViewModel {
     }
 
     func useGlobally(_ model: AssistantDownloadableModel) {
-        activateOllamaModel(id: model.id, name: model.name, baseURL: ollamaBaseURL)
+        activateOllamaModel(
+            id: model.id,
+            name: model.name,
+            baseURL: ollamaBaseURL,
+            contextWindowTokens: nil
+        )
     }
 
     func useGlobally(_ model: AssistantModel) {
-        activateOllamaModel(id: model.id, name: model.displayName, baseURL: ollamaBaseURL)
+        activateOllamaModel(
+            id: model.id,
+            name: model.displayName,
+            baseURL: ollamaBaseURL,
+            contextWindowTokens: model.inputTokenLimit
+        )
     }
 
     func removeInstalledModel(_ model: AssistantModel) {
@@ -1132,8 +1308,27 @@ final class AssistantSettingsViewModel {
     private let runtime: any AssistantProviderRuntimeProtocol
     private let modelInstaller: any AssistantModelInstallerProtocol
     private let ollamaRuntime: any OllamaRuntimeChecking
+    private let runtimeInstaller: any AssistantLocalRuntimeInstalling
+    private let applicationOpener: any AssistantRuntimeApplicationOpening
     @ObservationIgnored private var connectionTask: Task<Void, Never>?
     @ObservationIgnored private var modelInstallTask: Task<Void, Never>?
+    @ObservationIgnored private var runtimeInstallTask: Task<Void, Never>?
+    private var lastInstalledRuntimeURL: URL?
+
+    private static var defaultRuntimeInstallDestination: URL {
+        let fileManager = FileManager.default
+        if let applications = fileManager.urls(for: .applicationDirectory, in: .localDomainMask).first,
+           fileManager.isWritableFile(atPath: applications.path)
+        {
+            return applications
+        }
+        if let userApplications = fileManager.urls(for: .applicationDirectory, in: .userDomainMask).first,
+           fileManager.fileExists(atPath: userApplications.path)
+        {
+            return userApplications
+        }
+        return fileManager.homeDirectoryForCurrentUser
+    }
 
     private var ollamaBaseURL: URL {
         if configuration.kind == .ollama, let endpointURL = configuration.endpointURL {
@@ -1150,6 +1345,32 @@ final class AssistantSettingsViewModel {
         return defaultURL
     }
 
+    private func startAndVerifyOllama(at applicationURL: URL) async throws {
+        try await applicationOpener.open(applicationURL: applicationURL)
+        let info = try await waitForOllamaReadiness()
+        ollamaRuntimeState = .ready(version: info.version)
+        runtimeSetupState = .ready(version: info.version)
+        refreshModelLibrary()
+    }
+
+    private func waitForOllamaReadiness() async throws -> OllamaRuntimeInfo {
+        var latestError: Error = AssistantProviderError.network(
+            String(localized: "Ollama did not start its local service.")
+        )
+        for attempt in 0 ..< 30 {
+            try Task.checkCancellation()
+            do {
+                return try await ollamaRuntime.check(baseURL: ollamaBaseURL)
+            } catch {
+                latestError = error
+            }
+            if attempt < 29 {
+                try await Task.sleep(for: .seconds(1))
+            }
+        }
+        throw latestError
+    }
+
     private func persistDraft() throws {
         try prepareDraft(requiresModel: true)
         savedConfiguration = configuration
@@ -1162,6 +1383,9 @@ final class AssistantSettingsViewModel {
         configuration.model = configuration.model.trimmingCharacters(in: .whitespacesAndNewlines)
         configuration.maxOutputTokens = AssistantProviderConfiguration.validMaxOutputTokens(
             configuration.maxOutputTokens
+        )
+        configuration.contextWindowTokens = AssistantProviderConfiguration.validContextWindowTokens(
+            configuration.contextWindowTokens
         )
         configuration.redactSensitiveData = true
         guard configuration.kind.isImplemented,
@@ -1184,11 +1408,17 @@ final class AssistantSettingsViewModel {
         }
     }
 
-    private func activateOllamaModel(id: String, name: String, baseURL: URL) {
+    private func activateOllamaModel(
+        id: String,
+        name: String,
+        baseURL: URL,
+        contextWindowTokens: Int?
+    ) {
         var selected = savedConfigurations.first {
             $0.kind == .ollama && $0.model == id
         } ?? AssistantProviderConfiguration(kind: .ollama, model: id)
         selected.baseURL = baseURL.absoluteString
+        selected.contextWindowTokens = contextWindowTokens
         selected.redactSensitiveData = true
         manager.updateAssistantConfiguration(selected, enabled: true)
         savedConfiguration = selected

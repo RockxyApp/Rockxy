@@ -280,12 +280,14 @@ enum AssistantProviderKind: String, CaseIterable, Codable, Identifiable {
             compatibleCloudDescriptor(
                 defaultBaseURL: "https://ark.cn-beijing.volces.com/api/v3",
                 documentationURL: "https://www.volcengine.com/docs/82379/1298454",
+                catalogStrategy: .manualEntry,
                 endpointPolicy: .trustedHTTPS(hosts: [], hostSuffixes: ["volces.com"])
             )
         case .glm:
             compatibleCloudDescriptor(
                 defaultBaseURL: "https://open.bigmodel.cn/api/paas/v4",
                 documentationURL: "https://docs.bigmodel.cn/api-reference/%E6%A8%A1%E5%9E%8B-api/%E5%AF%B9%E8%AF%9D%E8%A1%A5%E5%85%A8",
+                catalogStrategy: .manualEntry,
                 endpointPolicy: .fixedHTTPS(host: "open.bigmodel.cn", path: "api/paas/v4")
             )
         case .openAICompatible:
@@ -358,6 +360,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         baseURL: String? = nil,
         model: String? = nil,
         region: String? = nil,
+        contextWindowTokens: Int? = nil,
         maxOutputTokens: Int = Self.defaultMaxOutputTokens,
         storeResponses: Bool = false,
         redactSensitiveData: Bool = true
@@ -367,6 +370,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         self.baseURL = baseURL ?? kind.defaultBaseURL
         self.model = model ?? kind.defaultModel
         self.region = region
+        self.contextWindowTokens = Self.validContextWindowTokens(contextWindowTokens)
         self.maxOutputTokens = Self.validMaxOutputTokens(maxOutputTokens)
         self.storeResponses = storeResponses
         self.redactSensitiveData = redactSensitiveData
@@ -379,6 +383,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
     var baseURL: String
     var model: String
     var region: String?
+    var contextWindowTokens: Int?
     var maxOutputTokens: Int
     var storeResponses: Bool
     var redactSensitiveData: Bool
@@ -427,9 +432,26 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
 
     static let defaultMaxOutputTokens = 2_048
     static let maxAllowedOutputTokens = 32_768
+    static let defaultLocalContextWindowTokens = 8_192
+    static let minContextWindowTokens = 1_024
+    static let maxContextWindowTokens = 1_048_576
+
+    var effectiveContextWindowTokens: Int? {
+        if let contextWindowTokens {
+            return contextWindowTokens
+        }
+        return kind == .ollama ? Self.defaultLocalContextWindowTokens : nil
+    }
 
     static func validMaxOutputTokens(_ value: Int) -> Int {
         min(max(value, 1), maxAllowedOutputTokens)
+    }
+
+    static func validContextWindowTokens(_ value: Int?) -> Int? {
+        guard let value else {
+            return nil
+        }
+        return min(max(value, minContextWindowTokens), maxContextWindowTokens)
     }
 
     // MARK: Codable
@@ -441,6 +463,9 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? kind.defaultBaseURL
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? kind.defaultModel
         region = try container.decodeIfPresent(String.self, forKey: .region)
+        contextWindowTokens = Self.validContextWindowTokens(
+            try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens)
+        )
         maxOutputTokens = Self.validMaxOutputTokens(
             try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens) ?? Self.defaultMaxOutputTokens
         )
@@ -480,7 +505,7 @@ struct AssistantProviderCapabilities: Equatable {
     static let openAI = AssistantProviderCapabilities(
         streaming: true,
         modelDiscovery: true,
-        toolCalling: true,
+        toolCalling: false,
         usageReporting: true,
         responseStorageControl: true
     )
@@ -489,7 +514,7 @@ struct AssistantProviderCapabilities: Equatable {
         streaming: true,
         modelDiscovery: true,
         toolCalling: false,
-        usageReporting: true,
+        usageReporting: false,
         responseStorageControl: false
     )
 
@@ -497,7 +522,7 @@ struct AssistantProviderCapabilities: Equatable {
         streaming: true,
         modelDiscovery: false,
         toolCalling: false,
-        usageReporting: true,
+        usageReporting: false,
         responseStorageControl: false
     )
 
@@ -534,6 +559,14 @@ struct AssistantProviderCapabilities: Equatable {
 
 // MARK: - AssistantModel
 
+enum AssistantModelCapability: String, Hashable, Sendable {
+    case completion
+    case embedding
+    case thinking
+    case tools
+    case vision
+}
+
 struct AssistantModel: Identifiable, Equatable, Sendable {
     init(
         id: String,
@@ -543,7 +576,8 @@ struct AssistantModel: Identifiable, Equatable, Sendable {
         sizeBytes: Int64? = nil,
         digest: String? = nil,
         parameterSize: String? = nil,
-        quantizationLevel: String? = nil
+        quantizationLevel: String? = nil,
+        capabilities: Set<AssistantModelCapability> = []
     ) {
         self.id = id
         self.displayName = displayName
@@ -553,6 +587,7 @@ struct AssistantModel: Identifiable, Equatable, Sendable {
         self.digest = digest
         self.parameterSize = parameterSize
         self.quantizationLevel = quantizationLevel
+        self.capabilities = capabilities
     }
 
     let id: String
@@ -563,16 +598,34 @@ struct AssistantModel: Identifiable, Equatable, Sendable {
     let digest: String?
     let parameterSize: String?
     let quantizationLevel: String?
+    let capabilities: Set<AssistantModelCapability>
 }
 
 // MARK: - AssistantCompletionRequest
 
 struct AssistantCompletionRequest: Equatable {
+    init(
+        instructions: String,
+        input: String,
+        model: String,
+        maxOutputTokens: Int,
+        storeResponse: Bool,
+        contextWindowTokens: Int? = nil
+    ) {
+        self.instructions = instructions
+        self.input = input
+        self.model = model
+        self.maxOutputTokens = maxOutputTokens
+        self.storeResponse = storeResponse
+        self.contextWindowTokens = contextWindowTokens
+    }
+
     let instructions: String
     let input: String
     let model: String
     let maxOutputTokens: Int
     let storeResponse: Bool
+    let contextWindowTokens: Int?
 }
 
 // MARK: - AssistantUsage
@@ -620,7 +673,9 @@ struct ModelInvestigationResult: Equatable {
     let endpointHost: String
     let text: String
     let usage: AssistantUsage?
-    let toolCalls: [AssistantToolCall]
+    /// Number of model-requested actions discarded at the read-only trust boundary.
+    /// Arguments are deliberately not retained after stream validation.
+    let blockedToolCallCount: Int
 }
 
 // MARK: - ModelInvestigationState

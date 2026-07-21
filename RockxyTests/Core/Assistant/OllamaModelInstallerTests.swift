@@ -5,6 +5,22 @@ import Testing
 // MARK: - OllamaModelInstallerTests
 
 struct OllamaModelInstallerTests {
+    @Test("Curated catalog spans independent local model families")
+    func curatedCatalog() {
+        let models = AssistantDownloadableModel.recommended
+
+        #expect(Set(models.map(\.family)) == [
+            "Qwen",
+            "Llama",
+            "Gemma",
+            "DeepSeek",
+            "Phi",
+            "Mistral",
+        ])
+        #expect(Set(models.map(\.id)).count == models.count)
+        #expect(models.allSatisfy { ($0.approximateDownloadBytes ?? 0) > 0 })
+    }
+
     @Test("Ollama pull streams progress and requires an explicit success event")
     func pullFixture() async throws {
         let transport = OllamaPullFixtureTransport(lines: [
