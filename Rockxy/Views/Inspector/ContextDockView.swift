@@ -7,6 +7,7 @@ struct ContextDockView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +26,7 @@ struct ContextDockView: View {
             case .details:
                 ContextDetailsView(coordinator: coordinator)
             case .aiAssistant:
-                AIAssistantDockView(coordinator: coordinator)
+                AIAssistantDockView(coordinator: coordinator, onOpenSettings: onOpenSettings)
             }
         }
         .background(Color(nsColor: .controlBackgroundColor))
@@ -51,6 +52,7 @@ private struct AIAssistantDockView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    let onOpenSettings: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -130,7 +132,6 @@ private struct AIAssistantDockView: View {
     private static let transcriptBottomID = "debug-assistant-transcript-bottom"
 
     @Environment(\.appUIDisplayMetrics) private var appMetrics
-    @Environment(\.openSettings) private var openSettings
     @FocusState private var isComposerFocused: Bool
     @State private var isConversationSwitcherPresented = false
     @State private var conversationSearch = ""
@@ -596,7 +597,7 @@ private struct AIAssistantDockView: View {
                     if assistantConfiguration?.kind == .ollama {
                         Button(String(localized: "Check Local Model…")) {
                             RockxySettingsTab.select(.assistant)
-                            openSettings()
+                            onOpenSettings()
                         }
                         .controlSize(.small)
                     }
@@ -694,7 +695,7 @@ private struct AIAssistantDockView: View {
 
                     Button {
                         RockxySettingsTab.select(.assistant)
-                        openSettings()
+                        onOpenSettings()
                     } label: {
                         Label(String(localized: "Manage AI Models…"), systemImage: "gearshape")
                     }

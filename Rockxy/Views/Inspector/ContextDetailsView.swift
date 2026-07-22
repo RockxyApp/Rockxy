@@ -49,21 +49,19 @@ struct ContextDetailsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Divider()
-            HStack {
-                Label(
-                    coordinator.isProxyRunning
-                        ? String(localized: "Capture Running")
-                        : String(localized: "Capture Stopped"),
-                    systemImage: coordinator.isProxyRunning ? "record.circle" : "stop.circle"
-                )
-                Spacer()
+            WorkspaceFooterBar(horizontalPadding: 12) {
+                HStack {
+                    Label(
+                        coordinator.isProxyRunning
+                            ? String(localized: "Capture Running")
+                            : String(localized: "Capture Stopped"),
+                        systemImage: coordinator.isProxyRunning ? "record.circle" : "stop.circle"
+                    )
+                    Spacer()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .frame(height: 38)
-            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 
@@ -82,7 +80,6 @@ struct ContextDetailsView: View {
             }
             .listStyle(.inset)
 
-            Divider()
             singleSelectionActionBar(transaction)
         }
     }
@@ -259,36 +256,35 @@ struct ContextDetailsView: View {
     }
 
     private func singleSelectionActionBar(_ transaction: HTTPTransaction) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                coordinator.replayTransaction(transaction)
-            } label: {
-                Label(String(localized: "Replay"), systemImage: "arrow.clockwise")
-            }
-            .disabled(transaction.webSocketConnection != nil)
-            .help(transaction.webSocketConnection == nil
-                ? String(localized: "Replay this request")
-                : String(localized: "WebSocket transactions cannot be replayed as HTTP requests"))
+        WorkspaceFooterBar(horizontalPadding: 10) {
+            HStack(spacing: 8) {
+                Button {
+                    coordinator.replayTransaction(transaction)
+                } label: {
+                    Label(String(localized: "Replay"), systemImage: "arrow.clockwise")
+                }
+                .disabled(transaction.webSocketConnection != nil)
+                .help(transaction.webSocketConnection == nil
+                    ? String(localized: "Replay this request")
+                    : String(localized: "WebSocket transactions cannot be replayed as HTTP requests"))
 
-            Button {
-                coordinator.togglePin(for: transaction)
-            } label: {
-                Image(systemName: transaction.isPinned ? "pin.slash" : "pin")
-            }
-            .help(transaction.isPinned ? String(localized: "Unpin Evidence") : String(localized: "Pin Evidence"))
+                Button {
+                    coordinator.togglePin(for: transaction)
+                } label: {
+                    Image(systemName: transaction.isPinned ? "pin.slash" : "pin")
+                }
+                .help(transaction.isPinned ? String(localized: "Unpin Evidence") : String(localized: "Pin Evidence"))
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            Button {
-                coordinator.createBreakpointRule(for: transaction)
-            } label: {
-                Label(String(localized: "Create Rule"), systemImage: "plus.circle")
+                Button {
+                    coordinator.createBreakpointRule(for: transaction)
+                } label: {
+                    Label(String(localized: "Create Rule"), systemImage: "plus.circle")
+                }
             }
+            .controlSize(.small)
         }
-        .controlSize(.small)
-        .padding(.horizontal, 10)
-        .frame(height: 42)
-        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var multiSelectionContent: some View {
@@ -320,25 +316,23 @@ struct ContextDetailsView: View {
             }
             .listStyle(.inset)
 
-            Divider()
-            HStack(spacing: 8) {
-                Button {
-                    NotificationCenter.default.post(name: .openDiffWindow, object: nil)
-                } label: {
-                    Label(String(localized: "Compare"), systemImage: "arrow.left.arrow.right")
+            WorkspaceFooterBar(horizontalPadding: 10) {
+                HStack(spacing: 8) {
+                    Button {
+                        NotificationCenter.default.post(name: .openDiffWindow, object: nil)
+                    } label: {
+                        Label(String(localized: "Compare"), systemImage: "arrow.left.arrow.right")
+                    }
+                    .disabled(selectedTransactions.count != 2)
+                    Spacer()
+                    Button {
+                        coordinator.presentExport(format: .har)
+                    } label: {
+                        Label(String(localized: "Export Selection"), systemImage: "square.and.arrow.up")
+                    }
                 }
-                .disabled(selectedTransactions.count != 2)
-                Spacer()
-                Button {
-                    coordinator.presentExport(format: .har)
-                } label: {
-                    Label(String(localized: "Export Selection"), systemImage: "square.and.arrow.up")
-                }
+                .controlSize(.small)
             }
-            .controlSize(.small)
-            .padding(.horizontal, 10)
-            .frame(height: 42)
-            .background(Color(nsColor: .windowBackgroundColor))
         }
     }
 

@@ -9,8 +9,13 @@ extension MainContentCoordinator {
     // MARK: - Inspector Layout
 
     func toggleInspectorRight() {
+        setContextDockVisible(!isContextDockVisible)
+    }
+
+    /// Applies Context Dock visibility from either toolbar commands or the native split item.
+    func setContextDockVisible(_ isVisible: Bool) {
+        guard isContextDockVisible != isVisible else { return }
         withAnimation(.smooth(duration: 0.18)) {
-            let isVisible = !isContextDockVisible
             isContextDockVisible = isVisible
             workspaceStore.rememberContextDockVisibility(isVisible)
         }

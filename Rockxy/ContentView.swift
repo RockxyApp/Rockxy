@@ -48,8 +48,13 @@ struct ContentView: View {
                             onDismiss: warning.isDismissible ? { coordinator.readiness.dismissWarning() } : nil
                         )
                     }
-                    CenterContentView(coordinator: coordinator)
-                        .navigationTitle("")
+
+                    CenterContentView(
+                        coordinator: coordinator,
+                        onOpenToolWindow: { id in openWindow(id: id) }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle("")
                 }
             }
         }
@@ -63,6 +68,17 @@ struct ContentView: View {
                 representedWorkspaceID: representedWorkspaceID
             )
             .frame(width: 0, height: 0)
+        }
+        .inspector(isPresented: contextDockVisibility) {
+            ContextDockView(
+                coordinator: coordinator,
+                onOpenSettings: openSettings.callAsFunction
+            )
+            .inspectorColumnWidth(
+                min: Self.minimumContextDockWidth,
+                ideal: Self.idealContextDockWidth,
+                max: Self.maximumContextDockWidth
+            )
         }
         .focusedSceneValue(\.commandActions, MainContentCommandActions(coordinator: coordinator))
         .toolbar {
@@ -181,7 +197,7 @@ struct ContentView: View {
                 }
             }
         }
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
+        .appUIDisplayMetrics(displayMetrics)
     }
 
     // MARK: Private
@@ -195,6 +211,21 @@ struct ContentView: View {
     private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool
     private let representedWorkspaceID: UUID?
+
+    private static let minimumContextDockWidth: CGFloat = 300
+    private static let idealContextDockWidth: CGFloat = 380
+    private static let maximumContextDockWidth: CGFloat = 520
+
+    private var displayMetrics: AppUIDisplayMetrics {
+        AppUIDisplayMetrics(settings: settingsManager.appUI)
+    }
+
+    private var contextDockVisibility: Binding<Bool> {
+        Binding(
+            get: { coordinator.isContextDockVisible },
+            set: { coordinator.setContextDockVisible($0) }
+        )
+    }
 
     private var nearbyTransferTitle: String {
         guard let invitation = nearbyTransferReceiver.pendingInvitation else {

@@ -5,13 +5,14 @@ import SwiftUI
 // MARK: - CenterContentView
 
 /// Primary content area composing the protocol filter bar, optional advanced filter bar,
-/// the NSTableView-backed request list, an optional inspector panel (right or bottom split),
+/// the NSTableView-backed request list, an optional bottom inspector panel,
 /// and the status bar. Manages the bridge between NSTableView selection (Set<UUID>) and the
 /// coordinator's single-selection model.
 struct CenterContentView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    let onOpenToolWindow: (String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,7 +110,8 @@ struct CenterContentView: View {
                 },
                 onSwitchOffProxyOverride: {
                     coordinator.switchOffSystemProxyOverride()
-                }
+                },
+                onOpenToolWindow: onOpenToolWindow
             )
         }
         .onChange(of: coordinator.selectedTransaction?.id) { _, newID in
@@ -131,15 +133,10 @@ struct CenterContentView: View {
 
     private static let minimumBottomTableHeight: CGFloat = 200
     private static let minimumBottomInspectorHeight: CGFloat = 200
-    private static let minimumTrafficWidth: CGFloat = 420
-    private static let contextDockWidth: CGFloat = 380
-
-    private static let minimumWidthForContextDock: CGFloat = 820
 
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
 
     @State private var selectedIDs: Set<UUID> = []
-    @State private var isNarrowInvestigationPresented = false
 
     /// Stable reference to the Allow List singleton so SwiftUI's Observation framework
     /// tracks access to `isActive` inside `body` and re-renders the status bar when
@@ -167,10 +164,11 @@ struct CenterContentView: View {
     private var inspectorWorkspace: some View {
         GeometryReader { proxy in
             if coordinator.inspectorLayout == .hidden {
-                upperWorkspace(availableWidth: proxy.size.width)
+                tableContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 VSplitView {
-                    upperWorkspace(availableWidth: proxy.size.width)
+                    tableContent
                         .frame(
                             minHeight: Self.minimumBottomTableHeight,
                             idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height * 0.58)
@@ -206,43 +204,5 @@ struct CenterContentView: View {
             },
             mainCoordinator: coordinator
         )
-    }
-
-    @ViewBuilder
-    private func upperWorkspace(availableWidth: CGFloat) -> some View {
-        if coordinator.isContextDockVisible, availableWidth >= Self.minimumWidthForContextDock {
-            HSplitView {
-                tableContent
-                    .frame(minWidth: Self.minimumTrafficWidth, maxWidth: .infinity)
-                ContextDockView(coordinator: coordinator)
-                    .frame(
-                        minWidth: Self.contextDockWidth,
-                        idealWidth: Self.contextDockWidth,
-                        maxWidth: 420
-                    )
-            }
-            .id("traffic-context-dock-split")
-        } else if coordinator.isContextDockVisible {
-            tableContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .topTrailing) {
-                    Button {
-                        isNarrowInvestigationPresented = true
-                    } label: {
-                        Label(String(localized: "Ask Assistant"), systemImage: "sparkles")
-                    }
-                    .controlSize(.small)
-                    .padding(8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    .padding(8)
-                }
-                .sheet(isPresented: $isNarrowInvestigationPresented) {
-                    ContextDockView(coordinator: coordinator)
-                        .frame(minWidth: 560, idealWidth: 580, minHeight: 580, idealHeight: 620)
-                }
-        } else {
-            tableContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
     }
 }

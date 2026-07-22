@@ -321,20 +321,17 @@ struct StatusBarView: View {
     var onFilter: () -> Void = {}
     var onAutoSelect: () -> Void = {}
     var onSwitchOffProxyOverride: () -> Void = {}
+    var onOpenToolWindow: (String) -> Void = { _ in }
 
     var body: some View {
-        HStack(spacing: 0) {
-            quickTools
-            Spacer(minLength: 24)
-            centerStatus
-            Spacer(minLength: 24)
-            rightStats
-        }
-        .padding(.horizontal, 12)
-        .frame(height: metrics.statusBarHeight)
-        .background(Theme.StatusBar.background)
-        .overlay(alignment: .top) {
-            Divider()
+        WorkspaceFooterBar(horizontalPadding: 12) {
+            HStack(spacing: 0) {
+                quickTools
+                Spacer(minLength: 24)
+                centerStatus
+                Spacer(minLength: 24)
+                rightStats
+            }
         }
     }
 
@@ -445,7 +442,6 @@ struct StatusBarView: View {
         }
     }
 
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
     @AppStorage("footerQuickToolOrder") private var quickToolOrder = FooterActionKind.defaultQuickTools
         .map(\.rawValue)
@@ -505,23 +501,45 @@ struct StatusBarView: View {
     private func performAction(_ action: FooterActionKind) {
         switch action {
         case .blockList:
-            openWindow(id: "blockList")
+            onOpenToolWindow("blockList")
         case .allowList:
-            openWindow(id: "allowList")
+            onOpenToolWindow("allowList")
         case .mapLocal:
-            openWindow(id: "mapLocal")
+            onOpenToolWindow("mapLocal")
         case .scripting:
-            openWindow(id: "scriptingList")
+            onOpenToolWindow("scriptingList")
         case .mapRemote:
-            openWindow(id: "mapRemote")
+            onOpenToolWindow("mapRemote")
         case .breakpoint:
-            openWindow(id: "breakpointRules")
+            onOpenToolWindow("breakpointRules")
         case .networkConditions:
-            openWindow(id: "networkConditions")
+            onOpenToolWindow("networkConditions")
         case .proxyOverride:
             break
         }
     }
+}
+
+// MARK: - WorkspaceFooterBar
+
+/// Shared bottom-edge chrome for the traffic workspace and its native inspector.
+/// Keeping height and separator construction in one view guarantees both panes meet on one pixel row.
+struct WorkspaceFooterBar<Content: View>: View {
+    let horizontalPadding: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: metrics.statusBarHeight)
+            .background(Theme.StatusBar.background)
+            .overlay(alignment: .top) {
+                Divider()
+            }
+    }
+
+    @Environment(\.appUIDisplayMetrics) private var metrics
 }
 
 private struct FooterQuickToolsEditor: View {
