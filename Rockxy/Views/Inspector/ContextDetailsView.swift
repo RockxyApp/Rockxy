@@ -40,14 +40,11 @@ struct ContextDetailsView: View {
 
     private var noSelectionContent: some View {
         VStack(spacing: 0) {
-            ContentUnavailableView {
-                Label(String(localized: "No Selection"), systemImage: "cursorarrow.click.2")
-            } description: {
-                Text(coordinator.isProxyRunning
+            InspectorEmptyStateView(
+                requestSelectionDescription: coordinator.isProxyRunning
                     ? String(localized: "Select a request to see diagnostics and related traffic.")
-                    : String(localized: "Start capture, then select a request to inspect its context."))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    : String(localized: "Start capture, then select a request to inspect its context.")
+            )
 
             WorkspaceFooterBar(horizontalPadding: 12) {
                 HStack {

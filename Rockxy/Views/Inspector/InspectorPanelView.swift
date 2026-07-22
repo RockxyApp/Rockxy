@@ -4,6 +4,7 @@ import SwiftUI
 /// Shown in the rightmost column when a transaction is selected in the request list.
 struct InspectorPanelView: View {
     let coordinator: MainContentCoordinator
+    var onOpenToolWindow: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,17 +26,15 @@ struct InspectorPanelView: View {
                         transaction: transaction,
                         coordinator: coordinator,
                         previewTabStore: coordinator.previewTabStore,
-                        highlightContext: highlightContext
+                        highlightContext: highlightContext,
+                        onOpenToolWindow: onOpenToolWindow
                     )
                     .frame(minWidth: 250, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             } else {
-                ContentUnavailableView(
-                    "No Selection",
-                    systemImage: "sidebar.right",
-                    description: Text("Select a request to inspect")
+                InspectorEmptyStateView(
+                    requestSelectionDescription: String(localized: "Select a request to inspect")
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

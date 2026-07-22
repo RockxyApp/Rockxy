@@ -104,6 +104,22 @@ struct InspectorLayoutBehaviorTests {
         ).isContextDockVisible)
     }
 
+    @Test("Native bottom inspector binding persists its collapsed state")
+    func nativeBottomInspectorBindingPersists() throws {
+        let environment = try makeEnvironment()
+        defer { environment.defaults.removePersistentDomain(forName: environment.suiteName) }
+        let coordinator = MainContentCoordinator(workspaceLayoutPreferences: environment.preferences)
+
+        coordinator.setBottomInspectorVisible(true)
+        coordinator.setBottomInspectorVisible(false)
+
+        #expect(coordinator.inspectorLayout == .hidden)
+        #expect(coordinator.workspaceStore.createWorkspace().inspectorLayout == .hidden)
+        #expect(MainContentCoordinator(
+            workspaceLayoutPreferences: environment.preferences
+        ).inspectorLayout == .hidden)
+    }
+
     // MARK: Private
 
     private func makeEnvironment() throws -> (

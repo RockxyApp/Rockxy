@@ -132,9 +132,13 @@ struct CenterContentView: View {
     // MARK: Private
 
     private static let minimumBottomTableHeight: CGFloat = 200
-    private static let minimumBottomInspectorHeight: CGFloat = 200
+    private static let minimumBottomInspectorHeight: CGFloat = 320
+    private static let bottomInspectorSplitAutosaveName = RockxyIdentity.current.defaultsKey(
+        "workspaceBottomInspectorSplit.v1"
+    )
 
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
+    @Environment(\.appUIDisplayMetrics) private var displayMetrics
 
     @State private var selectedIDs: Set<UUID> = []
 
@@ -162,27 +166,31 @@ struct CenterContentView: View {
     }
 
     private var inspectorWorkspace: some View {
-        GeometryReader { proxy in
-            if coordinator.inspectorLayout == .hidden {
-                tableContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                VSplitView {
-                    tableContent
-                        .frame(
-                            minHeight: Self.minimumBottomTableHeight,
-                            idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height * 0.58)
-                        )
-                    InspectorPanelView(coordinator: coordinator)
-                        .frame(
-                            minHeight: Self.minimumBottomInspectorHeight,
-                            idealHeight: max(Self.minimumBottomInspectorHeight, proxy.size.height * 0.42)
-                        )
-                }
-                .id("horizontal-inspector-split")
-            }
+        NativeBottomInspectorSplitView(
+            isInspectorPresented: bottomInspectorVisibility,
+            autosaveName: Self.bottomInspectorSplitAutosaveName,
+            primaryMinimumHeight: Self.minimumBottomTableHeight,
+            inspectorMinimumHeight: Self.minimumBottomInspectorHeight
+        ) {
+            tableContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .appUIDisplayMetrics(displayMetrics)
+        } inspector: {
+            InspectorPanelView(
+                coordinator: coordinator,
+                onOpenToolWindow: onOpenToolWindow
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .appUIDisplayMetrics(displayMetrics)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var bottomInspectorVisibility: Binding<Bool> {
+        Binding(
+            get: { coordinator.inspectorLayout == .bottom },
+            set: { coordinator.setBottomInspectorVisible($0) }
+        )
     }
 
     private var tableContent: some View {

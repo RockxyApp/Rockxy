@@ -14,6 +14,17 @@ struct InspectorEmptyStateView: View {
         self.description = description
     }
 
+    /// Shared empty state for inspector surfaces that need a captured request.
+    /// Keep this semantic presentation in one place so the horizontal payload
+    /// inspector and vertical context inspector remain visually consistent.
+    init(requestSelectionDescription description: String) {
+        self.init(
+            String(localized: "No Selection"),
+            systemImage: "doc.text.magnifyingglass",
+            description: description
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
