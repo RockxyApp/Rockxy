@@ -78,11 +78,11 @@ struct RequestTableSelectionScrollTests {
         )] = [
             (10, 11, 9, 10, 10, 11, 10, 10, 10, 20, 8, 10, 14, 11, 9, 32, 13, 24, 26, 34, 26, 22),
             (11, 11, 10, 10, 10, 11, 10, 10, 10, 20, 8, 10, 14, 11, 9, 32, 13, 24, 27, 34, 26, 22),
-            (12, 11, 11, 10, 10, 12, 11, 10, 10, 20, 9, 11, 15, 11, 9, 32, 13, 24, 28, 34, 26, 22),
-            (13, 12, 12, 11, 10, 13, 12, 11, 11, 20, 10, 12, 16, 12, 10, 32, 13, 25, 28, 35, 27, 23),
-            (14, 13, 13, 12, 11, 14, 13, 12, 12, 21, 11, 13, 17, 13, 11, 32, 13, 26, 30, 36, 28, 24),
-            (20, 19, 19, 18, 17, 20, 19, 18, 18, 27, 12, 16, 18, 19, 14, 35, 18, 32, 36, 42, 34, 30),
-            (28, 27, 27, 26, 25, 28, 27, 26, 26, 32, 12, 16, 18, 27, 14, 43, 18, 40, 44, 50, 42, 38),
+            (12, 12, 11, 10, 10, 12, 11, 10, 10, 20, 9, 11, 15, 12, 10, 32, 13, 24, 28, 34, 26, 22),
+            (13, 13, 12, 11, 10, 13, 12, 11, 11, 20, 10, 12, 16, 13, 11, 32, 13, 25, 28, 35, 27, 23),
+            (14, 14, 13, 12, 11, 14, 13, 12, 12, 21, 11, 13, 17, 14, 12, 32, 14, 26, 30, 36, 28, 24),
+            (20, 20, 19, 18, 17, 20, 19, 18, 18, 27, 12, 16, 18, 20, 14, 36, 18, 32, 36, 42, 34, 30),
+            (28, 28, 27, 26, 25, 28, 27, 26, 26, 32, 12, 16, 18, 28, 14, 44, 18, 40, 44, 50, 42, 38),
         ]
         // swiftlint:enable large_tuple
 
@@ -169,10 +169,10 @@ struct RequestTableSelectionScrollTests {
         appUI.fontSize = 20
         let largeMetrics = AppUIDisplayMetrics(settings: appUI)
 
-        #expect(defaultMetrics.controlFontSize == 12)
+        #expect(defaultMetrics.controlFontSize == 13)
         #expect(defaultMetrics.inspectorTabHeight == 23)
         #expect(defaultMetrics.tableRowHeight == 28)
-        #expect(largeMetrics.controlFontSize == 19)
+        #expect(largeMetrics.controlFontSize == 20)
         #expect(largeMetrics.inspectorTabHeight == 30)
         #expect(largeMetrics.tableRowHeight == 36)
     }

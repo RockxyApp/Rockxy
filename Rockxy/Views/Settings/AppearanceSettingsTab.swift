@@ -83,7 +83,7 @@ struct AppearanceSettingsTab: View {
                         .toggleStyle(.checkbox)
                 }
 
-                Text(String(localized: "Applies to the main table, inspector, and Developer Setup Hub."))
+                Text(String(localized: "Applies throughout the app, including navigation, controls, tables, and inspectors."))
                     .font(settingsMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
                     .padding(.leading, settingsMetrics.fieldWidth(192))

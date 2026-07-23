@@ -142,10 +142,7 @@ struct SidebarView: View {
                     Text(mode.title).tag(mode)
                 }
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .workspaceModeSwitcherStyle()
 
             Divider()
 

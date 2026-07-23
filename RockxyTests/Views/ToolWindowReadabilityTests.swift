@@ -130,6 +130,8 @@ struct ToolWindowReadabilityTests {
     @Test("Assistant dock follows Appearance typography and keeps protocol summaries monospaced")
     func assistantDockUsesDisplayMetrics() throws {
         let source = try readProjectFile("Rockxy/Views/Inspector/ContextDockView.swift")
+        let sidebarSource = try readProjectFile("Rockxy/Views/Sidebar/SidebarView.swift")
+        let switcherStyleSource = try readProjectFile("Rockxy/Views/Common/UtilitySegmentedHeader.swift")
 
         #expect(source.contains("@Environment(\\.appUIDisplayMetrics)"))
         #expect(source.contains("appMetrics.swiftUIFont(size:"))
@@ -143,7 +145,11 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains("Text(String(localized: \"Details\"))"))
         #expect(source.contains("Text(String(localized: \"AI Assistant\"))"))
         #expect(source.contains("ContextDetailsView(coordinator: coordinator)"))
-        #expect(source.contains("AIAssistantDockView(coordinator: coordinator)"))
+        #expect(source.contains("AIAssistantDockView("))
+        #expect(source.contains(".workspaceModeSwitcherStyle()"))
+        #expect(sidebarSource.contains(".workspaceModeSwitcherStyle()"))
+        #expect(switcherStyleSource.contains(".controlSize(.regular)"))
+        #expect(switcherStyleSource.contains("metrics.workspaceTabFontSize"))
     }
 
     @Test("Assistant dock uses a compact native hierarchy with progressive disclosure")

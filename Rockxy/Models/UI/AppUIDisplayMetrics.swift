@@ -19,7 +19,7 @@ struct AppUIDisplayMetrics: Equatable {
     }
 
     var controlFontSize: CGFloat {
-        max(11, fontSize - 1)
+        max(11, fontSize)
     }
 
     var secondaryFontSize: CGFloat {

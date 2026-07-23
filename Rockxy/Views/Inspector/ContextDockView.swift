@@ -15,10 +15,7 @@ struct ContextDockView: View {
                 Text(String(localized: "Details")).tag(ContextDockTab.details)
                 Text(String(localized: "AI Assistant")).tag(ContextDockTab.aiAssistant)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .padding(10)
+            .workspaceModeSwitcherStyle()
 
             Divider()
 
