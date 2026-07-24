@@ -6,36 +6,36 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.30.0 (build 47)</title>
-      <pubDate>Thu, 16 Jul 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-07-16T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.31.0 (build 48)</title>
+      <pubDate>Fri, 24 Jul 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-07-24T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.30.0/Rockxy-0.30.0-47.dmg"
-        sparkle:version="47"
-        sparkle:shortVersionString="0.30.0"
-        sparkle:edSignature="Jc+UTNZKKw1DML8pue4icdBWovO0Wb7Ys1RmyGt5vPOQeX+jszLhrTxhUKE5GiRLwNFLN1P6K97+aMu7dUh0AA=="
-        length="30260251"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.31.0/Rockxy-0.31.0-48.dmg"
+        sparkle:version="48"
+        sparkle:shortVersionString="0.31.0"
+        sparkle:edSignature="90L6alyTaxwxRt4qVd8pyT/HwE90dHF/kz8CfTbFSvNrsYnY3TLUOPuZ3wSXkpBbKhQphzyLMaPbXSZxDt3ZDw=="
+        length="31903032"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.30.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.31.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Added a redesigned Focus Navigator with Browse, Focus, and Library modes for moving between all traffic, reusable investigation scopes, saved requests, and pinned requests.</li>
-  <li>Added reusable Focus Sets, traffic signals, and noise controls for isolating errors, slow requests, WebSocket or GraphQL activity, rule hits, selected apps, domains, and paths without deleting captured traffic.</li>
-  <li>Added a Context Dock that keeps request and response details available while navigating the traffic list.</li>
-  <li>Added encrypted nearby iPhone session transfers into a dedicated iOS workspace so current Mac traffic remains available.</li>
+  <li>Added Rockxy Assistant for investigating selected requests, explaining failures, comparing related traffic, checking authentication signals, and preparing bug reports.</li>
+  <li>Added built-in local analysis and optional configured model workflows, with a review step before selected traffic is shared.</li>
+  <li>Added secure Babylon pairing and capture intake for supported companion traffic sessions.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Fixed Quick Tools customization so every part of each dropdown field opens its menu reliably.</li>
-  <li>Kept selection state aligned when focus, signal, noise, or filter changes hide previously selected requests.</li>
+  <li>Kept investigations anchored to the exact request being reviewed.</li>
+  <li>Prevented provider traffic from being recaptured into the active session.</li>
+  <li>Improved streaming responsiveness, request-table stability, and bottom-inspector behavior.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
-  <li>Refined workspace navigation, inspector layout, selection behavior, and persisted layout preferences for a clearer debugging workflow.</li>
-  <li>Kept nearby iPhone transfer discovery available while Rockxy is running, including when macOS restores the app without a main window.</li>
-  <li>Improved captured-value filtering so apps, domains, and paths are easier to reuse in focused investigations.</li>
+  <li>Rebuilt the workspace around native macOS split views for more stable sidebar, request list, Context Dock, and inspector sizing.</li>
+  <li>Expanded local model setup, provider configuration, context limits, and response-review controls.</li>
+  <li>Refined workspace typography, mode switching, inspector persistence, and narrow-window actions.</li>
 </ul>
       ]]></description>
     </item>

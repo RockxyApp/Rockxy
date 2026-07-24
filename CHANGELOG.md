@@ -29,6 +29,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
 - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
+## [0.31.0] - 2026-07-24
+
+### Added
+
+- Added Rockxy Assistant for investigating selected requests, explaining failures, comparing related traffic, checking authentication signals, and preparing bug reports.
+- Added built-in local analysis and optional configured model workflows, with a review step before selected traffic is shared.
+- Added secure Babylon pairing and capture intake for supported companion traffic sessions.
+
+### Fixed
+
+- Kept investigations anchored to the exact request being reviewed.
+- Prevented provider traffic from being recaptured into the active session.
+- Improved streaming responsiveness, request-table stability, and bottom-inspector behavior.
+
+### Changed
+
+- Rebuilt the workspace around native macOS split views for more stable sidebar, request list, Context Dock, and inspector sizing.
+- Expanded local model setup, provider configuration, context limits, and response-review controls.
+- Refined workspace typography, mode switching, inspector persistence, and narrow-window actions.
+
 ## [0.30.0] - 2026-07-16
 
 ### Added

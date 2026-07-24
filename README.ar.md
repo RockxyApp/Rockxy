@@ -61,25 +61,25 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.30.0** — 2026-07-16
+**v0.31.0** — 2026-07-24
 
 ### Added
 
-- Added a redesigned Focus Navigator with Browse, Focus, and Library modes for moving between all traffic, reusable investigation scopes, saved requests, and pinned requests.
-- Added reusable Focus Sets, traffic signals, and noise controls for isolating errors, slow requests, WebSocket or GraphQL activity, rule hits, selected apps, domains, and paths without deleting captured traffic.
-- Added a Context Dock that keeps request and response details available while navigating the traffic list.
-- Added encrypted nearby iPhone session transfers into a dedicated iOS workspace so current Mac traffic remains available.
+- Added Rockxy Assistant for investigating selected requests, explaining failures, comparing related traffic, checking authentication signals, and preparing bug reports.
+- Added built-in local analysis and optional configured model workflows, with a review step before selected traffic is shared.
+- Added secure Babylon pairing and capture intake for supported companion traffic sessions.
 
 ### Fixed
 
-- Fixed Quick Tools customization so every part of each dropdown field opens its menu reliably.
-- Kept selection state aligned when focus, signal, noise, or filter changes hide previously selected requests.
+- Kept investigations anchored to the exact request being reviewed.
+- Prevented provider traffic from being recaptured into the active session.
+- Improved streaming responsiveness, request-table stability, and bottom-inspector behavior.
 
 ### Changed
 
-- Refined workspace navigation, inspector layout, selection behavior, and persisted layout preferences for a clearer debugging workflow.
-- Kept nearby iPhone transfer discovery available while Rockxy is running, including when macOS restores the app without a main window.
-- Improved captured-value filtering so apps, domains, and paths are easier to reuse in focused investigations.
+- Rebuilt the workspace around native macOS split views for more stable sidebar, request list, Context Dock, and inspector sizing.
+- Expanded local model setup, provider configuration, context limits, and response-review controls.
+- Refined workspace typography, mode switching, inspector persistence, and narrow-window actions.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
