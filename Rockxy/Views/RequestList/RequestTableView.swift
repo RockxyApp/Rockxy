@@ -384,6 +384,7 @@ extension RequestTableView {
         var lastAppliedDisplayMetrics: AppUIDisplayMetrics?
         private var autosizeGeneration = 0
         private var lastAppliedRequestTableMetrics: RequestTableAppliedMetrics?
+        private var pendingContextSelectionIDs: Set<UUID>?
 
         /// Guard flag to prevent feedback loops: when we programmatically update NSTableView
         /// selection from SwiftUI state, we suppress the delegate callback that would
@@ -541,14 +542,12 @@ extension RequestTableView {
                 {
                     return
                 }
-                tableView.layoutSubtreeIfNeeded()
                 self.reloadVisibleRows(in: tableView)
                 self.applyHeaderMetrics(to: tableView)
                 tableView.needsDisplay = true
                 if let scrollAnchor {
                     self.restoreScrollAnchor(scrollAnchor, in: tableView)
                 }
-                tableView.layoutSubtreeIfNeeded()
             }
         }
 
@@ -774,6 +773,7 @@ extension RequestTableView {
             guard let transaction = mainCoordinator?.transaction(for: rowData.id) else {
                 return
             }
+            synchronizeContextSelection(clickedRow: tableView.clickedRow, in: tableView)
             let clickedCol = tableView.clickedColumn >= 0
                 ? tableView.tableColumns[tableView.clickedColumn].identifier.rawValue
                 : "url"
@@ -784,6 +784,8 @@ extension RequestTableView {
                 menu.addItem(.separator())
                 buildFilterGroup(menu, transaction: transaction)
             }
+            menu.addItem(.separator())
+            buildAssistantGroup(menu, transaction: transaction)
             menu.addItem(.separator())
             buildRepeatGroup(menu, transaction: transaction)
             menu.addItem(.separator())
@@ -798,6 +800,23 @@ extension RequestTableView {
             buildCompareGroup(menu)
             menu.addItem(.separator())
             buildDeleteGroup(menu, transaction: transaction)
+        }
+
+        func menuDidClose(_ menu: NSMenu) {
+            guard menu === tableView?.menu,
+                  let ids = pendingContextSelectionIDs else
+            {
+                return
+            }
+            pendingContextSelectionIDs = nil
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    return
+                }
+                self.lastSyncedSelectionIDs = ids
+                self.parent.selectedIDs = ids
+                self.parent.onSelectionChanged?(ids)
+            }
         }
 
         @objc
@@ -826,7 +845,9 @@ extension RequestTableView {
                 ) else {
                     return
                 }
-                coordinator.applyContextFilter(suggestion)
+                DispatchQueue.main.async { [weak coordinator] in
+                    coordinator?.applyContextFilter(suggestion)
+                }
             }
         }
 
@@ -840,7 +861,26 @@ extension RequestTableView {
                 ) else {
                     return
                 }
-                coordinator.applyContextFilter(suggestion, excluding: true)
+                DispatchQueue.main.async { [weak coordinator] in
+                    coordinator?.applyContextFilter(suggestion, excluding: true)
+                }
+            }
+        }
+
+        @objc
+        func handleAskDebugAssistant(_ sender: NSMenuItem) {
+            guard let tableView else {
+                return
+            }
+            let selectionIDs = contextSelectionIDs(
+                clickedRow: tableView.clickedRow,
+                selectedRowIndexes: tableView.selectedRowIndexes
+            )
+            withCoordinator(sender) { coordinator, transaction in
+                coordinator.presentDebugAssistant(
+                    for: transaction,
+                    contextSelectionIDs: selectionIDs
+                )
             }
         }
 
@@ -1064,6 +1104,28 @@ extension RequestTableView {
                 scrollView.contentView.scroll(to: visibleOrigin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
+        }
+
+        func contextSelectionIDs(
+            clickedRow: Int,
+            selectedRowIndexes: IndexSet
+        )
+            -> Set<UUID>
+        {
+            guard clickedRow >= 0, clickedRow < rows.count else {
+                return []
+            }
+            let effectiveIndexes = selectedRowIndexes.contains(clickedRow)
+                ? selectedRowIndexes
+                : IndexSet(integer: clickedRow)
+            return Set(
+                effectiveIndexes.compactMap { index in
+                    guard index >= 0, index < rows.count else {
+                        return nil
+                    }
+                    return rows[index].id
+                }
+            )
         }
 
         func syncHeaderColumns(in tableView: NSTableView) {
@@ -1323,6 +1385,22 @@ extension RequestTableView {
                 String(localized: "Exclude Value"),
                 action: #selector(handleExcludeCellValue(_:)),
                 symbol: "line.3.horizontal.decrease.circle.fill",
+                transaction: transaction
+            ))
+        }
+
+        private func buildAssistantGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
+            let selectionCount = contextSelectionIDs(
+                clickedRow: tableView?.clickedRow ?? -1,
+                selectedRowIndexes: tableView?.selectedRowIndexes ?? []
+            ).count
+            let title = selectionCount > 1
+                ? String(localized: "Ask Rockxy Assistant About Selection…")
+                : String(localized: "Ask Rockxy Assistant…")
+            menu.addItem(menuItem(
+                title,
+                action: #selector(handleAskDebugAssistant(_:)),
+                symbol: "waveform.badge.magnifyingglass",
                 transaction: transaction
             ))
         }
@@ -1589,6 +1667,28 @@ extension RequestTableView {
                 key: "\u{8}", modifiers: [], symbol: "trash", transaction: transaction
             )
             menu.addItem(item)
+        }
+
+        private func synchronizeContextSelection(
+            clickedRow: Int,
+            in tableView: NSTableView
+        ) {
+            guard clickedRow >= 0,
+                  clickedRow < rows.count,
+                  !tableView.selectedRowIndexes.contains(clickedRow) else
+            {
+                return
+            }
+
+            let selection = IndexSet(integer: clickedRow)
+            let ids = contextSelectionIDs(
+                clickedRow: clickedRow,
+                selectedRowIndexes: selection
+            )
+            isUpdatingSelection = true
+            tableView.selectRowIndexes(selection, byExtendingSelection: false)
+            isUpdatingSelection = false
+            pendingContextSelectionIDs = ids
         }
 
         // MARK: - Column Header Context Menu

@@ -254,6 +254,7 @@ struct SidebarView: View {
             signalsSection
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         .font(.system(size: metrics.sidebarNavigationFontSize))
     }
 
@@ -323,6 +324,7 @@ struct SidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
     }
 
     private var libraryList: some View {
@@ -330,6 +332,7 @@ struct SidebarView: View {
             favoritesSection
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         .font(.system(size: metrics.sidebarNavigationFontSize))
     }
 

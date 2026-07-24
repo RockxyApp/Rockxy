@@ -11,19 +11,15 @@ struct AssistantSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                SettingsSectionCard(String(localized: "AI Assistant")) {
-                    accessSection
-                }
-
-                SettingsSectionCard(String(localized: "Local Model Setup")) {
+                SettingsSectionCard(String(localized: "1. Local Model Setup")) {
                     globalModelSection
                 }
 
-                SettingsSectionCard(String(localized: "Provider & Model")) {
+                SettingsSectionCard(String(localized: "2. Provider & Model")) {
                     providerSection
                 }
 
-                SettingsSectionCard(String(localized: "Connection")) {
+                SettingsSectionCard(String(localized: "3. Connection")) {
                     connectionSection
                 }
 
@@ -353,18 +349,52 @@ struct AssistantSettingsTab: View {
 
             SettingsFieldRow(String(localized: "Model")) {
                 VStack(alignment: .leading, spacing: 6) {
-                    TextField(String(localized: "Exact model ID"), text: $viewModel.configuration.model)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: settingsMetrics.fieldWidth(420))
-                        .frame(minHeight: settingsMetrics.controlHeight)
-                    if !viewModel.models.isEmpty {
-                        Picker(String(localized: "Discovered Models"), selection: $viewModel.configuration.model) {
-                            ForEach(viewModel.models) { model in
-                                Text(modelPickerTitle(model)).tag(model.id)
+                    HStack(spacing: 6) {
+                        if viewModel.models.isEmpty {
+                            TextField(String(localized: "Exact model ID"), text: $viewModel.configuration.model)
+                                .textFieldStyle(.roundedBorder)
+                        } else {
+                            Picker(String(localized: "Available Models"), selection: $viewModel.configuration.model) {
+                                ForEach(viewModel.models) { model in
+                                    Text(modelPickerTitle(model)).tag(model.id)
+                                }
+                            }
+                            .labelsHidden()
+                        }
+
+                        Button {
+                            viewModel.fetchModels()
+                        } label: {
+                            if viewModel.isRefreshingProviderModels {
+                                ProgressView()
+                                    .controlSize(.small)
+                                    .frame(width: 14, height: 14)
+                            } else {
+                                Image(systemName: "arrow.clockwise")
                             }
                         }
-                        .labelsHidden()
-                        .frame(width: settingsMetrics.fieldWidth(420))
+                        .buttonStyle(.borderless)
+                        .disabled(
+                            viewModel.isBusy
+                                || !viewModel.configuration.kind.isImplemented
+                                || !(viewModel.configuration.kind.capabilities?.modelDiscovery ?? false)
+                        )
+                        .help(String(localized: "Refresh available models"))
+                        .accessibilityLabel(String(localized: "Refresh Available Models"))
+                    }
+                    .frame(width: settingsMetrics.fieldWidth(420))
+                    .frame(minHeight: settingsMetrics.controlHeight)
+
+                    if viewModel.models.isEmpty,
+                       viewModel.configuration.kind.capabilities?.modelDiscovery == true
+                    {
+                        Text(String(localized: "Refresh to discover models available from this provider."))
+                            .font(settingsMetrics.metadataFont())
+                            .foregroundStyle(.secondary)
+                    } else if !viewModel.models.isEmpty {
+                        Text(viewModel.availableModelsDetail)
+                        .font(settingsMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -481,15 +511,6 @@ struct AssistantSettingsTab: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(viewModel.isBusy || !viewModel.configuration.kind.isImplemented)
 
-                    Button(String(localized: "Fetch Models")) {
-                        viewModel.fetchModels()
-                    }
-                    .disabled(
-                        viewModel.isBusy
-                            || !viewModel.configuration.kind.isImplemented
-                            || !(viewModel.configuration.kind.capabilities?.modelDiscovery ?? false)
-                    )
-
                     Button(String(localized: "Test Connection")) {
                         viewModel.testConnection()
                     }
@@ -516,6 +537,8 @@ struct AssistantSettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            accessSection
 
             SettingsIndentedContent {
                 Button(String(localized: "Remove Provider"), role: .destructive) {
@@ -775,6 +798,7 @@ final class AssistantSettingsViewModel {
     private(set) var installedOllamaModelIDs = Set<String>()
     private(set) var isEnabled: Bool
     private(set) var isBusy = false
+    private(set) var isRefreshingProviderModels = false
     private(set) var isRefreshingModelLibrary = false
     private(set) var ollamaRuntimeState = OllamaRuntimeState.checking
     private(set) var runtimeSetupState = AssistantRuntimeSetupState.idle
@@ -804,6 +828,13 @@ final class AssistantSettingsViewModel {
         isOllamaReady
             && modelInstallID == nil
             && !customModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var availableModelsDetail: String {
+        if models.count == 1 {
+            return String(localized: "1 model available · refreshes automatically after local downloads.")
+        }
+        return String(localized: "\(models.count) models available · refreshes automatically after local downloads.")
     }
 
     var ollamaRuntimeTitle: String {
@@ -870,6 +901,10 @@ final class AssistantSettingsViewModel {
         statusMessage = nil
         hasError = false
         refreshCredentialState()
+        if kind == .ollama {
+            models = installedOllamaModels
+            refreshModelLibrary()
+        }
     }
 
     func selectSavedConfiguration(_ configurationID: UUID) {
@@ -884,6 +919,9 @@ final class AssistantSettingsViewModel {
         statusMessage = nil
         hasError = false
         refreshCredentialState()
+        if selected.kind == .ollama {
+            models = installedOllamaModels
+        }
     }
 
     func profileLabel(_ configuration: AssistantProviderConfiguration) -> String {
@@ -914,13 +952,21 @@ final class AssistantSettingsViewModel {
     }
 
     func fetchModels() {
+        guard !isBusy, !isRefreshingProviderModels else {
+            return
+        }
+        isRefreshingProviderModels = true
         startConnectionAction(requiresModel: false) { configuration in
+            defer { self.isRefreshingProviderModels = false }
+            let previousModelID = self.configuration.model
             let values = try await self.runtime.discoverModels(configuration: configuration)
             guard !Task.isCancelled else {
                 return
             }
             self.models = values
-            if configuration.model.isEmpty, let first = values.first {
+            if !values.contains(where: { $0.id == self.configuration.model }),
+               let first = values.first
+            {
                 self.configuration.model = first.id
             }
             if let selected = values.first(where: { $0.id == self.configuration.model }),
@@ -932,7 +978,11 @@ final class AssistantSettingsViewModel {
                 )
             }
             if let selected = values.first(where: { $0.id == self.configuration.model }) {
-                self.configuration.contextWindowTokens = selected.inputTokenLimit
+                let modelChanged = previousModelID != selected.id
+                self.applyDiscoveredContextWindow(
+                    selected,
+                    modelChanged: modelChanged
+                )
             }
             if !self.configuration.model.isEmpty {
                 try self.persistDraft()
@@ -962,28 +1012,44 @@ final class AssistantSettingsViewModel {
                 var inventory = AssistantProviderConfiguration(kind: .ollama, model: "inventory")
                 inventory.baseURL = baseURL.absoluteString
                 let values = try await self.runtime.discoverModels(configuration: inventory)
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, self.ollamaBaseURL == baseURL else {
                     return
                 }
                 self.installedOllamaModels = values
                 self.installedOllamaModelIDs = Set(values.map(\.id))
+                if self.configuration.kind == .ollama {
+                    self.models = values
+                    if !values.contains(where: { $0.id == self.configuration.model }),
+                       let first = values.first
+                    {
+                        self.configuration.model = first.id
+                    }
+                }
                 if var selected = self.savedConfiguration,
                    selected.kind == .ollama,
-                   let model = values.first(where: { $0.id == selected.model }),
-                   selected.contextWindowTokens != model.inputTokenLimit
+                   let model = values.first(where: { $0.id == selected.model })
                 {
-                    selected.contextWindowTokens = model.inputTokenLimit
-                    self.manager.updateAssistantConfiguration(selected, enabled: self.isEnabled)
-                    self.savedConfiguration = selected
-                    self.configuration = selected
-                    self.refreshSavedConfigurations()
+                    let normalizedContext = self.normalizedOllamaContextWindow(
+                        selected.contextWindowTokens,
+                        modelLimit: model.inputTokenLimit
+                    )
+                    if selected.contextWindowTokens != normalizedContext {
+                        selected.contextWindowTokens = normalizedContext
+                        self.manager.updateAssistantConfiguration(selected, enabled: self.isEnabled)
+                        self.savedConfiguration = selected
+                        self.configuration = selected
+                        self.refreshSavedConfigurations()
+                    }
                 }
             } catch {
-                guard !Task.isCancelled else {
+                guard !Task.isCancelled, self.ollamaBaseURL == baseURL else {
                     return
                 }
                 self.installedOllamaModels = []
                 self.installedOllamaModelIDs = []
+                if self.configuration.kind == .ollama {
+                    self.models = []
+                }
                 self.ollamaRuntimeState = .unavailable(
                     message: String(
                         localized: "Start Ollama on this Mac, then check again. (\(error.localizedDescription))"
@@ -1233,6 +1299,9 @@ final class AssistantSettingsViewModel {
                 try await self.modelInstaller.remove(modelID: model.id, baseURL: baseURL)
                 self.installedOllamaModels.removeAll { $0.id == model.id }
                 self.installedOllamaModelIDs.remove(model.id)
+                if self.configuration.kind == .ollama {
+                    self.models.removeAll { $0.id == model.id }
+                }
                 if self.savedConfiguration?.kind == .ollama,
                    self.savedConfiguration?.model == model.id
                 {
@@ -1262,6 +1331,7 @@ final class AssistantSettingsViewModel {
         connectionTask?.cancel()
         connectionTask = nil
         isBusy = false
+        isRefreshingProviderModels = false
         hasError = false
         statusMessage = String(localized: "Connection check cancelled.")
     }
@@ -1384,8 +1454,9 @@ final class AssistantSettingsViewModel {
         configuration.maxOutputTokens = AssistantProviderConfiguration.validMaxOutputTokens(
             configuration.maxOutputTokens
         )
-        configuration.contextWindowTokens = AssistantProviderConfiguration.validContextWindowTokens(
-            configuration.contextWindowTokens
+        configuration.contextWindowTokens = AssistantProviderConfiguration.normalizedContextWindowTokens(
+            configuration.contextWindowTokens,
+            for: configuration.kind
         )
         configuration.redactSensitiveData = true
         guard configuration.kind.isImplemented,
@@ -1418,7 +1489,8 @@ final class AssistantSettingsViewModel {
             $0.kind == .ollama && $0.model == id
         } ?? AssistantProviderConfiguration(kind: .ollama, model: id)
         selected.baseURL = baseURL.absoluteString
-        selected.contextWindowTokens = contextWindowTokens
+        selected.contextWindowTokens = AssistantProviderConfiguration
+            .recommendedLocalContextWindowTokens(modelLimit: contextWindowTokens)
         selected.redactSensitiveData = true
         manager.updateAssistantConfiguration(selected, enabled: true)
         savedConfiguration = selected
@@ -1431,8 +1503,51 @@ final class AssistantSettingsViewModel {
                 $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
             }
         }
+        models = installedOllamaModels
+        if !models.contains(where: { $0.id == id }) {
+            models.append(AssistantModel(id: id, displayName: name))
+            models.sort {
+                $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+            }
+        }
         refreshSavedConfigurations()
         setSuccess(String(localized: "\(name) is ready and selected globally."))
+    }
+
+    private func applyDiscoveredContextWindow(
+        _ model: AssistantModel,
+        modelChanged: Bool
+    ) {
+        if configuration.kind == .ollama {
+            let normalized = normalizedOllamaContextWindow(
+                configuration.contextWindowTokens,
+                modelLimit: model.inputTokenLimit
+            )
+            if modelChanged || configuration.contextWindowTokens != normalized {
+                configuration.contextWindowTokens = normalized
+            }
+        } else {
+            configuration.contextWindowTokens = model.inputTokenLimit
+        }
+    }
+
+    private func normalizedOllamaContextWindow(
+        _ current: Int?,
+        modelLimit: Int?
+    )
+        -> Int
+    {
+        let recommended = AssistantProviderConfiguration
+            .recommendedLocalContextWindowTokens(modelLimit: modelLimit)
+        guard let current else {
+            return recommended
+        }
+        guard current <= AssistantProviderConfiguration.maxLocalContextWindowTokens,
+              modelLimit.map({ current <= $0 }) ?? true else
+        {
+            return recommended
+        }
+        return current
     }
 
     private func refreshSavedConfigurations() {
@@ -1470,6 +1585,7 @@ final class AssistantSettingsViewModel {
                     return
                 }
                 self.setError(error)
+                self.isRefreshingProviderModels = false
             }
         }
     }

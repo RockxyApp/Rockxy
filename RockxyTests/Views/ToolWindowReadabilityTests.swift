@@ -155,6 +155,7 @@ struct ToolWindowReadabilityTests {
     @Test("Assistant dock uses a compact native hierarchy with progressive disclosure")
     func assistantDockKeepsConversationChromeCompact() throws {
         let source = try readProjectFile("Rockxy/Views/Inspector/ContextDockView.swift")
+        let components = try readProjectFile("Rockxy/Views/Inspector/AssistantConversationComponents.swift")
 
         #expect(source.contains("ContentUnavailableView"))
         #expect(source.contains("DisclosureGroup"))
@@ -162,6 +163,14 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains("accessibilityLabel(String(localized: \"Conversation History\"))"))
         #expect(source.contains("accessibilityLabel(String(localized: \"New Conversation\"))"))
         #expect(source.contains("accessibilityLabel(String(localized: \"Send Message\"))"))
+        #expect(components.contains("String(localized: \"Copy\")"))
+        #expect(components.contains("String(localized: \"Review & Retry\")"))
+        #expect(components.contains("Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 9)"))
+        #expect(components.contains("AssistantMarkdownText"))
+        #expect(components.contains("inlineOnlyPreservingWhitespace"))
+        #expect(source.contains("AssistantMarkdownText("))
+        #expect(source.contains("AssistantStreamingText(source: text)"))
+        #expect(source.contains("Generating with \\(model)"))
         #expect(!source.contains("ATTACHED TRAFFIC · LOCAL"))
         #expect(!source.contains("Waiting for traffic context"))
         #expect(!source.contains("Searches conversation titles and message text"))
@@ -169,22 +178,62 @@ struct ToolWindowReadabilityTests {
         #expect(!source.contains("Text(String(localized: \"Rockxy AI Assistant\"))"))
     }
 
+    @Test("Assistant Review Data uses shared tool-window typography and a native preview editor")
+    func assistantReviewDataUsesToolWindowMetrics() throws {
+        let source = try readProjectFile("Rockxy/Views/Inspector/DebugAssistantReviewDataSheet.swift")
+
+        #expect(source.contains("ToolWindowDisplayMetrics"))
+        #expect(source.contains("InspectorBodyTextEditor("))
+        #expect(source.contains("settings.wordWrap = true"))
+        #expect(source.contains("editorSettings: previewEditorSettings"))
+        #expect(source.contains("isEditable: false"))
+        #expect(source.contains(".keyboardShortcut(.cancelAction)"))
+        #expect(!source.contains(".font(.title2"))
+        #expect(!source.contains(".font(.headline"))
+        #expect(!source.contains(".font(.caption"))
+        #expect(!source.contains("GroupBox"))
+    }
+
     @Test("Assistant settings use shared section and field components")
     func assistantSettingsUseSharedComponents() throws {
         let source = try readProjectFile("Rockxy/Views/Settings/AssistantSettingsTab.swift")
         let components = try readProjectFile("Rockxy/Views/Settings/SettingsSectionComponents.swift")
 
-        #expect(source.components(separatedBy: "SettingsSectionCard(").count - 1 == 5)
+        #expect(source.components(separatedBy: "SettingsSectionCard(").count - 1 == 4)
         #expect(source.contains("SettingsFieldRow"))
         #expect(source.contains("SettingsIndentedContent"))
-        #expect(source.contains("Global Model Library"))
+        #expect(source.contains("1. Local Model Setup"))
+        #expect(source.contains("2. Provider & Model"))
+        #expect(source.contains("3. Connection"))
         #expect(source.contains("Download & Use"))
         #expect(source.contains("Global Default"))
-        #expect(source.contains("HStack(spacing: 20)"))
+        #expect(source.contains("Image(systemName: \"arrow.clockwise\")"))
+        #expect(source.contains("accessibilityLabel(String(localized: \"Refresh Available Models\"))"))
+        #expect(!source.contains("Button(String(localized: \"Fetch Models\"))"))
         #expect(!source.contains("LazyVGrid("))
         #expect(components.contains("SettingsDisplayMetrics"))
         #expect(components.contains("controlBackgroundColor"))
         #expect(components.contains("separatorColor).opacity(0.62)"))
+    }
+
+    @Test("Ollama setup uses a compact native installation sheet")
+    func ollamaRuntimeSetupUsesNativeInstallationSheet() throws {
+        let source = try readProjectFile("Rockxy/Views/Settings/AssistantRuntimeSetupSheet.swift")
+
+        #expect(source.contains("SettingsDisplayMetrics"))
+        #expect(source.contains("AssistantInstallPathControl"))
+        #expect(source.contains("NSPathControl"))
+        #expect(source.contains("fontSize: settingsMetrics.bodyFontSize"))
+        #expect(source.contains("control.font = .systemFont(ofSize: fontSize)"))
+        #expect(source.contains("Text(String(localized: \"Install Ollama\"))"))
+        #expect(source.contains("Button(String(localized: \"Install\"))"))
+        #expect(source.contains(".keyboardShortcut(.cancelAction)"))
+        #expect(source.contains("The developer signature and Gatekeeper approval are checked before installation."))
+        #expect(!source.contains("Set Up Ollama on This Mac"))
+        #expect(!source.contains("shippingbox.and.arrow.backward.fill"))
+        #expect(!source.contains("Verified Runtime"))
+        #expect(!source.contains("Nothing will be installed until you confirm."))
+        #expect(!source.contains("GroupBox"))
     }
 
     @Test("Custom tool windows are wrapped in display metrics provider")

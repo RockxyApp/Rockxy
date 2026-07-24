@@ -41,8 +41,12 @@ struct NativeBottomInspectorSplitView<Primary: View, Inspector: View>: NSViewCon
     }
 
     func makeNSViewController(context: Context) -> NativeBottomInspectorSplitViewController {
-        let primaryController = NSHostingController(rootView: primary())
-        let inspectorController = NSHostingController(rootView: inspector())
+        let primaryController = NSHostingController(
+            rootView: NativeBottomDeferredContent(content: primary)
+        )
+        let inspectorController = NSHostingController(
+            rootView: NativeBottomDeferredContent(content: inspector)
+        )
 
         // Prevent SwiftUI ideal sizes from propagating through NSSplitViewController and
         // resizing the containing workspace window.
@@ -51,6 +55,7 @@ struct NativeBottomInspectorSplitView<Primary: View, Inspector: View>: NSViewCon
 
         context.coordinator.primaryController = primaryController
         context.coordinator.inspectorController = inspectorController
+        context.coordinator.recordInitialPresentation(isInspectorPresented)
 
         let controller = NativeBottomInspectorSplitViewController()
         controller.configure(
@@ -69,10 +74,15 @@ struct NativeBottomInspectorSplitView<Primary: View, Inspector: View>: NSViewCon
         _ controller: NativeBottomInspectorSplitViewController,
         context: Context
     ) {
-        context.coordinator.primaryController?.rootView = primary()
-        context.coordinator.inspectorController?.rootView = inspector()
+        // Keep both hosting roots stable for the lifetime of the native split controller.
+        // Their deferred builders read observable workspace state from inside the hosting
+        // hierarchy, so rows and inspector details still update without replacing rootView.
+        // Replacing either root during an outer SwiftUI/AppKit constraint pass can recurse
+        // through SplitViewChildController and crash in swift_beginAccess.
         updateVisibilityCallback(on: controller)
-        controller.setInspectorPresented(isInspectorPresented, animated: true)
+        if context.coordinator.shouldApplyPresentation(isInspectorPresented) {
+            controller.setInspectorPresented(isInspectorPresented, animated: true)
+        }
     }
 
     func sizeThatFits(
@@ -99,8 +109,34 @@ struct NativeBottomInspectorSplitView<Primary: View, Inspector: View>: NSViewCon
     // MARK: - Coordinator
 
     final class Coordinator {
-        var primaryController: NSHostingController<Primary>?
-        var inspectorController: NSHostingController<Inspector>?
+        var primaryController: NSHostingController<NativeBottomDeferredContent<Primary>>?
+        var inspectorController: NSHostingController<NativeBottomDeferredContent<Inspector>>?
+
+        func recordInitialPresentation(_ isPresented: Bool) {
+            lastAppliedPresentation = isPresented
+        }
+
+        func shouldApplyPresentation(_ isPresented: Bool) -> Bool {
+            guard lastAppliedPresentation != isPresented else { return false }
+            lastAppliedPresentation = isPresented
+            return true
+        }
+
+        private var lastAppliedPresentation: Bool?
+    }
+}
+
+// MARK: - NativeBottomDeferredContent
+
+/// Evaluates the content builder inside the hosted SwiftUI hierarchy.
+///
+/// This lets Observation invalidate the relevant content in place while the AppKit split
+/// items and their hosting roots keep stable identities across table/filter updates.
+struct NativeBottomDeferredContent<Content: View>: View {
+    let content: () -> Content
+
+    var body: some View {
+        content()
     }
 }
 
@@ -188,10 +224,13 @@ final class NativeBottomInspectorSplitViewController: NSSplitViewController {
     // MARK: Private
 
     private func observeCollapseState(of item: NSSplitViewItem) {
-        collapseObservation = item.observe(\.isCollapsed, options: [.new]) { [weak self] item, _ in
-            let isVisible = !item.isCollapsed
+        collapseObservation = item.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async { [weak self] in
-                self?.inspectorVisibilityDidChange(isVisible)
+                guard let self else { return }
+                // Read the current value after AppKit finishes the collapse transaction.
+                // A queued KVO callback can otherwise publish an obsolete intermediate
+                // value and immediately reverse the SwiftUI binding.
+                self.inspectorVisibilityDidChange(self.isInspectorPresented)
             }
         }
     }

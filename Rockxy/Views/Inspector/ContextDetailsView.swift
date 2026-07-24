@@ -7,7 +7,7 @@ struct ContextDetailsView: View {
 
     var body: some View {
         contextContent
-            .background(Color(nsColor: .controlBackgroundColor))
+            .background(Color.clear)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(String(localized: "Inspector Details"))
     }
@@ -76,6 +76,7 @@ struct ContextDetailsView: View {
                 toolsSection(transaction)
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
 
             singleSelectionActionBar(transaction)
         }
@@ -110,7 +111,7 @@ struct ContextDetailsView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
     }
 
     private func overviewSection(_ transaction: HTTPTransaction) -> some View {

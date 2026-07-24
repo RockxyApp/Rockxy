@@ -63,137 +63,111 @@ struct AssistantRuntimeSetupSheet: View {
     @Bindable var viewModel: AssistantSettingsViewModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "shippingbox.and.arrow.backward.fill")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
-                    .frame(width: 30)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(String(localized: "Set Up Ollama on This Mac"))
-                        .font(.title2.weight(.semibold))
-                    Text(
-                        String(
-                            localized: "Rockxy downloads the official app, verifies its developer signature, installs it where you choose, and checks the local service."
-                        )
-                    )
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                }
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 18) {
+                header
+                installationSummary
+                installLocation
+                setupStatus
             }
-
-            GroupBox {
-                VStack(alignment: .leading, spacing: 10) {
-                    detailRow(
-                        String(localized: "Runtime"),
-                        value: String(localized: "Ollama · official macOS app")
-                    )
-                    detailRow(
-                        String(localized: "Download"),
-                        value: approximateSize(runtime.approximateDownloadBytes)
-                    )
-                    detailRow(
-                        String(localized: "Installed"),
-                        value: approximateSize(runtime.approximateInstalledBytes)
-                    )
-                    detailRow(
-                        String(localized: "Models"),
-                        value: runtime.modelFamilies.joined(separator: ", ")
-                    )
-                }
-                .padding(.vertical, 2)
-            } label: {
-                Label(String(localized: "Verified Runtime"), systemImage: "checkmark.seal")
-            }
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text(String(localized: "Install Location"))
-                    .font(.headline)
-                HStack(spacing: 8) {
-                    Text(viewModel.runtimeInstallDestinationDisplayPath)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button(String(localized: "Choose…")) {
-                        viewModel.chooseRuntimeInstallDestination()
-                    }
-                    .disabled(viewModel.runtimeSetupState.isBusy)
-                }
-                .padding(.horizontal, 10)
-                .frame(height: 30)
-                .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                }
-                Text(
-                    String(
-                        localized: "Model files are downloaded separately after setup and remain managed by Ollama. They can require several GB each."
-                    )
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-
-            setupStatus
+            .padding(.horizontal, 22)
+            .padding(.top, 20)
+            .padding(.bottom, 18)
 
             Divider()
 
-            HStack {
-                if viewModel.runtimeSetupState.isBusy {
-                    Button(String(localized: "Cancel")) {
-                        viewModel.cancelRuntimeInstall()
-                    }
-                } else {
-                    Button(String(localized: "Cancel")) {
-                        dismiss()
-                    }
-                }
-                Spacer()
-                switch viewModel.runtimeSetupState {
-                case .ready:
-                    Button(String(localized: "Done")) {
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                case .failed where viewModel.ollamaApplicationURL != nil:
-                    Button(String(localized: "Open & Check Again")) {
-                        viewModel.retryInstalledOllamaRuntime()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                default:
-                    Button(String(localized: "Download & Install")) {
-                        viewModel.installOllamaRuntime()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(viewModel.runtimeSetupState.isBusy)
-                }
-            }
+            actionBar
         }
-        .padding(20)
-        .frame(width: 540)
+        .font(settingsMetrics.font())
+        .frame(width: max(500, settingsMetrics.fieldWidth(500)))
+        .background(Color(nsColor: .windowBackgroundColor))
         .interactiveDismissDisabled(viewModel.runtimeSetupState.isBusy)
     }
 
     // MARK: Private
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private let runtime = AssistantLocalRuntimeDescriptor.ollama
+
+    private var settingsMetrics: SettingsDisplayMetrics {
+        SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "Install Ollama"))
+                .font(.system(size: max(16, settingsMetrics.bodyFontSize + 3), weight: .semibold))
+            Text(
+                String(
+                    localized: "Ollama runs local models used by Rockxy. The app is downloaded from ollama.com."
+                )
+            )
+            .font(settingsMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var installationSummary: some View {
+        Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 8) {
+            detailRow(
+                String(localized: "Application"),
+                value: runtime.applicationName
+            )
+            detailRow(
+                String(localized: "Download"),
+                value: approximateSize(runtime.approximateDownloadBytes)
+            )
+            detailRow(
+                String(localized: "Disk Space"),
+                value: String(
+                    localized: "\(approximateSize(runtime.approximateInstalledBytes)), excluding models"
+                )
+            )
+        }
+        .font(settingsMetrics.secondaryFont())
+    }
+
+    private var installLocation: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(String(localized: "Install in:"))
+                .font(settingsMetrics.secondaryFont(weight: .medium))
+
+            HStack(spacing: 8) {
+                AssistantInstallPathControl(
+                    url: viewModel.runtimeInstallDestination,
+                    fontSize: settingsMetrics.bodyFontSize
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: settingsMetrics.controlHeight)
+
+                Button(String(localized: "Choose…")) {
+                    viewModel.chooseRuntimeInstallDestination()
+                }
+                .disabled(viewModel.runtimeSetupState.isBusy)
+            }
+
+            Text(
+                String(
+                    localized: "Models are installed separately by Ollama and may require several GB each."
+                )
+            )
+            .font(settingsMetrics.metadataFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
 
     @ViewBuilder private var setupStatus: some View {
         switch viewModel.runtimeSetupState {
         case .idle:
             Label(
-                String(localized: "Nothing will be installed until you confirm."),
-                systemImage: "hand.raised"
+                String(localized: "The developer signature and Gatekeeper approval are checked before installation."),
+                systemImage: "checkmark.shield"
             )
+            .font(settingsMetrics.secondaryFont())
             .foregroundStyle(.secondary)
         case let .downloading(receivedBytes, totalBytes):
             VStack(alignment: .leading, spacing: 7) {
@@ -203,7 +177,7 @@ struct AssistantRuntimeSetupSheet: View {
                     ProgressView()
                 }
                 Text(downloadStatus(receivedBytes: receivedBytes, totalBytes: totalBytes))
-                    .font(.caption)
+                    .font(settingsMetrics.metadataFont())
                     .foregroundStyle(.secondary)
             }
         case .verifying:
@@ -224,7 +198,7 @@ struct AssistantRuntimeSetupSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if viewModel.ollamaApplicationURL != nil {
                     Text(String(localized: "The verified app remains installed. Rockxy can open it and check the service again without downloading it twice."))
-                        .font(.caption)
+                        .font(settingsMetrics.metadataFont())
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -232,22 +206,63 @@ struct AssistantRuntimeSetupSheet: View {
         }
     }
 
+    private var actionBar: some View {
+        HStack(spacing: 8) {
+            Spacer()
+
+            if viewModel.runtimeSetupState.isBusy {
+                Button(String(localized: "Cancel")) {
+                    viewModel.cancelRuntimeInstall()
+                }
+                .keyboardShortcut(.cancelAction)
+            } else {
+                Button(String(localized: "Cancel")) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+
+            switch viewModel.runtimeSetupState {
+            case .ready:
+                Button(String(localized: "Done")) {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            case .failed where viewModel.ollamaApplicationURL != nil:
+                Button(String(localized: "Open & Check Again")) {
+                    viewModel.retryInstalledOllamaRuntime()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+            default:
+                Button(String(localized: "Install")) {
+                    viewModel.installOllamaRuntime()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(viewModel.runtimeSetupState.isBusy)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 12)
+    }
+
     private func detailRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        GridRow {
             Text(label)
                 .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
+                .frame(width: 82, alignment: .trailing)
             Text(value)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(.subheadline)
     }
 
     private func progressStatus(_ text: String) -> some View {
         HStack(spacing: 9) {
             ProgressView().controlSize(.small)
             Text(text)
-                .font(.subheadline)
+                .font(settingsMetrics.secondaryFont())
                 .foregroundStyle(.secondary)
         }
     }
@@ -263,5 +278,25 @@ struct AssistantRuntimeSetupSheet: View {
         }
         let total = ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
         return String(localized: "Downloading official runtime · \(received) of \(total)")
+    }
+}
+
+// MARK: - AssistantInstallPathControl
+
+private struct AssistantInstallPathControl: NSViewRepresentable {
+    let url: URL
+    let fontSize: CGFloat
+
+    func makeNSView(context: Context) -> NSPathControl {
+        let control = NSPathControl()
+        control.pathStyle = .standard
+        control.isEditable = false
+        control.focusRingType = .none
+        return control
+    }
+
+    func updateNSView(_ control: NSPathControl, context: Context) {
+        control.url = url
+        control.font = .systemFont(ofSize: fontSize)
     }
 }

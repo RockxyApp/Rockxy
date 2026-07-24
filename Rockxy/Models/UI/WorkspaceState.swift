@@ -63,6 +63,7 @@ final class WorkspaceState: Identifiable {
     var debugAssistantReviewTrafficScope: AssistantTrafficScope?
     var debugAssistantReviewModelAccessEnabled = false
     var isPreparingDebugAssistantReview = false
+    var isDebugAssistantComposerFocusRequested = false
     var focusNavigatorMode: FocusNavigatorMode = .browse
     var activeTrafficSignal: TrafficSignal?
     var focusSets: [FocusSet] = []
@@ -99,6 +100,7 @@ final class WorkspaceState: Identifiable {
     var domainGroupingIndex = DomainGroupingIndex()
     var appNodes: [AppInfo] = []
     var appNodeIndexMap: [String: Int] = [:]
+    var appGroupingIndex = AppGroupingIndex()
 
     var activeFocusSet: FocusSet? {
         focusSets.first { $0.id == activeFocusSetID }
@@ -127,11 +129,13 @@ final class WorkspaceState: Identifiable {
         debugAssistantReviewTrafficScope = nil
         debugAssistantReviewModelAccessEnabled = false
         isPreparingDebugAssistantReview = false
+        isDebugAssistantComposerFocusRequested = false
         domainTree.removeAll()
         totalDomainCount = 0
         domainIndexMap.removeAll()
         domainGroupingIndex.removeAll()
         appNodes.removeAll()
         appNodeIndexMap.removeAll()
+        appGroupingIndex.removeAll()
     }
 }

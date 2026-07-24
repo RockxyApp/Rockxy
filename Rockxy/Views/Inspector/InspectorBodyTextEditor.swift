@@ -9,17 +9,20 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
     var editorID: String = UUID().uuidString
     var editorSettings = InspectorTextEditorSettings()
     var highlightContext: InspectorHighlightContext = .empty
+    var isEditable = true
 
     init(
         text: String,
         editorID: String = UUID().uuidString,
         editorSettings: InspectorTextEditorSettings = InspectorTextEditorSettings(),
-        highlightContext: InspectorHighlightContext = .empty
+        highlightContext: InspectorHighlightContext = .empty,
+        isEditable: Bool = true
     ) {
         self.text = text
         self.editorID = editorID
         self.editorSettings = editorSettings
         self.highlightContext = highlightContext
+        self.isEditable = isEditable
     }
 
     init(text: String, fontSize: CGFloat, highlightContext: InspectorHighlightContext = .empty) {
@@ -40,6 +43,8 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         context.coordinator.scrollView = scrollView
         configure(scrollView)
         apply(text, to: scrollView, coordinator: context.coordinator)
+        applyInteractionSettings(to: scrollView.documentView as? NSTextView)
+        resetReadOnlyPreviewPosition(in: scrollView)
         return scrollView
     }
 
@@ -55,6 +60,7 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         }
         coordinator.editorID = editorID
         coordinator.scrollView = nsView
+        applyInteractionSettings(to: textView)
 
         let textChanged = textView.string != text
         let settingsChanged = coordinator.lastEditorSettings != editorSettings
@@ -81,6 +87,8 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
                 in: nsView
             )
         }
+        applyInteractionSettings(to: textView)
+        resetReadOnlyPreviewHorizontalPosition(in: nsView)
     }
 
     final class Coordinator {
@@ -267,9 +275,8 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
             return
         }
 
-        textView.isEditable = true
+        applyInteractionSettings(to: textView)
         textView.isSelectable = true
-        textView.allowsUndo = true
         textView.usesFindBar = true
         textView.isRichText = true
         textView.importsGraphics = false
@@ -422,6 +429,42 @@ struct InspectorBodyTextEditor: NSViewRepresentable {
         let style = NSMutableParagraphStyle()
         style.defaultTabInterval = editorSettings.tabInterval
         return style
+    }
+
+    private func applyInteractionSettings(to textView: NSTextView?) {
+        guard let textView else {
+            return
+        }
+        textView.isEditable = isEditable
+        textView.allowsUndo = isEditable
+        textView.textContainerInset = NSSize(width: isEditable ? 8 : 24, height: 8)
+    }
+
+    private func resetReadOnlyPreviewPosition(in scrollView: NSScrollView) {
+        guard !isEditable, let textView = scrollView.documentView as? NSTextView else {
+            return
+        }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        scrollView.contentView.scroll(to: .zero)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        Task { @MainActor [weak scrollView] in
+            await Task.yield()
+            guard let scrollView else {
+                return
+            }
+            scrollView.contentView.scroll(to: .zero)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    private func resetReadOnlyPreviewHorizontalPosition(in scrollView: NSScrollView) {
+        guard !isEditable else {
+            return
+        }
+        let visibleOrigin = scrollView.contentView.bounds.origin
+        scrollView.contentView.scroll(to: NSPoint(x: 0, y: visibleOrigin.y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func restoreVisibleOrigin(_ origin: NSPoint, in scrollView: NSScrollView) {

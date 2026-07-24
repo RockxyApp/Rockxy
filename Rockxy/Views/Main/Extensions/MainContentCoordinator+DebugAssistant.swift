@@ -27,6 +27,27 @@ extension MainContentCoordinator {
         startDebugAssistant(DebugAssistantRecipe.suggestedRecipe(for: prompt), prompt: prompt)
     }
 
+    func presentDebugAssistant(
+        for primary: HTTPTransaction,
+        contextSelectionIDs: Set<UUID>
+    ) {
+        let validSelectionIDs = Set(
+            contextSelectionIDs.filter { transaction(for: $0) != nil }
+        )
+        let effectiveSelectionIDs = validSelectionIDs.contains(primary.id)
+            ? validSelectionIDs
+            : Set([primary.id])
+
+        selectedTransactionIDs = effectiveSelectionIDs
+        selectTransaction(primary)
+
+        let workspace = activeWorkspace
+        workspace.activeMainTab = .traffic
+        workspace.contextDockTab = .aiAssistant
+        workspace.isDebugAssistantComposerFocusRequested = true
+        setContextDockVisible(true)
+    }
+
     func startDebugAssistant(_ recipe: DebugAssistantRecipe) {
         startDebugAssistant(recipe, prompt: recipe.prompt)
     }
@@ -164,9 +185,13 @@ extension MainContentCoordinator {
                     return
                 }
                 currentWorkspace.debugAssistantState = .result(result)
-                currentWorkspace.debugAssistantMessages.append(.assistant(result))
-                self.syncCurrentDebugAssistantConversation(currentWorkspace)
                 self.debugAssistantTasks[workspace.id] = nil
+                if self.shouldAutomaticallyUseConfiguredModel(currentWorkspace) {
+                    self.prepareDebugAssistantReview(for: currentWorkspace, result: result)
+                } else {
+                    currentWorkspace.debugAssistantMessages.append(.assistant(result))
+                    self.syncCurrentDebugAssistantConversation(currentWorkspace)
+                }
             } catch is CancellationError {
                 self?.debugAssistantTasks[workspace.id] = nil
             } catch {
@@ -214,6 +239,13 @@ extension MainContentCoordinator {
         guard case let .result(result) = workspace.debugAssistantState else {
             return
         }
+        prepareDebugAssistantReview(for: workspace, result: result)
+    }
+
+    private func prepareDebugAssistantReview(
+        for workspace: WorkspaceState,
+        result: InvestigationResult
+    ) {
         let snapshots = result.scopeTransactionIDs.compactMap { id in
             transaction(for: id).map(InvestigationTransactionSnapshot.init(transaction:))
         }
@@ -329,7 +361,8 @@ extension MainContentCoordinator {
         let request = AssistantPromptBuilder().build(
             result: result,
             pack: pack,
-            configuration: configuration
+            configuration: configuration,
+            conversation: workspace.debugAssistantMessages
         )
         workspace.debugAssistantReviewPack = nil
         workspace.debugAssistantReviewConfiguration = nil
@@ -352,19 +385,22 @@ extension MainContentCoordinator {
                     request: request,
                     configuration: configuration
                 )
-                var text = ""
+                var textBuffer = AssistantStreamingTextBuffer(
+                    startedAt: ProcessInfo.processInfo.systemUptime
+                )
                 var usage: AssistantUsage?
                 var blockedToolCallCount = 0
                 for try await event in stream {
                     try Task.checkCancellation()
                     switch event {
                     case let .textDelta(delta):
-                        guard text.utf8.count + delta.utf8.count <= AssistantExecutionLimits.maxOutputBytes else {
-                            throw AssistantProviderError.malformedResponse(
-                                "The streamed model output exceeded Rockxy's size limit"
-                            )
+                        let shouldPublish = try textBuffer.append(
+                            delta,
+                            at: ProcessInfo.processInfo.systemUptime
+                        )
+                        guard shouldPublish else {
+                            continue
                         }
-                        text += delta
                         guard self.isCurrentModelRun(
                             workspaceID: workspace.id,
                             runID: runID,
@@ -377,8 +413,9 @@ extension MainContentCoordinator {
                             provider: configuration.kind,
                             model: configuration.model,
                             endpointHost: configuration.endpointHost,
-                            text: text
+                            text: textBuffer.text
                         )
+                        await Task.yield()
                     case let .usage(value):
                         usage = value
                     case let .toolCallCompleted(call):
@@ -405,16 +442,26 @@ extension MainContentCoordinator {
                 ) else {
                     return
                 }
+                let groundedText = AssistantResponseGrounder().finalize(
+                    textBuffer.text,
+                    against: result,
+                    userQuestion: workspace.debugAssistantMessages
+                        .last(where: { $0.role == .user })?
+                        .text
+                )
                 let modelResult = ModelInvestigationResult(
                     provider: configuration.kind,
                     model: configuration.model,
                     endpointHost: configuration.endpointHost,
-                    text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    text: groundedText,
                     usage: usage,
                     blockedToolCallCount: blockedToolCallCount
                 )
                 workspace.modelInvestigationState = .completed(modelResult)
-                workspace.debugAssistantMessages.append(.assistant(modelResult))
+                workspace.debugAssistantMessages.append(.assistant(
+                    modelResult,
+                    investigation: result
+                ))
                 self.syncCurrentDebugAssistantConversation(workspace)
                 self.debugAssistantTasks[workspace.id] = nil
             } catch is CancellationError {
@@ -441,15 +488,58 @@ extension MainContentCoordinator {
         workspace.modelInvestigationState = .idle
     }
 
-    func revealDebugAssistantEvidence(_ evidence: InvestigationEvidence) {
-        guard let id = evidence.sourceTransactionID,
-              let transaction = transaction(for: id) else
+    func prepareDebugAssistantFollowUp(for result: InvestigationResult?) {
+        let workspace = activeWorkspace
+        guard workspace.debugAssistantDraft
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else
         {
             return
         }
+
+        workspace.debugAssistantDraft = switch result?.recipe {
+        case .explainRequest:
+            String(localized: "What should I inspect next in Rockxy?")
+        case .explainFailure:
+            String(localized: "Show me how to verify the leading cause in Rockxy.")
+        case .compareWithSuccess:
+            String(localized: "Which captured difference should I verify first?")
+        case .checkAuthentication:
+            String(localized: "What authentication evidence should I verify next?")
+        case .prepareBugReport:
+            String(localized: "What should I add before sharing this bug report?")
+        case nil:
+            String(localized: "What should I inspect next in Rockxy?")
+        }
+    }
+
+    func revealDebugAssistantEvidence(_ evidence: InvestigationEvidence) {
+        guard let id = evidence.sourceTransactionID else
+        {
+            return
+        }
+        revealDebugAssistantRequest(id: id)
+    }
+
+    func revealDebugAssistantRequest(id: UUID) {
+        guard let transaction = transaction(for: id) else {
+            activeToast = ToastMessage(
+                style: .error,
+                text: String(localized: "That captured request is no longer available.")
+            )
+            return
+        }
+
         let workspace = activeWorkspace
+        workspace.activeMainTab = .traffic
+        if !workspace.filteredTransactions.contains(where: { $0.id == id }) {
+            workspace.filterCriteria = .empty
+            workspace.sidebarSelection = nil
+            recomputeFilteredTransactions()
+        }
         workspace.selectedTransactionIDs = [id]
         workspace.selectedTransaction = transaction
+        workspace.contextDockTab = .details
+        setContextDockVisible(true)
         revealInspectorForSelectionIfNeeded()
     }
 
@@ -610,6 +700,15 @@ extension MainContentCoordinator {
         } else {
             workspace.debugAssistantConversations.append(conversation)
         }
+    }
+
+    private func shouldAutomaticallyUseConfiguredModel(_ workspace: WorkspaceState) -> Bool {
+        guard workspace.debugAssistantUsesConfiguredModel else {
+            return false
+        }
+        let settings = assistantSettingsProvider()
+        return settings.debugAssistantModelAccessEnabled
+            && settings.assistantProviderConfiguration?.isComplete == true
     }
 
     private func debugAssistantConversationTitle(from prompt: String) -> String {

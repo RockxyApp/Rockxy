@@ -18,6 +18,8 @@ struct DebugAssistantEngine {
         }
 
         return switch recipe {
+        case .explainRequest:
+            explainRequest(primary: primary, selected: selected, session: session)
         case .explainFailure:
             explainFailure(primary: primary, selected: selected, session: session)
         case .compareWithSuccess:
@@ -30,6 +32,98 @@ struct DebugAssistantEngine {
     }
 
     // MARK: Private
+
+    private func explainRequest(
+        primary: InvestigationTransactionSnapshot,
+        selected: [InvestigationTransactionSnapshot],
+        session: [InvestigationTransactionSnapshot]
+    )
+        -> InvestigationResult
+    {
+        let scope = boundedScope(
+            primary: primary,
+            selected: selected,
+            related: nearbyTransactions(to: primary, in: session)
+        )
+        var evidence = [InvestigationEvidence(
+            id: "flow:\(primary.id):request.identity",
+            kind: .observed,
+            title: "\(primary.request.method) \(requestTarget(primary))",
+            detail: String(localized: "Captured request method and destination."),
+            sourceTransactionID: primary.id
+        )]
+
+        if let response = primary.response {
+            evidence.append(InvestigationEvidence(
+                id: "flow:\(primary.id):response.status",
+                kind: .observed,
+                title: "HTTP \(response.statusCode) \(response.statusMessage)",
+                detail: String(localized: "Captured response status."),
+                sourceTransactionID: primary.id
+            ))
+        } else {
+            evidence.append(InvestigationEvidence(
+                id: "flow:\(primary.id):response.unavailable",
+                kind: .unknown,
+                title: String(localized: "No completed response was captured"),
+                detail: String(localized: "Rockxy cannot confirm the request outcome from this transaction."),
+                sourceTransactionID: primary.id
+            ))
+        }
+
+        if primary.request.method.caseInsensitiveCompare("CONNECT") == .orderedSame {
+            evidence.append(InvestigationEvidence(
+                id: "flow:\(primary.id):protocol.connect",
+                kind: .derived,
+                title: String(localized: "CONNECT opens a proxy tunnel"),
+                detail: String(
+                    localized: "The CONNECT exchange establishes a tunnel; application HTTPS payloads belong to traffic inside that tunnel."
+                ),
+                sourceTransactionID: primary.id
+            ))
+
+            let tunnelWasEstablished = primary.statusCode.map { (200 ..< 300).contains($0) } == true
+                && !primary.isFailed
+            return InvestigationResult(
+                recipe: .explainRequest,
+                selectedTransactionID: primary.id,
+                scopeTransactionIDs: scope.map(\.id),
+                scopeSummary: scopeSummary(selectedCount: selected.count, requestCount: scope.count),
+                summary: tunnelWasEstablished
+                    ? String(localized: "This CONNECT request established a proxy tunnel to \(connectTarget(primary)).")
+                    : String(localized: "This CONNECT request asked the proxy to open a tunnel to \(connectTarget(primary))."),
+                evidence: evidence,
+                nextStep: tunnelWasEstablished
+                    ? String(
+                        localized: "No CONNECT failure is shown. Inspect the HTTPS requests inside this tunnel only if the app still behaved unexpectedly."
+                    )
+                    : String(localized: "Inspect the captured status and transport state to determine why the tunnel was not established.")
+            )
+        }
+
+        let outcome: String
+        if let status = primary.statusCode {
+            outcome = primary.isSuccessful
+                ? String(localized: "The captured response was HTTP \(status), so Rockxy shows a completed request.")
+                : String(localized: "The captured response was HTTP \(status).")
+        } else {
+            outcome = String(localized: "Rockxy did not capture a completed response for this request.")
+        }
+
+        return InvestigationResult(
+            recipe: .explainRequest,
+            selectedTransactionID: primary.id,
+            scopeTransactionIDs: scope.map(\.id),
+            scopeSummary: scopeSummary(selectedCount: selected.count, requestCount: scope.count),
+            summary: String(
+                localized: "This \(primary.request.method) request targets \(requestTarget(primary)). \(outcome)"
+            ),
+            evidence: evidence,
+            nextStep: primary.isSuccessful
+                ? String(localized: "No failure is proven by this exchange. Open Details only if you want to inspect headers, timing, or payloads.")
+                : String(localized: "Open Details to inspect the response, timing, and nearby requests before drawing a conclusion.")
+        )
+    }
 
     private func explainFailure(
         primary: InvestigationTransactionSnapshot,
@@ -451,7 +545,15 @@ struct DebugAssistantEngine {
     }
 
     private func nextStepForFailure(_ primary: InvestigationTransactionSnapshot) -> String {
-        switch primary.statusCode {
+        if primary.request.method.caseInsensitiveCompare("CONNECT") == .orderedSame,
+           primary.statusCode.map({ (200 ..< 300).contains($0) }) == true,
+           !primary.isFailed
+        {
+            return String(
+                localized: "No CONNECT failure is shown. Inspect the tunneled HTTPS requests only if the app still behaved unexpectedly."
+            )
+        }
+        return switch primary.statusCode {
         case 429:
             String(localized: "Open an editable replay draft and verify it before sending.")
         case 401,
@@ -462,6 +564,17 @@ struct DebugAssistantEngine {
         default:
             String(localized: "Reveal the strongest evidence and verify it against a fresh capture.")
         }
+    }
+
+    private func requestTarget(_ transaction: InvestigationTransactionSnapshot) -> String {
+        let path = transaction.request.path
+        return path.isEmpty || path == "/"
+            ? transaction.request.host
+            : transaction.request.host + path
+    }
+
+    private func connectTarget(_ transaction: InvestigationTransactionSnapshot) -> String {
+        "\(transaction.request.host):\(transaction.request.url.port ?? 443)"
     }
 
     private func scopeSummary(selectedCount: Int, requestCount: Int) -> String {

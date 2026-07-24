@@ -77,17 +77,17 @@ struct BabylonCaptureProtocolTests {
     @Test("Golden fixture matches the Babylon client codec")
     func clientCompatibilityFixture() throws {
         let expectedFixture =
-            "eyJjaXBoZXJ0ZXh0Ijoib1pBUmFLRWlHVjJRZnZEVUM0YmE4ak5JK3lWdWtENEU3VXVMZzZcL0xwU2lMY2RVRVorU0VWWGFc" +
-            "Lzh0Z3NFXC9Sams3WlI1aGF6WlpUN3huZTYzMFwvVWtUUUx3K2REM1RzSzJIdFJkRWlMT2hqZ042YXNDTlpjY0dZb1hkcGhk" +
-            "NFliR3c9PSIsImNsaWVudElEIjoiY29tLmV4YW1wbGUucHJvdG9jb2wtdGVzdHMtZGV2aWNlIiwiY29tcHJlc3Npb24iOiJn" +
-            "emlwIiwibWVzc2FnZUlEIjoiZGV0ZXJtaW5pc3RpYy1tZXNzYWdlIiwibm9uY2UiOiJBQUVDQXdRRkJnY0lDUW9MIiwicHJv" +
-            "dG9jb2xWZXJzaW9uIjoxLCJzZXF1ZW5jZSI6Nywic2Vzc2lvbklEIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1" +
-            "NTU1NTU1IiwidGFnIjoicWFSOVNMb2h4MFwvTHNFU3JLU1k2ckE9PSJ9"
+            "eyJjaXBoZXJ0ZXh0Ijoic3ZEZXJ0XC9IMTQxbm9SeDJNajV5engyNTViU25qN08rYW9WbnRjdXd1T0pYXC9keTFKNEp1clJmSkMz" +
+            "V1diMWE3NEFFMythSkhHdW5jUmswMkxjVG1LV0dBY3g0ckJQemJwMktvdEZhNlFSVThwUDl4bUtDNDhcL0IyajNHT2ZBV0JDdz09" +
+            "IiwiY2xpZW50SUQiOiJjb20uZXhhbXBsZS5wcm90b2NvbC10ZXN0cy1kZXZpY2UiLCJjb21wcmVzc2lvbiI6Imd6aXAiLCJtZXNz" +
+            "YWdlSUQiOiJkZXRlcm1pbmlzdGljLW1lc3NhZ2UiLCJub25jZSI6IkFBRUNBd1FGQmdjSUNRb0wiLCJwcm90b2NvbFZlcnNpb24i" +
+            "OjEsInNlcXVlbmNlIjo3LCJzZXNzaW9uSUQiOiIxMTExMTExMS0yMjIyLTMzMzMtNDQ0NC01NTU1NTU1NTU1NTUiLCJ0YWciOiJ5" +
+            "b3FQN01HOTB1ZTRWUDFkYTBLVzd3PT0ifQ=="
 
         let encoded = try #require(Data(base64Encoded: expectedFixture))
         let (frame, payload) = try BabylonSecureFrameCodec.decodeFrame(
             encoded,
-            pairingToken: "correct horse battery staple"
+            pairingToken: String(repeating: "a", count: 64)
         )
 
         #expect(frame.messageID == "deterministic-message")

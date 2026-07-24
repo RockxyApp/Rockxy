@@ -10,7 +10,7 @@ actor TrafficSessionManager {
     // MARK: Internal
 
     var onBatchReady: (@Sendable ([HTTPTransaction], _ generation: UInt) -> Void)?
-    var onClientAppEnriched: (@Sendable ([UUID]) -> Void)?
+    var onClientAppEnriched: (@Sendable ([HTTPTransaction]) -> Void)?
     var onBeginNewSession: (@Sendable (_ generation: UInt) async -> Void)?
 
     var currentGeneration: UInt {
@@ -23,7 +23,7 @@ actor TrafficSessionManager {
         onBatchReady = callback
     }
 
-    func setOnClientAppEnriched(_ callback: @escaping @Sendable ([UUID]) -> Void) {
+    func setOnClientAppEnriched(_ callback: @escaping @Sendable ([HTTPTransaction]) -> Void) {
         onClientAppEnriched = callback
     }
 
@@ -143,15 +143,15 @@ actor TrafficSessionManager {
         let enrichCallback = onClientAppEnriched
         Task {
             let portMap = await ProcessResolver.shared.resolveProcessesAsync(proxyPort: port)
-            var enrichedIDs: [UUID] = []
+            var enrichedTransactions: [HTTPTransaction] = []
             for transaction in batch where transaction.clientApp == nil {
                 if let srcPort = transaction.sourcePort, let app = portMap[srcPort] {
                     transaction.clientApp = app
-                    enrichedIDs.append(transaction.id)
+                    enrichedTransactions.append(transaction)
                 }
             }
-            if !enrichedIDs.isEmpty {
-                enrichCallback?(enrichedIDs)
+            if !enrichedTransactions.isEmpty {
+                enrichCallback?(enrichedTransactions)
             }
         }
     }

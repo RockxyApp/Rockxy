@@ -26,7 +26,7 @@ struct ContextDockView: View {
                 AIAssistantDockView(coordinator: coordinator, onOpenSettings: onOpenSettings)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Inspector"))
     }
@@ -36,7 +36,17 @@ struct ContextDockView: View {
     private var selectedTab: Binding<ContextDockTab> {
         Binding(
             get: { coordinator.activeWorkspace.contextDockTab },
-            set: { coordinator.activeWorkspace.contextDockTab = $0 }
+            set: { tab in
+                guard coordinator.activeWorkspace.contextDockTab != tab else {
+                    return
+                }
+                // Picker callbacks can arrive during the native inspector's constraint pass.
+                // Publish the content swap on the next run-loop turn so both tab roots keep
+                // a stable inspector size while AppKit finishes the current layout.
+                DispatchQueue.main.async { [weak coordinator] in
+                    coordinator?.activeWorkspace.contextDockTab = tab
+                }
+            }
         )
     }
 }
@@ -61,7 +71,7 @@ private struct AIAssistantDockView: View {
             Divider()
             promptComposer
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color.clear)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(String(localized: "Rockxy AI Assistant"))
         .sheet(item: reviewPackBinding) { pack in
@@ -71,6 +81,9 @@ private struct AIAssistantDockView: View {
                 trafficScope: coordinator.activeWorkspace.debugAssistantReviewTrafficScope
                     ?? AssistantTrustPolicy.defaultTrafficScope,
                 modelAccessEnabled: coordinator.activeWorkspace.debugAssistantReviewModelAccessEnabled,
+                conversationPreview: AssistantPromptBuilder().conversationPreview(
+                    messages: coordinator.activeWorkspace.debugAssistantMessages
+                ),
                 onSend: coordinator.sendDebugAssistantReview,
                 onDismiss: coordinator.dismissDebugAssistantReview
             )
@@ -120,6 +133,10 @@ private struct AIAssistantDockView: View {
             Button(String(localized: "Cancel"), role: .cancel) {}
         } message: {
             Text(String(localized: "Rockxy will create an editable draft. Nothing is sent until you press Send in Compose."))
+        }
+        .onAppear(perform: focusComposerIfRequested)
+        .onChange(of: coordinator.activeWorkspace.isDebugAssistantComposerFocusRequested) {
+            focusComposerIfRequested()
         }
     }
 
@@ -314,7 +331,7 @@ private struct AIAssistantDockView: View {
         }
         .padding(.horizontal, 10)
         .frame(minHeight: max(36, appMetrics.primaryFontSize + 20))
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
     }
 
     private var conversationSwitcher: some View {
@@ -364,7 +381,7 @@ private struct AIAssistantDockView: View {
         }
         .padding(12)
         .frame(width: 352, height: 320)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
     }
 
     @ViewBuilder private var attachedContextHeader: some View {
@@ -417,7 +434,7 @@ private struct AIAssistantDockView: View {
             }
             .padding(.horizontal, 10)
             .frame(minHeight: max(32, appMetrics.secondaryFontSize + 18))
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(Color.clear)
             .accessibilityElement(children: .contain)
             .accessibilityLabel(
                 String(
@@ -435,7 +452,7 @@ private struct AIAssistantDockView: View {
             }
             .padding(.horizontal, 10)
             .frame(minHeight: max(32, appMetrics.secondaryFontSize + 18))
-            .background(Color(nsColor: .textBackgroundColor))
+            .background(Color.clear)
         }
     }
 
@@ -469,7 +486,7 @@ private struct AIAssistantDockView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Color.clear)
     }
 
     private var emptyConversationView: some View {
@@ -529,16 +546,60 @@ private struct AIAssistantDockView: View {
 
     @ViewBuilder private var activeAssistantTurn: some View {
         switch coordinator.activeWorkspace.debugAssistantState {
-        case .idle,
-             .result:
+        case .idle:
             modelAssistantTurn
+        case let .result(result):
+            currentResultTurn(result)
         case let .investigating(_, recipe):
             workEvent(
-                title: String(localized: "Investigating \(recipe.title.lowercased())"),
+                title: String(localized: "Inspecting selected traffic"),
+                detail: String(localized: "Gathering evidence for \(recipe.title.lowercased())."),
                 cancel: coordinator.cancelDebugAssistant
             )
         case let .failed(message):
             failureTurn(message)
+        }
+    }
+
+    @ViewBuilder private func currentResultTurn(_ result: InvestigationResult) -> some View {
+        switch coordinator.activeWorkspace.modelInvestigationState {
+        case .streaming,
+             .failed:
+            modelAssistantTurn
+        case .completed:
+            EmptyView()
+        case .idle:
+            if resultIsInTranscript(result) {
+                EmptyView()
+            } else if coordinator.activeWorkspace.isPreparingDebugAssistantReview {
+                assistantBubble {
+                    AssistantProgressRow(
+                        title: String(localized: "Selected traffic inspected"),
+                        systemImage: "checkmark.circle.fill",
+                        color: .green
+                    )
+                    AssistantProgressRow(
+                        title: String(localized: "Redacting sensitive fields"),
+                        showsProgress: true
+                    )
+                    Text(String(localized: "Preparing the exact request for Review Data."))
+                        .font(assistantFont(appMetrics.metadataFontSize))
+                        .foregroundStyle(.secondary)
+                }
+            } else if coordinator.activeWorkspace.debugAssistantReviewPack != nil {
+                assistantBubble {
+                    AssistantProgressRow(
+                        title: String(localized: "Waiting for Review Data"),
+                        systemImage: "lock.shield",
+                        color: .secondary
+                    )
+                    Text(String(localized: "Confirm the redacted traffic and conversation before the model runs."))
+                        .font(assistantFont(appMetrics.metadataFontSize))
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                reviewReadyTurn(result)
+            }
         }
     }
 
@@ -552,7 +613,9 @@ private struct AIAssistantDockView: View {
                 HStack(spacing: 7) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(text.isEmpty ? String(localized: "Thinking…") : String(localized: "Responding…"))
+                    Text(text.isEmpty
+                        ? String(localized: "Generating with \(model)")
+                        : String(localized: "Responding with \(model)"))
                         .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
                     Spacer(minLength: 0)
                     Button(String(localized: "Stop")) {
@@ -560,11 +623,12 @@ private struct AIAssistantDockView: View {
                     }
                     .controlSize(.mini)
                 }
-                if !text.isEmpty {
-                    Text(text)
-                        .font(assistantFont(appMetrics.primaryFontSize))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                if text.isEmpty {
+                    Text(String(localized: "The local model is reading the reviewed request context."))
+                        .font(assistantFont(appMetrics.metadataFontSize))
+                        .foregroundStyle(.secondary)
+                } else {
+                    AssistantStreamingText(source: text)
                 }
                 modelSourceLabel(
                     provider: provider.title,
@@ -727,7 +791,7 @@ private struct AIAssistantDockView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
     }
 
     private func conversationHistoryRow(_ conversation: DebugAssistantConversation) -> some View {
@@ -807,12 +871,11 @@ private struct AIAssistantDockView: View {
                 }
 
                 assistantBubble {
-                    Text(message.text.isEmpty
-                        ? String(localized: "The model completed without returning text.")
-                        : message.text)
-                        .font(assistantFont(appMetrics.primaryFontSize))
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    AssistantMarkdownText(
+                        source: message.text.isEmpty
+                            ? String(localized: "The model completed without returning text.")
+                            : message.text
+                    )
 
                     if let investigation = message.investigation {
                         investigationDetails(investigation)
@@ -821,6 +884,12 @@ private struct AIAssistantDockView: View {
                     if let modelResult = message.modelResult {
                         modelAttribution(modelResult)
                     }
+
+                    assistantResponseActions(
+                        text: message.text,
+                        investigation: message.investigation,
+                        canRetryModel: message.modelResult != nil
+                    )
                 }
             }
         }
@@ -847,14 +916,41 @@ private struct AIAssistantDockView: View {
     }
 
     private func assistantBubble(@ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            content()
-        }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(String(localized: "AI Assistant Response"))
+        AssistantResponseCard(content: content)
+    }
+
+    private func assistantResponseActions(
+        text: String,
+        investigation: InvestigationResult?,
+        canRetryModel: Bool
+    ) -> some View {
+        let requestID = investigation?.selectedTransactionID
+        return AssistantResponseActionBar(
+            canCopy: !text.isEmpty,
+            canRevealRequest: requestID != nil,
+            canRetry: canRetryModel && investigation.map(isCurrentResult) == true,
+            onCopy: {
+                AssistantClipboard.copy(text)
+            },
+            onFollowUp: {
+                coordinator.prepareDebugAssistantFollowUp(for: investigation)
+                isComposerFocused = false
+                Task { @MainActor in
+                    await Task.yield()
+                    isComposerFocused = true
+                }
+            },
+            onRevealRequest: {
+                if let requestID {
+                    coordinator.revealDebugAssistantRequest(id: requestID)
+                }
+            },
+            onRetry: {
+                if canRetryModel, investigation.map(isCurrentResult) == true {
+                    coordinator.prepareDebugAssistantReview()
+                }
+            }
+        )
     }
 
     private func investigationDetails(_ result: InvestigationResult) -> some View {
@@ -996,19 +1092,45 @@ private struct AIAssistantDockView: View {
         .accessibilityLabel(String(localized: "Model details: \(provider), \(model), \(endpointHost)"))
     }
 
-    private func workEvent(title: String, cancel: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text(title)
-                .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
-            Spacer(minLength: 4)
-            Button(String(localized: "Stop"), action: cancel)
-                .controlSize(.mini)
+    private func reviewReadyTurn(_ result: InvestigationResult) -> some View {
+        assistantBubble {
+            AssistantProgressRow(
+                title: String(localized: "Selected traffic inspected"),
+                systemImage: "checkmark.circle.fill",
+                color: .green
+            )
+            Text(result.summary)
+                .font(assistantFont(appMetrics.secondaryFontSize))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button {
+                coordinator.prepareDebugAssistantReview()
+            } label: {
+                Label(String(localized: "Review Data & Run Model"), systemImage: "lock.shield")
+            }
+            .controlSize(.small)
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func workEvent(
+        title: String,
+        detail: String,
+        cancel: @escaping () -> Void
+    ) -> some View {
+        assistantBubble {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(title)
+                    .font(assistantFont(appMetrics.secondaryFontSize, weight: .medium))
+                Spacer(minLength: 4)
+                Button(String(localized: "Stop"), action: cancel)
+                    .controlSize(.mini)
+            }
+            Text(detail)
+                .font(assistantFont(appMetrics.metadataFontSize))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func completedWorkEvent(_ result: InvestigationResult) -> some View {
@@ -1051,13 +1173,6 @@ private struct AIAssistantDockView: View {
             return
         }
         coordinator.sendDebugAssistantMessage()
-    }
-
-    private func isCurrentResult(_ result: InvestigationResult) -> Bool {
-        guard case let .result(current) = coordinator.activeWorkspace.debugAssistantState else {
-            return false
-        }
-        return current == result
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
@@ -1117,5 +1232,33 @@ private struct AIAssistantDockView: View {
         -> Font
     {
         appMetrics.swiftUIFont(size: size, weight: weight, monospaced: monospaced)
+    }
+}
+
+private extension AIAssistantDockView {
+    func focusComposerIfRequested() {
+        let workspace = coordinator.activeWorkspace
+        guard workspace.isDebugAssistantComposerFocusRequested else {
+            return
+        }
+        workspace.isDebugAssistantComposerFocusRequested = false
+        isComposerFocused = false
+        Task { @MainActor in
+            await Task.yield()
+            isComposerFocused = true
+        }
+    }
+
+    func isCurrentResult(_ result: InvestigationResult) -> Bool {
+        guard case let .result(current) = coordinator.activeWorkspace.debugAssistantState else {
+            return false
+        }
+        return current == result
+    }
+
+    func resultIsInTranscript(_ result: InvestigationResult) -> Bool {
+        coordinator.activeWorkspace.debugAssistantMessages.contains {
+            $0.investigation == result
+        }
     }
 }

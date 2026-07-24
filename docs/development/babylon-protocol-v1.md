@@ -36,7 +36,7 @@ The encrypted payload uses AES-GCM. Additional authenticated data is UTF-8:
   "protocolVersion": 1,
   "messageID": "UUID",
   "sessionID": "UUID",
-  "clientID": "stable client ID",
+  "clientID": "per-activation opaque UUID",
   "sequence": 1,
   "compression": "gzip",
   "nonce": "base64 12 bytes",

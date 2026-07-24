@@ -43,6 +43,17 @@ struct NativeBottomInspectorSplitViewTests {
         #expect(controller.splitViewItems[1].viewController === inspectorController)
     }
 
+    @Test("Repeated SwiftUI updates do not enqueue duplicate collapse animations")
+    func repeatedPresentationUpdatesAreCoalesced() {
+        let coordinator = NativeBottomInspectorSplitView<Color, Color>.Coordinator()
+
+        coordinator.recordInitialPresentation(true)
+        #expect(!coordinator.shouldApplyPresentation(true))
+        #expect(coordinator.shouldApplyPresentation(false))
+        #expect(!coordinator.shouldApplyPresentation(false))
+        #expect(coordinator.shouldApplyPresentation(true))
+    }
+
     private func makeController(isInspectorPresented: Bool) -> NativeBottomInspectorSplitViewController {
         let controller = NativeBottomInspectorSplitViewController()
         controller.configure(

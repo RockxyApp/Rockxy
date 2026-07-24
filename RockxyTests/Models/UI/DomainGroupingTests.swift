@@ -66,6 +66,43 @@ struct DomainGroupingTests {
         #expect(idGroup.requestCount == 2)
     }
 
+    @Test("App grouping moves an attributed request out of Unknown")
+    func appGroupingMovesAttributedRequestOutOfUnknown() throws {
+        var index = AppGroupingIndex()
+        let request = transaction("https://api.example.com/users/100", sequence: 0)
+
+        index.add(request)
+        #expect(index.makeNodes().map(\.name) == [String(localized: "Unknown")])
+
+        request.clientApp = "Safari"
+        index.remove(request, appName: String(localized: "Unknown"))
+        index.add(request, appName: request.clientApp)
+
+        let node = try #require(index.makeNodes().first)
+        #expect(index.makeNodes().count == 1)
+        #expect(node.name == "Safari")
+        #expect(node.requestCount == 1)
+        #expect(node.domains == ["api.example.com"])
+    }
+
+    @Test("App grouping keeps a shared domain until its last request is removed")
+    func appGroupingReferenceCountsSharedDomains() throws {
+        var index = AppGroupingIndex()
+        let first = transaction("https://api.example.com/one", sequence: 0)
+        let second = transaction("https://api.example.com/two", sequence: 1)
+
+        index.add(first, appName: "Safari")
+        index.add(second, appName: "Safari")
+        index.remove(first, appName: "Safari")
+
+        var node = try #require(index.makeNodes().first)
+        #expect(node.requestCount == 1)
+        #expect(node.domains == ["api.example.com"])
+
+        index.remove(second, appName: "Safari")
+        #expect(index.makeNodes().isEmpty)
+    }
+
     // MARK: Private
 
     private func transaction(_ url: String, sequence: Int, statusCode: Int = 200) -> HTTPTransaction {

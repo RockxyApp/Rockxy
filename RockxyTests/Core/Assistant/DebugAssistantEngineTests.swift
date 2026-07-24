@@ -6,6 +6,35 @@ import Testing
 struct DebugAssistantEngineTests {
     // MARK: Internal
 
+    @Test("A successful CONNECT is explained as an established tunnel, not a failed request")
+    func explainSuccessfulConnect() throws {
+        let transaction = makeTransaction(
+            method: "CONNECT",
+            url: "https://api.apple-cloudkit.com:443",
+            statusCode: 200,
+            statusMessage: "Connection Established"
+        )
+        let snapshot = InvestigationTransactionSnapshot(transaction: transaction)
+
+        let result = try DebugAssistantEngine().investigate(
+            recipe: .explainRequest,
+            selected: [snapshot],
+            session: [snapshot]
+        )
+
+        #expect(result.summary.contains("established a proxy tunnel"))
+        #expect(!result.summary.localizedCaseInsensitiveContains("failed"))
+        #expect(result.evidence.contains { $0.id.contains("protocol.connect") && $0.kind == .derived })
+        #expect(result.nextStep.contains("No CONNECT failure is shown"))
+    }
+
+    @Test("Generic questions explain the request while explicit failure questions use failure analysis")
+    func naturalLanguageIntentRouting() {
+        #expect(DebugAssistantRecipe.suggestedRecipe(for: "what's that?") == .explainRequest)
+        #expect(DebugAssistantRecipe.suggestedRecipe(for: "explain this request") == .explainRequest)
+        #expect(DebugAssistantRecipe.suggestedRecipe(for: "why did this fail?") == .explainFailure)
+    }
+
     @Test("429 investigation separates observed, derived, inferred, and unknown evidence")
     func explainRateLimit() throws {
         let base = Date(timeIntervalSince1970: 1_700_000_000)
@@ -77,22 +106,28 @@ struct DebugAssistantEngineTests {
 
     private func makeTransaction(
         timestamp: Date = Date(),
+        method: String = "POST",
+        url: String = "https://api.example.com/v1/responses",
         statusCode: Int,
+        statusMessage: String? = nil,
         requestHeaders: [HTTPHeader] = [],
         responseHeaders: [HTTPHeader] = []
     )
         -> HTTPTransaction
     {
+        guard let requestURL = URL(string: url) else {
+            preconditionFailure("Invalid test URL: \(url)")
+        }
         let request = HTTPRequestData(
-            method: "POST",
-            url: URL(string: "https://api.example.com/v1/responses")!,
+            method: method,
+            url: requestURL,
             httpVersion: "HTTP/1.1",
             headers: requestHeaders,
             body: nil
         )
         let response = HTTPResponseData(
             statusCode: statusCode,
-            statusMessage: statusCode == 200 ? "OK" : "Error",
+            statusMessage: statusMessage ?? (statusCode == 200 ? "OK" : "Error"),
             headers: responseHeaders,
             body: nil
         )

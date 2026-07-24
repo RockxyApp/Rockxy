@@ -3,6 +3,7 @@ import Foundation
 // MARK: - DebugAssistantRecipe
 
 enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
+    case explainRequest
     case explainFailure
     case compareWithSuccess
     case checkAuthentication
@@ -16,6 +17,8 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .explainRequest:
+            String(localized: "Explain This Request")
         case .explainFailure:
             String(localized: "Explain This Failure")
         case .compareWithSuccess:
@@ -29,6 +32,8 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
+        case .explainRequest:
+            String(localized: "Explain what the request does, its captured outcome, and anything worth checking.")
         case .explainFailure:
             String(localized: "Trace the status, response headers, timing, and nearby failures.")
         case .compareWithSuccess:
@@ -42,6 +47,7 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
+        case .explainRequest: "doc.text.magnifyingglass"
         case .explainFailure: "exclamationmark.magnifyingglass"
         case .compareWithSuccess: "arrow.left.arrow.right"
         case .checkAuthentication: "key.horizontal"
@@ -51,6 +57,8 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
 
     var prompt: String {
         switch self {
+        case .explainRequest:
+            String(localized: "Explain what this request does and whether anything looks unusual.")
         case .explainFailure:
             String(localized: "Why did this request fail?")
         case .compareWithSuccess:
@@ -86,7 +94,16 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
         {
             return .prepareBugReport
         }
-        return .explainFailure
+        if normalized.contains("fail")
+            || normalized.contains("error")
+            || normalized.contains("wrong")
+            || normalized.contains("broken")
+            || normalized.contains("timeout")
+            || normalized.contains("why did")
+        {
+            return .explainFailure
+        }
+        return .explainRequest
     }
 }
 
@@ -158,10 +175,14 @@ struct DebugAssistantMessage: Identifiable, Equatable {
         DebugAssistantMessage(role: .assistant, text: text)
     }
 
-    static func assistant(_ result: ModelInvestigationResult) -> DebugAssistantMessage {
+    static func assistant(
+        _ result: ModelInvestigationResult,
+        investigation: InvestigationResult? = nil
+    ) -> DebugAssistantMessage {
         DebugAssistantMessage(
             role: .assistant,
             text: result.text,
+            investigation: investigation,
             modelResult: result
         )
     }

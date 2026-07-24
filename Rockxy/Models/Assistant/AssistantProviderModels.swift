@@ -370,7 +370,10 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         self.baseURL = baseURL ?? kind.defaultBaseURL
         self.model = model ?? kind.defaultModel
         self.region = region
-        self.contextWindowTokens = Self.validContextWindowTokens(contextWindowTokens)
+        self.contextWindowTokens = Self.normalizedContextWindowTokens(
+            contextWindowTokens,
+            for: kind
+        )
         self.maxOutputTokens = Self.validMaxOutputTokens(maxOutputTokens)
         self.storeResponses = storeResponses
         self.redactSensitiveData = redactSensitiveData
@@ -433,12 +436,13 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
     static let defaultMaxOutputTokens = 2_048
     static let maxAllowedOutputTokens = 32_768
     static let defaultLocalContextWindowTokens = 8_192
+    static let maxLocalContextWindowTokens = 32_768
     static let minContextWindowTokens = 1_024
     static let maxContextWindowTokens = 1_048_576
 
     var effectiveContextWindowTokens: Int? {
         if let contextWindowTokens {
-            return contextWindowTokens
+            return Self.normalizedContextWindowTokens(contextWindowTokens, for: kind)
         }
         return kind == .ollama ? Self.defaultLocalContextWindowTokens : nil
     }
@@ -454,6 +458,30 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         return min(max(value, minContextWindowTokens), maxContextWindowTokens)
     }
 
+    static func normalizedContextWindowTokens(
+        _ value: Int?,
+        for kind: AssistantProviderKind
+    )
+        -> Int?
+    {
+        guard let valid = validContextWindowTokens(value) else {
+            return nil
+        }
+        guard kind == .ollama else {
+            return valid
+        }
+        return valid > maxLocalContextWindowTokens
+            ? defaultLocalContextWindowTokens
+            : valid
+    }
+
+    static func recommendedLocalContextWindowTokens(modelLimit: Int?) -> Int {
+        min(
+            validContextWindowTokens(modelLimit) ?? defaultLocalContextWindowTokens,
+            defaultLocalContextWindowTokens
+        )
+    }
+
     // MARK: Codable
 
     init(from decoder: Decoder) throws {
@@ -463,8 +491,9 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? kind.defaultBaseURL
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? kind.defaultModel
         region = try container.decodeIfPresent(String.self, forKey: .region)
-        contextWindowTokens = Self.validContextWindowTokens(
-            try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens)
+        contextWindowTokens = Self.normalizedContextWindowTokens(
+            try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens),
+            for: kind
         )
         maxOutputTokens = Self.validMaxOutputTokens(
             try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens) ?? Self.defaultMaxOutputTokens
@@ -700,4 +729,42 @@ enum AssistantExecutionLimits {
     static let maxStreamEventBytes = 256 * 1_024
     static let maxToolArgumentBytes = 64 * 1_024
     static let maxToolCalls = 16
+    static let streamingUIUpdateInterval: TimeInterval = 0.1
+}
+
+// MARK: - AssistantStreamingTextBuffer
+
+/// Accumulates model deltas while bounding bytes and coalescing observable UI updates.
+struct AssistantStreamingTextBuffer {
+    // MARK: Lifecycle
+
+    init(startedAt: TimeInterval) {
+        lastPublishedAt = startedAt
+    }
+
+    // MARK: Internal
+
+    private(set) var text = ""
+    private(set) var byteCount = 0
+
+    mutating func append(_ delta: String, at uptime: TimeInterval) throws -> Bool {
+        let deltaByteCount = delta.utf8.count
+        guard byteCount + deltaByteCount <= AssistantExecutionLimits.maxOutputBytes else {
+            throw AssistantProviderError.malformedResponse(
+                "The streamed model output exceeded Rockxy's size limit"
+            )
+        }
+        text.append(contentsOf: delta)
+        byteCount += deltaByteCount
+
+        guard uptime - lastPublishedAt >= AssistantExecutionLimits.streamingUIUpdateInterval else {
+            return false
+        }
+        lastPublishedAt = uptime
+        return true
+    }
+
+    // MARK: Private
+
+    private var lastPublishedAt: TimeInterval
 }

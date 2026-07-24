@@ -76,6 +76,8 @@ enum AssistantTrustPolicy {
 
     static func recommendedHandoffs(for recipe: DebugAssistantRecipe) -> [AssistantUserHandoff] {
         switch recipe {
+        case .explainRequest:
+            []
         case .explainFailure:
             [.prepareReplay]
         case .compareWithSuccess:

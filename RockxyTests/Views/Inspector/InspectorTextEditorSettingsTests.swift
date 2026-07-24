@@ -123,6 +123,28 @@ struct InspectorTextEditorSettingsTests {
         #expect(coordinator.lastEditorSettings == settings)
     }
 
+    @Test("Read-only preview keeps its leading content clear of the line-number ruler")
+    func readOnlyPreviewResetsHorizontalPositionAndAddsLeadingInset() throws {
+        let text = #"  "content_type": "captured_network_evidence""#
+        let scrollView = makeEditorScrollView(text: text)
+        let textView = try #require(scrollView.documentView as? NSTextView)
+        textView.frame.size.width = 1_000
+        scrollView.contentView.scroll(to: NSPoint(x: 48, y: 0))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+
+        let coordinator = InspectorBodyTextEditor.Coordinator()
+        let settings = InspectorTextEditorSettings(fontSize: 13, wordWrap: true)
+        coordinator.lastEditorSettings = settings
+        coordinator.lastHighlightIdentity = InspectorHighlightContext.empty.identity
+
+        InspectorBodyTextEditor(text: text, editorSettings: settings, isEditable: false)
+            .applyUpdate(to: scrollView, coordinator: coordinator)
+
+        #expect(textView.isEditable == false)
+        #expect(textView.textContainerInset.width == 24)
+        #expect(scrollView.contentView.bounds.origin.x == 0)
+    }
+
     @Test("Inspector editor keeps ruler and wrapped text contained inside the scroll view")
     func editorRulerAndWrappedTextStayContained() throws {
         let scrollView = makeEditorScrollView(text: "GET /very/long/request/path HTTP/1.1")

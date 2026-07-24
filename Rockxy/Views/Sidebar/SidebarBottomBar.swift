@@ -48,7 +48,7 @@ struct SidebarBottomBar: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Color.clear)
         .overlay(alignment: .top) { Divider() }
     }
 

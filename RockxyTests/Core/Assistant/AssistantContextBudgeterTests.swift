@@ -30,6 +30,40 @@ struct AssistantContextBudgeterTests {
         #expect(plan.maxOutboundBytes < InvestigationContextLimits.default.maxOutboundBytes)
     }
 
+    @Test("Oversized discovered local contexts fall back to the memory-safe default")
+    func oversizedLocalContextFallsBackToDefault() {
+        let configuration = AssistantProviderConfiguration(
+            kind: .ollama,
+            model: "fixture",
+            contextWindowTokens: 131_072
+        )
+
+        #expect(
+            configuration.contextWindowTokens
+                == AssistantProviderConfiguration.defaultLocalContextWindowTokens
+        )
+        #expect(
+            configuration.effectiveContextWindowTokens
+                == AssistantProviderConfiguration.defaultLocalContextWindowTokens
+        )
+    }
+
+    @Test("Explicit local contexts within the safe bound remain configurable")
+    func boundedLocalContextRemainsConfigurable() {
+        let configuration = AssistantProviderConfiguration(
+            kind: .ollama,
+            model: "fixture",
+            contextWindowTokens: 16_384
+        )
+
+        #expect(configuration.effectiveContextWindowTokens == 16_384)
+        #expect(
+            AssistantProviderConfiguration.recommendedLocalContextWindowTokens(
+                modelLimit: 131_072
+            ) == AssistantProviderConfiguration.defaultLocalContextWindowTokens
+        )
+    }
+
     @Test("Remote providers without verified context metadata keep the global byte ceiling")
     func unknownRemoteContext() {
         let configuration = AssistantProviderConfiguration(kind: .openAI, model: "fixture")

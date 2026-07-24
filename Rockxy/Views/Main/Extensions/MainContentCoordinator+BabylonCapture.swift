@@ -12,12 +12,12 @@ extension MainContentCoordinator {
                     self.processBatch(batch, generation: generation)
                 }
             }
-            await manager.setOnClientAppEnriched { [weak self] enrichedIDs in
+            await manager.setOnClientAppEnriched { [weak self] enrichedTransactions in
                 guard let self else {
                     return
                 }
                 Task { @MainActor in
-                    self.handleClientAppEnrichment(enrichedIDs)
+                    self.handleClientAppEnrichment(enrichedTransactions)
                 }
             }
             let settings = AppSettingsStorage.load()

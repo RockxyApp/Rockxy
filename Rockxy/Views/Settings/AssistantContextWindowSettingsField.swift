@@ -21,7 +21,7 @@ struct AssistantContextWindowSettingsField: View {
                 }
                 Text(
                     String(
-                        localized: "Detected from Ollama when available. Rockxy reserves space for instructions and output before attaching traffic."
+                        localized: "Rockxy uses 8,192 tokens by default and limits local inference to 32,768 tokens to avoid excessive memory pressure."
                     )
                 )
                 .font(settingsMetrics.metadataFont())
@@ -37,7 +37,13 @@ struct AssistantContextWindowSettingsField: View {
                 configuration.effectiveContextWindowTokens
                     ?? AssistantProviderConfiguration.defaultLocalContextWindowTokens
             },
-            set: { configuration.contextWindowTokens = $0 }
+            set: {
+                let valid = AssistantProviderConfiguration.validContextWindowTokens($0)
+                    ?? AssistantProviderConfiguration.defaultLocalContextWindowTokens
+                configuration.contextWindowTokens = configuration.kind == .ollama
+                    ? min(valid, AssistantProviderConfiguration.maxLocalContextWindowTokens)
+                    : valid
+            }
         )
     }
 

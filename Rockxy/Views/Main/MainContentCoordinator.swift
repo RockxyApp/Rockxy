@@ -185,6 +185,8 @@ final class MainContentCoordinator {
     private(set) var ruleLoadTask: Task<Void, Never>?
     var ruleMutationTask: Task<Void, Never>?
 
+    @ObservationIgnored var observedDomainCountsByApp: [String: [String: Int]] = [:]
+
     nonisolated(unsafe) var sslProxyingObserver: NSObjectProtocol?
 
     var systemProxyWarning: SystemProxyWarning? {
