@@ -1,12 +1,70 @@
 import AppKit
-import SwiftUI
 @testable import Rockxy
+import SwiftUI
 import Testing
+
+private final class ContextMenuRequestTableView: NSTableView {
+    var contextClickedColumn = 0
+    var contextClickedRow = -1
+
+    override var clickedColumn: Int {
+        contextClickedColumn
+    }
+
+    override var clickedRow: Int {
+        contextClickedRow
+    }
+}
 
 @MainActor
 struct RequestTableSelectionScrollTests {
+    @Test("Request table keeps ID before Protocol by default")
+    func requestTableKeepsIDBeforeProtocolByDefault() {
+        let columnIDs = RequestTableView.makeColumns().map { $0.identifier.rawValue }
+
+        #expect(Array(columnIDs.prefix(4)) == ["status", "row", "ai", "url"])
+    }
+
+    @Test("Request table migrates only the legacy default column order")
+    func requestTableMigratesOnlyLegacyDefaultColumnOrder() {
+        let legacyOrder = [
+            "status", "ai", "row", "url", "client", "method", "state", "code", "time",
+            "duration", "requestSize", "responseSize", "ssl", "queryName",
+        ]
+        let legacyTable = makeTableView(
+            rowCount: 0,
+            coordinator: makeCoordinator(),
+            columns: legacyOrder
+        )
+
+        RequestTableView.migrateLegacyDefaultColumnOrder(in: legacyTable)
+
+        #expect(
+            legacyTable.tableColumns.map { $0.identifier.rawValue }
+                == [
+                    "status", "row", "ai", "url", "client", "method", "state", "code", "time",
+                    "duration", "requestSize", "responseSize", "ssl", "queryName",
+                ]
+        )
+
+        let customizedOrder = [
+            "status", "url", "row", "ai", "client", "method", "state", "code", "time",
+            "duration", "requestSize", "responseSize", "ssl", "queryName",
+        ]
+        let customizedTable = makeTableView(
+            rowCount: 0,
+            coordinator: makeCoordinator(),
+            columns: customizedOrder
+        )
+
+        RequestTableView.migrateLegacyDefaultColumnOrder(in: customizedTable)
+
+        #expect(customizedTable.tableColumns.map { $0.identifier.rawValue } == customizedOrder)
+    }
+
     @Test("Appearance display metrics keep default request table density")
     func appearanceDisplayMetricsKeepDefaultRequestTableDensity() {
+        // swiftlint:disable large_tuple
         let cases: [(
             fontSize: Int,
             control: CGFloat,
@@ -33,12 +91,13 @@ struct RequestTableSelectionScrollTests {
         )] = [
             (10, 11, 9, 10, 10, 11, 10, 10, 10, 20, 8, 10, 14, 11, 9, 32, 13, 24, 26, 34, 26, 22),
             (11, 11, 10, 10, 10, 11, 10, 10, 10, 20, 8, 10, 14, 11, 9, 32, 13, 24, 27, 34, 26, 22),
-            (12, 11, 11, 10, 10, 12, 11, 10, 10, 20, 9, 11, 15, 11, 9, 32, 13, 24, 28, 34, 26, 22),
-            (13, 12, 12, 11, 10, 13, 12, 11, 11, 20, 10, 12, 16, 12, 10, 32, 13, 25, 28, 35, 27, 23),
-            (14, 13, 13, 12, 11, 14, 13, 12, 12, 21, 11, 13, 17, 13, 11, 32, 13, 26, 30, 36, 28, 24),
-            (20, 19, 19, 18, 17, 20, 19, 18, 18, 27, 12, 16, 18, 19, 14, 35, 18, 32, 36, 42, 34, 30),
-            (28, 27, 27, 26, 25, 28, 27, 26, 26, 32, 12, 16, 18, 27, 14, 43, 18, 40, 44, 50, 42, 38),
+            (12, 12, 11, 10, 10, 12, 11, 10, 10, 20, 9, 11, 15, 12, 10, 32, 13, 24, 28, 34, 26, 22),
+            (13, 13, 12, 11, 10, 13, 12, 11, 11, 20, 10, 12, 16, 13, 11, 32, 13, 25, 28, 35, 27, 23),
+            (14, 14, 13, 12, 11, 14, 13, 12, 12, 21, 11, 13, 17, 14, 12, 32, 14, 26, 30, 36, 28, 24),
+            (20, 20, 19, 18, 17, 20, 19, 18, 18, 27, 12, 16, 18, 20, 14, 36, 18, 32, 36, 42, 34, 30),
+            (28, 28, 27, 26, 25, 28, 27, 26, 26, 32, 12, 16, 18, 28, 14, 44, 18, 40, 44, 50, 42, 38),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -75,6 +134,7 @@ struct RequestTableSelectionScrollTests {
 
     @Test("Developer Setup display metrics derive from Appearance font size")
     func developerSetupDisplayMetricsDeriveFromAppearanceFontSize() {
+        // swiftlint:disable large_tuple
         let cases: [(
             fontSize: Int,
             title: CGFloat,
@@ -95,6 +155,7 @@ struct RequestTableSelectionScrollTests {
             (20, 25, 21, 20, 19, 18, 17, 20, 44, 88),
             (28, 33, 29, 28, 27, 26, 25, 28, 52, 96),
         ]
+        // swiftlint:enable large_tuple
 
         for item in cases {
             var appUI = AppUISettings()
@@ -121,10 +182,10 @@ struct RequestTableSelectionScrollTests {
         appUI.fontSize = 20
         let largeMetrics = AppUIDisplayMetrics(settings: appUI)
 
-        #expect(defaultMetrics.controlFontSize == 12)
+        #expect(defaultMetrics.controlFontSize == 13)
         #expect(defaultMetrics.inspectorTabHeight == 23)
         #expect(defaultMetrics.tableRowHeight == 28)
-        #expect(largeMetrics.controlFontSize == 19)
+        #expect(largeMetrics.controlFontSize == 20)
         #expect(largeMetrics.inspectorTabHeight == 30)
         #expect(largeMetrics.tableRowHeight == 36)
     }
@@ -165,6 +226,119 @@ struct RequestTableSelectionScrollTests {
 
         #expect(tableView.selectedRowIndexes == IndexSet(integer: 0))
         #expect(scrollView.contentView.bounds.origin.y == preservedOrigin.y)
+    }
+
+    @Test("Context actions preserve a selected group and isolate an unselected clicked row")
+    func contextActionsFollowNativeSelectionSemantics() {
+        let transactions = TestFixtures.makeBulkTransactions(count: 3)
+        let rows = transactions.map {
+            RequestListRow(from: $0, sslState: .insecure)
+        }
+        let coordinator = makeCoordinator()
+        coordinator.rows = rows
+
+        let selectedGroup = coordinator.contextSelectionIDs(
+            clickedRow: 2,
+            selectedRowIndexes: IndexSet([0, 2])
+        )
+        let unselectedClick = coordinator.contextSelectionIDs(
+            clickedRow: 1,
+            selectedRowIndexes: IndexSet([0, 2])
+        )
+
+        #expect(selectedGroup == Set([rows[0].id, rows[2].id]))
+        #expect(unselectedClick == [rows[1].id])
+    }
+
+    @Test("Context filter leaves AppKit menu tracking before mutating workspace layout")
+    func contextFilterDefersWorkspaceMutation() async {
+        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/v1/events")
+        let mainCoordinator = MainContentCoordinator()
+        mainCoordinator.transactions = [transaction]
+        mainCoordinator.recomputeFilteredTransactions()
+        let coordinator = makeCoordinator()
+        coordinator.mainCoordinator = mainCoordinator
+        coordinator.lastClickedColumn = "url"
+        let item = NSMenuItem(title: "Filter by Value", action: nil, keyEquivalent: "")
+        item.representedObject = transaction
+
+        coordinator.handleFilterCellValue(item)
+
+        #expect(!mainCoordinator.isFilterBarVisible)
+        await Task.yield()
+
+        #expect(mainCoordinator.isFilterBarVisible)
+        #expect(mainCoordinator.filterRules.first?.value == transaction.request.url.absoluteString)
+    }
+
+    @Test("Context menu exposes Assistant and hands off the native selection scope")
+    func contextMenuHandsSelectionToAssistant() async throws {
+        let transactions = TestFixtures.makeBulkTransactions(count: 3)
+        let rows = transactions.map {
+            RequestListRow(from: $0, sslState: .insecure)
+        }
+        let mainCoordinator = MainContentCoordinator()
+        mainCoordinator.transactions = transactions
+        var selectedIDs = Set([rows[0].id, rows[1].id])
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: rows,
+            refreshToken: 0,
+            isAppendOnly: false,
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        let coordinator = RequestTableView.Coordinator(parent: parent)
+        coordinator.rows = rows
+        coordinator.mainCoordinator = mainCoordinator
+        let tableView = ContextMenuRequestTableView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: CGFloat(rows.count) * 28)
+        )
+        tableView.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("url")))
+        tableView.dataSource = coordinator
+        tableView.delegate = coordinator
+        coordinator.tableView = tableView
+        tableView.reloadData()
+        tableView.selectRowIndexes(IndexSet([0, 1]), byExtendingSelection: false)
+        tableView.contextClickedRow = 1
+
+        let multiSelectionMenu = NSMenu()
+        coordinator.menuNeedsUpdate(multiSelectionMenu)
+        let multiSelectionItem = try #require(
+            multiSelectionMenu.items.first {
+                $0.title == "Ask Rockxy Assistant About Selection…"
+            }
+        )
+
+        coordinator.handleAskDebugAssistant(multiSelectionItem)
+
+        #expect(mainCoordinator.selectedTransactionIDs == Set([rows[0].id, rows[1].id]))
+        #expect(mainCoordinator.selectedTransaction?.id == rows[1].id)
+        #expect(mainCoordinator.activeWorkspace.contextDockTab == .aiAssistant)
+
+        tableView.contextClickedRow = 2
+        let singleRowMenu = NSMenu()
+        tableView.menu = singleRowMenu
+        coordinator.menuNeedsUpdate(singleRowMenu)
+        let singleRowItem = try #require(
+            singleRowMenu.items.first {
+                $0.title == "Ask Rockxy Assistant…"
+            }
+        )
+
+        coordinator.handleAskDebugAssistant(singleRowItem)
+
+        #expect(tableView.selectedRowIndexes == IndexSet(integer: 2))
+        #expect(selectedIDs == Set([rows[0].id, rows[1].id]))
+        #expect(mainCoordinator.selectedTransactionIDs == [rows[2].id])
+        #expect(mainCoordinator.selectedTransaction?.id == rows[2].id)
+
+        coordinator.menuDidClose(singleRowMenu)
+        await Task.yield()
+
+        #expect(selectedIDs == [rows[2].id])
     }
 
     @Test("Request table default font keeps dense row height")
@@ -748,6 +922,21 @@ struct RequestTableSelectionScrollTests {
         scrollView.hasVerticalScroller = true
         scrollView.documentView = documentView
         return scrollView
+    }
+
+    private func makeCoordinator() -> RequestTableView.Coordinator {
+        var selectedIDs = Set<UUID>()
+        let parent = RequestTableView(
+            workspaceID: UUID(),
+            rows: [],
+            refreshToken: 0,
+            isAppendOnly: false,
+            selectedIDs: Binding(
+                get: { selectedIDs },
+                set: { selectedIDs = $0 }
+            )
+        )
+        return RequestTableView.Coordinator(parent: parent)
     }
 
     private func makeTableView(

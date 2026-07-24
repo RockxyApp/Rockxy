@@ -9,6 +9,7 @@ enum RockxySettingsTab: String {
     case general
     case appearance
     case privacy
+    case assistant
     case tools
     case github
     case plugins
@@ -27,6 +28,8 @@ enum RockxySettingsTab: String {
 // MARK: - SettingsView
 
 struct SettingsView: View {
+    // MARK: Internal
+
     var body: some View {
         TabView(selection: $selectedTabID) {
             GeneralSettingsTab()
@@ -46,6 +49,12 @@ struct SettingsView: View {
                     Label(String(localized: "Privacy"), systemImage: "person.badge.shield.checkmark")
                 }
                 .tag(RockxySettingsTab.privacy.rawValue)
+
+            AssistantSettingsTab()
+                .tabItem {
+                    Label(String(localized: "AI Assistant"), systemImage: "sparkles.rectangle.stack")
+                }
+                .tag(RockxySettingsTab.assistant.rawValue)
 
             ToolsSettingsTab()
                 .tabItem {

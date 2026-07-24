@@ -8,6 +8,7 @@ struct GRPCInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    var onOpenToolWindow: (String) -> Void = { _ in }
 
     var body: some View {
         Group {
@@ -35,7 +36,6 @@ struct GRPCInspectorView: View {
     @State private var inspectionState: GRPCInspectionState = .loading
     @State private var selectedFrameID: String?
     @Environment(\.appUIDisplayMetrics) private var metrics
-    @Environment(\.openWindow) private var openWindow
 
     private func inspectorContent(_ inspection: GRPCInspection) -> some View {
         ScrollView {
@@ -245,7 +245,7 @@ struct GRPCInspectorView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
             Button(String(localized: "Add Descriptor...")) {
-                openWindow(id: "protobufSchemaList")
+                onOpenToolWindow("protobufSchemaList")
             }
             .controlSize(.small)
         }

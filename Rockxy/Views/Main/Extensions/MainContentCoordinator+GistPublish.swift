@@ -27,6 +27,16 @@ extension MainContentCoordinator {
         presentGistPublish(transactions: selected)
     }
 
+    /// Always opens the native privacy confirmation, regardless of the global quick-publish preference.
+    func reviewSelectedTransactionsForGist() {
+        let selected = resolveSelectedTransactions()
+        guard !selected.isEmpty else {
+            activeToast = ToastMessage(style: .error, text: String(localized: "Select a request to share"))
+            return
+        }
+        gistPublishContext = GistPublishContext(transactions: selected)
+    }
+
     func publishTransactionsToGist(
         _ transactions: [HTTPTransaction],
         options: GistPublishOptions

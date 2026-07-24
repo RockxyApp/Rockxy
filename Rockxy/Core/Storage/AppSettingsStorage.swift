@@ -54,7 +54,8 @@ enum AppSettingsStorage {
         settings.mcpRedactSensitiveData = defaults.object(forKey: mcpRedactSensitiveDataKey) != nil
             ? defaults.bool(forKey: mcpRedactSensitiveDataKey) : true
         if let visibility = defaults.string(forKey: githubGistVisibilityKey)
-            .flatMap(GitHubGistVisibility.init(rawValue:)) {
+            .flatMap(GitHubGistVisibility.init(rawValue:))
+        {
             settings.githubGistVisibility = visibility
         }
         settings.githubGistRedactSensitiveData = defaults.object(forKey: githubGistRedactSensitiveDataKey) != nil
@@ -65,6 +66,29 @@ enum AppSettingsStorage {
             ? defaults.bool(forKey: githubGistOpenInBrowserKey) : true
         settings.githubGistCopyURLToClipboard = defaults.bool(forKey: githubGistCopyURLToClipboardKey)
         settings.lastExportedRootCAPath = defaults.string(forKey: lastExportedRootCAPathKey)
+        settings.debugAssistantModelAccessEnabled = defaults.bool(forKey: debugAssistantModelAccessEnabledKey)
+        if let data = defaults.data(forKey: assistantProviderConfigurationsKey) {
+            do {
+                settings.assistantProviderConfigurations = try JSONDecoder().decode(
+                    [AssistantProviderConfiguration].self,
+                    from: data
+                )
+            } catch {
+                logger.error("Ignored invalid AI Assistant provider configurations: \(error.localizedDescription)")
+            }
+        } else if let data = defaults.data(forKey: assistantProviderConfigurationKey) {
+            do {
+                settings.assistantProviderConfiguration = try JSONDecoder().decode(
+                    AssistantProviderConfiguration.self,
+                    from: data
+                )
+            } catch {
+                logger
+                    .error("Ignored invalid legacy AI Assistant provider configuration: \(error.localizedDescription)")
+            }
+        }
+        settings.activeAssistantProviderID = defaults.string(forKey: activeAssistantProviderIDKey)
+            .flatMap(UUID.init(uuidString:))
         return settings
     }
 
@@ -90,6 +114,30 @@ enum AppSettingsStorage {
         defaults.set(settings.githubGistOpenInBrowser, forKey: githubGistOpenInBrowserKey)
         defaults.set(settings.githubGistCopyURLToClipboard, forKey: githubGistCopyURLToClipboardKey)
         defaults.set(settings.lastExportedRootCAPath, forKey: lastExportedRootCAPathKey)
+        defaults.set(settings.debugAssistantModelAccessEnabled, forKey: debugAssistantModelAccessEnabledKey)
+        do {
+            try defaults.set(
+                JSONEncoder().encode(settings.assistantProviderConfigurations),
+                forKey: assistantProviderConfigurationsKey
+            )
+        } catch {
+            logger.error("Failed to encode AI Assistant provider configurations: \(error.localizedDescription)")
+        }
+        if let activeAssistantProviderID = settings.activeAssistantProviderID {
+            defaults.set(activeAssistantProviderID.uuidString, forKey: activeAssistantProviderIDKey)
+        } else {
+            defaults.removeObject(forKey: activeAssistantProviderIDKey)
+        }
+        if let configuration = settings.assistantProviderConfiguration {
+            do {
+                try defaults.set(JSONEncoder().encode(configuration), forKey: assistantProviderConfigurationKey)
+            } catch {
+                logger
+                    .error("Failed to encode legacy AI Assistant provider configuration: \(error.localizedDescription)")
+            }
+        } else {
+            defaults.removeObject(forKey: assistantProviderConfigurationKey)
+        }
         logger.info("Settings saved")
     }
 
@@ -136,7 +184,16 @@ enum AppSettingsStorage {
     private static let githubGistOpenInBrowserKey = RockxyIdentity.current.defaultsKey("github.gist.openInBrowser")
     private static let githubGistCopyURLToClipboardKey = RockxyIdentity.current
         .defaultsKey("github.gist.copyURLToClipboard")
-    private static let lastExportedRootCAPathKey = RockxyIdentity.current.defaultsKey("certificate.lastExportedRootCAPath")
+    private static let lastExportedRootCAPathKey = RockxyIdentity.current
+        .defaultsKey("certificate.lastExportedRootCAPath")
+    private static let debugAssistantModelAccessEnabledKey = RockxyIdentity.current
+        .defaultsKey("assistant.modelAccessEnabled")
+    private static let assistantProviderConfigurationKey = RockxyIdentity.current
+        .defaultsKey("assistant.providerConfiguration")
+    private static let assistantProviderConfigurationsKey = RockxyIdentity.current
+        .defaultsKey("assistant.providerConfigurations")
+    private static let activeAssistantProviderIDKey = RockxyIdentity.current
+        .defaultsKey("assistant.activeProviderID")
 
     private static func saveAppUI(_ appUI: AppUISettings, to defaults: UserDefaults) {
         defaults.set(appUI.fontSize, forKey: appUIFontSizeKey)

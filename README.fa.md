@@ -86,13 +86,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## نکات برجسته شعبه فعلی
 
+- AI Assistant پس از Review Data تحلیل محلی یا مدل Ollama/provider ارائه می‌دهد؛ sidebar شامل Focus Sets وNoise Control است؛ workspace از split viewهای native استفاده می‌کند؛ و بازرسی AI/Web3/x402 اکنون behavior فعلی است.
 - Upstream Proxy اکنون شامل پیکربندی خودکار پروکسی رایگان/هسته‌ای با مسیریابی PAC URL است `DIRECT` مسیرهای HTTP و HTTPS با حفظ SOCKS5 موجود و مرزهای خط مشی احراز هویت.
 - گردش‌های کاری صادرات اکنون OpenAPI YAML/HTML و انتشارات Gist با ترافیک انتخابی را با ساختمان بارگیری آگاهانه از ویرایش پوشش می‌دهد.
 - ابزارهای بازرس اکنون شامل فیلتر JSONPath/کلید/مقدار و پیش‌نمایش‌های سریع برای متن بار انتخابی مانند JWT است.
 - Node.js Developer Setup اکنون کلاینت انتخاب شده را در حین اعتبارسنجی منعکس می کند و یک راهنمای نمونه لوکال هاست کامل تری دارد.
 - Developer Setup Hub اکنون زمان اجرا، مرورگرها، کلاینت‌ها، دستگاه‌ها، چارچوب‌ها و محیط‌ها را با قطعه‌های خاص هدف، ناظران اعتبارسنجی و محتوای راهنمای صادقانه پوشش می‌دهد.
-- کار WebSocket Protobuf به عنوان بخشی از مسیر بازرسی پروتکل غنی‌تر Rockxy ادامه دارد.
-- برنامه‌ریزی نقشه راه عمومی اکنون شامل اشکال‌زدایی با آگاهی از پروتکل برای ترافیک هوش مصنوعی، جریان‌های Web3/RPC، جریان‌های پرداخت به سبک x402 و اشتراک‌گذاری شواهد ویرایش‌شده ایمن‌تر است.
+- بازرسی WebSocket binary-frame اکنون heuristic محدود و on-demand برای Protobuf wire-format دارد، بدون افزودن decoder work به capture hot path.
+- نقشه راه عمومی اکنون بر قوانین protocol-aware عمیق‌تر، replay، comparison و اشتراک‌گذاری امن‌تر شواهد ویرایش‌شده تمرکز دارد.
 
 ## ویژگی ها
 
@@ -114,7 +115,23 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 `Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
 
-### سرور MCP برای دستیاران هوش مصنوعی
+### Focus Sets وNoise Control
+
+بررسی‌های تکراری را به scopeهای قابل استفاده مجدد در نوار کناری تبدیل کنید. Focus Sets شامل‌های app، domain و path را با excludeهای domain/path ترکیب می‌کند، بین اجراها باقی می‌ماند و در هر workspace در دسترس است. Noise Control همچنان telemetry و ترافیک کم‌ارزش را capture می‌کند اما آنها را در workspace فعلی پنهان می‌کند.
+
+`Reusable Focus Sets` · `App / Domain / Path Scope` · `Include & Exclude` · `Workspace Noise Control` · `Capture Continues`
+
+### AI Assistant
+
+<img src="docs/images/features/DemoAIAssistant-Light.png" alt="Rockxy AI Assistant ترافیک انتخاب‌شده را کنار جدول request و نوار کناری native توضیح می‌دهد" width="820" />
+
+یک یا چند request ضبط‌شده را انتخاب کنید و بپرسید چه اتفاقی افتاد، چه چیزی شکست، چه چیزی تغییر کرد یا بعداً چه چیزی باید بررسی شود. Rockxy ابتدا روی همین Mac تحلیل مبتنی بر شواهد انجام می‌دهد؛ مدل تنظیم‌شده Ollama یا provider فقط پس از نمایش context دقیق، محدود و ویرایش‌شده در Review Data اجرا می‌شود. پاسخ‌ها می‌توانند source request را آشکار و workflow پیگیری native را آماده کنند، اما ترافیک را تغییر نمی‌دهند و actionها را خودکار اجرا نمی‌کنند.
+
+`Built-in Local Analysis` · `Multi-Request Context` · `Ollama & Provider Models` · `Review Data` · `Sensitive-Data Redaction` · `Read-only Actions`
+
+[راهنمای AI Assistant را بخوانید](docs/features/ai-assistant.mdx).
+
+### سرور MCP برای کلاینت‌های هوش مصنوعی خارجی
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
@@ -244,11 +261,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ### فضاهای کاری چند برگه
 
-<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="فضاهای کاری چندبرگه Rockxy با نماهای مستقل فیلترشده از یک ضبط زنده" width="820" />
 
-جلسات ضبط مستقل را در کنار هم اجرا کنید - یک برگه برای مرحله بندی، یکی برای پرود، یکی برای ساخت دستگاه iOS. هر تب فیلترها، انتخاب و حالت بازرس مخصوص به خود را دارد، بنابراین تعویض متن هیچ هزینه ای ندارد.
+نماهای بررسی مستقل از یک ضبط زنده را کنار هم نگه دارید. هر برگه فیلتر، مرتب‌سازی، انتخاب، محدوده نوار کناری و وضعیت بازرس خود را دارد، اما پروکسی و تراکنش‌های ضبط‌شده مشترک هستند.
 
-`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+`Shared Live Capture` · `Per-Tab Filters & Sort` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
 
 ### اسکریپت جاوا اسکریپت
 
@@ -258,27 +275,31 @@ JS روی درخواست‌ها و پاسخ‌ها برای مواردی که ی
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## ویژگی های بیشتر به زودی
+## بازرسی آگاه از پروتکل
 
-ویژگی‌های آینده به صورت عمومی ردیابی می‌شوند و تنها زمانی ارسال می‌شوند که پیاده‌سازی، آزمایش‌ها، رفتار حفظ حریم خصوصی و مستندات آماده باشند.
+Rockxy بازرسی protocol-aware برای AI، Web3 RPC و x402 را در workflow معمول debugging HTTP ارائه می‌دهد.
 
-### بازرسی ترافیک هوش مصنوعی `به‌زودی`
+### بازرسی ترافیک هوش مصنوعی
 
 اشکال زدایی ترافیک مدل را در گردش کار ضبط معمولی آسان تر کنید. درخواست‌های هوش مصنوعی را شناسایی کنید، تماس‌های مدل انتخاب‌شده را بررسی کنید، پاسخ‌های جریانی را تشخیص دهید، رفتار اعلان/خروجی را مقایسه کنید و زنجیره‌های تماس ابزار را بدون چسباندن بارهای حساس به سرویس دیگر درک کنید.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### بازرسی Web3/RPC `به‌زودی`
+### بازرسی Web3/RPC
 
 تماس‌های شبکه دوران بلاک چین را به شواهد اشکال‌زدایی قابل خواندن تبدیل کنید. ترافیک JSON-RPC و Solana RPC را بررسی کنید، تماس‌های مرتبط را در جریان‌ها گروه‌بندی کنید، خطاهای رایج RPC را توضیح دهید، و درخواست‌های انتخابی را بدون تبدیل شدن به یک کیف پول یا کاوشگر بلاک، دوباره پخش کنید.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### اشکال زدایی جریان پرداخت x402 `به‌زودی`
+### راهنمای جریان پرداخت x402
 
 جریان های HTTP با دریچه پرداخت از لایه شبکه را درک کنید. پاسخ های مورد نیاز پرداخت را برجسته کنید، مسیر تلاش مجدد را دنبال کنید و شواهد اشکال زدایی را محلی و آگاه به ویرایش نگه دارید.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+## کارهای آینده
+
+بخش‌های زیر جهت عمومی را توصیف می‌کنند، نه رفتار فعلی را.
 
 ### بسته های شواهد ویرایش شده `به‌زودی`
 
@@ -286,7 +307,7 @@ JS روی درخواست‌ها و پاسخ‌ها برای مواردی که ی
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
 
-### فیلترها و قوانین آگاه از پروتکل `به‌زودی`
+### قوانین آگاه از پروتکل
 
 از ابرداده‌های هوش مصنوعی و Web3 در جایی که Rockxy قبلاً کار می‌کند استفاده کنید: فیلترها، نشان‌ها، ستون‌های اختیاری، مقایسه، قوانین، تنظیمات برنامه‌نویس و خلاصه‌های MCP محلی.
 
@@ -328,7 +349,7 @@ open Rockxy.xcodeproj
 | **MCP/پل اتوماسیون محلی** | به طور پیش‌فرض ویرایش داخلی، تأیید شده با رمز | در اسناد عمومی بازبینی شده ادعا نشده است | در اسناد عمومی بازبینی شده ادعا نشده است |
 | **باز کردن مسیر مشارکت** | مسائل عمومی، بحث ها، نقشه راه و روابط عمومی | محصول تحت کنترل فروشنده | محصول تحت کنترل فروشنده |
 
-در نقشه راه: بازپخش عمیق‌تر/تفاوت/قوانین/جریان‌های کاری اسکریپت‌نویسی، بازرسی WebSocket و GraphQL بهبودیافته، اشکال‌زدایی هوش مصنوعی آگاه از پروتکل و Web3/RPC، دید جریان پرداخت به سبک x402، و کاوش در gRPC/Protobuf به علاوه پشتیبانی HTTP/2 و HTTP/3.
+در نقشه راه: قوانین protocol-aware عمیق‌تر، بسته‌های شواهد ویرایش‌شده امن‌تر، workflowهای replay و comparison قوی‌تر، راهنمای گسترده‌تر Developer Setup و پژوهش مداوم HTTP/2 و HTTP/3.
 
 ## امنیت
 
@@ -355,6 +376,9 @@ Rockxy ترافیک شبکه را رهگیری می کند - امنیت اساس
 
 - [راهنمای شروع سریع](docs/quickstart.mdx) - در عرض چند دقیقه بلند شوید و اجرا کنید
 - [مرکز راه اندازی توسعه دهنده](docs/features/developer-setup-hub.mdx) - قطعه‌های زمان اجرا، راهنمای دستگاه، پروب‌های اعتبارسنجی و ماتریس پشتیبانی
+- [AI Assistant](docs/features/ai-assistant.mdx) — ترافیک انتخاب‌شده را محلی یا با مدل تنظیم‌شده پس از Review Data بررسی کنید
+- [فیلتر و جستجو](docs/core-features/filters-and-search.mdx) — sidebar scope، Focus Sets، Noise Control، toolbar filter و search
+- [بازرسی AI و Web3](docs/features/ai-web3-inspection.mdx) — ترافیک شناخته‌شده model API، JSON-RPC و x402 را بررسی کنید
 - [یکپارچه سازی MCP](docs/features/mcp.mdx) - Rockxy را به مشتریان MCP محلی متصل کنید
 - [معماری](docs/development/architecture.mdx) - موتور پروکسی، مدل بازیگر، جریان داده
 - [مدل امنیتی](docs/development/security.mdx) - مرزهای اعتماد، اعتبار سنجی XPC، مدیریت گواهی

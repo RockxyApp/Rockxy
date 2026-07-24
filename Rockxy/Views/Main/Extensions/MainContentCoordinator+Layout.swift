@@ -9,28 +9,35 @@ extension MainContentCoordinator {
     // MARK: - Inspector Layout
 
     func toggleInspectorRight() {
+        setContextDockVisible(!isContextDockVisible)
+    }
+
+    /// Applies Context Dock visibility from either toolbar commands or the native split item.
+    func setContextDockVisible(_ isVisible: Bool) {
+        guard isContextDockVisible != isVisible else { return }
         withAnimation(.smooth(duration: 0.18)) {
-            let isVisible = !isContextDockVisible
             isContextDockVisible = isVisible
             workspaceStore.rememberContextDockVisibility(isVisible)
         }
     }
 
     func toggleInspectorBottom() {
+        setBottomInspectorVisible(inspectorLayout != .bottom)
+    }
+
+    /// Applies bottom inspector visibility from toolbar commands or the native split item.
+    func setBottomInspectorVisible(_ isVisible: Bool) {
+        let layout: InspectorLayout = isVisible ? .bottom : .hidden
+        guard inspectorLayout != layout || activeWorkspace.allowsAutomaticInspectorReveal else { return }
         withAnimation(.smooth(duration: 0.18)) {
-            let isVisible = inspectorLayout != .bottom
-            inspectorLayout = isVisible ? .bottom : .hidden
+            inspectorLayout = layout
             activeWorkspace.allowsAutomaticInspectorReveal = false
             workspaceStore.rememberBottomInspectorVisibility(isVisible)
         }
     }
 
     func hideInspector() {
-        withAnimation(.smooth(duration: 0.18)) {
-            inspectorLayout = .hidden
-            activeWorkspace.allowsAutomaticInspectorReveal = false
-            workspaceStore.rememberBottomInspectorVisibility(false)
-        }
+        setBottomInspectorVisible(false)
     }
 
     func revealInspectorForSelectionIfNeeded() {

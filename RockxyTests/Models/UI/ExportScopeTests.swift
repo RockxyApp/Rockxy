@@ -40,4 +40,23 @@ struct ExportScopeTests {
         #expect(!context.isEnabled(.filtered))
         #expect(!context.isEnabled(.selected))
     }
+
+    @Test("Assistant export handoff locks the native sheet to selected traffic")
+    func selectionRestrictedContext() {
+        let context = ExportScopeContext(
+            format: .har,
+            allCount: 5,
+            filteredCount: 3,
+            selectedCount: 1,
+            eligibleAllCount: 5,
+            eligibleFilteredCount: 3,
+            eligibleSelectedCount: 1,
+            initialScope: .selected,
+            restrictsToSelection: true
+        )
+
+        #expect(!context.isEnabled(.all))
+        #expect(!context.isEnabled(.filtered))
+        #expect(context.isEnabled(.selected))
+    }
 }

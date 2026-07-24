@@ -17,6 +17,7 @@ struct ResponseInspectorView: View {
     let coordinator: MainContentCoordinator
     var previewTabStore: PreviewTabStore
     var highlightContext: InspectorHighlightContext = .empty
+    var onOpenToolWindow: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,7 +48,6 @@ struct ResponseInspectorView: View {
     @State private var sortJSONKeys = true
 
     @State private var showPreviewPopover = false
-    @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var hasProtocolTabs: Bool {
@@ -289,7 +289,10 @@ struct ResponseInspectorView: View {
                 case .graphql:
                     GraphQLInspectorView(transaction: transaction)
                 case .grpc:
-                    GRPCInspectorView(transaction: transaction)
+                    GRPCInspectorView(
+                        transaction: transaction,
+                        onOpenToolWindow: onOpenToolWindow
+                    )
                 }
             } else if let previewTab = selectedPreviewTab,
                       previewTabStore.responseTabs.contains(where: { $0.id == previewTab.id })
@@ -513,7 +516,7 @@ struct ResponseInspectorView: View {
         case let .disableApp(appName, fallbackDomain):
             coordinator.disableSSLProxyingFromInspector(forAppNamed: appName, fallbackDomain: fallbackDomain)
         case .openSSLProxyingList:
-            openWindow(id: "sslProxyingList")
+            onOpenToolWindow("sslProxyingList")
         }
     }
 

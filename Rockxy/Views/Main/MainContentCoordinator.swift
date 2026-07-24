@@ -11,6 +11,8 @@ enum ProxyDisplayState: Equatable {
     case paused
     case stopped
 
+    // MARK: Internal
+
     var title: String {
         switch self {
         case .starting:
@@ -38,9 +40,15 @@ final class MainContentCoordinator {
 
     init(
         policy: any AppPolicy = DefaultAppPolicy(),
-        workspaceLayoutPreferences: WorkspaceLayoutPreferences = WorkspaceLayoutPreferences()
+        workspaceLayoutPreferences: WorkspaceLayoutPreferences = WorkspaceLayoutPreferences(),
+        assistantRuntime: any AssistantProviderRuntimeProtocol = AssistantProviderRuntime.shared,
+        assistantSettingsProvider: @escaping @MainActor () -> AppSettings = {
+            AppSettingsManager.shared.settings
+        }
     ) {
         self.policy = policy
+        self.assistantRuntime = assistantRuntime
+        self.assistantSettingsProvider = assistantSettingsProvider
         self.workspaceStore = WorkspaceStore(
             maxWorkspaces: policy.maxWorkspaceTabs,
             layoutPreferences: workspaceLayoutPreferences
@@ -48,6 +56,9 @@ final class MainContentCoordinator {
     }
 
     deinit {
+        for handle in debugAssistantTasks.values {
+            handle.task.cancel()
+        }
         if let rulesObserver {
             NotificationCenter.default.removeObserver(rulesObserver)
         }
@@ -78,9 +89,16 @@ final class MainContentCoordinator {
         let saved: [HTTPTransaction]
     }
 
+    struct DebugAssistantTaskHandle {
+        let id: UUID
+        let task: Task<Void, Never>
+    }
+
     static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MainContentCoordinator")
 
     let policy: any AppPolicy
+    let assistantRuntime: any AssistantProviderRuntimeProtocol
+    @ObservationIgnored let assistantSettingsProvider: @MainActor () -> AppSettings
 
     // MARK: - Engine References
 
@@ -106,7 +124,6 @@ final class MainContentCoordinator {
 
     var transactions: [HTTPTransaction] = []
     var persistedFavorites: [HTTPTransaction] = []
-    @ObservationIgnored private var sidebarFavoritesCache: SidebarFavoritesCache?
     var isProxyRunning = false
     var isProxyStarting = false
     var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
@@ -117,8 +134,9 @@ final class MainContentCoordinator {
     var deferredSessionBatches: [DeferredBatch] = []
     var proxyError: String?
     var isSystemProxyConfigured = false
-
     let readiness = ReadinessCoordinator.shared
+
+    @ObservationIgnored var debugAssistantTasks: [UUID: DebugAssistantTaskHandle] = [:]
 
     // MARK: - UI State — Logs
 
@@ -172,6 +190,10 @@ final class MainContentCoordinator {
     private(set) var ruleLoadTask: Task<Void, Never>?
     var ruleMutationTask: Task<Void, Never>?
 
+    @ObservationIgnored var observedDomainCountsByApp: [String: [String: Int]] = [:]
+
+    nonisolated(unsafe) var sslProxyingObserver: NSObjectProtocol?
+
     var systemProxyWarning: SystemProxyWarning? {
         guard let warning = readiness.activeWarning else {
             return nil
@@ -210,7 +232,11 @@ final class MainContentCoordinator {
     var selectedTransaction: HTTPTransaction? {
         get { activeWorkspace.selectedTransaction }
         set {
+            let previousID = activeWorkspace.selectedTransaction?.id
             activeWorkspace.selectedTransaction = newValue
+            if previousID != newValue?.id {
+                resetDebugAssistantForSelectionChange()
+            }
             if newValue != nil {
                 revealInspectorForSelectionIfNeeded()
             }
@@ -219,7 +245,13 @@ final class MainContentCoordinator {
 
     var selectedTransactionIDs: Set<UUID> {
         get { activeWorkspace.selectedTransactionIDs }
-        set { activeWorkspace.selectedTransactionIDs = newValue }
+        set {
+            let previousIDs = activeWorkspace.selectedTransactionIDs
+            activeWorkspace.selectedTransactionIDs = newValue
+            if previousIDs != newValue {
+                resetDebugAssistantForSelectionChange()
+            }
+        }
     }
 
     var filterCriteria: FilterCriteria {
@@ -323,33 +355,6 @@ final class MainContentCoordinator {
 
     func invalidateSidebarFavoriteCache() {
         sidebarFavoritesCache = nil
-    }
-
-    private func sidebarFavoriteTransactions() -> SidebarFavoritesCache {
-        let key = SidebarFavoritesCacheKey(
-            transactionCount: transactions.count,
-            persistedFavoriteCount: persistedFavorites.count,
-            sessionGeneration: sessionGeneration
-        )
-        if let cache = sidebarFavoritesCache,
-           cache.key == key
-        {
-            return cache
-        }
-
-        let livePinned = transactions.filter(\.isPinned)
-        let persistedPinned = persistedFavorites.filter(\.isPinned)
-        let livePinnedIds = Set(livePinned.map(\.id))
-        let liveSaved = transactions.filter(\.isSaved)
-        let persistedSaved = persistedFavorites.filter(\.isSaved)
-        let liveSavedIds = Set(liveSaved.map(\.id))
-        let cache = SidebarFavoritesCache(
-            key: key,
-            pinned: livePinned + persistedPinned.filter { !livePinnedIds.contains($0.id) },
-            saved: liveSaved + persistedSaved.filter { !liveSavedIds.contains($0.id) }
-        )
-        sidebarFavoritesCache = cache
-        return cache
     }
 
     /// Configure shared policy gates. Called once from the app's main
@@ -457,7 +462,9 @@ final class MainContentCoordinator {
     func startProxyOnLaunchIfNeeded(
         settings: AppSettings = AppSettingsStorage.load(),
         startHandler: (() -> Void)? = nil
-    ) -> Bool {
+    )
+        -> Bool
+    {
         guard settings.recordOnLaunch, !isProxyRunning, !isProxyStarting else {
             return false
         }
@@ -472,8 +479,36 @@ final class MainContentCoordinator {
 
     // MARK: Private
 
+    @ObservationIgnored private var sidebarFavoritesCache: SidebarFavoritesCache?
+
     nonisolated(unsafe) private var rulesObserver: NSObjectProtocol?
-    nonisolated(unsafe) var sslProxyingObserver: NSObjectProtocol?
+
+    private func sidebarFavoriteTransactions() -> SidebarFavoritesCache {
+        let key = SidebarFavoritesCacheKey(
+            transactionCount: transactions.count,
+            persistedFavoriteCount: persistedFavorites.count,
+            sessionGeneration: sessionGeneration
+        )
+        if let cache = sidebarFavoritesCache,
+           cache.key == key
+        {
+            return cache
+        }
+
+        let livePinned = transactions.filter(\.isPinned)
+        let persistedPinned = persistedFavorites.filter(\.isPinned)
+        let livePinnedIds = Set(livePinned.map(\.id))
+        let liveSaved = transactions.filter(\.isSaved)
+        let persistedSaved = persistedFavorites.filter(\.isSaved)
+        let liveSavedIds = Set(liveSaved.map(\.id))
+        let cache = SidebarFavoritesCache(
+            key: key,
+            pinned: livePinned + persistedPinned.filter { !livePinnedIds.contains($0.id) },
+            saved: liveSaved + persistedSaved.filter { !liveSavedIds.contains($0.id) }
+        )
+        sidebarFavoritesCache = cache
+        return cache
+    }
 }
 
 // MARK: - SystemProxyWarning

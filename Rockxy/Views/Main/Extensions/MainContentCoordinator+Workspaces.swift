@@ -25,9 +25,10 @@ extension MainContentCoordinator {
         for workspace in workspaceStore.workspaces {
             for transaction in batch {
                 updateDomainGroupingIndex(for: transaction, in: workspace)
-                updateAppNodes(for: transaction, in: workspace)
+                addToAppGroupingIndex(transaction, in: workspace)
             }
             refreshDomainTree(for: workspace)
+            refreshAppNodes(for: workspace)
             appendFilteredTransactions(batch, to: workspace)
         }
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
@@ -68,26 +69,8 @@ extension MainContentCoordinator {
     }
 
     func updateAppNodes(for transaction: HTTPTransaction, in workspace: WorkspaceState) {
-        let appName = transaction.clientApp ?? String(localized: "Unknown")
-        let host = transaction.request.host
-
-        if let sidebarApp = workspace.filterCriteria.sidebarApp {
-            guard appName == sidebarApp else {
-                return
-            }
-        }
-
-        if let index = workspace.appNodeIndexMap[appName] {
-            workspace.appNodes[index].requestCount += 1
-            if !host.isEmpty, !workspace.appNodes[index].domains.contains(host) {
-                workspace.appNodes[index].domains.append(host)
-                workspace.appNodes[index].domains.sort()
-            }
-        } else {
-            let info = AppInfo(name: appName, domains: host.isEmpty ? [] : [host], requestCount: 1)
-            workspace.appNodeIndexMap[appName] = workspace.appNodes.count
-            workspace.appNodes.append(info)
-        }
+        addToAppGroupingIndex(transaction, in: workspace)
+        refreshAppNodes(for: workspace)
     }
 
     func rebuildSidebarIndexes(for workspace: WorkspaceState) {
@@ -96,11 +79,13 @@ extension MainContentCoordinator {
         workspace.domainGroupingIndex.removeAll()
         workspace.appNodes.removeAll()
         workspace.appNodeIndexMap.removeAll()
+        workspace.appGroupingIndex.removeAll()
         for transaction in transactions {
             updateDomainGroupingIndex(for: transaction, in: workspace)
-            updateAppNodes(for: transaction, in: workspace)
+            addToAppGroupingIndex(transaction, in: workspace)
         }
         refreshDomainTree(for: workspace)
+        refreshAppNodes(for: workspace)
         pruneSidebarSelectionIfNeeded(in: workspace)
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
     }
@@ -148,6 +133,22 @@ extension MainContentCoordinator {
             return true
         }
         return node.children.contains { nodeContainsPath($0, domain: domain, pathPrefix: pathPrefix) }
+    }
+
+    func addToAppGroupingIndex(_ transaction: HTTPTransaction, in workspace: WorkspaceState) {
+        let appName = transaction.clientApp ?? String(localized: "Unknown")
+        if let sidebarApp = workspace.filterCriteria.sidebarApp, appName != sidebarApp {
+            return
+        }
+        workspace.appGroupingIndex.add(transaction)
+    }
+
+    func refreshAppNodes(for workspace: WorkspaceState) {
+        workspace.appNodes = workspace.appGroupingIndex.makeNodes()
+        workspace.appNodeIndexMap.removeAll(keepingCapacity: true)
+        for (index, node) in workspace.appNodes.enumerated() {
+            workspace.appNodeIndexMap[node.name] = index
+        }
     }
 
     // MARK: - Eviction Across Workspaces
