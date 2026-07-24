@@ -9,12 +9,16 @@ enum MainWindowLayoutMetrics {
     static let defaultHeight: CGFloat = 760
     static let minimumWidth: CGFloat = 960
     static let minimumHeight: CGFloat = 620
+    static let utilityPaneMinimumWidth: CGFloat = 300
+    static let utilityPaneIdealWidth: CGFloat = 380
+    static let utilityPaneMaximumWidth: CGFloat = 520
 }
 
 // MARK: - ContentView
 
-/// Root view of the main window. Sets up a two-column `NavigationSplitView` with
-/// `SidebarView` on the left and `CenterContentView` as the detail area.
+/// Root view of the main window. Sets up a native three-pane workspace with
+/// `SidebarView` on the left, `CenterContentView` in the detail area, and the
+/// Context Dock inspector on the right.
 /// Uses the app-owned `MainContentCoordinator` that drives all data flow to child views.
 struct ContentView: View {
     // MARK: Lifecycle
@@ -32,31 +36,59 @@ struct ContentView: View {
     // MARK: Internal
 
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationSplitView(columnVisibility: $columnVisibility) {
-                SidebarView(coordinator: coordinator)
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 250, max: 350)
-            } detail: {
-                VStack(spacing: 0) {
-                    if let warning = coordinator.systemProxyWarning {
-                        SystemProxyWarningBanner(
-                            message: warning.message,
-                            primaryActionTitle: warning.action?.title,
-                            onPrimaryAction: {
-                                handleSystemProxyWarningAction(warning.action)
-                            },
-                            onDismiss: warning.isDismissible ? { coordinator.readiness.dismissWarning() } : nil
-                        )
-                    }
-                    CenterContentView(coordinator: coordinator)
-                        .navigationTitle("")
+        NativeWorkspaceSplitView(
+            isSidebarPresented: $isSidebarPresented,
+            isInspectorPresented: contextDockVisibility,
+            autosaveName: Self.workspaceSplitAutosaveName,
+            sidebarMinimumWidth: MainWindowLayoutMetrics.utilityPaneMinimumWidth,
+            sidebarIdealWidth: MainWindowLayoutMetrics.utilityPaneIdealWidth,
+            sidebarMaximumWidth: MainWindowLayoutMetrics.utilityPaneMaximumWidth,
+            workspaceMinimumWidth: Self.minimumWorkspaceWidth,
+            inspectorMinimumWidth: MainWindowLayoutMetrics.utilityPaneMinimumWidth,
+            inspectorIdealWidth: MainWindowLayoutMetrics.utilityPaneIdealWidth,
+            inspectorMaximumWidth: MainWindowLayoutMetrics.utilityPaneMaximumWidth,
+            toolbarConfiguration: NativeWorkspaceToolbarConfiguration(
+                coordinator: coordinator,
+                onOpenDeveloperHub: { openWindow(id: "developerSetupHub") }
+            )
+        ) {
+            SidebarView(coordinator: coordinator)
+        } workspace: {
+            VStack(spacing: 0) {
+                if let warning = coordinator.systemProxyWarning {
+                    SystemProxyWarningBanner(
+                        message: warning.message,
+                        primaryActionTitle: warning.action?.title,
+                        onPrimaryAction: {
+                            handleSystemProxyWarningAction(warning.action)
+                        },
+                        onDismiss: warning.isDismissible ? {
+                            coordinator.readiness.dismissWarning()
+                        } : nil
+                    )
                 }
+
+                CenterContentView(
+                    coordinator: coordinator,
+                    onOpenToolWindow: { id in openWindow(id: id) }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        } inspector: {
+            ContextDockView(
+                coordinator: coordinator,
+                onOpenSettings: openSettings.callAsFunction
+            )
         }
         .frame(
             minWidth: MainWindowLayoutMetrics.minimumWidth,
             minHeight: MainWindowLayoutMetrics.minimumHeight
         )
+        // The native split owns the full window content area. AppKit then applies
+        // the titlebar safe area to each hosted pane while keeping the semantic
+        // sidebar/inspector backgrounds and split dividers continuous through
+        // the unified toolbar, matching Xcode's window structure.
+        .ignoresSafeArea(.container, edges: .top)
         .background {
             WorkspaceWindowAccessor(
                 coordinator: coordinator,
@@ -65,9 +97,6 @@ struct ContentView: View {
             .frame(width: 0, height: 0)
         }
         .focusedSceneValue(\.commandActions, MainContentCommandActions(coordinator: coordinator))
-        .toolbar {
-            ProxyToolbarContent(coordinator: coordinator)
-        }
         .modifier(ConditionalContentWindowNotificationHandlers(
             isEnabled: managesLifecycle,
             coordinator: coordinator,
@@ -181,7 +210,7 @@ struct ContentView: View {
                 }
             }
         }
-        .appUIDisplayMetrics(AppUIDisplayMetrics(settings: settingsManager.appUI))
+        .appUIDisplayMetrics(displayMetrics)
     }
 
     // MARK: Private
@@ -190,11 +219,27 @@ struct ContentView: View {
     @Environment(\.openSettings) private var openSettings
     @Bindable private var coordinator: MainContentCoordinator
     @State private var nearbyTransferReceiver = RockxyNearbyTransferReceiver.shared
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var isSidebarPresented = true
 
     private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool
     private let representedWorkspaceID: UUID?
+
+    private static let minimumWorkspaceWidth: CGFloat = 600
+    private static let workspaceSplitAutosaveName = RockxyIdentity.current.defaultsKey(
+        "nativeWorkspaceSplit.v1"
+    )
+
+    private var displayMetrics: AppUIDisplayMetrics {
+        AppUIDisplayMetrics(settings: settingsManager.appUI)
+    }
+
+    private var contextDockVisibility: Binding<Bool> {
+        Binding(
+            get: { coordinator.isContextDockVisible },
+            set: { coordinator.setContextDockVisible($0) }
+        )
+    }
 
     private var nearbyTransferTitle: String {
         guard let invitation = nearbyTransferReceiver.pendingInvitation else {
@@ -268,6 +313,7 @@ private final class WorkspaceWindowAnchorView: NSView {
         {
             return
         }
+        NativeWorkspaceWindowChrome.configure(window)
         RockxyWorkspaceWindowManager.shared.registerPrimaryWindow(window, coordinator: coordinator)
     }
 }

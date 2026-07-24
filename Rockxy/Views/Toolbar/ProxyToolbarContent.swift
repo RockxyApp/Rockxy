@@ -78,3 +78,27 @@ struct ProxyToolbarContent: ToolbarContent {
         }
     }
 }
+
+// MARK: - ProxyToolbarStatusView
+
+/// Reusable status content for the AppKit-owned main toolbar.
+struct ProxyToolbarStatusView: View {
+    @ObservedObject private var updater = AppUpdater.shared
+
+    @Bindable var coordinator: MainContentCoordinator
+
+    var body: some View {
+        ProxyStatusIndicator(
+            displayState: coordinator.proxyDisplayState,
+            listenAddress: AppSettingsManager.shared.settings.effectiveListenAddress,
+            port: coordinator.isProxyRunning
+                ? coordinator.activeProxyPort
+                : AppSettingsManager.shared.settings.proxyPort,
+            updateStatusSummary: updater.updateStatusSummary,
+            openUpdates: {
+                updater.showUpdatesFromStatusBadge()
+            },
+            showPopover: $coordinator.showProxyStatusPopover
+        )
+    }
+}

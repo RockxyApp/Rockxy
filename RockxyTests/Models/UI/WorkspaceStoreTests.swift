@@ -239,15 +239,16 @@ struct WorkspaceStoreTests {
         let original = store.createWorkspace(title: "Original", filter: filter)
         original.activeMainTab = .logs
         original.isFilterBarVisible = true
+        original.contextDockTab = .aiAssistant
 
-        let copy = store.duplicateWorkspace(id: original.id)
-        #expect(copy != nil)
-        #expect(try #require(copy?.id) != original.id)
-        #expect(copy?.filterCriteria.sidebarDomain == "test.com")
-        #expect(copy?.activeMainTab == .logs)
-        #expect(copy?.isFilterBarVisible == true)
-        #expect(copy?.isClosable == true)
-        #expect(store.activeWorkspaceID == copy!.id)
+        let copy = try #require(store.duplicateWorkspace(id: original.id))
+        #expect(copy.id != original.id)
+        #expect(copy.filterCriteria.sidebarDomain == "test.com")
+        #expect(copy.activeMainTab == .logs)
+        #expect(copy.contextDockTab == .aiAssistant)
+        #expect(copy.isFilterBarVisible == true)
+        #expect(copy.isClosable == true)
+        #expect(store.activeWorkspaceID == copy.id)
     }
 
     @Test("Duplicate inserts after source workspace")
@@ -256,11 +257,10 @@ struct WorkspaceStoreTests {
         let ws1 = store.createWorkspace(title: "Tab 1")
         _ = store.createWorkspace(title: "Tab 2")
 
-        let copy = store.duplicateWorkspace(id: ws1.id)
-        #expect(copy != nil)
+        let copy = try #require(store.duplicateWorkspace(id: ws1.id))
         // Copy should be right after ws1
         let ws1Index = try #require(store.workspaces.firstIndex { $0.id == ws1.id })
-        let copyIndex = try #require(store.workspaces.firstIndex { $0.id == copy!.id })
+        let copyIndex = try #require(store.workspaces.firstIndex { $0.id == copy.id })
         #expect(copyIndex == ws1Index + 1)
     }
 

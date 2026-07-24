@@ -120,6 +120,87 @@ struct DomainGroupingIndex {
     }
 }
 
+// MARK: - AppGroupingIndex
+
+/// Incremental application/domain counts for the Focus Navigator.
+///
+/// Process attribution arrives after the transaction batch in many captures. Keeping
+/// reference counts lets Rockxy move those rows out of "Unknown" without rebuilding every
+/// workspace index from the complete live history on each 100 ms capture batch.
+struct AppGroupingIndex {
+    // MARK: Internal
+
+    mutating func removeAll() {
+        entries.removeAll(keepingCapacity: true)
+        insertionOrder.removeAll(keepingCapacity: true)
+    }
+
+    mutating func add(_ transaction: HTTPTransaction, appName: String? = nil) {
+        let name = Self.normalizedAppName(appName ?? transaction.clientApp)
+        let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if entries[name] == nil {
+            entries[name] = Entry()
+            insertionOrder.append(name)
+        }
+        entries[name]?.requestCount += 1
+        if !host.isEmpty {
+            entries[name]?.domainCounts[host, default: 0] += 1
+        }
+    }
+
+    mutating func remove(_ transaction: HTTPTransaction, appName: String?) {
+        let name = Self.normalizedAppName(appName)
+        guard var entry = entries[name] else {
+            return
+        }
+        entry.requestCount = max(0, entry.requestCount - 1)
+
+        let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !host.isEmpty, let count = entry.domainCounts[host] {
+            if count <= 1 {
+                entry.domainCounts.removeValue(forKey: host)
+            } else {
+                entry.domainCounts[host] = count - 1
+            }
+        }
+
+        if entry.requestCount == 0 {
+            entries.removeValue(forKey: name)
+            insertionOrder.removeAll { $0 == name }
+        } else {
+            entries[name] = entry
+        }
+    }
+
+    func makeNodes() -> [AppInfo] {
+        insertionOrder.compactMap { name in
+            guard let entry = entries[name] else {
+                return nil
+            }
+            return AppInfo(
+                name: name,
+                domains: entry.domainCounts.keys.sorted(),
+                requestCount: entry.requestCount
+            )
+        }
+    }
+
+    // MARK: Private
+
+    private struct Entry {
+        var requestCount = 0
+        var domainCounts: [String: Int] = [:]
+    }
+
+    private var entries: [String: Entry] = [:]
+    private var insertionOrder: [String] = []
+
+    private static func normalizedAppName(_ value: String?) -> String {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? String(localized: "Unknown") : normalized
+    }
+}
+
 // MARK: - DomainGrouping
 
 enum DomainGrouping {

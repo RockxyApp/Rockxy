@@ -256,19 +256,58 @@ extension MainContentCoordinator {
     }
 
     func rebuildObservedDomainsByApp() {
-        var domainsByApp: [String: Set<String>] = [:]
+        var countsByApp: [String: [String: Int]] = [:]
 
         for transaction in transactions {
-            let appName = (transaction.clientApp ?? String(localized: "Unknown"))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+            let appName = normalizedObservedAppName(transaction.clientApp)
+            let host = normalizedObservedHost(transaction.request.host)
             guard !appName.isEmpty, !host.isEmpty else {
                 continue
             }
-            domainsByApp[appName, default: []].insert(host)
+            countsByApp[appName, default: [:]][host, default: 0] += 1
         }
 
-        observedDomainsByApp = domainsByApp
+        observedDomainCountsByApp = countsByApp
+        observedDomainsByApp = countsByApp.mapValues { Set($0.keys) }
+    }
+
+    func appendObservedDomainsByApp(from batch: [HTTPTransaction]) {
+        guard !batch.isEmpty else {
+            return
+        }
+        var changedApps: Set<String> = []
+        for transaction in batch {
+            let appName = normalizedObservedAppName(transaction.clientApp)
+            let host = normalizedObservedHost(transaction.request.host)
+            guard !host.isEmpty else {
+                continue
+            }
+            observedDomainCountsByApp[appName, default: [:]][host, default: 0] += 1
+            changedApps.insert(appName)
+        }
+        publishObservedDomains(for: changedApps)
+    }
+
+    func moveObservedDomainFromUnknown(for transaction: HTTPTransaction) {
+        let unknown = normalizedObservedAppName(nil)
+        let destination = normalizedObservedAppName(transaction.clientApp)
+        let host = normalizedObservedHost(transaction.request.host)
+        guard destination != unknown, !host.isEmpty else {
+            return
+        }
+
+        if let count = observedDomainCountsByApp[unknown]?[host] {
+            if count <= 1 {
+                observedDomainCountsByApp[unknown]?.removeValue(forKey: host)
+            } else {
+                observedDomainCountsByApp[unknown]?[host] = count - 1
+            }
+            if observedDomainCountsByApp[unknown]?.isEmpty == true {
+                observedDomainCountsByApp.removeValue(forKey: unknown)
+            }
+        }
+        observedDomainCountsByApp[destination, default: [:]][host, default: 0] += 1
+        publishObservedDomains(for: [unknown, destination])
     }
 
     func installAndTrustCertificateFromInspector() {
@@ -289,6 +328,27 @@ extension MainContentCoordinator {
                 )
             }
         }
+    }
+
+    private func publishObservedDomains(for appNames: Set<String>) {
+        var snapshot = observedDomainsByApp
+        for appName in appNames {
+            if let counts = observedDomainCountsByApp[appName], !counts.isEmpty {
+                snapshot[appName] = Set(counts.keys)
+            } else {
+                snapshot.removeValue(forKey: appName)
+            }
+        }
+        observedDomainsByApp = snapshot
+    }
+
+    private func normalizedObservedAppName(_ value: String?) -> String {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? String(localized: "Unknown") : normalized
+    }
+
+    private func normalizedObservedHost(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Bypass Proxy List
@@ -477,16 +537,6 @@ extension MainContentCoordinator {
         transactions.removeAll { $0.clientApp == appName }
         rebuildObservedDomainsByApp()
 
-        if let index = appNodeIndexMap[appName] {
-            appNodes.remove(at: index)
-            appNodeIndexMap.removeValue(forKey: appName)
-            // Rebuild index map
-            appNodeIndexMap.removeAll()
-            for (i, node) in appNodes.enumerated() {
-                appNodeIndexMap[node.name] = i
-            }
-        }
-
         // Clear selection if it was this app
         if case .app(appName, _) = sidebarSelection {
             sidebarSelection = nil
@@ -494,6 +544,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .allTraffic
         }
 
+        rebuildSidebarIndexes()
         recomputeFilteredTransactions()
         Self.logger.info("Removed app from sidebar: \(appName)")
     }

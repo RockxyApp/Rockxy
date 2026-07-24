@@ -16,6 +16,7 @@ struct WorkspaceStateTests {
         #expect(workspace.inspectorTab == .headers)
         #expect(workspace.inspectorLayout == .hidden)
         #expect(!workspace.isContextDockVisible)
+        #expect(workspace.contextDockTab == .details)
         #expect(workspace.allowsAutomaticInspectorReveal)
         #expect(workspace.focusNavigatorMode == .browse)
         #expect(workspace.focusSets.isEmpty)

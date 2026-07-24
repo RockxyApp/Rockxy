@@ -336,12 +336,12 @@ extension MainContentCoordinator {
                 self.processBatch(batch, generation: generation)
             }
         }
-        await sessionManager.setOnClientAppEnriched { [weak self] enrichedIDs in
+        await sessionManager.setOnClientAppEnriched { [weak self] enrichedTransactions in
             guard let self else {
                 return
             }
             Task { @MainActor in
-                self.handleClientAppEnrichment(enrichedIDs)
+                self.handleClientAppEnrichment(enrichedTransactions)
             }
         }
         let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
@@ -408,31 +408,99 @@ extension MainContentCoordinator {
                 errorCount += 1
             }
         }
-        rebuildObservedDomainsByApp()
+        appendObservedDomainsByApp(from: filteredBatch)
 
         updateAllWorkspaces(with: filteredBatch)
 
         headerColumnStore.updateDiscoveredHeaders(fromBatch: filteredBatch)
     }
 
-    func handleClientAppEnrichment(_ enrichedIDs: [UUID]) {
-        guard !enrichedIDs.isEmpty else {
+    func handleClientAppEnrichment(_ enrichedTransactions: [HTTPTransaction]) {
+        guard !enrichedTransactions.isEmpty else {
             return
         }
-        // clientApp is already mutated on the HTTPTransaction objects.
-        // Rebuild sidebar app indexes for all workspaces (app counts/names may have changed).
-        // If a workspace has an active app filter, recompute its filtered transactions
-        // because membership depends on clientApp.
-        rebuildObservedDomainsByApp()
+
+        let enrichedByID = Dictionary(
+            enrichedTransactions.map { ($0.id, $0) },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        let enrichedIDs = Set(enrichedByID.keys)
+        for transaction in enrichedTransactions {
+            moveObservedDomainFromUnknown(for: transaction)
+        }
+
         for workspace in workspaceStore.workspaces {
-            rebuildSidebarIndexes(for: workspace)
-            if workspace.filterCriteria.sidebarApp != nil {
+            updateAppGroupingForEnrichedTransactions(enrichedTransactions, in: workspace)
+            refreshAppNodes(for: workspace)
+
+            if workspaceUsesClientDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {
+                var didUpdateRows = false
+                for index in workspace.filteredRows.indices
+                    where enrichedIDs.contains(workspace.filteredRows[index].id)
+                {
+                    guard let transaction = enrichedByID[workspace.filteredRows[index].id] else {
+                        continue
+                    }
+                    workspace.filteredRows[index] = RequestListRow(
+                        from: transaction,
+                        sslState: sslState(for: transaction)
+                    )
+                    didUpdateRows = true
+                }
+                guard didUpdateRows else {
+                    continue
+                }
                 workspace.lastDeriveWasAppendOnly = false
-                deriveFilteredRows(for: workspace)
+                workspace.refreshToken += 1
             }
         }
+        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+    }
+
+    private func updateAppGroupingForEnrichedTransactions(
+        _ transactions: [HTTPTransaction],
+        in workspace: WorkspaceState
+    ) {
+        let unknownApp = String(localized: "Unknown")
+        for transaction in transactions {
+            let destinationApp = transaction.clientApp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !destinationApp.isEmpty else {
+                continue
+            }
+
+            switch workspace.filterCriteria.sidebarApp {
+            case nil:
+                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
+                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
+            case unknownApp:
+                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
+            case destinationApp:
+                // The row was omitted from this app-scoped index while attribution was unknown.
+                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
+            default:
+                break
+            }
+        }
+    }
+
+    private func workspaceUsesClientDependentOrderingOrFiltering(_ workspace: WorkspaceState) -> Bool {
+        if workspace.filterCriteria.sidebarApp != nil
+            || workspace.filterCriteria.isSearchEnabled
+                && workspace.filterCriteria.searchField == .clientApp
+            || workspace.activeSortDescriptors.contains(where: { $0.key == "client" })
+            || workspace.activeFocusSet != nil
+            || !workspace.mutedTrafficSources.isEmpty
+        {
+            return true
+        }
+
+        return FilterRuleEvaluator.activeRules(
+            in: workspace.filterRules,
+            isFilterBarVisible: workspace.isFilterBarVisible
+        )
+        .contains { $0.field == .clientApp }
     }
 
     func updateDomainTree(for transaction: HTTPTransaction) {
@@ -440,24 +508,7 @@ extension MainContentCoordinator {
     }
 
     func updateAppNodes(for transaction: HTTPTransaction) {
-        let appName = transaction.clientApp ?? String(localized: "Unknown")
-        let host = transaction.request.host
-
-        if let index = appNodeIndexMap[appName] {
-            appNodes[index].requestCount += 1
-            if !host.isEmpty, !appNodes[index].domains.contains(host) {
-                appNodes[index].domains.append(host)
-                appNodes[index].domains.sort()
-            }
-        } else {
-            let info = AppInfo(
-                name: appName,
-                domains: host.isEmpty ? [] : [host],
-                requestCount: 1
-            )
-            appNodeIndexMap[appName] = appNodes.count
-            appNodes.append(info)
-        }
+        updateAppNodes(for: transaction, in: activeWorkspace)
     }
 
     // MARK: - Allow List Filtering (pure helper for processBatch + tests)

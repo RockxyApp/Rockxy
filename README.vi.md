@@ -79,13 +79,17 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Các Điểm Nổi Bật Trên Nhánh Hiện Tại
 
+- AI Assistant giờ điều tra một hoặc nhiều request được chọn bằng phân tích local tích hợp sẵn hoặc model Ollama/provider đã cấu hình, với Review Data rõ ràng, redaction có giới hạn, streaming response, evidence reveal và handoff do user chủ động.
+- Native sidebar giờ có Focus Sets tái sử dụng cho scope app/domain/path cùng Noise Control theo từng workspace để ẩn domain hoặc path phù hợp mà không dừng capture.
+- Main workspace giờ dùng native split view dọc và ngang cho Context Dock cùng bottom inspector, giữ divider toàn chiều cao, đồng bộ separator toolbar/footer và tự động cân chỉnh layout.
 - Upstream Proxy hiện bao gồm Automatic Proxy Configuration miễn phí/core với PAC URL routing cho các route `DIRECT`, HTTP và HTTPS, trong khi vẫn giữ nguyên boundary policy cho SOCKS5 và authentication.
 - Export workflow hiện hỗ trợ OpenAPI YAML/HTML và publish selected traffic lên Gist với payload builder có awareness về redaction.
 - Inspector tools hiện có JSONPath/key/value filtering và quick preview cho payload text được chọn, như JWT.
+- AI và Web3 traffic inspection giờ thêm protocol label, inspector tab và debug summary cho model call, JSON-RPC traffic và x402-style payment hint được nhận diện.
 - Node.js Developer Setup hiện mirror selected client trong quá trình validation và có localhost sample guide đầy đủ hơn.
 - Developer Setup Hub giờ bao phủ runtime, browser, client, device, framework và environment với snippet theo từng target, validation watcher, và guide content trung thực.
-- WebSocket Protobuf vẫn tiếp tục là một phần trong hướng protocol inspection phong phú hơn của Rockxy.
-- Public roadmap planning hiện bao gồm protocol-aware debugging cho AI traffic, Web3/RPC flows, x402-style payment flows, và chia sẻ debugging evidence đã redaction an toàn hơn.
+- WebSocket binary-frame inspection giờ có heuristic Protobuf wire-format theo yêu cầu, có giới hạn, mà không thêm decoder work vào capture hot path.
+- Public roadmap planning giờ tập trung vào protocol-aware rules sâu hơn, replay, comparison và chia sẻ redacted evidence an toàn hơn.
 
 ## Tính Năng
 
@@ -107,7 +111,23 @@ Thu hẹp hàng nghìn request đã bắt trong vài giây. Kết hợp filter t
 
 `Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
 
-### MCP Server cho AI Assistants
+### Focus Sets & Noise Control
+
+Biến các investigation lặp lại thành scope tái sử dụng trong sidebar. Focus Sets kết hợp include theo application, domain và path với exclude theo domain hoặc path, được lưu qua các lần mở app và dùng trong mọi workspace. Noise Control vẫn capture telemetry cùng các domain/path ít giá trị nhưng ẩn chúng khỏi workspace hiện tại.
+
+`Reusable Focus Sets` · `App / Domain / Path Scope` · `Include & Exclude` · `Workspace Noise Control` · `Capture Continues`
+
+### AI Assistant
+
+<img src="docs/images/features/DemoAIAssistant-Light.png" alt="Rockxy AI Assistant giải thích traffic được chọn bên cạnh request table và sidebar native" width="820" />
+
+Chọn một hoặc nhiều request đã capture rồi hỏi chuyện gì xảy ra, điều gì lỗi, điều gì thay đổi hoặc nên xác minh gì tiếp theo. Rockxy bắt đầu bằng phân tích dựa trên evidence ngay trên máy Mac; model Ollama hoặc provider đã cấu hình chỉ chạy sau khi Review Data hiển thị chính xác context đã giới hạn và redaction. Response có thể reveal source request và chuẩn bị follow-up workflow native, nhưng Assistant không tự động mutate traffic hay thực thi action.
+
+`Built-in Local Analysis` · `Multi-Request Context` · `Ollama & Provider Models` · `Review Data` · `Sensitive-Data Redaction` · `Read-only Actions`
+
+[Đọc hướng dẫn AI Assistant](docs/features/ai-assistant.mdx).
+
+### MCP Server cho External AI Clients
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
@@ -237,11 +257,11 @@ Lưu session, import/export HAR cho handoff đa công cụ, copy bất kỳ requ
 
 ### Multi-Tab Workspaces
 
-<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces hiển thị các view được filter độc lập trên cùng một live capture" width="820" />
 
-Chạy các session capture độc lập song song — một tab cho staging, một cho prod, một cho build iOS device. Mỗi tab giữ filter, selection và state inspector riêng, nên chuyển context không tốn gì.
+Giữ các investigation view độc lập cạnh nhau trên cùng một live capture — một tab cho traffic staging, một cho production và một cho flow của iOS device. Mỗi tab có filter, sorting, selection, sidebar scope và inspector state riêng trong khi dùng chung proxy cùng các transaction đã capture.
 
-`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+`Shared Live Capture` · `Per-Tab Filters & Sort` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
 
 ### JavaScript Scripting
 
@@ -251,39 +271,43 @@ Hook JS lên request và response cho các case mà rule tĩnh không phủ đư
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## Nhiều Tính Năng Sắp Ra Mắt
+## Protocol-Aware Inspection
 
-Các tính năng tương lai được theo dõi công khai và chỉ ship khi implementation, test, privacy behavior và documentation đã sẵn sàng.
+Rockxy đã cung cấp AI, Web3 RPC và x402 inspection có protocol awareness ngay trong workflow debug HTTP thông thường.
 
-### AI Traffic Inspection `Sắp Ra Mắt`
+### AI Traffic Inspection
 
-Làm cho model traffic dễ debug hơn ngay trong workflow capture bình thường. Detect AI request, inspect model call đã chọn, diagnose streaming response, compare prompt/output behavior, và hiểu tool-call chain mà không phải dán payload nhạy cảm vào dịch vụ khác.
+Rockxy phát hiện AI request được nhận diện trong capture workflow thông thường. Inspect model call được chọn, streaming state, usage field khi có, warning, retrieval hint và tool-call summary mà không cần dán sensitive payload vào service khác.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### Web3/RPC Inspection `Sắp Ra Mắt`
+### Web3/RPC Inspection
 
-Biến network call của blockchain-era thành debugging evidence dễ đọc. Inspect JSON-RPC và Solana RPC traffic, group related calls thành flow, giải thích lỗi RPC phổ biến, và replay selected request mà không biến Rockxy thành wallet hay block explorer.
+Rockxy biến network call thời blockchain thành debugging evidence dễ đọc. Inspect EVM và Solana-style HTTP JSON-RPC traffic với provider host, request ID, method, batch summary, error, chain, transaction, payload và debug-intent detail mà không biến Rockxy thành wallet hay block explorer.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### x402 Payment Flow Debugging `Sắp Ra Mắt`
+### x402 Payment Flow Hints
 
-Hiểu payment-gated HTTP flow từ tầng network. Highlight payment-required response, theo dõi retry path, và giữ debugging evidence local với redaction-aware.
+Rockxy highlight payment-required và retry-oriented hint để payment-gated HTTP flow trở nên dễ hiểu từ network layer, trong khi debugging evidence vẫn local và redaction-aware.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+## Công Việc Tương Lai
+
+Các mục sau mô tả định hướng công khai, không phải behavior hiện tại.
+
+### Protocol-Aware Rules
+
+Rockxy có thể label và inspect AI cùng Web3 traffic ngay hôm nay. Rule matching sâu hơn theo model, tool call, JSON-RPC method, chain, transaction hash hoặc batch subcall vẫn là công việc tương lai; các công cụ sửa traffic hiện tại vẫn match URL, HTTP method và header.
+
+`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
 
 ### Redacted Evidence Bundles `Sắp Ra Mắt`
 
 Chia sẻ những dữ kiện cần để reproduce bug mà không leak secret. Package selected traffic với protocol summary, redaction preview, và source-backed context để đồng đội có thể audit.
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
-
-### Protocol-Aware Filters & Rules `Sắp Ra Mắt`
-
-Dùng AI và Web3 metadata ở đúng nơi Rockxy đã hoạt động: filter, badge, optional column, comparison, rule, Developer Setup, và local MCP summary.
-
-`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
 
 ### Chia Sẻ & Cộng Tác Theo Team `Sắp Ra Mắt`
 
@@ -318,7 +342,7 @@ Build và chạy trong Xcode. Cửa sổ Welcome sẽ hướng dẫn bạn cài 
 | **MCP/local automation bridge** | Tích hợp sẵn, xác thực bằng token, mặc định che giấu dữ liệu nhạy cảm | Chưa được nêu trong tài liệu công khai đã kiểm tra | Chưa được nêu trong tài liệu công khai đã kiểm tra |
 | **Đường đóng góp mở** | Issues, discussions, roadmap và PR công khai | Sản phẩm do vendor kiểm soát | Sản phẩm do vendor kiểm soát |
 
-Trên lộ trình: workflow replay/diff/rules/scripting sâu hơn, cải thiện kiểm tra WebSocket và GraphQL, protocol-aware debugging cho AI và Web3/RPC, visibility cho x402-style payment flow, và khám phá hỗ trợ gRPC/Protobuf cùng HTTP/2 và HTTP/3.
+Trên lộ trình: protocol-aware rules sâu hơn, redacted evidence bundle an toàn hơn, workflow replay và comparison mạnh hơn, hướng dẫn Developer Setup rộng hơn, cùng việc tiếp tục nghiên cứu HTTP/2 và HTTP/3.
 
 ## Bảo Mật
 
@@ -345,6 +369,10 @@ Tài liệu đầy đủ tại [Rockxy Docs](docs/index.mdx):
 
 - [Hướng dẫn nhanh](docs/quickstart.mdx) — thiết lập và chạy trong vài phút
 - [Developer Setup Hub](docs/features/developer-setup-hub.mdx) — snippet theo runtime, guide cho device, validation probe và support matrix
+- [AI Assistant](docs/features/ai-assistant.mdx) — điều tra traffic được chọn bằng local analysis hoặc model đã cấu hình và được review rõ ràng
+- [Bộ lọc và tìm kiếm](docs/core-features/filters-and-search.mdx) — dùng sidebar scope, Focus Sets, Noise Control, toolbar filter và search
+- [AI và Web3 Inspection](docs/features/ai-web3-inspection.mdx) — inspect model API, JSON-RPC và x402-style traffic được nhận diện
+- [MCP Integration](docs/features/mcp.mdx) — kết nối Rockxy với local MCP client
 - [Kiến trúc](docs/development/architecture.mdx) — proxy engine, actor model, luồng dữ liệu
 - [Mô hình bảo mật](docs/development/security.mdx) — ranh giới tin cậy, xác thực XPC, quản lý chứng chỉ
 - [Quyết định thiết kế](docs/development/design-decisions.mdx) — tại sao SwiftNIO, NSTableView, actors

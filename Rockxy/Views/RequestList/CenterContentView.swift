@@ -5,13 +5,14 @@ import SwiftUI
 // MARK: - CenterContentView
 
 /// Primary content area composing the protocol filter bar, optional advanced filter bar,
-/// the NSTableView-backed request list, an optional inspector panel (right or bottom split),
+/// the NSTableView-backed request list, an optional bottom inspector panel,
 /// and the status bar. Manages the bridge between NSTableView selection (Set<UUID>) and the
 /// coordinator's single-selection model.
 struct CenterContentView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    let onOpenToolWindow: (String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,7 +110,8 @@ struct CenterContentView: View {
                 },
                 onSwitchOffProxyOverride: {
                     coordinator.switchOffSystemProxyOverride()
-                }
+                },
+                onOpenToolWindow: onOpenToolWindow
             )
         }
         .onChange(of: coordinator.selectedTransaction?.id) { _, newID in
@@ -129,7 +131,14 @@ struct CenterContentView: View {
 
     // MARK: Private
 
+    private static let minimumBottomTableHeight: CGFloat = 200
+    private static let minimumBottomInspectorHeight: CGFloat = 320
+    private static let bottomInspectorSplitAutosaveName = RockxyIdentity.current.defaultsKey(
+        "workspaceBottomInspectorSplit.v1"
+    )
+
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
+    @Environment(\.appUIDisplayMetrics) private var displayMetrics
 
     @State private var selectedIDs: Set<UUID> = []
 
@@ -137,34 +146,6 @@ struct CenterContentView: View {
     /// tracks access to `isActive` inside `body` and re-renders the status bar when
     /// the master toggle changes.
     private let allowListManager = AllowListManager.shared
-
-    private var inspectorWorkspace: some View {
-        GeometryReader { proxy in
-            if coordinator.inspectorLayout == .hidden {
-                upperWorkspace(availableWidth: proxy.size.width)
-            } else {
-                VSplitView {
-                    upperWorkspace(availableWidth: proxy.size.width)
-                        .frame(
-                            minHeight: Self.minimumBottomTableHeight,
-                            idealHeight: max(Self.minimumBottomTableHeight, proxy.size.height * 0.58)
-                        )
-                    InspectorPanelView(coordinator: coordinator)
-                        .frame(
-                            minHeight: Self.minimumBottomInspectorHeight,
-                            idealHeight: max(Self.minimumBottomInspectorHeight, proxy.size.height * 0.42)
-                        )
-                }
-                .id("horizontal-inspector-split")
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private static let minimumBottomTableHeight: CGFloat = 200
-    private static let minimumBottomInspectorHeight: CGFloat = 200
-    private static let minimumTrafficWidth: CGFloat = 420
-    private static let contextDockWidth: CGFloat = 300
 
     private var advancedRuleCount: Int {
         FilterRuleEvaluator.activeRules(
@@ -182,6 +163,34 @@ struct CenterContentView: View {
             + (coordinator.activeWorkspace.activeTrafficSignal == nil ? 0 : 1)
             + (coordinator.activeWorkspace.activeFocusSet == nil ? 0 : 1)
             + (coordinator.activeWorkspace.mutedTrafficSources.isEmpty ? 0 : 1)
+    }
+
+    private var inspectorWorkspace: some View {
+        NativeBottomInspectorSplitView(
+            isInspectorPresented: bottomInspectorVisibility,
+            autosaveName: Self.bottomInspectorSplitAutosaveName,
+            primaryMinimumHeight: Self.minimumBottomTableHeight,
+            inspectorMinimumHeight: Self.minimumBottomInspectorHeight
+        ) {
+            tableContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .appUIDisplayMetrics(displayMetrics)
+        } inspector: {
+            InspectorPanelView(
+                coordinator: coordinator,
+                onOpenToolWindow: onOpenToolWindow
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .appUIDisplayMetrics(displayMetrics)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var bottomInspectorVisibility: Binding<Bool> {
+        Binding(
+            get: { coordinator.inspectorLayout == .bottom },
+            set: { coordinator.setBottomInspectorVisible($0) }
+        )
     }
 
     private var tableContent: some View {
@@ -204,26 +213,4 @@ struct CenterContentView: View {
             mainCoordinator: coordinator
         )
     }
-
-    @ViewBuilder
-    private func upperWorkspace(availableWidth: CGFloat) -> some View {
-        if coordinator.isContextDockVisible, availableWidth >= Self.minimumWidthForContextDock {
-            HSplitView {
-                tableContent
-                    .frame(minWidth: Self.minimumTrafficWidth, maxWidth: .infinity)
-                ContextDockView(coordinator: coordinator)
-                    .frame(
-                        minWidth: Self.contextDockWidth,
-                        idealWidth: Self.contextDockWidth,
-                        maxWidth: 420
-                    )
-            }
-            .id("traffic-context-dock-split")
-        } else {
-            tableContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-
-    private static let minimumWidthForContextDock: CGFloat = 760
 }

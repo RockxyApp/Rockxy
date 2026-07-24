@@ -29,6 +29,50 @@ private final class BoolBox: @unchecked Sendable {
 
 @Suite(.serialized)
 struct HistoryRetentionTests {
+    @Test("Late client attribution updates live indexes without rebuilding capture history")
+    @MainActor
+    func lateClientAttributionUpdatesLiveIndexes() throws {
+        let coordinator = MainContentCoordinator()
+        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/v1/events")
+        coordinator.transactions.append(transaction)
+        coordinator.appendObservedDomainsByApp(from: [transaction])
+        coordinator.updateAllWorkspaces(with: [transaction])
+
+        #expect(coordinator.appNodes.map(\.name) == [String(localized: "Unknown")])
+        #expect(coordinator.observedDomainsByApp[String(localized: "Unknown")] == ["api.example.com"])
+        #expect(coordinator.filteredRows.first?.clientApp == nil)
+
+        transaction.clientApp = "Safari"
+        coordinator.handleClientAppEnrichment([transaction])
+
+        let app = try #require(coordinator.appNodes.first)
+        #expect(coordinator.appNodes.count == 1)
+        #expect(app.name == "Safari")
+        #expect(app.requestCount == 1)
+        #expect(app.domains == ["api.example.com"])
+        #expect(coordinator.observedDomainsByApp[String(localized: "Unknown")] == nil)
+        #expect(coordinator.observedDomainsByApp["Safari"] == ["api.example.com"])
+        #expect(coordinator.filteredRows.first?.clientApp == "Safari")
+    }
+
+    @Test("Capture batches keep the request table on its incremental append path")
+    @MainActor
+    func captureBatchUsesIncrementalIndexes() {
+        let coordinator = MainContentCoordinator()
+        coordinator.isRecording = true
+        let batch = (0 ..< 1_000).map { index in
+            TestFixtures.makeTransaction(url: "https://api\(index % 20).example.com/events/\(index)")
+        }
+
+        coordinator.processBatch(batch, generation: coordinator.sessionGeneration)
+
+        #expect(coordinator.transactions.count == 1_000)
+        #expect(coordinator.filteredRows.count == 1_000)
+        #expect(coordinator.activeWorkspace.lastDeriveWasAppendOnly)
+        #expect(coordinator.appNodes.first?.requestCount == 1_000)
+        #expect(coordinator.observedDomainsByApp[String(localized: "Unknown")]?.count == 20)
+    }
+
     @Test("Live buffer caps at policy limit during capture")
     @MainActor
     func bufferCapDuringCapture() {

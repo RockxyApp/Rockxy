@@ -88,6 +88,38 @@ struct InspectorLayoutBehaviorTests {
         #expect(!relaunched.isContextDockVisible)
     }
 
+    @Test("Native inspector binding persists its collapsed state")
+    func nativeInspectorBindingPersists() throws {
+        let environment = try makeEnvironment()
+        defer { environment.defaults.removePersistentDomain(forName: environment.suiteName) }
+        let coordinator = MainContentCoordinator(workspaceLayoutPreferences: environment.preferences)
+
+        coordinator.setContextDockVisible(true)
+        coordinator.setContextDockVisible(false)
+
+        #expect(!coordinator.isContextDockVisible)
+        #expect(!coordinator.workspaceStore.createWorkspace().isContextDockVisible)
+        #expect(!MainContentCoordinator(
+            workspaceLayoutPreferences: environment.preferences
+        ).isContextDockVisible)
+    }
+
+    @Test("Native bottom inspector binding persists its collapsed state")
+    func nativeBottomInspectorBindingPersists() throws {
+        let environment = try makeEnvironment()
+        defer { environment.defaults.removePersistentDomain(forName: environment.suiteName) }
+        let coordinator = MainContentCoordinator(workspaceLayoutPreferences: environment.preferences)
+
+        coordinator.setBottomInspectorVisible(true)
+        coordinator.setBottomInspectorVisible(false)
+
+        #expect(coordinator.inspectorLayout == .hidden)
+        #expect(coordinator.workspaceStore.createWorkspace().inspectorLayout == .hidden)
+        #expect(MainContentCoordinator(
+            workspaceLayoutPreferences: environment.preferences
+        ).inspectorLayout == .hidden)
+    }
+
     // MARK: Private
 
     private func makeEnvironment() throws -> (

@@ -1,0 +1,178 @@
+---
+title: "AI Assistant"
+description: "Investigate selected captured traffic with Rockxy's built-in analysis or a configured local or remote model, with explicit data review before model access."
+---
+
+# AI Assistant
+
+Rockxy AI Assistant helps explain captured requests, investigate failures, compare nearby traffic, check authentication signals, and prepare a concise bug report.
+
+It works with any selected HTTP transaction. It is separate from [AI and Web3 Inspection](/features/ai-web3-inspection), which detects and summarizes traffic sent to model APIs and Web3 RPC endpoints.
+
+<Note>
+Built-in Analysis does not require an AI model. It examines bounded snapshots of the selected traffic on this Mac and produces an evidence-grounded starting point.
+</Note>
+
+## Start an Investigation
+
+1. Select one or more rows in the request table.
+2. Open the right-side inspector and choose **AI Assistant**, or right-click a row and choose **Ask Rockxy Assistant…**. With multiple selected rows, the menu reads **Ask Rockxy Assistant About Selection…**.
+3. Choose **Built-in Analysis (No Model)** or your configured model from the model menu.
+4. Ask a question, or start with one of the built-in investigation recipes.
+
+When you right-click within a multi-row selection, the clicked row becomes the primary request. The remaining selected rows stay in the investigation scope. Right-clicking a row outside the selection starts a new single-request scope for that row.
+
+The built-in recipes are:
+
+- **Explain This Request**
+- **Explain This Failure**
+- **Compare With Successful Request**
+- **Check Authentication**
+- **Prepare Bug Report**
+
+You can also ask a natural-language question. Rockxy chooses an initial analysis lens from the question, then keeps follow-up messages focused on the current request.
+
+## Built-in Analysis and Configured Models
+
+| Mode | What runs | Model setup | Data confirmation |
+| --- | --- | --- | --- |
+| **Built-in Analysis (No Model)** | Rockxy's deterministic traffic analyzer | Not required | Not required |
+| **Configured model** | The selected Ollama, cloud, or compatible endpoint | Required in **Settings → AI Assistant** | Required through **Review Data** for every model run |
+
+Built-in Analysis produces the first investigation result from captured facts such as method, status, headers, timing, nearby transactions, and rule metadata. A configured model can then turn the reviewed evidence into a more conversational answer.
+
+Model answers remain suggestions. Verify conclusions against the request, response, timing, and raw captured data before changing code or traffic rules.
+
+## Review Data Before a Model Runs
+
+Choosing **Continue With Model** or **Review Data & Run Model** opens a read-only review sheet before inference begins.
+
+Review Data shows:
+
+- provider, model, and destination;
+- selected traffic scope;
+- whether inference is local or remote;
+- context and output limits;
+- how many sensitive fields were redacted;
+- which payloads were truncated or omitted;
+- the exact reviewed instructions, conversation excerpt, and captured evidence that the model will receive.
+
+For a remote provider, no reviewed traffic leaves the Mac until you choose **Send Redacted Data**. For a loopback local runtime such as Ollama, choose **Run Locally** after reviewing the same bounded content.
+
+If the provider, model, traffic scope, or selected request changes, Rockxy invalidates the prepared review and requires a new confirmation.
+
+## Traffic Scope
+
+The default scope is **Selected Traffic Only**.
+
+You can explicitly opt in to **Selected and Related Traffic** when nearby requests are useful for comparison. Rockxy keeps the primary selected request first, adds only bounded related traffic, and shows the final request count in Review Data.
+
+Related traffic is never added silently. Changing the scope resets the current investigation so the new evidence can be reviewed from the beginning.
+
+## Privacy and Trust Boundary
+
+Rockxy applies the following protections before configured-model access:
+
+- sensitive request and response headers are redacted;
+- sensitive URL query values and supported body fields are redacted;
+- long values and bodies are bounded;
+- binary bodies are omitted from model context;
+- requests outside the context limit are omitted and counted;
+- remote endpoints must use HTTPS; unencrypted HTTP is accepted only for loopback hosts;
+- provider credentials are stored locally in macOS Keychain;
+- provider requests bypass Rockxy's capture proxy to avoid recursively capturing the Assistant itself.
+
+The Assistant is read-only. It cannot directly replay, compose, export, share, or modify traffic. When an answer recommends a native Rockxy action, Rockxy presents a separate user-initiated handoff. You still review and confirm the action in the destination workflow.
+
+Rockxy does not execute model tool calls. If a provider returns a tool-call request, Rockxy blocks it and reports the blocked action count in the response.
+
+<Warning>
+Redaction reduces accidental disclosure, but Review Data is the final check. Read the exact preview before sending captured traffic to a third-party provider.
+</Warning>
+
+## Configure a Model
+
+Open **Rockxy → Settings → AI Assistant**. Setup is organized in the order it should be completed.
+
+### 1. Local Model Setup
+
+Use this section when you want inference to stay on this Mac:
+
+1. install or start Ollama;
+2. install a model from the local model library;
+3. wait for the model to appear under **Installed Models**;
+4. make it the global model when you are ready to use it.
+
+Rockxy downloads the official Ollama macOS app over HTTPS and validates its developer signature and Gatekeeper assessment before installation. Model files are installed and managed separately by Ollama and may require several gigabytes each.
+
+### 2. Provider & Model
+
+Rockxy currently includes adapters for:
+
+- OpenAI;
+- Anthropic;
+- Google Gemini;
+- DeepSeek;
+- Qwen / DashScope;
+- Kimi / Moonshot;
+- Doubao / Volcengine Ark;
+- GLM / Zhipu;
+- OpenAI-compatible endpoints;
+- Ollama.
+
+Choose the provider, confirm its base URL, and select a model. Use the refresh button beside **Model** to discover the models currently available from that provider. Providers without model discovery keep an editable exact model ID field.
+
+For providers that require credentials, Rockxy stores the saved credential in macOS Keychain for that provider profile.
+
+### 3. Connection
+
+Save the provider profile, use **Test Connection**, then enable **model access**. Rockxy keeps Built-in Analysis available even when model access is disabled or the configured provider is offline.
+
+The **Data Handling** section shows the destination and provider-specific storage control where supported.
+
+## Continue the Investigation
+
+Assistant responses can include:
+
+- expandable evidence with observed, derived, inferred, or unknown labels;
+- **Follow Up** to place a suggested question in the composer;
+- **Reveal Request** to return to the captured row and open Details;
+- **Review & Retry** after a provider error;
+- user-initiated handoffs such as preparing a replay, opening Compose, exporting selected traffic, or reviewing data before sharing.
+
+Conversation history belongs to the current workspace and is kept in memory rather than persisted as a captured-evidence archive. Starting a new conversation does not change the selected traffic.
+
+## Troubleshooting
+
+### The model list is empty
+
+Use the refresh button beside **Model**. For Ollama, make sure the local service is running and at least one model is installed.
+
+### Model access cannot be enabled
+
+Save a complete provider profile with a valid endpoint and model. Add a credential when the selected provider requires one, then test the connection again.
+
+### Review Data no longer matches the selection
+
+Rockxy cancels stale analysis when the selected transaction, provider configuration, or traffic scope changes. Start the investigation again with the intended rows selected.
+
+### A request referenced by the answer is unavailable
+
+The transaction may have been cleared or evicted from the in-memory capture buffer. Capture the flow again, then rerun the investigation.
+
+## Related Pages
+
+<CardGroup cols={2}>
+  <Card title="Traffic Capture" icon="radar" href="/features/traffic-capture">
+    Capture and select the requests used as Assistant evidence.
+  </Card>
+  <Card title="Filters and Search" icon="filter" href="/core-features/filters-and-search">
+    Narrow the request table before starting an investigation.
+  </Card>
+  <Card title="AI and Web3 Inspection" icon="sparkles" href="/features/ai-web3-inspection">
+    Inspect model API and Web3 RPC traffic with protocol-aware tabs.
+  </Card>
+  <Card title="Settings" icon="gear" href="/customization/settings">
+    Review the app settings that control local and remote model access.
+  </Card>
+</CardGroup>

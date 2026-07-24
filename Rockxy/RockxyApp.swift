@@ -30,6 +30,8 @@ struct RockxyApp: App {
         // lifecycle. macOS can restore Rockxy with no open windows, and the
         // iPhone must still be able to discover it while the app is running.
         if !RockxyIdentity.isRunningTests {
+            coordinator.configureBabylonCaptureIntake()
+            BabylonCaptureReceiver.shared.start(coordinator: coordinator, pairingStore: .shared)
             RockxyNearbyTransferReceiver.shared.start(coordinator: coordinator)
         }
     }
@@ -55,6 +57,7 @@ struct RockxyApp: App {
         .defaultPosition(.center)
         .commands {
             RockxyMenuCommands(lifecycleState: lifecycleState)
+            BabylonCaptureCommands()
         }
 
         Window(String(localized: "Advanced Proxy Settings"), id: "advancedProxySettings") {
@@ -63,6 +66,16 @@ struct RockxyApp: App {
             }
         }
         .commandsRemoved()
+
+        Window(String(localized: "Babylon Pairing"), id: "babylonPairing") {
+            BabylonPairingView()
+        }
+        .defaultSize(width: 560, height: 360)
+
+        Window(String(localized: "Babylon Runtime"), id: "babylonRuntime") {
+            BabylonRuntimeView()
+        }
+        .defaultSize(width: 760, height: 520)
         .windowResizability(.contentSize)
 
         Window(String(localized: "Developer Setup Hub"), id: "developerSetupHub") {
