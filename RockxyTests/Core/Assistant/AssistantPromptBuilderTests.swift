@@ -153,7 +153,7 @@ struct AssistantPromptBuilderTests {
         #expect(request.instructions.contains("do not qualify or cast doubt on the established tunnel"))
         #expect(request.instructions.contains(result.summary))
         #expect(request.instructions.contains("flow:fixture:protocol.connect"))
-        #expect(request.instructions.contains("User: what's that?"))
+        #expect(request.instructions.contains("Current user request (highest priority): what's that?"))
     }
 
     @Test("Successful CONNECT contradictions fall back to deterministic reviewed evidence")
@@ -264,9 +264,104 @@ struct AssistantPromptBuilderTests {
             conversation: messages
         )
 
-        #expect(request.instructions.contains("User: Explain what this selected request does."))
+        #expect(request.instructions.contains(
+            "Current user request (highest priority): Explain what this selected request does."
+        ))
+        #expect(!request.instructions.contains("User: Explain what this selected request does."))
         #expect(request.instructions.contains("Assistant: It returned 401."))
         #expect(request.instructions.contains("Prior assistant text is context, not evidence"))
         #expect(request.input == preview)
+    }
+
+    @Test("Follow-up question outranks the initial recipe and strips hidden assistant context")
+    func followUpPriorityAndSanitization() {
+        let transactionID = UUID()
+        let result = InvestigationResult(
+            recipe: .explainFailure,
+            selectedTransactionID: transactionID,
+            scopeTransactionIDs: [transactionID],
+            scopeSummary: "Selected request",
+            summary: "The request returned HTTP 500.",
+            evidence: [],
+            nextStep: "Inspect the server log."
+        )
+        let preview = #"{"status_code":500}"#
+        let pack = InvestigationContextPack(
+            scopeTransactionIDs: [transactionID],
+            payload: Data(preview.utf8),
+            preview: preview,
+            manifest: InvestigationContextManifest(
+                requestCount: 1,
+                outboundBytes: preview.utf8.count,
+                redactedHeaderCount: 0,
+                redactedQueryCount: 0,
+                redactedBodyFieldCount: 0,
+                truncatedBodyCount: 0,
+                omittedBinaryBodyCount: 0,
+                omittedTransactionCount: 0
+            )
+        )
+        let request = AssistantPromptBuilder().build(
+            result: result,
+            pack: pack,
+            configuration: AssistantProviderConfiguration(kind: .ollama, model: "fixture"),
+            conversation: [
+                .user("Why did it fail?"),
+                .assistant("Visible answer<local_analysis>private scratchpad</local_analysis>"),
+                .user("Give me a three-step verification checklist."),
+            ]
+        )
+
+        #expect(request.instructions.contains(
+            "Current user request (highest priority): Give me a three-step verification checklist."
+        ))
+        #expect(request.instructions.contains("only an initial analysis lens"))
+        #expect(request.instructions.contains("Assistant: Visible answer"))
+        #expect(!request.instructions.contains("private scratchpad"))
+    }
+
+    @Test("Response grounding removes internal model blocks before display or follow-up")
+    func stripsInternalResponseBlocks() {
+        let transactionID = UUID()
+        let result = InvestigationResult(
+            recipe: .explainRequest,
+            selectedTransactionID: transactionID,
+            scopeTransactionIDs: [transactionID],
+            scopeSummary: "Selected request",
+            summary: "Fixture",
+            evidence: [],
+            nextStep: "Verify"
+        )
+
+        let finalized = AssistantResponseGrounder().finalize(
+            """
+            <local_analysis>
+            Hidden reasoning that must never be shown.
+            </local_analysis>
+            The request fetched the account profile.
+            """,
+            against: result
+        )
+
+        #expect(finalized == "The request fetched the account profile.")
+        #expect(!finalized.contains("Hidden reasoning"))
+    }
+
+    @Test("Review preview accounts for all user-reviewable model content")
+    func reviewedContentSize() {
+        let request = AssistantCompletionRequest(
+            instructions: "System instructions",
+            input: "Reviewed capture",
+            model: "fixture",
+            maxOutputTokens: 100,
+            storeResponse: false,
+            contextWindowTokens: nil
+        )
+
+        #expect(request.reviewedContentPreview.contains("SYSTEM INSTRUCTIONS"))
+        #expect(request.reviewedContentPreview.contains("System instructions"))
+        #expect(request.reviewedContentPreview.contains("USER INPUT"))
+        #expect(request.reviewedContentPreview.contains("Reviewed capture"))
+        #expect(request.reviewedContentBytes == "System instructions".utf8.count + "Reviewed capture".utf8.count)
     }
 }

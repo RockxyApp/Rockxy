@@ -1,5 +1,29 @@
 import Foundation
 
+enum AssistantResponseSanitizer {
+    static func sanitize(_ text: String) -> String {
+        var sanitized = text
+        for tag in ["local_analysis", "conversation"] {
+            sanitized = sanitized.replacingOccurrences(
+                of: #"(?is)<\#(tag)\b[^>]*>.*?</\#(tag)\s*>"#,
+                with: "",
+                options: .regularExpression
+            )
+            sanitized = sanitized.replacingOccurrences(
+                of: #"(?is)<\#(tag)\b[^>]*>.*$"#,
+                with: "",
+                options: .regularExpression
+            )
+            sanitized = sanitized.replacingOccurrences(
+                of: #"(?is)</?\#(tag)\b[^>]*>"#,
+                with: "",
+                options: .regularExpression
+            )
+        }
+        return sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// Applies deterministic capture semantics when a small model contradicts reviewed evidence.
 ///
 /// The model still produces the response. Rockxy only replaces it when the wording conflicts
@@ -12,7 +36,7 @@ struct AssistantResponseGrounder {
     )
         -> String
     {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = AssistantResponseSanitizer.sanitize(text)
         guard isEstablishedConnect(result),
               contradictsEstablishedConnect(trimmed)
               || mentionsIrrelevantPayload(trimmed, userQuestion: userQuestion) else

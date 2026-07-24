@@ -5,10 +5,10 @@ struct DebugAssistantReviewDataSheet: View {
     // MARK: Internal
 
     let pack: InvestigationContextPack
+    let request: AssistantCompletionRequest?
     let configuration: AssistantProviderConfiguration?
     let trafficScope: AssistantTrafficScope
     let modelAccessEnabled: Bool
-    let conversationPreview: String
     let onSend: () -> Void
     let onDismiss: () -> Void
 
@@ -44,7 +44,7 @@ struct DebugAssistantReviewDataSheet: View {
     }
 
     private var canSend: Bool {
-        modelAccessEnabled && configuration?.isComplete == true
+        modelAccessEnabled && configuration?.isComplete == true && request != nil
     }
 
     private var isLocalExecution: Bool {
@@ -82,7 +82,7 @@ struct DebugAssistantReviewDataSheet: View {
         if isLocalExecution {
             return String(localized: "Inference uses the configured local endpoint")
         }
-        return String(localized: "Only the reviewed redacted payload will be sent")
+        return String(localized: "Only reviewed content and required provider metadata will be sent")
     }
 
     private var scopeDescription: String {
@@ -123,9 +123,9 @@ struct DebugAssistantReviewDataSheet: View {
                 value: String(localized: "Read-only analysis")
             ),
             ReviewDetail(
-                title: String(localized: "Outbound Size"),
+                title: String(localized: "Reviewed Content Size"),
                 value: ByteCountFormatter.string(
-                    fromByteCount: Int64(pack.manifest.outboundBytes),
+                    fromByteCount: Int64(request?.reviewedContentBytes ?? pack.manifest.outboundBytes),
                     countStyle: .file
                 )
             ),
@@ -187,7 +187,6 @@ struct DebugAssistantReviewDataSheet: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 destinationSection
                 redactionSection
-                conversationSection
                 previewSection
             }
             .padding(.horizontal, toolMetrics.contentHorizontalPadding)
@@ -255,24 +254,10 @@ struct DebugAssistantReviewDataSheet: View {
         }
     }
 
-    private var conversationSection: some View {
-        reviewSection(String(localized: "Conversation Sent to Model")) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "person.crop.circle")
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16)
-                Text(conversationPreview)
-                    .font(toolMetrics.secondaryFont())
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-        }
-    }
-
     private var previewSection: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(String(localized: "Exact Data Preview"))
+                Text(String(localized: "Exact Reviewed Content"))
                     .font(toolMetrics.font(weight: .semibold))
                 Spacer()
                 Text(String(localized: "\(pack.manifest.requestCount) requests"))
@@ -281,8 +266,8 @@ struct DebugAssistantReviewDataSheet: View {
             }
 
             InspectorBodyTextEditor(
-                text: pack.preview,
-                editorID: "debug-assistant-review-\(pack.preview.hashValue)",
+                text: request?.reviewedContentPreview ?? pack.preview,
+                editorID: "debug-assistant-review-\((request?.reviewedContentPreview ?? pack.preview).hashValue)",
                 editorSettings: previewEditorSettings,
                 isEditable: false
             )

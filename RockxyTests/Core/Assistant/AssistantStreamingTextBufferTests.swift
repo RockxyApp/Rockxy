@@ -15,7 +15,7 @@ struct AssistantStreamingTextBufferTests {
 
         #expect(buffer.text.count == 1_000)
         #expect(buffer.byteCount == 1_000)
-        #expect(publicationCount <= 10)
+        #expect(publicationCount <= 4)
     }
 
     @Test("Streaming text rejects output beyond the bounded response size")

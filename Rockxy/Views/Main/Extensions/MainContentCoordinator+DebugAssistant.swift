@@ -87,6 +87,7 @@ extension MainContentCoordinator {
         workspace.modelInvestigationState = conversation.messages.compactMap(\.modelResult).last
             .map(ModelInvestigationState.completed) ?? .idle
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -153,6 +154,7 @@ extension MainContentCoordinator {
             .map(InvestigationTransactionSnapshot.init(transaction:))
         let runID = UUID()
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -170,7 +172,11 @@ extension MainContentCoordinator {
             try Task.checkCancellation()
             return result
         }
-        debugAssistantTasks[workspace.id] = Task { [weak self] in
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            defer {
+                self?.clearDebugAssistantTask(for: workspace.id, matching: taskID)
+            }
             do {
                 let result = try await withTaskCancellationHandler {
                     try await worker.value
@@ -178,6 +184,7 @@ extension MainContentCoordinator {
                     worker.cancel()
                 }
                 guard let self,
+                      self.debugAssistantTasks[workspace.id]?.id == taskID,
                       let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
                       case let .investigating(currentRunID, _) = currentWorkspace.debugAssistantState,
                       currentRunID == runID else
@@ -185,7 +192,7 @@ extension MainContentCoordinator {
                     return
                 }
                 currentWorkspace.debugAssistantState = .result(result)
-                self.debugAssistantTasks[workspace.id] = nil
+                self.clearDebugAssistantTask(for: workspace.id, matching: taskID)
                 if self.shouldAutomaticallyUseConfiguredModel(currentWorkspace) {
                     self.prepareDebugAssistantReview(for: currentWorkspace, result: result)
                 } else {
@@ -193,9 +200,10 @@ extension MainContentCoordinator {
                     self.syncCurrentDebugAssistantConversation(currentWorkspace)
                 }
             } catch is CancellationError {
-                self?.debugAssistantTasks[workspace.id] = nil
+                return
             } catch {
                 guard let self,
+                      self.debugAssistantTasks[workspace.id]?.id == taskID,
                       let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
                       case let .investigating(currentRunID, _) = currentWorkspace.debugAssistantState,
                       currentRunID == runID else
@@ -205,9 +213,9 @@ extension MainContentCoordinator {
                 currentWorkspace.debugAssistantState = .failed(
                     message: error.localizedDescription
                 )
-                self.debugAssistantTasks[workspace.id] = nil
             }
         }
+        debugAssistantTasks[workspace.id] = DebugAssistantTaskHandle(id: taskID, task: task)
     }
 
     func cancelDebugAssistant() {
@@ -216,6 +224,7 @@ extension MainContentCoordinator {
         workspace.debugAssistantState = .idle
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -228,6 +237,7 @@ extension MainContentCoordinator {
         workspace.debugAssistantState = .idle
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -259,6 +269,7 @@ extension MainContentCoordinator {
         cancelDebugAssistantTask(for: workspace.id)
         workspace.isPreparingDebugAssistantReview = true
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         let settingsSnapshot = assistantSettingsProvider()
         workspace.debugAssistantReviewConfiguration = settingsSnapshot.assistantProviderConfiguration
         workspace.debugAssistantReviewTrafficScope = workspace.debugAssistantTrafficScope
@@ -276,7 +287,11 @@ extension MainContentCoordinator {
             try Task.checkCancellation()
             return pack
         }
-        debugAssistantTasks[workspace.id] = Task { [weak self] in
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            defer {
+                self?.clearDebugAssistantTask(for: workspace.id, matching: taskID)
+            }
             do {
                 let pack = try await withTaskCancellationHandler {
                     try await worker.value
@@ -284,6 +299,7 @@ extension MainContentCoordinator {
                     worker.cancel()
                 }
                 guard let self,
+                      self.debugAssistantTasks[workspace.id]?.id == taskID,
                       let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
                       case let .result(currentResult) = currentWorkspace.debugAssistantState,
                       currentResult.selectedTransactionID == selectedTransactionID else
@@ -292,27 +308,36 @@ extension MainContentCoordinator {
                 }
                 currentWorkspace.isPreparingDebugAssistantReview = false
                 currentWorkspace.debugAssistantReviewPack = pack
-                self.debugAssistantTasks[workspace.id] = nil
+                currentWorkspace.debugAssistantReviewRequest = currentWorkspace
+                    .debugAssistantReviewConfiguration
+                    .map { configuration in
+                        AssistantPromptBuilder().build(
+                            result: currentResult,
+                            pack: pack,
+                            configuration: configuration,
+                            conversation: currentWorkspace.debugAssistantMessages
+                        )
+                    }
             } catch is CancellationError {
-                self?.workspaceStore.workspaces.first(where: { $0.id == workspace.id })?
-                    .isPreparingDebugAssistantReview = false
-                self?.debugAssistantTasks[workspace.id] = nil
+                return
             } catch {
                 guard let self,
+                      self.debugAssistantTasks[workspace.id]?.id == taskID,
                       let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }) else
                 {
                     return
                 }
                 currentWorkspace.isPreparingDebugAssistantReview = false
                 currentWorkspace.debugAssistantState = .failed(message: error.localizedDescription)
-                self.debugAssistantTasks[workspace.id] = nil
             }
         }
+        debugAssistantTasks[workspace.id] = DebugAssistantTaskHandle(id: taskID, task: task)
     }
 
     func dismissDebugAssistantReview() {
         let workspace = activeWorkspace
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -321,7 +346,8 @@ extension MainContentCoordinator {
     func sendDebugAssistantReview() {
         let workspace = activeWorkspace
         guard case let .result(result) = workspace.debugAssistantState,
-              let pack = workspace.debugAssistantReviewPack else
+              let pack = workspace.debugAssistantReviewPack,
+              let request = workspace.debugAssistantReviewRequest else
         {
             return
         }
@@ -358,13 +384,8 @@ extension MainContentCoordinator {
         cancelDebugAssistantTask(for: workspace.id)
         let runID = UUID()
         let selectedTransactionID = result.selectedTransactionID
-        let request = AssistantPromptBuilder().build(
-            result: result,
-            pack: pack,
-            configuration: configuration,
-            conversation: workspace.debugAssistantMessages
-        )
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -376,9 +397,13 @@ extension MainContentCoordinator {
             text: ""
         )
 
-        debugAssistantTasks[workspace.id] = Task { [weak self] in
+        let taskID = UUID()
+        let task = Task { [weak self] in
             guard let self else {
                 return
+            }
+            defer {
+                self.clearDebugAssistantTask(for: workspace.id, matching: taskID)
             }
             do {
                 let stream = try await assistantRuntime.stream(
@@ -463,11 +488,10 @@ extension MainContentCoordinator {
                     investigation: result
                 ))
                 self.syncCurrentDebugAssistantConversation(workspace)
-                self.debugAssistantTasks[workspace.id] = nil
             } catch is CancellationError {
-                self.debugAssistantTasks[workspace.id] = nil
+                return
             } catch AssistantProviderError.cancelled {
-                self.debugAssistantTasks[workspace.id] = nil
+                return
             } catch {
                 guard self.isCurrentModelRun(
                     workspaceID: workspace.id,
@@ -477,9 +501,9 @@ extension MainContentCoordinator {
                     return
                 }
                 workspace.modelInvestigationState = .failed(message: error.localizedDescription)
-                self.debugAssistantTasks[workspace.id] = nil
             }
         }
+        debugAssistantTasks[workspace.id] = DebugAssistantTaskHandle(id: taskID, task: task)
     }
 
     func cancelDebugAssistantModelAnalysis() {
@@ -553,6 +577,7 @@ extension MainContentCoordinator {
         workspace.debugAssistantState = .idle
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -645,6 +670,7 @@ extension MainContentCoordinator {
         workspace.debugAssistantState = .idle
         workspace.modelInvestigationState = .idle
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false
@@ -655,7 +681,13 @@ extension MainContentCoordinator {
     // MARK: Private
 
     private func cancelDebugAssistantTask(for workspaceID: UUID) {
-        debugAssistantTasks[workspaceID]?.cancel()
+        debugAssistantTasks.removeValue(forKey: workspaceID)?.task.cancel()
+    }
+
+    func clearDebugAssistantTask(for workspaceID: UUID, matching taskID: UUID) {
+        guard debugAssistantTasks[workspaceID]?.id == taskID else {
+            return
+        }
         debugAssistantTasks[workspaceID] = nil
     }
 
@@ -670,6 +702,7 @@ extension MainContentCoordinator {
         workspace.debugAssistantConversationCreatedAt = Date()
         workspace.debugAssistantConversationUpdatedAt = Date()
         workspace.debugAssistantReviewPack = nil
+        workspace.debugAssistantReviewRequest = nil
         workspace.debugAssistantReviewConfiguration = nil
         workspace.debugAssistantReviewTrafficScope = nil
         workspace.debugAssistantReviewModelAccessEnabled = false

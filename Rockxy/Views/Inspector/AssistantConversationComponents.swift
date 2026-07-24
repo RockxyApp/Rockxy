@@ -82,20 +82,39 @@ struct AssistantResponseActionBar: View {
     let onRetry: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            action(String(localized: "Copy"), systemImage: "doc.on.doc", action: onCopy)
-                .disabled(!canCopy)
-            action(
-                String(localized: "Follow Up"),
-                systemImage: "arrowshape.turn.up.left",
-                action: onFollowUp
-            )
-            if canRevealRequest {
-                action(String(localized: "Reveal Request"), systemImage: "scope", action: onRevealRequest)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                action(String(localized: "Copy"), systemImage: "doc.on.doc", action: onCopy)
+                    .disabled(!canCopy)
+                action(
+                    String(localized: "Follow Up"),
+                    systemImage: "arrowshape.turn.up.left",
+                    action: onFollowUp
+                )
+                if canRevealRequest {
+                    action(String(localized: "Reveal Request"), systemImage: "scope", action: onRevealRequest)
+                }
+                Spacer(minLength: 0)
+                if canRetry {
+                    action(String(localized: "Review & Retry"), systemImage: "arrow.clockwise", action: onRetry)
+                }
             }
-            Spacer(minLength: 0)
-            if canRetry {
-                action(String(localized: "Review & Retry"), systemImage: "arrow.clockwise", action: onRetry)
+
+            HStack(spacing: 12) {
+                compactAction(String(localized: "Copy"), systemImage: "doc.on.doc", action: onCopy)
+                    .disabled(!canCopy)
+                compactAction(
+                    String(localized: "Follow Up"),
+                    systemImage: "arrowshape.turn.up.left",
+                    action: onFollowUp
+                )
+                if canRevealRequest {
+                    compactAction(String(localized: "Reveal Request"), systemImage: "scope", action: onRevealRequest)
+                }
+                Spacer(minLength: 0)
+                if canRetry {
+                    compactAction(String(localized: "Review & Retry"), systemImage: "arrow.clockwise", action: onRetry)
+                }
             }
         }
         .font(metrics.swiftUIFont(size: metrics.metadataFontSize))
@@ -112,9 +131,27 @@ struct AssistantResponseActionBar: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .buttonStyle(.borderless)
         .controlSize(.mini)
+        .help(title)
+    }
+
+    private func compactAction(
+        _ title: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .frame(minWidth: 18, minHeight: 18)
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.mini)
+        .accessibilityLabel(title)
+        .help(title)
     }
 }
 
@@ -151,12 +188,13 @@ struct AssistantMarkdownText: View {
     @State private var document: AssistantMarkdownDocument?
 }
 
-/// Streaming output keeps its layout lightweight while still hiding inline Markdown punctuation.
+/// Streaming output deliberately stays plain and cheap. Completed messages are parsed into
+/// native Markdown once, after the provider finishes.
 struct AssistantStreamingText: View {
     let source: String
 
     var body: some View {
-        Text(AssistantMarkdownInlineRenderer.render(source))
+        Text(source)
             .font(metrics.swiftUIFont(size: metrics.primaryFontSize))
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)

@@ -19,11 +19,20 @@ protocol AssistantHTTPTransport: Sendable {
 final class URLSessionAssistantHTTPTransport: AssistantHTTPTransport, @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(session: URLSession? = nil) {
+        self.session = session ?? URLSession(configuration: Self.proxyBypassConfiguration())
     }
 
     // MARK: Internal
+
+    static func proxyBypassConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: false,
+            kCFNetworkProxiesHTTPSEnable as String: false,
+        ]
+        return configuration
+    }
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)

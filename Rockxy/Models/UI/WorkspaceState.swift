@@ -59,6 +59,7 @@ final class WorkspaceState: Identifiable {
     var debugAssistantUsesConfiguredModel = true
     var debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
     var debugAssistantReviewPack: InvestigationContextPack?
+    var debugAssistantReviewRequest: AssistantCompletionRequest?
     var debugAssistantReviewConfiguration: AssistantProviderConfiguration?
     var debugAssistantReviewTrafficScope: AssistantTrafficScope?
     var debugAssistantReviewModelAccessEnabled = false
@@ -125,6 +126,7 @@ final class WorkspaceState: Identifiable {
         debugAssistantConversations.removeAll()
         debugAssistantTrafficScope = AssistantTrustPolicy.defaultTrafficScope
         debugAssistantReviewPack = nil
+        debugAssistantReviewRequest = nil
         debugAssistantReviewConfiguration = nil
         debugAssistantReviewTrafficScope = nil
         debugAssistantReviewModelAccessEnabled = false

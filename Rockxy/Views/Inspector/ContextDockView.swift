@@ -77,13 +77,11 @@ private struct AIAssistantDockView: View {
         .sheet(item: reviewPackBinding) { pack in
             DebugAssistantReviewDataSheet(
                 pack: pack,
+                request: coordinator.activeWorkspace.debugAssistantReviewRequest,
                 configuration: coordinator.activeWorkspace.debugAssistantReviewConfiguration,
                 trafficScope: coordinator.activeWorkspace.debugAssistantReviewTrafficScope
                     ?? AssistantTrustPolicy.defaultTrafficScope,
                 modelAccessEnabled: coordinator.activeWorkspace.debugAssistantReviewModelAccessEnabled,
-                conversationPreview: AssistantPromptBuilder().conversationPreview(
-                    messages: coordinator.activeWorkspace.debugAssistantMessages
-                ),
                 onSend: coordinator.sendDebugAssistantReview,
                 onDismiss: coordinator.dismissDebugAssistantReview
             )
@@ -479,10 +477,10 @@ private struct AIAssistantDockView: View {
                 .padding(10)
             }
             .onChange(of: coordinator.activeWorkspace.debugAssistantMessages.count) {
-                scrollToBottom(proxy)
+                scrollToBottom(proxy, animated: true)
             }
             .onChange(of: streamingText) {
-                scrollToBottom(proxy)
+                scrollToBottom(proxy, animated: false)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1175,9 +1173,13 @@ private struct AIAssistantDockView: View {
         coordinator.sendDebugAssistantMessage()
     }
 
-    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.18)) {
+            if animated {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    proxy.scrollTo(Self.transcriptBottomID, anchor: .bottom)
+                }
+            } else {
                 proxy.scrollTo(Self.transcriptBottomID, anchor: .bottom)
             }
         }

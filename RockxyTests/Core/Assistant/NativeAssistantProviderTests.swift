@@ -3,6 +3,15 @@ import Foundation
 import Testing
 
 struct NativeAssistantProviderTests {
+    @Test("Default assistant networking bypasses the system HTTP proxy")
+    func defaultTransportBypassesSystemProxy() {
+        let dictionary = URLSessionAssistantHTTPTransport.proxyBypassConfiguration()
+            .connectionProxyDictionary
+
+        #expect(dictionary?[kCFNetworkProxiesHTTPEnable as String] as? Bool == false)
+        #expect(dictionary?[kCFNetworkProxiesHTTPSEnable as String] as? Bool == false)
+    }
+
     @Test("Anthropic discovers models and streams text with usage")
     func anthropicFixture() async throws {
         let modelsData = Data(

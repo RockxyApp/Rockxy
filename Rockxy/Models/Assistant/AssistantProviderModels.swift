@@ -655,6 +655,23 @@ struct AssistantCompletionRequest: Equatable {
     let maxOutputTokens: Int
     let storeResponse: Bool
     let contextWindowTokens: Int?
+
+    /// Exact user-reviewable text supplied to the provider. Provider-specific JSON framing,
+    /// model metadata, and credential headers are transport metadata rather than captured content.
+    var reviewedContentPreview: String {
+        """
+        SYSTEM INSTRUCTIONS
+        \(instructions)
+
+        USER INPUT
+        \(input)
+        """
+    }
+
+    /// UTF-8 size of every user-reviewable string supplied to the model.
+    var reviewedContentBytes: Int {
+        instructions.utf8.count + input.utf8.count
+    }
 }
 
 // MARK: - AssistantUsage
@@ -729,7 +746,7 @@ enum AssistantExecutionLimits {
     static let maxStreamEventBytes = 256 * 1_024
     static let maxToolArgumentBytes = 64 * 1_024
     static let maxToolCalls = 16
-    static let streamingUIUpdateInterval: TimeInterval = 0.1
+    static let streamingUIUpdateInterval: TimeInterval = 0.25
 }
 
 // MARK: - AssistantStreamingTextBuffer

@@ -56,8 +56,8 @@ final class MainContentCoordinator {
     }
 
     deinit {
-        for task in debugAssistantTasks.values {
-            task.cancel()
+        for handle in debugAssistantTasks.values {
+            handle.task.cancel()
         }
         if let rulesObserver {
             NotificationCenter.default.removeObserver(rulesObserver)
@@ -87,6 +87,11 @@ final class MainContentCoordinator {
         let key: SidebarFavoritesCacheKey
         let pinned: [HTTPTransaction]
         let saved: [HTTPTransaction]
+    }
+
+    struct DebugAssistantTaskHandle {
+        let id: UUID
+        let task: Task<Void, Never>
     }
 
     static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "MainContentCoordinator")
@@ -131,7 +136,7 @@ final class MainContentCoordinator {
     var isSystemProxyConfigured = false
     let readiness = ReadinessCoordinator.shared
 
-    @ObservationIgnored var debugAssistantTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored var debugAssistantTasks: [UUID: DebugAssistantTaskHandle] = [:]
 
     // MARK: - UI State — Logs
 
