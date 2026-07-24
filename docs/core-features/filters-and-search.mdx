@@ -17,12 +17,11 @@ Rockxy gives you three useful layers of focus:
 
 ### Sidebar scope
 
-Use the sidebar to narrow the session by:
+The sidebar has three modes:
 
-- app,
-- domain,
-- saved or pinned items,
-- or a path-focused domain subtree where available.
+- **Browse** — scope traffic by app, domain, path-focused domain subtree, or live signal.
+- **Focus** — apply reusable Focus Sets and configure Noise Control.
+- **Library** — return to saved and pinned requests.
 
 This is the fastest way to move from “everything” to “the part of the system I care about.”
 
@@ -46,6 +45,48 @@ Use search when you already know a clue:
 - status code,
 - operation name,
 - or a value that appears in the request URL.
+
+## Focus Sets
+
+A Focus Set is a named, reusable traffic scope. Open the sidebar's **Focus** mode and choose **Add** beside **Focus Sets** to create one.
+
+A Focus Set can include:
+
+- one captured application;
+- a domain and its subdomains;
+- a URL path prefix.
+
+It can also exclude a domain or path prefix. All non-empty include conditions must match, while any matching exclusion hides the request.
+
+For example, a “Checkout API” Focus Set can include the Checkout app and `example.com`, then exclude `/health` and `telemetry.example.com`.
+
+When the current sidebar scope already points to an app, domain, or path, a new Focus Set starts with that scope filled in. The editor also suggests values from captured traffic and shows the current match count before you save.
+
+Saved Focus Sets:
+
+- persist across app launches;
+- are available in every workspace;
+- can be applied, edited, duplicated, expanded to inspect their rules, or deleted;
+- keep their active selection separate in each workspace.
+
+Applying a Focus Set only changes which rows are visible. Capture continues, and the underlying transactions remain available to other workspaces.
+
+## Noise Control
+
+Noise Control hides traffic that should remain captured but stay out of the current workspace's working set.
+
+In the sidebar's **Focus** mode, choose **Configure** beside **Noise Control**, then mute either:
+
+- a domain, including its subdomains; or
+- a URL path prefix and its child paths.
+
+You can also right-click a domain in **Browse** and choose **Mute Source**.
+
+Muted sources apply throughout the current workspace, regardless of which Focus Set is active. Use **Unmute** for one source or **Unmute All** to restore them.
+
+<Note>
+Focus Set exclusions belong only to that Focus Set. Noise Control is workspace-wide. Neither feature deletes traffic or prevents it from being captured.
+</Note>
 
 ## Practical debugging patterns
 
@@ -72,8 +113,9 @@ Use search when you already know a clue:
 ### Clean up mobile device noise
 
 1. scope to the app or host you care about,
-2. block or filter analytics endpoints if needed,
-3. save the useful requests so they survive session cleanup.
+2. mute analytics domains or paths with Noise Control,
+3. save a Focus Set when you want to reuse the same investigation scope,
+4. save the useful requests so they survive session cleanup.
 
 ## Workspace tabs are part of filtering
 
@@ -104,6 +146,9 @@ That distinction keeps the debugging loop clear.
   </Card>
   <Card title="AI and Web3 Inspection" icon="sparkles" href="/features/ai-web3-inspection">
     Use protocol-aware labels and inspector tabs for model and RPC traffic.
+  </Card>
+  <Card title="AI Assistant" icon="comments" href="/features/ai-assistant">
+    Investigate selected traffic with local analysis or a configured model.
   </Card>
   <Card title="Workspaces" icon="table-columns" href="/features/workspaces">
     Keep multiple filtered investigations open at once.

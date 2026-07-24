@@ -81,13 +81,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## أبرز الفروع الحالية
 
+- يوفر AI Assistant تحليلًا محليًا أو عبر نموذج Ollama/provider بعد Review Data؛ ويضيف الشريط الجانبي Focus Sets وNoise Control؛ وتستخدم مساحة العمل split views أصلية؛ كما أصبح فحص AI/Web3 وx402 سلوكًا حاليًا.
 - يشتمل Upstream Proxy الآن على تكوين الوكيل التلقائي المجاني/الأساسي مع توجيه عنوان URL لـ PAC `DIRECT` وHTTP وHTTPS مع الحفاظ على SOCKS5 وحدود سياسة المصادقة الحالية.
 - تغطي مسارات عمل التصدير الآن OpenAPI YAML/HTML ونشر Gist لحركة المرور المحددة مع إنشاء حمولة قابلة للتنقيح.
 - تتضمن أدوات المفتش الآن تصفية JSONPath/المفتاح/القيمة ومعاينات سريعة لنص الحمولة النافعة المحدد مثل JWTs.
 - يعكس إعداد مطور Node.js الآن العميل المحدد أثناء التحقق من الصحة ويحتوي على نموذج دليل أكمل للمضيف المحلي.
 - يغطي Developer Setup Hub الآن أوقات التشغيل والمتصفحات والعملاء والأجهزة والأطر والبيئات باستخدام مقتطفات خاصة بالهدف ومراقبي التحقق من الصحة ومحتوى الدليل الصادق.
-- يستمر عمل WebSocket Protobuf كجزء من اتجاه فحص بروتوكول Rockxy الأكثر ثراءً.
-- يتضمن تخطيط خارطة الطريق العامة الآن تصحيحًا مدركًا للأخطاء لحركة مرور الذكاء الاصطناعي، وتدفقات Web3/RPC، وتدفقات الدفع بنمط x402، ومشاركة الأدلة المنقحة بشكل أكثر أمانًا.
+- يتضمن فحص WebSocket binary-frame الآن heuristic محدودة وعند الطلب لتنسيق Protobuf wire-format دون إضافة decoder work إلى capture hot path.
+- تركز خارطة الطريق العامة الآن على قواعد أعمق مدركة للبروتوكول وإعادة التشغيل والمقارنة ومشاركة أدلة منقحة أكثر أمانًا.
 
 ## الميزات
 
@@ -109,7 +110,23 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 `Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
 
-### خادم MCP لمساعدي الذكاء الاصطناعي
+### Focus Sets وNoise Control
+
+حوّل التحقيقات المتكررة إلى نطاقات قابلة لإعادة الاستخدام في الشريط الجانبي. تجمع Focus Sets بين تضمينات التطبيق والنطاق والمسار واستبعادات النطاق/المسار، وتستمر بين عمليات التشغيل، وتتوفر في كل مساحة عمل. يستمر Noise Control في التقاط القياس عن بعد وحركة المرور منخفضة القيمة، لكنه يخفيها من مساحة العمل الحالية.
+
+`Reusable Focus Sets` · `App / Domain / Path Scope` · `Include & Exclude` · `Workspace Noise Control` · `Capture Continues`
+
+### AI Assistant
+
+<img src="docs/images/features/DemoAIAssistant-Light.png" alt="يشرح Rockxy AI Assistant حركة المرور المحددة بجوار جدول الطلبات والشريط الجانبي الأصليين" width="820" />
+
+حدد طلبًا واحدًا أو أكثر من الطلبات الملتقطة واسأل عما حدث أو فشل أو تغير أو ما يجب التحقق منه بعد ذلك. يبدأ Rockxy بتحليل يستند إلى الأدلة على هذا الـ Mac؛ ولا يعمل نموذج Ollama أو provider المُعد إلا بعد أن يعرض Review Data السياق الدقيق والمحدود والمنقح. يمكن للردود كشف طلب المصدر وإعداد مهام متابعة أصلية، لكنها لا تعدّل حركة المرور أو تنفذ الإجراءات تلقائيًا.
+
+`Built-in Local Analysis` · `Multi-Request Context` · `Ollama & Provider Models` · `Review Data` · `Sensitive-Data Redaction` · `Read-only Actions`
+
+[اقرأ دليل AI Assistant](docs/features/ai-assistant.mdx).
+
+### خادم MCP لعملاء الذكاء الاصطناعي الخارجيين
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
@@ -239,11 +256,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ### مساحات عمل متعددة علامات التبويب
 
-<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="تعرض مساحات عمل Rockxy متعددة علامات التبويب طرق عرض تمت تصفيتها بشكل مستقل لنفس الالتقاط المباشر" width="820" />
 
-قم بتشغيل جلسات التقاط مستقلة جنبًا إلى جنب - علامة تبويب واحدة للتشغيل المرحلي، وواحدة للمنتجات، وواحدة لبناء جهاز iOS. تحتوي كل علامة تبويب على عوامل التصفية والتحديد وحالة المفتش الخاصة بها، لذا فإن تبديل السياق لا يكلف شيئًا.
+احتفظ بعروض تحقيق مستقلة جنبًا إلى جنب لنفس الالتقاط المباشر. لكل علامة تبويب عوامل التصفية والفرز والتحديد ونطاق الشريط الجانبي وحالة المفتش الخاصة بها، مع مشاركة الوكيل والمعاملات الملتقطة.
 
-`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+`Shared Live Capture` · `Per-Tab Filters & Sort` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
 
 ### البرمجة النصية جافا سكريبت
 
@@ -253,27 +270,31 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## المزيد من الميزات قريبا
+## الفحص المدرك للبروتوكول
 
-يتم تتبع الميزات المستقبلية علنًا ولا يتم شحنها إلا عندما يكون التنفيذ والاختبارات وسلوك الخصوصية والوثائق جاهزة.
+يوفر Rockxy فحصًا مدركًا للبروتوكول لحركة AI وWeb3 RPC وx402 ضمن سير عمل تصحيح HTTP المعتاد.
 
-### التفتيش المروري بالذكاء الاصطناعي `قريبًا`
+### فحص حركة الذكاء الاصطناعي
 
 اجعل حركة مرور النموذج أسهل في تصحيح الأخطاء داخل سير عمل الالتقاط العادي. اكتشف طلبات الذكاء الاصطناعي، وافحص مكالمات النماذج المحددة، وتشخيص استجابات البث، وقارن سلوك المطالبة/الإخراج، وفهم سلاسل استدعاء الأدوات دون لصق الحمولات الحساسة في خدمة أخرى.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### فحص Web3/RPC `قريبًا`
+### فحص Web3/RPC
 
 تحويل مكالمات الشبكة في عصر blockchain إلى أدلة تصحيح قابلة للقراءة. افحص حركة مرور JSON-RPC وSolana RPC، وقم بتجميع الاستدعاءات ذات الصلة في التدفقات، وشرح أخطاء RPC الشائعة، وأعد تشغيل الطلبات المحددة دون أن تصبح محفظة أو مستكشف حظر.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### تصحيح أخطاء تدفق الدفع إلى x402 `قريبًا`
+### تلميحات تدفق الدفع x402
 
 فهم تدفقات HTTP ذات بوابات الدفع من طبقة الشبكة. قم بتمييز الاستجابات المطلوبة للدفع، واتبع مسار إعادة المحاولة، واحتفظ بدليل تصحيح الأخطاء محليًا وقابلاً للتنقيح.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+## العمل المستقبلي
+
+تصف الأقسام التالية الاتجاه العام، وليس السلوك الحالي.
 
 ### حزم الأدلة المنقحة `قريبًا`
 
@@ -281,7 +302,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
 
-### عوامل التصفية والقواعد المدركة للبروتوكول `قريبًا`
+### القواعد المدركة للبروتوكول
 
 استخدم بيانات تعريف AI وWeb3 حيث يعمل Rockxy بالفعل: المرشحات والشارات والأعمدة الاختيارية والمقارنة والقواعد وإعداد المطور وملخصات MCP المحلية.
 
@@ -323,7 +344,7 @@ open Rockxy.xcodeproj
 | **MCP/جسر الأتمتة المحلية** | مدمج، ومصادق عليه بالرمز، ويتم التنقيح بشكل افتراضي | لم تتم المطالبة بها في المستندات العامة التي تمت مراجعتها | لم تتم المطالبة بها في المستندات العامة التي تمت مراجعتها |
 | **فتح مسار المساهمة** | القضايا العامة والمناقشات وخارطة الطريق والعلاقات العامة | المنتج الذي يسيطر عليه البائع | المنتج الذي يسيطر عليه البائع |
 
-على خريطة الطريق: سير عمل إعادة التشغيل/الفرق/القواعد/البرمجة النصية بشكل أعمق، وفحص WebSocket وGraphQL المحسّن، وتصحيح أخطاء الذكاء الاصطناعي المدرك للبروتوكول وWeb3/RPC، ورؤية تدفق الدفع بنمط x402، واستكشاف gRPC/Protobuf بالإضافة إلى دعم HTTP/2 وHTTP/3.
+على خريطة الطريق: قواعد أعمق مدركة للبروتوكول، وحزم أدلة منقحة أكثر أمانًا، وسير عمل أقوى لإعادة التشغيل والمقارنة، وأدلة Developer Setup أوسع، وبحث مستمر في HTTP/2 وHTTP/3.
 
 ## الأمن
 
@@ -350,6 +371,9 @@ open Rockxy.xcodeproj
 
 - [دليل البدء السريع](docs/quickstart.mdx) - انهض واعمل في دقائق
 - [مركز إعداد المطور](docs/features/developer-setup-hub.mdx) — مقتطفات وقت التشغيل، وأدلة الأجهزة، وتحقيقات التحقق من الصحة، ومصفوفة الدعم
+- [AI Assistant](docs/features/ai-assistant.mdx) — افحص حركة المرور المحددة محليًا أو باستخدام نموذج مُعد بعد Review Data
+- [عوامل التصفية والبحث](docs/core-features/filters-and-search.mdx) — نطاقات الشريط الجانبي وFocus Sets وNoise Control وعوامل تصفية toolbar والبحث
+- [فحص AI وWeb3](docs/features/ai-web3-inspection.mdx) — افحص حركة model API وJSON-RPC وx402 المعترف بها
 - [التكامل MCP](docs/features/mcp.mdx) — قم بتوصيل Rockxy بعملاء MCP المحليين
 - [الهندسة المعمارية](docs/development/architecture.mdx) - محرك الوكيل، نموذج الممثل، تدفق البيانات
 - [نموذج الأمان](docs/development/security.mdx) — حدود الثقة، والتحقق من صحة XPC، وإدارة الشهادات

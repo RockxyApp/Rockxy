@@ -79,13 +79,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Highlights de la Rama Actual
 
+- AI Assistant ofrece análisis local o con Ollama/provider tras Review Data; el sidebar incorpora Focus Sets y Noise Control; el workspace usa split views nativas; y la inspección AI/Web3/x402 ya forma parte del comportamiento actual.
 - Upstream Proxy ahora incluye Automatic Proxy Configuration free/core con PAC URL routing para rutas `DIRECT`, HTTP y HTTPS, preservando los límites existentes de SOCKS5 y política de autenticación.
 - Los workflows de exportación ahora cubren OpenAPI YAML/HTML y publicación de tráfico seleccionado en Gist con construcción de payload redaction-aware.
 - Las herramientas del Inspector ahora incluyen filtros JSONPath/key/value y previews rápidos para texto de payload seleccionado, como JWTs.
 - Node.js Developer Setup ahora replica el cliente seleccionado durante la validación y tiene una guía localhost más completa.
 - Developer Setup Hub ahora cubre runtimes, navegadores, clientes, dispositivos, frameworks y entornos con snippets por target, validation watchers y guías honestas.
-- El trabajo de WebSocket Protobuf continúa como parte de la dirección de Rockxy hacia inspección de protocolos más rica.
-- La planificación pública del roadmap ahora incluye depuración protocol-aware para tráfico AI, flows Web3/RPC, payment flows estilo x402 y evidence sharing redactado más seguro.
+- La inspección de frames binarios WebSocket ahora incluye heurísticas Protobuf wire-format acotadas y bajo demanda, sin añadir decoder work al capture hot path.
+- El roadmap público ahora se centra en reglas protocol-aware más profundas, replay, comparación y evidence sharing redactado más seguro.
 
 ## Funcionalidades
 
@@ -107,7 +108,23 @@ Reduce miles de requests capturados en segundos. Combina filtros por method, hos
 
 `Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
 
-### MCP Server para AI Assistants
+### Focus Sets y Noise Control
+
+Convierte investigaciones recurrentes en scopes reutilizables del sidebar. Focus Sets combina inclusiones por app, domain y path con exclusiones por domain/path, persiste entre lanzamientos y está disponible en cada workspace. Noise Control sigue capturando telemetría y tráfico de poco valor, pero los oculta en el workspace actual.
+
+`Reusable Focus Sets` · `App / Domain / Path Scope` · `Include & Exclude` · `Workspace Noise Control` · `Capture Continues`
+
+### AI Assistant
+
+<img src="docs/images/features/DemoAIAssistant-Light.png" alt="Rockxy AI Assistant explicando tráfico seleccionado junto a la tabla de requests y el sidebar nativos" width="820" />
+
+Selecciona una o más requests capturadas y pregunta qué pasó, qué falló, qué cambió o qué verificar después. Rockxy comienza con análisis basado en evidencia en este Mac; un modelo Ollama o provider configurado solo se ejecuta después de que Review Data muestre el contexto exacto, acotado y redactado. Las respuestas pueden revelar la request de origen y preparar workflows de seguimiento nativos, pero nunca modifican tráfico ni ejecutan acciones automáticamente.
+
+`Built-in Local Analysis` · `Multi-Request Context` · `Ollama & Provider Models` · `Review Data` · `Sensitive-Data Redaction` · `Read-only Actions`
+
+[Lee la guía de AI Assistant](docs/features/ai-assistant.mdx).
+
+### MCP Server para clientes AI externos
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
@@ -237,11 +254,11 @@ Guarda sesiones, importa/exporta HAR, copia cualquier request como cURL o JSON. 
 
 ### Workspaces Multi-Tab
 
-<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Workspaces multi-tab de Rockxy con vistas filtradas de forma independiente sobre la misma captura en vivo" width="820" />
 
-Ejecuta sesiones de captura independientes lado a lado: una tab para staging, otra para prod y otra para el build de iOS device.
+Mantén vistas de investigación independientes lado a lado sobre la misma captura en vivo. Cada tab conserva sus filtros, orden, selección, scope del sidebar y estado del inspector, mientras comparte el proxy y las transacciones capturadas.
 
-`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+`Shared Live Capture` · `Per-Tab Filters & Sort` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
 
 ### JavaScript Scripting
 
@@ -251,27 +268,31 @@ Hooks JS en requests y responses para casos que una regla estática no cubre: re
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## Más Funciones Próximamente
+## Inspección Consciente del Protocolo
 
-Las funcionalidades futuras se rastrean públicamente y se publican solo cuando la implementación, tests, privacidad y documentación están listas.
+Rockxy ofrece inspección consciente del protocolo para AI, Web3 RPC y x402 dentro del workflow normal de depuración HTTP.
 
-### AI Traffic Inspection `Próximamente`
+### AI Traffic Inspection
 
 Haz que el tráfico de modelos sea más fácil de depurar dentro del workflow normal de captura. Detecta requests AI, inspecciona model calls seleccionados, diagnostica streaming responses, compara prompt/output behavior y entiende tool-call chains sin pegar payloads sensibles en otro servicio.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### Web3/RPC Inspection `Próximamente`
+### Web3/RPC Inspection
 
-Convierte llamadas de red blockchain-era en evidence de depuración legible. Inspecciona JSON-RPC y Solana RPC traffic, agrupa llamadas relacionadas en flows, explica errores RPC comunes y replay selected requests sin convertir Rockxy en wallet o block explorer.
+Inspecciona tráfico HTTP JSON-RPC estilo EVM y Solana con provider host, request ID, method, batch summary, error, chain, transaction, payload y debug intent, sin convertir Rockxy en wallet o block explorer.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### x402 Payment Flow Debugging `Próximamente`
+### x402 Payment Flow Hints
 
 Entiende payment-gated HTTP flows desde la capa de red. Resalta payment-required responses, sigue el retry path y mantiene la evidence local y redaction-aware.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+## Trabajo Futuro
+
+Las siguientes secciones describen una dirección pública, no el comportamiento actual.
 
 ### Redacted Evidence Bundles `Próximamente`
 
@@ -279,7 +300,7 @@ Comparte los hechos necesarios para reproducir un bug sin filtrar secretos. Empa
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
 
-### Protocol-Aware Filters & Rules `Próximamente`
+### Protocol-Aware Rules
 
 Usa metadata AI y Web3 donde Rockxy ya trabaja: filters, badges, optional columns, comparison, rules, Developer Setup y local MCP summaries.
 
@@ -321,7 +342,7 @@ Si quieres conectar Rockxy a un cliente MCP local tras instalarlo, consulta la [
 | **MCP/local automation bridge** | Integrado, token-authenticated, redaction por defecto | No declarado en docs públicas revisadas | No declarado en docs públicas revisadas |
 | **Ruta de contribución abierta** | Issues, discussions, roadmap y PRs públicos | Producto controlado por vendor | Producto controlado por vendor |
 
-En el roadmap: workflows replay/diff/rules/scripting más profundos, mejor inspección WebSocket y GraphQL, depuración protocol-aware AI y Web3/RPC, visibilidad de payment flows estilo x402, y exploración de gRPC/Protobuf más HTTP/2 y HTTP/3.
+En el roadmap: reglas protocol-aware más profundas, bundles de evidencia redactada más seguros, workflows de replay y comparación más sólidos, guías de Developer Setup más amplias y estudio continuo de HTTP/2 y HTTP/3.
 
 ## Seguridad
 
@@ -348,6 +369,9 @@ Documentación completa en [Rockxy Docs](docs/index.mdx):
 
 - [Quickstart Guide](docs/quickstart.mdx) — empieza en minutos
 - [Developer Setup Hub](docs/features/developer-setup-hub.mdx) — snippets por runtime, device guides, validation probes y support matrix
+- [AI Assistant](docs/features/ai-assistant.mdx) — investiga tráfico seleccionado localmente o con un modelo configurado tras Review Data
+- [Filtros y búsqueda](docs/core-features/filters-and-search.mdx) — scopes del sidebar, Focus Sets, Noise Control, filtros del toolbar y búsqueda
+- [Inspección AI y Web3](docs/features/ai-web3-inspection.mdx) — inspecciona tráfico reconocido de model API, JSON-RPC y x402
 - [MCP Integration](docs/features/mcp.mdx) — conecta Rockxy a clientes MCP locales
 - [Architecture](docs/development/architecture.mdx) — proxy engine, actor model, data flow
 - [Security Model](docs/development/security.mdx) — trust boundaries, XPC validation, certificate management

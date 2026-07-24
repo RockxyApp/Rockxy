@@ -79,13 +79,17 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## Highlights des aktuellen Branches
 
+- AI Assistant untersucht eine oder mehrere ausgew&auml;hlte Anfragen mit integrierter lokaler Analyse oder einem konfigurierten Ollama/provider-Modell, mit explizitem Review Data, begrenzter Redaction, Streaming-Antworten, Evidence Reveal und nutzerinitiierten Handoffs.
+- Die native Sidebar bietet jetzt wiederverwendbare Focus Sets f&uuml;r App/Domain/Path-Scopes und workspace-spezifisches Noise Control, das passende Domains oder Pfade verbirgt, ohne die Erfassung zu stoppen.
+- Der Haupt-Workspace nutzt native vertikale und horizontale Split Views f&uuml;r Context Dock und unteren Inspektor, mit durchgehenden Dividern, abgestimmten Toolbar/Footer-Separatoren und automatischer Layout-Anpassung.
 - Upstream Proxy enth&auml;lt jetzt eine free/core Automatic Proxy Configuration mit PAC-URL-Routing f&uuml;r `DIRECT` -, HTTP- und HTTPS-Routen, w&auml;hrend bestehende SOCKS5- und Authentifizierungs-Policy-Grenzen erhalten bleiben.
 - Export-Workflows decken jetzt OpenAPI YAML/HTML und die Gist-Ver&ouml;ffentlichung ausgew&auml;hlten Traffics mit redaction-aware Payload-Building ab.
 - Inspektor-Werkzeuge enthalten jetzt JSONPath/key/value-Filterung und schnelle Previews f&uuml;r ausgew&auml;hlten Payload-Text wie JWTs.
+- KI- und Web3-Traffic-Inspektion bietet Protokoll-Labels, Inspektor-Tabs und Debug-Zusammenfassungen f&uuml;r erkannte Modellaufrufe, JSON-RPC-Traffic und x402-Payment-Hinweise.
 - Node.js Developer Setup spiegelt jetzt den ausgew&auml;hlten Client w&auml;hrend der Validierung und hat einen vollst&auml;ndigeren localhost-Beispielguide.
 - Developer Setup Hub deckt jetzt Runtimes, Browser, Clients, Ger&auml;te, Frameworks und Umgebungen mit zielgerichteten Snippets, Validierungs-Watchern und ehrlicher Guide-Dokumentation ab.
-- WebSocket-Protobuf-Arbeit l&auml;uft weiter als Teil von Rockxys Richtung zu reichhaltigerer Protokollinspektion.
-- Die &ouml;ffentliche Roadmap-Planung enth&auml;lt jetzt protokollbewusstes Debugging f&uuml;r KI-Traffic, Web3/RPC-Flows, x402-artige Payment-Flows und sichereres Teilen redigierter Debugging-Evidence.
+- Die WebSocket-Binary-Frame-Inspektion bietet jetzt begrenzte, bedarfsgesteuerte Protobuf-Wire-Format-Heuristiken, ohne Decoder-Arbeit in den Capture-Hot-Path zu legen.
+- Die &ouml;ffentliche Roadmap fokussiert tiefere protokollbewusste Regeln, Replay, Vergleich und sichereres Teilen redigierter Evidence.
 
 ## Funktionen
 
@@ -107,7 +111,23 @@ Reduzieren Sie Tausende erfasster Anfragen in Sekunden. Kombinieren Sie Filter f
 
 `Multi-Field Filters` · `Full-Text Search` · `Status / Method` · `Header / Body Match` · `Process / Host` · `Saved Filters`
 
-### MCP-Server f&uuml;r KI-Assistenten
+### Focus Sets und Noise Control
+
+Machen Sie wiederkehrende Untersuchungen zu wiederverwendbaren Sidebar-Scopes. Focus Sets kombinieren App-, Domain- und Path-Includes mit Domain/Path-Excludes, bleiben nach Neustarts erhalten und stehen in jedem Workspace zur Verf&uuml;gung. Noise Control erfasst Telemetrie und anderen geringwertigen Traffic weiter, verbirgt ihn aber im aktuellen Workspace.
+
+`Reusable Focus Sets` · `App / Domain / Path Scope` · `Include & Exclude` · `Workspace Noise Control` · `Capture Continues`
+
+### AI Assistant
+
+<img src="docs/images/features/DemoAIAssistant-Light.png" alt="Rockxy AI Assistant erkl&auml;rt ausgew&auml;hlten Traffic neben nativer Request-Tabelle und Sidebar" width="820" />
+
+W&auml;hlen Sie eine oder mehrere erfasste Anfragen und fragen Sie, was passiert ist, was fehlgeschlagen ist, was sich ge&auml;ndert hat oder was als N&auml;chstes zu pr&uuml;fen ist. Rockxy beginnt mit evidenzbasierter Analyse auf diesem Mac; ein konfiguriertes Ollama- oder provider-Modell l&auml;uft erst, nachdem Review Data den exakten, begrenzten und redigierten Kontext zeigt. Antworten k&ouml;nnen Source Requests offenlegen und native Follow-up-Workflows vorbereiten, ver&auml;ndern Traffic oder f&uuml;hren Aktionen aber nie automatisch aus.
+
+`Built-in Local Analysis` · `Multi-Request Context` · `Ollama & Provider Models` · `Review Data` · `Sensitive-Data Redaction` · `Read-only Actions`
+
+[AI-Assistant-Anleitung lesen](docs/features/ai-assistant.mdx).
+
+### MCP-Server f&uuml;r externe KI-Clients
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
@@ -237,11 +257,11 @@ Speichern Sie Sessions, importieren/exportieren Sie HAR f&uuml;r den Tool-&Uuml;
 
 ### Multi-Tab-Workspaces
 
-<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy multi-tab workspaces running independent capture sessions side-by-side" width="820" />
+<img src="docs/images/features/DemoMultipleTabWorkingSpace.png" alt="Rockxy Multi-Tab-Workspaces mit unabh&auml;ngig gefilterten Ansichten derselben Live-Capture" width="820" />
 
-F&uuml;hren Sie unabh&auml;ngige Capture-Sessions parallel &mdash; ein Tab f&uuml;r Staging, einer f&uuml;r Prod, einer f&uuml;r den iOS-Ger&auml;te-Build. Jeder Tab beh&auml;lt seine eigenen Filter, Auswahl und Inspektor-Zust&auml;nde, sodass Kontextwechsel nahezu nichts kostet.
+Halten Sie unabh&auml;ngige Untersuchungsansichten derselben Live-Capture nebeneinander. Jeder Tab besitzt Filter, Sortierung, Auswahl, Sidebar-Scope und Inspektor-Zustand, teilt aber Proxy und erfasste Transaktionen.
 
-`Independent Sessions` · `Per-Tab Filters` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
+`Shared Live Capture` · `Per-Tab Filters & Sort` · `Per-Tab Inspector` · `Compare Environments` · `Mac & iOS Together` · `Detach & Rename`
 
 ### JavaScript-Scripting
 
@@ -251,39 +271,43 @@ JS-Hooks auf Requests und Responses f&uuml;r F&auml;lle, die eine statische Rege
 
 `Request Hooks` · `Response Hooks` · `Programmatic Filtering` · `PII Redaction` · `Inline Error Feedback`
 
-## Weitere Funktionen demn&auml;chst
+## Protokollbewusste Inspektion
 
-Zuk&uuml;nftige Funktionen werden &ouml;ffentlich nachverfolgt und erst ausgeliefert, wenn Implementierung, Tests, Privacy-Verhalten und Dokumentation bereit sind.
+Rockxy bietet protokollbewusste KI-, Web3-RPC- und x402-Inspektion im normalen HTTP-Debugging-Workflow.
 
-### KI-Traffic-Inspektion `Demn&auml;chst`
+### KI-Traffic-Inspektion
 
 Machen Sie Modell-Traffic im normalen Capture-Workflow leichter debugbar. KI-Anfragen erkennen, ausgew&auml;hlte Modellaufrufe inspizieren, Streaming-Antworten diagnostizieren, Prompt/Output-Verhalten vergleichen und Tool-Call-Ketten verstehen, ohne sensible Payloads in einen anderen Dienst zu kopieren.
 
-`AI Requests` · `Model Inspector` · `Streaming Diagnostics` · `Tool Calls` · `Prompt Safety` · `Usage Signals`
+`AI Requests` · `Model Inspector` · `Streaming State` · `Tool Calls` · `Retrieval Hints` · `Usage Signals`
 
-### Web3/RPC-Inspektion `Demn&auml;chst`
+### Web3/RPC-Inspektion
 
-Machen Sie Netzwerkaufrufe der Blockchain-&Auml;ra zu lesbarer Debugging-Evidence. JSON-RPC- und Solana-RPC-Traffic inspizieren, verwandte Calls zu Flows gruppieren, g&auml;ngige RPC-Fehler erkl&auml;ren und ausgew&auml;hlte Requests replayen, ohne Rockxy zu Wallet oder Block Explorer zu machen.
+Inspizieren Sie EVM- und Solana-artigen HTTP-JSON-RPC-Traffic mit Provider Host, Request ID, Methode, Batch-Zusammenfassung, Fehler, Chain, Transaktion, Payload und Debug-Intent, ohne Rockxy zu Wallet oder Block Explorer zu machen.
 
-`JSON-RPC` · `Solana RPC` · `Wallet Flows` · `RPC Errors` · `Replay Helpers` · `Network Evidence`
+`JSON-RPC` · `Solana RPC` · `Request ID` · `RPC Errors` · `Batch Summary` · `Network Evidence`
 
-### x402-Payment-Flow-Debugging `Demn&auml;chst`
+### x402-Payment-Flow-Hinweise
 
 Verstehen Sie payment-gated HTTP-Flows auf Netzwerkebene. Payment-required Responses hervorheben, den Retry-Pfad verfolgen und Debugging-Evidence lokal sowie redaction-aware halten.
 
 `Payment Required` · `Retry Flow` · `Headers` · `Redaction` · `Local First`
+
+## Zuk&uuml;nftige Arbeiten
+
+Die folgenden Abschnitte beschreiben die &ouml;ffentliche Richtung, nicht aktuelles Verhalten.
+
+### Protokollbewusste Regeln
+
+Rockxy kann KI- und Web3-Traffic heute labeln und inspizieren. Tieferes Rule Matching nach Modell, Tool Call, JSON-RPC-Methode, Chain, Transaction Hash oder Batch Subcall bleibt zuk&uuml;nftige Arbeit; aktuelle Traffic-Modifikation matcht URL, HTTP-Methode und Header.
+
+`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
 
 ### Redigierte Evidence-Bundles `Demn&auml;chst`
 
 Teilen Sie die Fakten, die f&uuml;r einen Bug-Repro n&ouml;tig sind, ohne Secrets zu leaken. Ausgew&auml;hlten Traffic mit Protokollzusammenfassungen, Redaction-Previews und source-backed Kontext paketieren, den Kollegen pr&uuml;fen k&ouml;nnen.
 
 `Debug Bundles` · `Protocol Summary` · `Export Preview` · `Secret Redaction` · `Repro Context`
-
-### Protokollbewusste Filter und Regeln `Demn&auml;chst`
-
-Nutzen Sie KI- und Web3-Metadaten dort, wo Rockxy bereits arbeitet: Filter, Badges, optionale Spalten, Vergleich, Regeln, Developer Setup und lokale MCP-Zusammenfassungen.
-
-`Smart Filters` · `Request Badges` · `Optional Columns` · `Rules` · `Compare` · `Local MCP`
 
 ### Team-Sharing und Zusammenarbeit `Demn&auml;chst`
 
@@ -318,7 +342,7 @@ In Xcode bauen und ausf&uuml;hren. Das Willkommensfenster f&uuml;hrt durch die R
 | **MCP/local automation bridge** | Integriert, Token-authentifiziert, standardm&auml;&szlig;ig maskiert | In gepr&uuml;ften &ouml;ffentlichen Docs nicht beansprucht | In gepr&uuml;ften &ouml;ffentlichen Docs nicht beansprucht |
 | **Offener Beitragsweg** | &Ouml;ffentliche Issues, Discussions, Roadmap und PRs | Herstellerkontrolliertes Produkt | Herstellerkontrolliertes Produkt |
 
-Auf der Roadmap: tiefere replay/diff/rules/scripting-Workflows, verbesserte WebSocket- und GraphQL-Inspektion, protokollbewusstes KI- und Web3/RPC-Debugging, x402-artige Payment-Flow-Sichtbarkeit sowie Erkundung von gRPC/Protobuf plus HTTP/2- und HTTP/3-Support.
+Auf der Roadmap: tiefere protokollbewusste Regeln, sicherere redigierte Evidence-Bundles, st&auml;rkere Replay- und Vergleichs-Workflows, breitere Developer-Setup-Guides und fortlaufende HTTP/2- und HTTP/3-Forschung.
 
 ## Sicherheit
 
@@ -345,6 +369,10 @@ Vollst&auml;ndige Dokumentation verf&uuml;gbar unter [Rockxy Docs](docs/index.md
 
 - [Schnellstart-Anleitung](docs/quickstart.mdx) &mdash; in wenigen Minuten einsatzbereit
 - [Developer Setup Hub](docs/features/developer-setup-hub.mdx) &mdash; Runtime-Snippets, Ger&auml;te-Guides, Validierungsproben und Support-Matrix
+- [AI Assistant](docs/features/ai-assistant.mdx) &mdash; ausgew&auml;hlten Traffic lokal oder mit einem nach Review Data konfigurierten Modell untersuchen
+- [Filter und Suche](docs/core-features/filters-and-search.mdx) &mdash; Sidebar-Scopes, Focus Sets, Noise Control, Toolbar-Filter und Suche
+- [KI- und Web3-Inspektion](docs/features/ai-web3-inspection.mdx) &mdash; erkannten Model-API-, JSON-RPC- und x402-Traffic inspizieren
+- [MCP-Integration](docs/features/mcp.mdx) &mdash; Rockxy mit lokalen MCP-Clients verbinden
 - [Architektur](docs/development/architecture.mdx) &mdash; Proxy-Engine, Actor-Modell, Datenfluss
 - [Sicherheitsmodell](docs/development/security.mdx) &mdash; Vertrauensgrenzen, XPC-Validierung, Zertifikatsverwaltung
 - [Design-Entscheidungen](docs/development/design-decisions.mdx) &mdash; warum SwiftNIO, NSTableView, Actors
