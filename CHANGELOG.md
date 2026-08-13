@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The AI tab shows stream timing measured live for Server-Sent Events responses: time to the first event, the longest gap between events, how many events arrived, and whether the stream completed (`[DONE]`, Anthropic `message_stop`, or OpenAI `response.completed`), ended without a final event, was interrupted, or timed out. Timing is saved with Rockxy sessions; imported captures say that no live timing was recorded.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.

@@ -76,6 +76,10 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     @ObservationIgnored var deliversLiveRow: Bool
     var timingInfo: TimingInfo?
     var measuredDuration: TimeInterval?
+
+    /// Live SSE stream diagnostics, present only for `text/event-stream` responses
+    /// observed through the proxy. `nil` for non-streaming and imported traffic.
+    var streamDiagnostics: StreamDiagnostics?
     var webSocketConnection: WebSocketConnection?
     var graphQLInfo: GraphQLInfo?
     var web3RPCInfo: Web3RPCInfo?
