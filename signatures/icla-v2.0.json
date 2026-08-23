@@ -1120,6 +1120,32 @@
       "prNumber": 278,
       "pullCreatedAt": "2026-08-22T15:24:18Z",
       "repositoryId": 1192753899
+    },
+    {
+      "commits": [
+        {
+          "login": "LocNguyenHuu",
+          "sha": "697d20a96e193cf87b3ff4a694f29dbaba740858",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "9f9e06f4d52079cdcea6a0468c5249f7990cc2bd",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "b234e110eda631397402b948a53da2b41b6c3e7c",
+          "userId": 9362970
+        }
+      ],
+      "contributors": [],
+      "headSha": "9f9e06f4d52079cdcea6a0468c5249f7990cc2bd",
+      "prId": 4342507604,
+      "prNodeId": "PR_kwDORxf6688AAAABAtVoVA",
+      "prNumber": 279,
+      "pullCreatedAt": "2026-08-23T14:51:14Z",
+      "repositoryId": 1192753899
     }
   ],
   "iclaVersion": "2.0",
