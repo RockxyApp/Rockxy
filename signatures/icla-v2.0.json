@@ -1464,6 +1464,22 @@
       "prNumber": 283,
       "pullCreatedAt": "2026-08-24T04:24:47Z",
       "repositoryId": 1192753899
+    },
+    {
+      "commits": [
+        {
+          "login": "LocNguyenHuu",
+          "sha": "6e5700c75761360c7960f9a00c53fbf3782b2466",
+          "userId": 9362970
+        }
+      ],
+      "contributors": [],
+      "headSha": "6e5700c75761360c7960f9a00c53fbf3782b2466",
+      "prId": 4345402939,
+      "prNodeId": "PR_kwDORxf6688AAAABAwGWOw",
+      "prNumber": 284,
+      "pullCreatedAt": "2026-08-24T04:31:54Z",
+      "repositoryId": 1192753899
     }
   ],
   "iclaVersion": "2.0",
