@@ -1939,6 +1939,21 @@
   "iclaVersion": "2.0",
   "records": [
     {
+      "acceptedAt": "2026-09-01T03:14:04Z",
+      "assentStatement": "I have read and agree to the Rockxy ICLA v2.0",
+      "commentId": 5488358187,
+      "documentCommit": "0a64559e7ab535798d3466ff9af6db0127e4e27a",
+      "documentSha256": "376d89fe02303741bb5008a118f25c0a81a748bae7d1d42844fb3ff73667f900",
+      "documentUrl": "https://github.com/RockxyApp/Rockxy/blob/0a64559e7ab535798d3466ff9af6db0127e4e27a/legal/cla/ICLA-v2.0.md",
+      "iclaVersion": "2.0",
+      "login": "demo-zexuan",
+      "prId": 4400719229,
+      "prNodeId": "PR_kwDORxf6688AAAABBk2lfQ",
+      "prNumber": 309,
+      "repositoryId": 1192753899,
+      "userId": 87429578
+    },
+    {
       "acceptedAt": "2026-08-20T06:37:25Z",
       "assentStatement": "I have read and agree to the Rockxy ICLA v2.0",
       "commentId": 5352329618,
