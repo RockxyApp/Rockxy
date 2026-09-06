@@ -354,6 +354,11 @@ private final class FakeHelperProxy: NSObject, RockxyHelperProtocol, @unchecked 
         reply(false)
     }
 
+    func prepareForExecutableRefresh(withReply reply: @escaping (Bool) -> Void) {
+        Self.recordUnexpected("prepareForExecutableRefresh")
+        reply(false)
+    }
+
     func installRootCertificate(_: Data, withReply reply: @escaping (Bool, String?) -> Void) {
         Self.recordUnexpected("installRootCertificate")
         reply(false, "unexpected")

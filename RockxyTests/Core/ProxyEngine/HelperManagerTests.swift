@@ -24,6 +24,21 @@ struct HelperManagerTests {
         #expect(HelperManager.HelperStatus(.incompatible) == .installedIncompatible)
     }
 
+    @Test("only an older known helper is considered for approval-preserving refresh")
+    func automaticRefreshPolicyTargetsOnlyVersionMismatches() {
+        #expect(HelperManager.shouldAutomaticallyRefreshAfterAppUpdate(.installedOutdated))
+        for status in [
+            HelperManager.HelperStatus.notInstalled,
+            .requiresApproval,
+            .installedCompatible,
+            .installedIncompatible,
+            .unreachable,
+            .signingMismatch,
+        ] {
+            #expect(!HelperManager.shouldAutomaticallyRefreshAfterAppUpdate(status))
+        }
+    }
+
     @Test("install disposition does not re-register already enabled helpers")
     @MainActor
     func installDispositionAlreadyEnabled() {

@@ -135,11 +135,11 @@ extension SetupTarget {
             currentSupportSummary: String(
                 localized: """
                 Automatic Setup prepares a scoped shell that sets JAVA_TOOL_OPTIONS proxy properties for the \
-                JVM. JetBrains IDEs replace the JVM proxy selector with their own HTTP Proxy setting, so quit \
-                the IDE, point its proxy at Rockxy, and relaunch it from the prepared session. For HTTPS \
-                interception, import the Rockxy root CA into the exact JVM or JetBrains trust store with \
-                keytool, add a Decrypt rule for the target application or host, then run the HttpClient sample \
-                to confirm capture.
+                JVM. For a GUI development tool, quit it and use Choose & Open Developer App so Rockxy can \
+                apply the scoped environment and prepare recognized app-level proxy settings. For HTTPS \
+                interception, import the Rockxy root CA into the exact JVM or IDE trust store with keytool, \
+                add a Decrypt rule for the target application or host, then run the HttpClient sample to \
+                confirm capture.
                 """, bundle: RockxyLocalization.bundle
             )
         )

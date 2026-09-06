@@ -372,6 +372,22 @@ struct ClientIdentityResolutionTests {
         #expect(records[1].destPort == 9_090)
     }
 
+    @Test("pid identity validation accepts truncated names and rejects recycled processes")
+    func commandValidationRejectsPIDReuse() {
+        #expect(ProcessResolver.commandMatchesExecutable(
+            command: "Electron H",
+            executablePath: "/Applications/Editor.app/Contents/Frameworks/Electron Helper (Renderer)"
+        ))
+        #expect(ProcessResolver.commandMatchesExecutable(
+            command: "python3",
+            executablePath: "/usr/local/bin/python3.12"
+        ))
+        #expect(!ProcessResolver.commandMatchesExecutable(
+            command: "old-client",
+            executablePath: "/Applications/NewClient.app/Contents/MacOS/new-client"
+        ))
+    }
+
     // MARK: - Transaction stamping
 
     @Test("stamping callback attaches identity and clientApp without overriding existing values")

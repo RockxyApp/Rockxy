@@ -31,22 +31,6 @@ final class ProcessResolver: @unchecked Sendable {
     /// Used by the proxy to drive application-scoped SSL proxying decisions.
     let identityResolver: ClientIdentityResolver
 
-    /// Samples accepted connections for the observed-app picker when no application rules
-    /// are active. TLS decisions resolve every connection once an app rule can affect them;
-    /// discovery-only work is throttled to avoid shelling out on the common host-only path.
-    func shouldSampleApplicationIdentity() -> Bool {
-        let now = DispatchTime.now().uptimeNanoseconds
-        observationSampleLock.lock()
-        defer { observationSampleLock.unlock() }
-        guard lastObservationSample == 0
-            || now &- lastObservationSample >= Self.observationSampleIntervalNanoseconds else
-        {
-            return false
-        }
-        lastObservationSample = now
-        return true
-    }
-
     /// Runs a single `lsof` call against the proxy port and returns a mapping of
     /// client source port → human-readable app name. Cached for 2 seconds to avoid
     /// shelling out on every batch.
@@ -113,11 +97,6 @@ final class ProcessResolver: @unchecked Sendable {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProcessResolver")
-    private static let observationSampleIntervalNanoseconds: UInt64 = 500_000_000
-
-    private let observationSampleLock = NSLock()
-    private var lastObservationSample: UInt64 = 0
-
     private let lock = NSLock()
     private var cachedResult: [UInt16: String]?
     private var cacheTimestamp: DispatchTime?
@@ -341,6 +320,10 @@ extension ProcessResolver {
         }
 
         let path = String(cString: pathBuffer)
+        guard commandMatchesExecutable(command: command, executablePath: path) else {
+            Self.logger.debug("Declining stale client identity because the pid command no longer matches")
+            return nil
+        }
         if let outerBundlePath = ClientApplicationIdentity.outerAppBundlePath(forExecutablePath: path) {
             let displayName = ClientApplicationIdentity.appName(fromBundlePath: outerBundlePath)
             if let bundle = Bundle(path: outerBundlePath), let bundleID = bundle.bundleIdentifier {
@@ -348,8 +331,6 @@ extension ProcessResolver {
             }
             return .executable(normalizedPath: outerBundlePath, displayName: displayName)
         }
-
-
         if let running = NSRunningApplication(processIdentifier: pid), let bundleID = running.bundleIdentifier {
             let name = running.localizedName ?? command
             return .bundle(identifier: bundleID, displayName: name)
@@ -357,6 +338,27 @@ extension ProcessResolver {
 
         let execName = (path as NSString).lastPathComponent
         return .executable(normalizedPath: path, displayName: execName)
+    }
+
+    /// `lsof` command names may be truncated or omit punctuation, so compare normalized prefixes.
+    /// A mismatch is strong evidence that the pid was recycled between socket collection and
+    /// `proc_pidpath`; declining is safer than applying another process's application rule.
+    static func commandMatchesExecutable(command: String, executablePath: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics
+        func normalized(_ value: String) -> String {
+            value.unicodeScalars
+                .filter { allowed.contains($0) }
+                .map(String.init)
+                .joined()
+                .lowercased()
+        }
+
+        let commandName = normalized(command)
+        let executableName = normalized((executablePath as NSString).lastPathComponent)
+        guard !commandName.isEmpty, !executableName.isEmpty else {
+            return false
+        }
+        return commandName.hasPrefix(executableName) || executableName.hasPrefix(commandName)
     }
 
     /// Collects the live TCP connection table for the proxy port via `lsof`, bounded by a

@@ -4,7 +4,7 @@ import Foundation
 
 /// How an installed helper compares to what this app build expects.
 enum HelperCompatibilityDecision: Equatable {
-    /// Same protocol, and the installed build is at least the bundled one.
+    /// The installed helper supports every user-facing operation required by this app.
     case compatible
     /// Still usable for the operations it already implements, but it has to be updated before
     /// anything newer can be asked of it.
@@ -43,12 +43,15 @@ enum HelperCompatibilityPolicy {
     /// its own copy instead.
     static let safeCertificateInstallProtocolVersion = 2
 
+    /// The protocol version that introduced approval-preserving executable refresh.
+    static let executableRefreshProtocolVersion = 3
+
     /// Classifies an installed helper without ever reading a capability out of the build
     /// number.
     ///
     /// - A protocol older than expected, but still one this app knows how to talk to, is
-    ///   `.outdated` regardless of its build: proxy override/restore, status, and uninstall
-    ///   remain usable. Certificate operations have their own protocol capability gates.
+    ///   `.outdated` regardless of its build unless the exact transition is explicitly declared
+    ///   maintenance-only. Certificate operations have their own protocol capability gates.
     /// - The exact expected protocol falls through to the normal build comparison.
     /// - A nonpositive, unknown, or newer-than-expected protocol fails closed.
     static func classify(
@@ -69,6 +72,12 @@ enum HelperCompatibilityPolicy {
             // A protocol newer than this build knows cannot be reasoned about either.
             return .incompatible
         }
+        if maintenanceOnlyUpgradePairs.contains(ProtocolPair(
+            installed: installedProtocolVersion,
+            expected: expectedProtocolVersion
+        )) {
+            return .compatible
+        }
         if installedProtocolVersion < expectedProtocolVersion {
             return backwardCompatibleProtocolVersions.contains(installedProtocolVersion)
                 ? .outdated
@@ -85,7 +94,7 @@ enum HelperCompatibilityPolicy {
     /// guessing would send privileged removal bytes to an interface nobody here has seen. Raise
     /// this alongside `exactCertificateRemovalProtocolVersion` when the protocol moves on.
     static func supportsExactCertificateRemoval(protocolVersion: Int) -> Bool {
-        protocolVersion == exactCertificateRemovalProtocolVersion
+        certificateMutationProtocolVersions.contains(protocolVersion)
     }
 
     /// Whether the helper on the other end of a live connection installs non-destructively.
@@ -94,14 +103,36 @@ enum HelperCompatibilityPolicy {
     /// stand in here either. Shipped app copies embed a helper whose build number is at or above
     /// this checkout's while it still speaks protocol 1 and still sweeps the label on install.
     static func supportsSafeCertificateInstall(protocolVersion: Int) -> Bool {
-        protocolVersion == safeCertificateInstallProtocolVersion
+        certificateMutationProtocolVersions.contains(protocolVersion)
+    }
+
+    /// Whether the helper can exit on request so launchd starts the executable from the updated
+    /// app bundle without unregistering the approved service.
+    static func supportsExecutableRefresh(protocolVersion: Int) -> Bool {
+        protocolVersion == executableRefreshProtocolVersion
     }
 
     // MARK: Private
 
     /// Every helper protocol whose contract this app can reason about.
-    private static let knownProtocolVersions: Set<Int> = [1, 2]
+    private static let knownProtocolVersions: Set<Int> = [1, 2, 3]
 
     /// Older protocol versions whose already-implemented operations stay safe to call.
-    private static let backwardCompatibleProtocolVersions: Set<Int> = [1]
+    private static let backwardCompatibleProtocolVersions: Set<Int> = [1, 2]
+
+    /// Protocol 3 adds a selector without changing the protocol-2 certificate contracts.
+    private static let certificateMutationProtocolVersions: Set<Int> = [2, 3]
+
+    /// Protocol 3 adds only an approval-preserving maintenance operation. A protocol-2 helper
+    /// remains fully operational and must not turn onboarding incomplete or demand reinstall
+    /// after an app update. Fresh installs gain protocol 3; protocol-3 build refreshes then happen
+    /// silently without weakening protocol-based capability checks.
+    private static let maintenanceOnlyUpgradePairs: Set<ProtocolPair> = [
+        ProtocolPair(installed: 2, expected: 3),
+    ]
+
+    private struct ProtocolPair: Hashable {
+        let installed: Int
+        let expected: Int
+    }
 }

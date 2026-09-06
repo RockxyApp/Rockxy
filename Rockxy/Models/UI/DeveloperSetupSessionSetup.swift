@@ -241,6 +241,8 @@ enum RockxySetupScriptBuilder {
             "export http_proxy=\"$HTTP_PROXY\"",
             "export https_proxy=\"$HTTPS_PROXY\"",
             "export all_proxy=\"$ALL_PROXY\"",
+            "export npm_config_proxy=\"$HTTP_PROXY\"",
+            "export npm_config_https_proxy=\"$HTTPS_PROXY\"",
             "export NO_PROXY=\"${NO_PROXY:-localhost,127.0.0.1,::1}\"",
             "export no_proxy=\"$NO_PROXY\"",
         ]
@@ -248,13 +250,9 @@ enum RockxySetupScriptBuilder {
         if let certificatePath = context.certificatePath, !certificatePath.isEmpty {
             lines.append(contentsOf: [
                 "export ROCKXY_ROOT_CA_PATH=\(shellDoubleQuoted(certificatePath))",
-                "export SSL_CERT_FILE=\"$ROCKXY_ROOT_CA_PATH\"",
-                "export REQUESTS_CA_BUNDLE=\"$ROCKXY_ROOT_CA_PATH\"",
                 "export NODE_EXTRA_CA_CERTS=\"$ROCKXY_ROOT_CA_PATH\"",
-                "case \" ${NODE_OPTIONS:-} \" in",
-                "  *\" --use-openssl-ca \"*) ;;",
-                "  *) export NODE_OPTIONS=\"${NODE_OPTIONS:-} --use-openssl-ca\" ;;",
-                "esac",
+                "# Replacement-style CA variables are not changed: setting them to one Rockxy root",
+                "# would discard the runtime's existing public or corporate trust anchors.",
             ])
         } else {
             lines.append("# Export or trust the Rockxy root certificate to enable certificate environment hints.")
@@ -278,8 +276,10 @@ enum RockxySetupScriptBuilder {
     /// previous Rockxy block before appending the current one, so user options
     /// added at any point survive and stale proxy properties never accumulate.
     static func javaProxyLines(proxyHost: String, proxyPort: Int) -> [String] {
-        let proxyOptions = "-Dhttp.proxyHost=\(proxyHost) -Dhttp.proxyPort=\(proxyPort) " +
-            "-Dhttps.proxyHost=\(proxyHost) -Dhttps.proxyPort=\(proxyPort)"
+        let proxyOptions = DeveloperCaptureEnvironmentBuilder.javaProxyOptions(
+            proxyHost: proxyHost,
+            proxyPort: proxyPort
+        )
         return [
             "",
             "# Java VMs: route the JVM through Rockxy while preserving existing JAVA_TOOL_OPTIONS.",
@@ -436,7 +436,17 @@ final class DeveloperSetupSessionSetupViewModel {
         processRunner: DeveloperSetupProcessRunning = DeveloperSetupProcessRunner(),
         pasteboard: DeveloperSetupPasteboardWriting? = nil,
         scriptURL: URL = RockxySetupScriptBuilder.generatedScriptURL(),
-        generatedAt: @escaping () -> Date = Date.init
+        generatedAt: @escaping () -> Date = Date.init,
+        applicationLauncher: DeveloperApplicationLaunching? = nil,
+        settingsRestorationMonitor: DeveloperApplicationSettingsRestorationMonitoring? = nil,
+        preparationRegistry: DeveloperApplicationPreparationRegistry? = nil,
+        applicationIsRunning: @escaping @MainActor (DeveloperApplicationInstallation) -> Bool = {
+            DeveloperApplicationCaptureConfigurator.isRunning($0)
+        },
+        applicationSupportURL: URL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
     ) {
         self.coordinator = coordinator
         self.targetID = targetID
@@ -444,6 +454,12 @@ final class DeveloperSetupSessionSetupViewModel {
         self.pasteboard = pasteboard ?? DeveloperSetupSystemPasteboard()
         self.scriptURL = scriptURL
         self.generatedAt = generatedAt
+        self.applicationLauncher = applicationLauncher ?? DeveloperApplicationWorkspaceLauncher()
+        self.settingsRestorationMonitor = settingsRestorationMonitor
+            ?? DeveloperApplicationSettingsRestorationMonitor.shared
+        self.preparationRegistry = preparationRegistry ?? .shared
+        self.applicationIsRunning = applicationIsRunning
+        self.applicationSupportURL = applicationSupportURL
         context = Self.makeContext(coordinator: coordinator, targetID: targetID, generatedAt: generatedAt())
     }
 
@@ -496,20 +512,17 @@ final class DeveloperSetupSessionSetupViewModel {
         "\(context.proxyHost):\(context.proxyPort)"
     }
 
-    /// JetBrains IDEs install their own proxy selector, so `JAVA_TOOL_OPTIONS` cannot route
-    /// IDE traffic on its own. Rockxy states that plainly rather than implying it can
-    /// override another app's setting, and never edits JetBrains configuration itself.
-    var javaProxyGuidanceText: String? {
-        guard targetID == .javaVMs else {
-            return nil
-        }
-        return String(
+    /// Describes the capability boundary instead of promising that one proxy mechanism covers
+    /// every developer tool. The chosen app is inspected before launch and only recognized,
+    /// declarative proxy settings are changed.
+    var developerApplicationGuidanceText: String {
+        String(
             localized: """
-            JetBrains IDEs replace the JVM proxy selector with their own HTTP Proxy setting, so this session \
-            does not capture IDE traffic by itself. Quit the IDE completely, then set Settings › HTTP Proxy to \
-            Auto-detect while Rockxy's macOS System Proxy is on, or to Manual with \(proxyEndpointText), and \
-            relaunch the IDE from the prepared terminal. Tools and run configurations the IDE starts as child \
-            processes inherit this session's proxy settings.
+            Choose a fully quit developer application to open with Rockxy's scoped proxy and certificate \
+            environment. When Rockxy detects a supported app-level proxy schema, it temporarily prepares that \
+            application to use automatic proxy discovery with the active macOS System Proxy at \(proxyEndpointText). \
+            Containers, emulators, devices, and already-running processes \
+            remain separate capture boundaries.
             """,
             bundle: RockxyLocalization.bundle
         )
@@ -640,7 +653,7 @@ final class DeveloperSetupSessionSetupViewModel {
         let command = manualSourceCommand
         let runner = processRunner
         do {
-            try await Task.detached {
+            _ = try await Task.detached {
                 try RockxySetupSessionLauncher.openTerminal(app, sourceCommand: command, runner: runner)
             }.value
             statusMessage = String(
@@ -651,6 +664,60 @@ final class DeveloperSetupSessionSetupViewModel {
             statusMessage = launchFailureMessage(
                 error,
                 action: String(localized: "open the prepared terminal", bundle: RockxyLocalization.bundle)
+            )
+        }
+    }
+
+    func openDeveloperApplication(at appURL: URL) async {
+        guard coordinator.isProxyRunning else {
+            statusMessage = String(
+                localized: "Start the Rockxy proxy before opening a developer application.",
+                bundle: RockxyLocalization.bundle
+            )
+            return
+        }
+        refresh()
+        do {
+            let workflow = DeveloperApplicationCaptureWorkflow(
+                launcher: applicationLauncher,
+                restorationMonitor: settingsRestorationMonitor,
+                preparationRegistry: preparationRegistry,
+                applicationIsRunning: applicationIsRunning,
+                applicationSupportURL: applicationSupportURL
+            )
+            let outcome = try await workflow.open(
+                appURL: appURL,
+                context: context,
+                systemProxyConfigured: coordinator.isSystemProxyConfigured
+            )
+            switch outcome {
+            case let .prepared(displayName, restorationMonitorActive):
+                if restorationMonitorActive {
+                    statusMessage = String(
+                        localized: "\(displayName)'s recognized proxy settings were prepared temporarily and will be restored after it quits. A fresh instance was opened with Rockxy's scoped environment.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                } else {
+                    statusMessage = String(
+                        localized: "\(displayName) was opened with temporary proxy settings. Keep Rockxy open until the application quits so those settings can be restored safely.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                }
+            case let .explicitProxyLaunch(displayName):
+                statusMessage = String(
+                    localized: "\(displayName) was opened with an explicit scoped proxy and Rockxy's environment. These launch settings remain active until the application quits.",
+                    bundle: RockxyLocalization.bundle
+                )
+            case let .environmentOnly(displayName):
+                statusMessage = String(
+                    localized: "\(displayName) was opened with Rockxy's scoped environment. If it overrides macOS or environment proxy settings, configure that app-level proxy separately.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+        } catch {
+            statusMessage = launchFailureMessage(
+                error,
+                action: String(localized: "open the developer application", bundle: RockxyLocalization.bundle)
             )
         }
     }
@@ -693,6 +760,11 @@ final class DeveloperSetupSessionSetupViewModel {
     private let processRunner: DeveloperSetupProcessRunning
     private let pasteboard: DeveloperSetupPasteboardWriting
     private let generatedAt: () -> Date
+    private let applicationLauncher: DeveloperApplicationLaunching
+    private let settingsRestorationMonitor: DeveloperApplicationSettingsRestorationMonitoring
+    private let preparationRegistry: DeveloperApplicationPreparationRegistry
+    private let applicationIsRunning: @MainActor (DeveloperApplicationInstallation) -> Bool
+    private let applicationSupportURL: URL
     private var lastAppliedRouteGeneration = 0
 
     private func prepareScriptForLaunch() -> Bool {

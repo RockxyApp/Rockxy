@@ -68,6 +68,18 @@ struct SSLProxyingManagerApplicationRulesTests {
         #expect(!manager.shouldIntercept(host: "api.example.com", application: appA))
     }
 
+    @Test("adding an application Decrypt rule retries that application's rejected hosts only")
+    func appDecryptClearsMatchingApplicationPassthrough() {
+        let manager = makeManager()
+        manager.markHostForPassthrough("shared.example", application: appA)
+        manager.markHostForPassthrough("shared.example", application: appB)
+
+        manager.addApplicationRule(ApplicationSSLProxyingRule(identity: appA, listType: .include))
+
+        #expect(!manager.isAutoPassthrough("shared.example", application: appA))
+        #expect(manager.isAutoPassthrough("shared.example", application: appB))
+    }
+
     // MARK: - hasEnabledApplicationRules gate
 
     @Test("hasEnabledApplicationRules reflects enabled app rules and global state")
@@ -86,10 +98,23 @@ struct SSLProxyingManagerApplicationRulesTests {
         #expect(!manager.hasEnabledApplicationRules())
     }
 
-    @Test("default identity provider uses the effective HTTPS manager")
-    func defaultIdentityProviderUsesEffectiveManager() {
+    @Test("application Tunnel capability gate ignores Decrypt and disabled rules")
+    func hasEnabledApplicationTunnelRulesGate() throws {
         let manager = makeManager()
         manager.addApplicationRule(ApplicationSSLProxyingRule(identity: appA, listType: .include))
+        #expect(!manager.hasEnabledApplicationTunnelRules())
+
+        manager.addApplicationRule(ApplicationSSLProxyingRule(identity: appB, listType: .exclude))
+        #expect(manager.hasEnabledApplicationTunnelRules())
+
+        let tunnelRuleID = try #require(manager.applicationRules.first(where: { $0.listType == .exclude })?.id)
+        manager.setApplicationRuleEnabled(id: tunnelRuleID, enabled: false)
+        #expect(!manager.hasEnabledApplicationTunnelRules())
+    }
+
+    @Test("default identity provider resolves local clients even before an application rule exists")
+    func defaultIdentityProviderAlwaysScopesLocalClients() {
+        let manager = makeManager()
         let provider = ProxyServer.defaultClientIdentityHandleProvider(sslProxyingManager: manager)
         let descriptor = ProxyConnectionDescriptor(
             acceptedAt: .now(),
@@ -100,6 +125,15 @@ struct SSLProxyingManagerApplicationRulesTests {
         )
 
         #expect(provider(descriptor) != nil)
+
+        let remoteDescriptor = ProxyConnectionDescriptor(
+            acceptedAt: .now(),
+            clientHost: "192.0.2.10",
+            clientPort: 54_321,
+            proxyHost: "0.0.0.0",
+            proxyPort: 9_090
+        )
+        #expect(provider(remoteDescriptor) == nil)
     }
 
     // MARK: - CRUD
@@ -155,9 +189,12 @@ struct SSLProxyingManagerApplicationRulesTests {
         let data = try #require(manager1.exportRules())
 
         let manager2 = makeManager()
+        manager2.markHostForPassthrough("x.example.com", application: appA)
+        #expect(manager2.isAutoPassthrough("x.example.com", application: appA))
         try manager2.importRules(from: data)
         #expect(manager2.applicationRules.count == 1)
         #expect(manager2.shouldIntercept(host: "x.example.com", application: appA))
+        #expect(!manager2.isAutoPassthrough("x.example.com", application: appA))
     }
 
     @Test("legacy v2 payload without app-rules key loads host rules with empty app rules")

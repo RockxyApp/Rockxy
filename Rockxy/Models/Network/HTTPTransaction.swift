@@ -71,6 +71,10 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// for application-scoped SSL proxying attribution. Portable session files intentionally
     /// omit this — it is local to a live capture and never persisted or exported.
     var clientApplicationIdentity: ClientApplicationIdentity?
+    /// Runtime-only, privacy-preserving scope used by TLS rejection recovery. Local clients use
+    /// their application identity; remote clients use a one-way network identifier. The value is
+    /// intentionally omitted from portable sessions and exports.
+    var tlsClientScopeIdentifier: String?
     var comment: String?
     var highlightColor: HighlightColor?
     var isPinned: Bool = false

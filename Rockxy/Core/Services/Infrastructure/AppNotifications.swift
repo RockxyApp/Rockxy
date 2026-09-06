@@ -20,6 +20,7 @@ extension Notification.Name {
     static let systemProxyVPNWarning = identity.notificationName("systemProxyVPNWarning")
     static let rootCANotTrusted = identity.notificationName("rootCANotTrusted")
     static let tlsMitmRejected = identity.notificationName("tlsMitmRejected")
+    static let tlsMitmAccepted = identity.notificationName("tlsMitmAccepted")
     static let sslProxyingStateDidChange = identity.notificationName("sslProxyingStateDidChange")
     static let bypassProxyListDidChange = identity.notificationName("bypassProxyListDidChange")
     static let upstreamProxyConfigurationDidChange = identity.notificationName("upstreamProxyConfigurationDidChange")
@@ -45,4 +46,9 @@ extension Notification.Name {
     static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")
+}
+
+enum TLSMITMNotificationUserInfoKey {
+    static let host = "host"
+    static let clientIdentifier = "clientIdentifier"
 }

@@ -86,6 +86,8 @@ struct HelperConnectionErrorTests {
             .certRemoveFailed("test"),
             .certRemovalUnsupported,
             .bypassDomainsFailed("test"),
+            .executableRefreshUnsupported,
+            .executableRefreshDeferred,
             .applicationMustReopen,
             .appSignatureInvalid("test"),
             .signingIdentityMismatch(app: "test", helper: "test"),
