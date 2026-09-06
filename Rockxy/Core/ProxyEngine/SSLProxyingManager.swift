@@ -180,11 +180,13 @@ final class SSLProxyingManager {
 
     func addApplicationRule(_ rule: ApplicationSSLProxyingRule) {
         applicationRules.append(rule)
+        clearAutoPassthroughIfNeeded(for: [rule])
         save()
     }
 
     func addApplicationRules(_ newRules: [ApplicationSSLProxyingRule]) {
         applicationRules.append(contentsOf: newRules)
+        clearAutoPassthroughIfNeeded(for: newRules)
         save()
     }
 
@@ -202,7 +204,9 @@ final class SSLProxyingManager {
         guard let index = applicationRules.firstIndex(where: { $0.id == id }) else {
             return
         }
+        let previous = applicationRules[index]
         applicationRules[index].isEnabled.toggle()
+        clearAutoPassthroughIfNeeded(for: [applicationRules[index]], previousRules: [previous])
         save()
     }
 
@@ -213,7 +217,9 @@ final class SSLProxyingManager {
         guard applicationRules[index].isEnabled != enabled else {
             return
         }
+        let previous = applicationRules[index]
         applicationRules[index].isEnabled = enabled
+        clearAutoPassthroughIfNeeded(for: [applicationRules[index]], previousRules: [previous])
         save()
     }
 
@@ -221,12 +227,15 @@ final class SSLProxyingManager {
         guard let index = applicationRules.firstIndex(where: { $0.id == rule.id }) else {
             return
         }
+        let previous = applicationRules[index]
         applicationRules[index] = rule
+        clearAutoPassthroughIfNeeded(for: [rule], previousRules: [previous])
         save()
     }
 
     func replaceAllApplicationRules(_ newRules: [ApplicationSSLProxyingRule]) {
         applicationRules = newRules
+        clearAutoPassthroughForActiveApplicationIncludeRules()
         save()
         Self.logger.info("Replaced all application SSL proxying rules (\(newRules.count) rules)")
     }
@@ -324,12 +333,36 @@ final class SSLProxyingManager {
         return cachedIsEnabled && (!cachedEnabledAppIncludeRules.isEmpty || !cachedEnabledAppExcludeRules.isEmpty)
     }
 
+    /// Whether an unresolved local application must remain tunneled. A host Decrypt rule cannot
+    /// safely override an application Tunnel rule until the connection owner is known.
+    nonisolated func hasEnabledApplicationTunnelRules() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cachedIsEnabled && !cachedEnabledAppExcludeRules.isEmpty
+    }
+
     /// Called from PostHandshakeHandler when a client rejects our intercepted certificate.
-    nonisolated func markHostForPassthrough(_ host: String) {
+    nonisolated func markHostForPassthrough(
+        _ host: String,
+        application: ClientApplicationIdentity? = nil
+    ) {
+        markHostForPassthrough(host, clientIdentifier: application?.identifier)
+    }
+
+    /// Client-scoped variant used when the caller is a remote device rather than a local app.
+    /// The identifier is already privacy-preserving and stable only for the capture boundary.
+    nonisolated func markHostForPassthrough(
+        _ host: String,
+        clientIdentifier: String?
+    ) {
+        let scope = AutoPassthroughScope(
+            host: host,
+            clientIdentifier: clientIdentifier
+        )
         passthroughLock.lock()
-        autoPassthroughHosts[host] = Date()
+        autoPassthroughHosts[scope] = Date()
         passthroughLock.unlock()
-        Self.logger.info("Auto-passthrough enabled for \(host) after TLS failure")
+        Self.logger.info("Scoped auto-passthrough enabled for \(host) after TLS failure")
         persistPassthroughHosts()
     }
 
@@ -362,15 +395,15 @@ final class SSLProxyingManager {
         }
 
         passthroughLock.lock()
-        let matchingHost = autoPassthroughHosts.keys.first {
-            $0.caseInsensitiveCompare(normalizedHost) == .orderedSame
+        let matchingScopes = autoPassthroughHosts.keys.filter {
+            $0.host.caseInsensitiveCompare(normalizedHost) == .orderedSame
         }
-        if let matchingHost {
-            autoPassthroughHosts.removeValue(forKey: matchingHost)
+        for scope in matchingScopes {
+            autoPassthroughHosts.removeValue(forKey: scope)
         }
         passthroughLock.unlock()
 
-        guard matchingHost != nil else {
+        guard !matchingScopes.isEmpty else {
             return false
         }
 
@@ -385,17 +418,28 @@ final class SSLProxyingManager {
     }
 
     /// Thread-safe check for hosts that should skip interception due to recent TLS failure.
-    nonisolated func isAutoPassthrough(_ host: String) -> Bool {
-        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+    nonisolated func isAutoPassthrough(
+        _ host: String,
+        application: ClientApplicationIdentity? = nil
+    ) -> Bool {
+        isAutoPassthrough(host, clientIdentifier: application?.identifier)
+    }
+
+    nonisolated func isAutoPassthrough(
+        _ host: String,
+        clientIdentifier: String?
+    ) -> Bool {
+        let scope = AutoPassthroughScope(
+            host: host,
+            clientIdentifier: clientIdentifier
+        )
         passthroughLock.lock()
         defer { passthroughLock.unlock() }
-        guard let matchingHost = autoPassthroughHosts.keys.first(where: {
-            $0.caseInsensitiveCompare(normalizedHost) == .orderedSame
-        }), let timestamp = autoPassthroughHosts[matchingHost] else {
+        guard let timestamp = autoPassthroughHosts[scope] else {
             return false
         }
         if Date().timeIntervalSince(timestamp) > Self.passthroughTTLSeconds {
-            autoPassthroughHosts.removeValue(forKey: matchingHost)
+            autoPassthroughHosts.removeValue(forKey: scope)
             return false
         }
         return true
@@ -477,14 +521,14 @@ final class SSLProxyingManager {
             isEnabled = storage.isEnabled
             bypassDomains = storage.bypassDomains
             rebuildBypassCache()
-            applicationRules = storage.applicationRules ?? []
+            replaceAllApplicationRules(storage.applicationRules ?? [])
             replaceAllRules(storage.rules)
         } else {
             let decoded = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
             isEnabled = true
             bypassDomains = Self.defaultBypassDomains
             rebuildBypassCache()
-            applicationRules = []
+            replaceAllApplicationRules([])
             replaceAllRules(decoded)
         }
     }
@@ -548,7 +592,7 @@ final class SSLProxyingManager {
     nonisolated(unsafe) private var cachedIsEnabled: Bool = true
 
     private let passthroughLock = NSLock()
-    nonisolated(unsafe) private var autoPassthroughHosts: [String: Date] = [:]
+    nonisolated(unsafe) private var autoPassthroughHosts: [AutoPassthroughScope: Date] = [:]
     nonisolated(unsafe) private var _forceGlobalPassthrough = false
     nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
 
@@ -635,6 +679,65 @@ final class SSLProxyingManager {
         clearAutoPassthrough(matching: rules.filter { $0.listType == .include && $0.isEnabled })
     }
 
+    private func clearAutoPassthroughIfNeeded(
+        for rules: [ApplicationSSLProxyingRule],
+        previousRules: [ApplicationSSLProxyingRule] = []
+    ) {
+        guard isEnabled else {
+            return
+        }
+        let previousByID = Dictionary(uniqueKeysWithValues: previousRules.map { ($0.id, $0) })
+        let identifiersToRetry = Set(rules.compactMap { rule -> String? in
+            guard rule.listType == .include, rule.isEnabled else {
+                return nil
+            }
+            guard let previous = previousByID[rule.id] else {
+                return rule.applicationIdentifier
+            }
+            if previous.listType != .include || !previous.isEnabled
+                || previous.applicationIdentifier != rule.applicationIdentifier
+            {
+                return rule.applicationIdentifier
+            }
+            return nil
+        })
+        clearAutoPassthrough(clientIdentifiers: identifiersToRetry)
+    }
+
+    private func clearAutoPassthroughForActiveApplicationIncludeRules() {
+        clearAutoPassthrough(clientIdentifiers: Set(
+            applicationRules
+                .filter { $0.listType == .include && $0.isEnabled }
+                .map(\.applicationIdentifier)
+        ))
+    }
+
+    private func clearAutoPassthrough(clientIdentifiers: Set<String>) {
+        let normalizedIdentifiers = Set(clientIdentifiers.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        })
+        guard !normalizedIdentifiers.isEmpty else {
+            return
+        }
+
+        passthroughLock.lock()
+        let scopesToRemove = autoPassthroughHosts.keys.filter { scope in
+            scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
+        }
+        for scope in scopesToRemove {
+            autoPassthroughHosts.removeValue(forKey: scope)
+        }
+        passthroughLock.unlock()
+
+        guard !scopesToRemove.isEmpty else {
+            return
+        }
+        persistPassthroughHosts()
+        Self.logger.info(
+            "Cleared \(scopesToRemove.count) auto-passthrough host(s) after application Decrypt scope change"
+        )
+    }
+
     private func clearAutoPassthrough(matching rules: [SSLProxyingRule]) {
         guard !rules.isEmpty else {
             return
@@ -647,12 +750,12 @@ final class SSLProxyingManager {
             removedCount = autoPassthroughHosts.count
             autoPassthroughHosts.removeAll()
         } else {
-            let hostsToRemove = autoPassthroughHosts.keys.filter { host in
-                rules.contains { $0.matches(host) }
+            let scopesToRemove = autoPassthroughHosts.keys.filter { scope in
+                rules.contains { $0.matches(scope.host) }
             }
-            removedCount = hostsToRemove.count
-            for host in hostsToRemove {
-                autoPassthroughHosts.removeValue(forKey: host)
+            removedCount = scopesToRemove.count
+            for scope in scopesToRemove {
+                autoPassthroughHosts.removeValue(forKey: scope)
             }
         }
 
@@ -673,12 +776,19 @@ final class SSLProxyingManager {
         }
         do {
             let data = try Data(contentsOf: url)
-            let decoded = try JSONDecoder().decode([String: Date].self, from: data)
+            let decoded = try JSONDecoder().decode(AutoPassthroughStorage.self, from: data)
+            guard decoded.schemaVersion == AutoPassthroughStorage.currentSchemaVersion else {
+                Self.logger.info("Discarding legacy global auto-passthrough state")
+                return
+            }
             let now = Date()
             var loaded = 0
             passthroughLock.lock()
-            for (host, timestamp) in decoded where now.timeIntervalSince(timestamp) <= Self.passthroughTTLSeconds {
-                autoPassthroughHosts[host] = timestamp
+            for record in decoded.records where
+                record.scope.clientIdentifier != nil
+                && now.timeIntervalSince(record.timestamp) <= Self.passthroughTTLSeconds
+            {
+                autoPassthroughHosts[record.scope] = record.timestamp
                 loaded += 1
             }
             passthroughLock.unlock()
@@ -693,7 +803,12 @@ final class SSLProxyingManager {
     nonisolated private func persistPassthroughHosts() {
         let url = resolvedPassthroughStorageURL
         passthroughLock.lock()
-        let snapshot = autoPassthroughHosts
+        let snapshot = AutoPassthroughStorage(
+            schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
+            records: autoPassthroughHosts.map {
+                AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
+            }
+        )
         passthroughLock.unlock()
 
         do {
@@ -705,6 +820,32 @@ final class SSLProxyingManager {
             Self.logger.error("Failed to persist auto-passthrough hosts: \(error.localizedDescription)")
         }
     }
+}
+
+// MARK: - AutoPassthroughStorage
+
+private struct AutoPassthroughScope: Codable, Hashable {
+    let host: String
+    let clientIdentifier: String?
+
+    init(host: String, clientIdentifier: String?) {
+        self.host = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        self.clientIdentifier = clientIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
+private struct AutoPassthroughRecord: Codable {
+    let scope: AutoPassthroughScope
+    let timestamp: Date
+}
+
+private struct AutoPassthroughStorage: Codable {
+    static let currentSchemaVersion = 3
+
+    let schemaVersion: Int
+    let records: [AutoPassthroughRecord]
 }
 
 // MARK: - SSLProxyingStorage

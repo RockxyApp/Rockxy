@@ -1,21 +1,20 @@
 import Foundation
 
-// MARK: - HelperCertificateMutationGate
+// MARK: - HelperPrivilegedMutationGate
 
-/// Process-wide exclusive gate for the privileged helper's certificate mutations.
+/// Process-wide exclusive gate for privileged helper mutations and executable refresh.
 ///
 /// NSXPCConnection delivers messages concurrently, so two clients — or one client retrying after
-/// a timeout — can have installs and removals running against the same System keychain at the
-/// same time. Every one of those operations is built as read, mutate, verify; interleaving them
-/// means a verification can read the other operation's result and a removal can delete the
-/// certificate an install just added.
+/// a timeout — can have keychain, trust, or system-proxy mutations in flight at the same time.
+/// Certificate operations are read-mutate-verify sequences; proxy mutations carry crash-recovery
+/// ownership. Interleaving either class with helper exit can leave partial state behind.
 ///
 /// The gate is deliberately **non-blocking**. A busy request is refused immediately, before it
 /// mutates anything, so nothing is queued to run later against state the caller can no longer
 /// see: a client that gave up at its own timeout must not have privileged work start afterwards.
 /// Reads are never gated — reporting "not installed" because another operation held the gate
 /// would be a wrong answer, not a busy one.
-final class HelperCertificateMutationGate: @unchecked Sendable {
+final class HelperPrivilegedMutationGate: @unchecked Sendable {
     // MARK: Internal
 
     /// Proof of ownership for one mutation.
@@ -26,13 +25,12 @@ final class HelperCertificateMutationGate: @unchecked Sendable {
         fileprivate let id: UUID
     }
 
-    /// One gate per helper process. Every mutating entry point shares it, so an install and a
-    /// removal exclude each other and not just their own kind.
-    static let shared = HelperCertificateMutationGate()
+    /// One gate per helper process. Every privileged mutating entry point shares it.
+    static let shared = HelperPrivilegedMutationGate()
 
     /// What a refused caller is told. Phrased so it reads as "try again", never as a result.
     static let busyMessage =
-        "Another Rockxy certificate operation is already running. Wait for it to finish, then try again."
+        "Another Rockxy privileged operation is already running. Wait for it to finish, then try again."
 
     var isBusy: Bool {
         lock.lock()
@@ -42,6 +40,21 @@ final class HelperCertificateMutationGate: @unchecked Sendable {
 
     /// Takes the gate, or returns `nil` when another mutation already owns it. Never waits.
     func tryAcquire() -> Ticket? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard heldTicketID == nil else {
+            return nil
+        }
+        let ticket = Ticket(id: UUID())
+        heldTicketID = ticket.id
+        return ticket
+    }
+
+    /// Acquires the mutation gate for an intentional executable refresh. The caller normally
+    /// retains the ticket until process exit; it may release the ticket only when a final proxy
+    /// recheck cancels that exit.
+    func beginProcessExitBarrier() -> Ticket? {
         lock.lock()
         defer { lock.unlock() }
 

@@ -135,15 +135,113 @@ struct ReadinessCoordinatorTests {
 
     // MARK: - TLS Rejection
 
+    @Test("TLS rejection evidence never combines unrelated applications")
+    func tlsRejectionEvidenceIsApplicationScoped() {
+        var evidence = TLSRejectionEvidence()
+        evidence.recordRejection(host: "one.example", clientIdentifier: "app.one")
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.two")
+        evidence.recordRejection(host: "three.example", clientIdentifier: "app.three")
+
+        #expect(!evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("three rejected hosts from one application produce trust evidence")
+    func tlsRejectionEvidenceRequiresMultipleHostsFromOneApplication() {
+        var evidence = TLSRejectionEvidence()
+        let insertedFirstRejection = evidence.recordRejection(
+            host: "one.example",
+            clientIdentifier: "app.one"
+        )
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
+        evidence.recordRejection(host: "THREE.EXAMPLE", clientIdentifier: "app.one")
+        let insertedDuplicateRejection = evidence.recordRejection(
+            host: "three.example",
+            clientIdentifier: "app.one"
+        )
+
+        #expect(insertedFirstRejection)
+        #expect(!insertedDuplicateRejection)
+        #expect(evidence.hasMultiHostClientFailure)
+        #expect(evidence.rejectedHostsByClient["app.one"]?.count == 3)
+    }
+
+    @Test("successful interception clears only that application's rejection evidence")
+    func tlsSuccessClearsMatchingApplicationEvidence() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+            evidence.recordRejection(host: host, clientIdentifier: "app.two")
+        }
+        #expect(evidence.hasMultiHostClientFailure)
+
+        evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+
+        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.rejectedHostsByClient["app.two"]?.count == 3)
+        #expect(evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("an application that accepted the current CA cannot later trigger a global trust warning")
+    func tlsSuccessSuppressesLaterPinnedHostFailuresForMatchingApplication() {
+        var evidence = TLSRejectionEvidence()
+        let firstSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+        let duplicateSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+        #expect(firstSuccessChangedEvidence)
+        #expect(!duplicateSuccessChangedEvidence)
+
+        for host in ["pinned-one.example", "pinned-two.example", "pinned-three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+        }
+
+        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
+        #expect(!evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("unattributed TLS rejections never become a global trust warning")
+    func unattributedTLSRejectionsAreIgnored() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example", "four.example", "five.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: nil)
+        }
+
+        #expect(!evidence.hasMultiHostClientFailure)
+        #expect(evidence.rejectedHostsByClient.isEmpty)
+    }
+
+    @Test("an unattributed success cannot suppress a later identified client")
+    func unattributedTLSSuccessIsIgnored() {
+        var evidence = TLSRejectionEvidence()
+        evidence.recordSuccessfulHandshake(clientIdentifier: nil)
+
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
+        #expect(evidence.rejectedHostsByClient["app.one"] == ["two.example"])
+    }
+
+    @Test("the bounded acceptance cache always retains the most recently successful client")
+    func tlsAcceptanceCacheRetainsNewestClient() {
+        var evidence = TLSRejectionEvidence()
+        for index in 0 ..< TLSRejectionEvidence.maximumTrackedClients {
+            evidence.recordSuccessfulHandshake(clientIdentifier: "app.\(index)")
+        }
+
+        evidence.recordSuccessfulHandshake(clientIdentifier: "app.newest")
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.newest")
+        }
+
+        #expect(evidence.clientsAcceptingCurrentCA.count == TLSRejectionEvidence.maximumTrackedClients)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.newest"))
+        #expect(evidence.rejectedHostsByClient["app.newest"] == nil)
+    }
+
     @Test("clearTLSRejections removes TLS rejection warning source")
     @MainActor
     func clearTLSRejectionsResets() {
         let coordinator = ReadinessCoordinator.shared
         coordinator.setCaptureActive(true)
         coordinator.clearTLSRejections()
-        if let warning = coordinator.activeWarning {
-            #expect(!warning.message.contains("Multiple HTTPS hosts rejected"))
-        }
+        #expect(coordinator.activeWarning?.action != .openGeneralSettings)
         coordinator.setCaptureActive(false)
     }
 

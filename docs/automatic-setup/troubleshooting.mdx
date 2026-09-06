@@ -74,19 +74,43 @@ That means:
 - An app or IDE that was already open keeps its previous environment. Quit it and launch it fresh from the prepared session, or point it at Rockxy another way.
 - Some GUI apps ignore shell environment variables completely, so a prepared shell never reaches them.
 
-For those clients, use macOS System Proxy, or the target-specific Manual Setup, instead of relying on inherited shell variables.
+Fully quit the app, start capture with macOS System Proxy enabled, then use **Choose & Open Developer App**. Rockxy launches the selected app with a scoped proxy/certificate environment and temporarily prepares an app-level proxy selector only when its settings schema is recognized. On normal termination it restores only selector fields it changed and preserves unrelated application writes. A proxy choice changed inside the application during that session is preserved. If Rockxy exits first, an external monitor and durable recovery record keep the transaction until the recorded process exits; Rockxy also reconciles completed transactions on a later launch. Unknown preferences are never rewritten.
 
-## Java or a JetBrains IDE (PyCharm/IntelliJ) shows no traffic
+If traffic still does not appear, identify which boundary actually owns the request:
 
-The Java VMs Automatic Setup target sets `JAVA_TOOL_OPTIONS` proxy properties for JVMs launched from the prepared session.
+- IDE update, marketplace, and licensing traffic belongs to the IDE process.
+- A Run/Debug program belongs to its child runtime and HTTP library.
+- An emulator, simulator, VM, physical device, or container has a separate network boundary.
+- An app-specific manual proxy can override both macOS System Proxy and inherited environment variables.
 
-For a JetBrains IDE, those properties route the IDE's JVM traffic. A Python, Node.js, or other non-JVM Run/Debug child must separately honor the inherited `HTTP_PROXY` / `HTTPS_PROXY` variables or use its own proxy configuration. An IDE startup `CONNECT` row alone does not prove that the application being debugged is routed.
+## Java or an IDE shows no traffic
+
+The Java VMs Automatic Setup target sets `JAVA_TOOL_OPTIONS` proxy properties for JVMs launched from the prepared session. Some IDE platforms replace the JVM proxy selector with their own persisted HTTP Proxy setting, so opening an IDE from a prepared terminal is not sufficient on its own.
+
+Quit the IDE completely, open the matching runtime under **Automatic Setup**, then use **Choose & Open Developer App**. For a recognized app-level proxy schema, Rockxy selects system/auto-detect proxy so IDE traffic follows the active macOS System Proxy. Every selected app also receives the scoped environment for compatible Run/Debug children. A child runtime must still honor its inherited variables or its own proxy configuration. An IDE startup `CONNECT` row alone does not prove that the application being debugged is routed.
 
 If Java traffic still does not appear:
 
-- Launch the JVM or IDE fresh from the prepared session. A JetBrains IDE that was already open keeps its old environment and will not pick up `JAVA_TOOL_OPTIONS` retroactively.
+- Launch a JVM fresh from the prepared terminal, or fully quit the IDE and use **Choose & Open Developer App**.
 - For HTTPS, routing alone is not enough: import and trust the Rockxy root CA in the exact JVM or JetBrains trust store, and add the host under SSL Proxying. See [Java VMs](/setup-guides/java-vms).
-- If the IDE has its own proxy setting that ignores the environment, set macOS System Proxy or configure the IDE's proxy manually.
+- If the IDE still shows no traffic, confirm capture and macOS System Proxy are active before launch, then inspect the IDE's own HTTP Proxy page for a manual or no-proxy override.
+
+## Electron shells, extensions, and embedded runtimes
+
+Many Electron applications use the macOS/Chromium proxy stack for their own traffic, but extensions, native modules, CLIs, and child processes may use different networking libraries. **Choose & Open Developer App** supplies a documented per-launch Chromium proxy argument and a minimal Rockxy environment without copying unrelated shell secrets or injecting a debugger into the application. Chromium's normal loopback bypass is retained.
+
+If only an extension or child process is missing, run its minimal request from a prepared terminal or configure that component's own proxy. Rockxy deliberately does not add remote-debugging flags or inject code into arbitrary applications.
+
+## Containers, emulators, simulators, and devices
+
+These targets do not become capturable merely because their host IDE was opened through Rockxy:
+
+- New containers can inherit proxy variables when created from a prepared terminal, but existing containers and their CA stores remain unchanged.
+- Docker Desktop has separate host/Desktop and container proxy controls.
+- Android emulator proxy state is copied at startup and HTTPS inspection requires the Android system proxy plus device-side CA trust; an emulator tunnel alone may not decrypt HTTPS.
+- Physical devices require their own Wi-Fi proxy and certificate trust.
+
+Use the matching Developer Setup target and validate one request from inside the actual boundary.
 
 ## AppleScript permission is blocked
 

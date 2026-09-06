@@ -20,6 +20,13 @@ protocol RockxyHelperProtocol {
     /// Uninstall: restore proxy + prepare for removal.
     func prepareForUninstall(withReply reply: @escaping (Bool) -> Void)
 
+    /// Prepare an already registered bundled daemon to be replaced by the executable in the
+    /// current app bundle. Added in protocol version 3. The helper replies first, then exits
+    /// cleanly; launchd resolves `BundleProgram` again when the app opens the next connection.
+    /// This preserves the user's Background Items approval because the service is never
+    /// unregistered.
+    func prepareForExecutableRefresh(withReply reply: @escaping (Bool) -> Void)
+
     /// Install the supplied root CA certificate in the system keychain and trust it for SSL.
     ///
     /// Kept for compatibility with app builds that dispatch it; the current app does not. Adding

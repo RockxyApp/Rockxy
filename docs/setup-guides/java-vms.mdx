@@ -24,14 +24,18 @@ Automatic Setup prepares a scoped shell for the Java VMs target. Alongside the s
 Rockxy preserves any `JAVA_TOOL_OPTIONS` you already set and does not stack the proxy block if you re-source the script.
 
 <Note>
-Automatic Setup only affects the session it launches. A JVM or IDE that is already running keeps its current environment, and GUI apps launched outside that session may ignore shell variables. Launch the JVM (or a JetBrains IDE such as PyCharm/IntelliJ) fresh from the prepared session, or use macOS System Proxy / Manual Setup instead.
+Automatic Setup only affects the session or fresh application instance it launches. A JVM or IDE that is already running keeps its current environment. Launch a JVM from the prepared session, or fully quit the IDE and use **Choose & Open Developer App**.
 </Note>
 
-For JetBrains IDEs, the JVM properties route the IDE's own JVM traffic. A Python, Node.js, or other non-JVM Run/Debug child only inherits the shared proxy environment; its HTTP client must also honor `HTTP_PROXY` / `HTTPS_PROXY` (or be configured explicitly). Seeing the IDE's startup `CONNECT` request therefore confirms JVM routing, not necessarily the application being debugged.
+Some IDE platforms use their own persisted HTTP Proxy selector and can ignore JVM proxy properties. **Choose & Open Developer App** detects a recognized proxy-settings schema from application metadata, temporarily selects automatic proxy discovery, and opens a fresh instance with Rockxy's scoped environment and JVM proxy properties. Rockxy semantically restores the selector fields it changed after normal termination while preserving unrelated application writes and any newer proxy choice. If Rockxy exits first, an external monitor and a durable recovery record restore the transaction after the prepared process exits or on a later Rockxy launch. This works across current IDE variants that share the schema rather than matching one product name. Unknown application settings are never rewritten.
+
+A Python, Node.js, or other non-JVM Run/Debug child only inherits the environment; its HTTP client must also honor `HTTP_PROXY` / `HTTPS_PROXY` or be configured explicitly. Seeing the IDE's startup `CONNECT` request confirms IDE routing, not necessarily the application being debugged. Gradle daemons and other JVMs that were already running must be restarted. A daemon started with Rockxy's `JAVA_TOOL_OPTIONS` may outlive the IDE, so stop or restart that daemon when the Rockxy capture session ends.
 
 ## What Rockxy currently provides
 
 - Automatic Setup with `JAVA_TOOL_OPTIONS` JVM proxy properties
+- safe **Choose & Open Developer App** setup for arbitrary macOS developer applications
+- metadata-driven app-level proxy preparation for recognized IDE schemas
 - a `keytool` import path for the Rockxy root certificate
 - a Java `HttpClient` sample
 - Dev Hub guidance for confirming capture on a locally installed JDK

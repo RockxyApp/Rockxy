@@ -712,10 +712,15 @@ extension HTTPProxyHandler {
         }.flatMap {
             ProxyPipeline.removeHTTPServerPipeline(from: context.pipeline, on: context.eventLoop)
         }.flatMap { () -> EventLoopFuture<ClientApplicationIdentity?> in
-            // Await the already-started, bounded identity resolution before the TLS decision.
-            // autoRead is already false so no client bytes are lost while resolving; a
-            // timeout / unresolved identity yields nil and never enables app decryption.
-            context.eventLoop.makeFutureWithTask {
+            let identityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
+                || self.sslProxyingManager.shouldIntercept(host: host, application: nil)
+            guard identityCanAffectDecision else {
+                return context.eventLoop.makeSucceededFuture(nil)
+            }
+            // Start and await bounded resolution only when host or application policy can lead
+            // to interception. autoRead is already false so no client bytes are lost; an
+            // unresolved identity fails closed for application-only rules.
+            return context.eventLoop.makeFutureWithTask {
                 await self.clientIdentityHandle?.awaitIdentity()
             }
         }.flatMap { clientApplicationIdentity in

@@ -73,6 +73,89 @@ struct ReadinessWarning: Equatable {
     let isDismissible: Bool
 }
 
+// MARK: - TLSRejectionEvidence
+
+/// Aggregates certificate rejection evidence per originating application.
+///
+/// A global set of hosts conflates unrelated clients and turns certificate pinning into a false
+/// root-trust warning. A successful intercepted handshake proves that the same client accepts the
+/// active Rockxy CA, so pinning failures from that client cannot later become a global CA warning.
+struct TLSRejectionEvidence: Equatable {
+    static let warningThreshold = 3
+    static let maximumTrackedClients = 128
+
+    private(set) var rejectedHostsByClient: [String: Set<String>] = [:]
+    private(set) var clientsAcceptingCurrentCA: Set<String> = []
+    private var acceptingClientOrder: [String] = []
+
+    var hasMultiHostClientFailure: Bool {
+        rejectedHostsByClient.contains { $0.value.count >= Self.warningThreshold }
+    }
+
+    @discardableResult
+    mutating func recordRejection(host: String, clientIdentifier: String?) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty else {
+            return false
+        }
+        guard let clientIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+            // A missing identity cannot prove that failures on different hosts came from the
+            // same client, so it must never create a machine-wide trust warning.
+            return false
+        }
+        guard !clientsAcceptingCurrentCA.contains(clientIdentifier) else {
+            return false
+        }
+        guard rejectedHostsByClient[clientIdentifier] != nil
+            || rejectedHostsByClient.count < Self.maximumTrackedClients else {
+            return false
+        }
+        var hosts = rejectedHostsByClient[clientIdentifier, default: []]
+        if hosts.count < Self.warningThreshold {
+            let inserted = hosts.insert(normalizedHost).inserted
+            rejectedHostsByClient[clientIdentifier] = hosts
+            return inserted
+        }
+        return false
+    }
+
+    @discardableResult
+    mutating func recordSuccessfulHandshake(clientIdentifier: String?) -> Bool {
+        guard let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+            return false
+        }
+        let removedRejections = rejectedHostsByClient.removeValue(forKey: normalizedIdentifier) != nil
+        let wasAlreadyAccepted = clientsAcceptingCurrentCA.contains(normalizedIdentifier)
+        acceptingClientOrder.removeAll { $0 == normalizedIdentifier }
+        if clientsAcceptingCurrentCA.insert(normalizedIdentifier).inserted,
+           clientsAcceptingCurrentCA.count > Self.maximumTrackedClients,
+           let evicted = acceptingClientOrder.first
+        {
+            clientsAcceptingCurrentCA.remove(evicted)
+            acceptingClientOrder.removeFirst()
+        }
+        acceptingClientOrder.append(normalizedIdentifier)
+        return removedRejections || !wasAlreadyAccepted
+    }
+
+    mutating func reset() {
+        rejectedHostsByClient.removeAll()
+        clientsAcceptingCurrentCA.removeAll()
+        acceptingClientOrder.removeAll()
+    }
+
+    private func normalizedClientIdentifier(_ clientIdentifier: String?) -> String? {
+        guard let normalized = clientIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !normalized.isEmpty
+        else {
+            return nil
+        }
+        return normalized
+    }
+}
+
 // MARK: - ReadinessCoordinator
 
 /// Single source of truth for app-wide readiness state. Bridges helper, certificate, and
@@ -187,6 +270,7 @@ final class ReadinessCoordinator {
                 forName: .certificateStatusChanged, object: nil, queue: .main
             ) { [weak self] _ in
                 Task { @MainActor in
+                    self?.tlsRejectionEvidence.reset()
                     await self?.refreshCertState()
                     self?.recomputeWarning()
                 }
@@ -220,12 +304,36 @@ final class ReadinessCoordinator {
             NotificationCenter.default.addObserver(
                 forName: .tlsMitmRejected, object: nil, queue: .main
             ) { [weak self] notification in
-                guard let host = notification.userInfo?["host"] as? String else {
+                guard let host = notification.userInfo?[TLSMITMNotificationUserInfoKey.host] as? String else {
                     return
                 }
-                Task { @MainActor in
-                    self?.tlsRejectionHosts.insert(host)
-                    self?.recomputeWarning()
+                let clientIdentifier = notification
+                    .userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
+                MainActor.assumeIsolated {
+                    let evidenceChanged = self?.tlsRejectionEvidence.recordRejection(
+                        host: host,
+                        clientIdentifier: clientIdentifier
+                    ) ?? false
+                    if evidenceChanged {
+                        self?.recomputeWarning()
+                    }
+                }
+            }
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .tlsMitmAccepted, object: nil, queue: .main
+            ) { [weak self] notification in
+                let clientIdentifier = notification
+                    .userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
+                MainActor.assumeIsolated {
+                    let evidenceChanged = self?.tlsRejectionEvidence.recordSuccessfulHandshake(
+                        clientIdentifier: clientIdentifier
+                    ) ?? false
+                    if evidenceChanged {
+                        self?.recomputeWarning()
+                    }
                 }
             }
         )
@@ -289,7 +397,7 @@ final class ReadinessCoordinator {
     func setCaptureActive(_ active: Bool) {
         isCaptureActive = active
         if !active {
-            tlsRejectionHosts.removeAll()
+            tlsRejectionEvidence.reset()
             vpnInterface = nil
             proxyEnableFailed = false
             proxyEnableErrorMessage = nil
@@ -320,7 +428,7 @@ final class ReadinessCoordinator {
 
     /// Clears TLS rejection state. Called when proxy restarts or session clears.
     func clearTLSRejections() {
-        tlsRejectionHosts.removeAll()
+        tlsRejectionEvidence.reset()
         recomputeWarning()
     }
 
@@ -341,7 +449,7 @@ final class ReadinessCoordinator {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ReadinessCoordinator")
 
     private var observers: [NSObjectProtocol] = []
-    private var tlsRejectionHosts: Set<String> = []
+    private var tlsRejectionEvidence = TLSRejectionEvidence()
     private var vpnInterface: String?
     private var proxyEnableFailed = false
     private var proxyEnableErrorMessage: String?
@@ -445,7 +553,9 @@ final class ReadinessCoordinator {
             dismissedWarningMessage = nil
         }
 
-        activeWarning = warning
+        if activeWarning != warning {
+            activeWarning = warning
+        }
     }
 
     private func computeHighestPriorityWarning() -> ReadinessWarning? {
@@ -476,7 +586,7 @@ final class ReadinessCoordinator {
         }
 
         // Priority 4: TLS rejection accumulation
-        if tlsRejectionHosts.count >= 3 {
+        if tlsRejectionEvidence.hasMultiHostClientFailure {
             return tlsRejectionWarning()
         }
 
@@ -528,28 +638,28 @@ final class ReadinessCoordinator {
         )
     }
 
-    /// TLS rejection warning with contextual messaging based on certificate trust state.
-    /// Existing TLS sessions are not re-intercepted — only new connections are affected
-    /// after trust changes, so browser restart guidance is always included.
+    /// TLS rejection warning based only on multiple-host evidence from one identified client.
+    /// Unattributed connections are intentionally excluded because they cannot prove that the
+    /// failures share one trust store.
     private func tlsRejectionWarning() -> ReadinessWarning? {
-        let message = if lastCertSnapshot?.isSystemTrustValidated == true {
+        let detail = if lastCertSnapshot?.isSystemTrustValidated == true {
             String(
                 localized: """
-                Multiple HTTPS hosts rejected the proxy certificate. \
-                Restart your browser to pick up the new Rockxy Root CA trust settings.
+                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
+                The macOS Root CA is trusted, so the affected client may use a separate trust store or certificate pinning. \
+                Restart or configure that client before retrying interception.
                 """, bundle: RockxyLocalization.bundle
             )
         } else {
             String(
                 localized: """
-                Multiple HTTPS hosts rejected the proxy certificate. \
-                Check that the Rockxy Root CA is trusted in Keychain Access, then restart your browser.
+                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
+                Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.
                 """, bundle: RockxyLocalization.bundle
             )
         }
-
         return ReadinessWarning(
-            message: message,
+            message: detail,
             action: .openGeneralSettings,
             isDismissible: true
         )

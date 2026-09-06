@@ -12,7 +12,7 @@ import Testing
 struct HelperCertificateMutationGateTests {
     @Test("a second mutation is refused rather than queued while the first holds the gate")
     func secondMutationIsRefused() throws {
-        let gate = HelperCertificateMutationGate()
+        let gate = HelperPrivilegedMutationGate()
 
         let first = try #require(gate.tryAcquire())
         #expect(gate.isBusy)
@@ -25,7 +25,7 @@ struct HelperCertificateMutationGateTests {
 
     @Test("a busy gate refuses before the mutation runs")
     func busyGateNeverRunsTheBody() throws {
-        let gate = HelperCertificateMutationGate()
+        let gate = HelperPrivilegedMutationGate()
         let holder = try #require(gate.tryAcquire())
 
         var ranWhileBusy = false
@@ -45,7 +45,7 @@ struct HelperCertificateMutationGateTests {
 
     @Test("the gate is released before the body's caller resumes, so operations can follow directly")
     func gateIsFreeImmediatelyAfterTheBody() {
-        let gate = HelperCertificateMutationGate()
+        let gate = HelperPrivilegedMutationGate()
 
         let ran = gate.withExclusiveAccess { true }
         #expect(ran == true)
@@ -58,7 +58,7 @@ struct HelperCertificateMutationGateTests {
     @Test("a body that throws still releases the gate")
     func throwingBodyReleasesTheGate() {
         struct MutationFailure: Error {}
-        let gate = HelperCertificateMutationGate()
+        let gate = HelperPrivilegedMutationGate()
 
         #expect(throws: MutationFailure.self) {
             try gate.withExclusiveAccess { throw MutationFailure() }
@@ -68,7 +68,7 @@ struct HelperCertificateMutationGateTests {
 
     @Test("a stale or duplicated ticket cannot end a later owner's turn")
     func staleTicketCannotReleaseTheCurrentOwner() throws {
-        let gate = HelperCertificateMutationGate()
+        let gate = HelperPrivilegedMutationGate()
 
         let first = try #require(gate.tryAcquire())
         gate.release(first)
@@ -86,19 +86,19 @@ struct HelperCertificateMutationGateTests {
 
     @Test("every helper mutation shares one gate, so installs and removals exclude each other")
     func theGateIsProcessWide() throws {
-        let holder = try #require(HelperCertificateMutationGate.shared.tryAcquire())
-        defer { HelperCertificateMutationGate.shared.release(holder) }
+        let holder = try #require(HelperPrivilegedMutationGate.shared.tryAcquire())
+        defer { HelperPrivilegedMutationGate.shared.release(holder) }
 
-        #expect(HelperCertificateMutationGate.shared.tryAcquire() == nil)
-        #expect(HelperCertificateMutationGate.busyMessage.isEmpty == false)
+        #expect(HelperPrivilegedMutationGate.shared.tryAcquire() == nil)
+        #expect(HelperPrivilegedMutationGate.busyMessage.isEmpty == false)
         // Phrased as "try again", never as a result the caller can act on.
-        #expect(HelperCertificateMutationGate.busyMessage.localizedLowercase.contains("try again"))
+        #expect(HelperPrivilegedMutationGate.busyMessage.localizedLowercase.contains("try again"))
     }
 
     @Test("a ticket from another gate cannot release this gate's owner")
     func foreignTicketCannotReleaseOwner() throws {
-        let first = HelperCertificateMutationGate()
-        let second = HelperCertificateMutationGate()
+        let first = HelperPrivilegedMutationGate()
+        let second = HelperPrivilegedMutationGate()
         let owner = try #require(first.tryAcquire())
         let foreign = try #require(second.tryAcquire())
         defer { first.release(owner); second.release(foreign) }
@@ -106,5 +106,17 @@ struct HelperCertificateMutationGateTests {
         first.release(foreign)
         #expect(first.isBusy)
         #expect(first.tryAcquire() == nil)
+    }
+
+    @Test("process-exit barrier refuses concurrent mutation until its owner releases or exits")
+    func processExitBarrierExcludesMutations() throws {
+        let gate = HelperPrivilegedMutationGate()
+        let barrier = try #require(gate.beginProcessExitBarrier())
+
+        #expect(gate.isBusy)
+        #expect(gate.tryAcquire() == nil)
+
+        gate.release(barrier)
+        #expect(gate.tryAcquire() != nil)
     }
 }

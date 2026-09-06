@@ -26,6 +26,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             AppUpdater.shared.startIfConfigured()
         }
         Task {
+            let applicationSupportURL = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+            if !RockxyIdentity.isRunningTests, let applicationSupportURL {
+                await Task.detached(priority: .utility) {
+                    DeveloperApplicationCaptureConfigurator.reconcileOutstandingPreparations(
+                        applicationSupportURL: applicationSupportURL
+                    )
+                }.value
+            }
             await SystemProxyManager.shared.recoverStaleProxyIfNeeded()
             if !RockxyIdentity.isRunningTests {
                 do {
@@ -34,7 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                     Self.logger.error("Failed to initialize root CA: \(error.localizedDescription)")
                 }
             }
-            await HelperManager.shared.checkStatus()
+            if RockxyIdentity.isRunningTests {
+                await HelperManager.shared.checkStatus()
+            } else {
+                await HelperManager.shared.refreshAfterAppUpdateIfNeeded()
+            }
             await PluginManager.shared.ensureLoadedOnce()
             guard !RockxyIdentity.isRunningTests else {
                 return

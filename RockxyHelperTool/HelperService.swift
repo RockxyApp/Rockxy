@@ -45,12 +45,18 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             return
         }
 
-        do {
-            try ProxyConfigurator.overrideProxy(port: port)
+        guard let result = Self.mutationGate.withExclusiveAccess({
+            Result { try ProxyConfigurator.overrideProxy(port: port) }
+        }) else {
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
+            return
+        }
+        switch result {
+        case .success:
             lastProxyChangeTime = Date()
             startOwnerWatchdog(for: ownerPID)
             reply(true, nil)
-        } catch {
+        case let .failure(error):
             Self.logger.error("Failed to override proxy: \(error.localizedDescription)")
             reply(false, error.localizedDescription)
         }
@@ -60,11 +66,17 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         IdleExitMonitor.resetIdleTimer()
         Self.logger.info("restoreSystemProxy called")
 
-        do {
-            try ProxyConfigurator.restoreProxyOrThrow()
+        guard let result = Self.mutationGate.withExclusiveAccess({
+            Result { try ProxyConfigurator.restoreProxyOrThrow() }
+        }) else {
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
+            return
+        }
+        switch result {
+        case .success:
             stopOwnerWatchdog()
             reply(true, nil)
-        } catch {
+        case let .failure(error):
             Self.logger.error("Failed to restore proxy: \(error.localizedDescription)")
             reply(false, error.localizedDescription)
         }
@@ -88,10 +100,58 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         IdleExitMonitor.resetIdleTimer()
         Self.logger.info("prepareForUninstall called")
 
-        stopOwnerWatchdog()
-        ProxyConfigurator.restoreProxy()
-        CrashRecovery.clearBackup()
+        guard let _: Void = Self.mutationGate.withExclusiveAccess({
+            stopOwnerWatchdog()
+            ProxyConfigurator.restoreProxy()
+            CrashRecovery.clearBackup()
+        }) else {
+            reply(false)
+            return
+        }
         reply(true)
+    }
+
+    func prepareForExecutableRefresh(withReply reply: @escaping (Bool) -> Void) {
+        IdleExitMonitor.resetIdleTimer()
+        Self.logger.info("Preparing helper executable refresh without unregistering service")
+
+        let proxyStatus = ProxyConfigurator.getCurrentStatus()
+        guard !proxyStatus.isOverridden else {
+            Self.logger.info(
+                "Deferring helper executable refresh while Rockxy proxy override is active on port \(proxyStatus.port)"
+            )
+            reply(false)
+            return
+        }
+
+        guard let exitBarrier = Self.mutationGate.beginProcessExitBarrier() else {
+            Self.logger.info("Deferring helper executable refresh while a certificate operation is active")
+            reply(false)
+            return
+        }
+
+        // Close the race between the first proxy check and acquiring the certificate barrier.
+        // If proxy ownership changed, do not exit and restore the gate by restarting naturally
+        // through the helper's idle lifecycle rather than risking an interrupted override.
+        let confirmedProxyStatus = ProxyConfigurator.getCurrentStatus()
+        guard !confirmedProxyStatus.isOverridden else {
+            Self.mutationGate.release(exitBarrier)
+            Self.logger.info(
+                "Deferring helper executable refresh because proxy override became active on port \(confirmedProxyStatus.port)"
+            )
+            reply(false)
+            return
+        }
+
+        stopOwnerWatchdog()
+        reply(true)
+
+        // Give XPC enough time to deliver the acknowledgement. A zero exit is intentional:
+        // launchd keeps the approved on-demand service registered and resolves BundleProgram
+        // from the app bundle again when the next connection arrives.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            Foundation.exit(0)
+        }
     }
 
     func handleConnectionInvalidated(processID: Int32) {
@@ -133,10 +193,16 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             return
         }
 
-        do {
-            try ProxyConfigurator.setBypassDomains(domains)
+        guard let result = Self.mutationGate.withExclusiveAccess({
+            Result { try ProxyConfigurator.setBypassDomains(domains) }
+        }) else {
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
+            return
+        }
+        switch result {
+        case .success:
             reply(true, nil)
-        } catch {
+        case let .failure(error):
             Self.logger.error("Failed to set bypass domains: \(error.localizedDescription)")
             reply(false, error.localizedDescription)
         }
@@ -169,7 +235,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             }
         }) else {
             Self.logger.error("SECURITY: installRootCertificate refused — another certificate mutation is running")
-            reply(false, HelperCertificateMutationGate.busyMessage)
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
             return
         }
 
@@ -203,7 +269,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             }
         }) else {
             Self.logger.error("SECURITY: removeRootCertificateMatching refused — another mutation is running")
-            reply(false, HelperCertificateMutationGate.busyMessage)
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
             return
         }
 
@@ -238,7 +304,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             }
         }) else {
             Self.logger.error("SECURITY: removeRootCertificate refused — another certificate mutation is running")
-            reply(false, HelperCertificateMutationGate.busyMessage)
+            reply(false, HelperPrivilegedMutationGate.busyMessage)
             return
         }
 
@@ -302,7 +368,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             }
         }) else {
             Self.logger.error("SECURITY: cleanupStaleCertificates refused — another mutation is running")
-            reply(0, HelperCertificateMutationGate.busyMessage)
+            reply(0, HelperPrivilegedMutationGate.busyMessage)
             return
         }
 
@@ -357,7 +423,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     /// Serializes every certificate mutation this daemon performs. XPC delivers messages
     /// concurrently, so without it an install's verification could read a concurrent removal's
     /// result — or delete the certificate the install had just added.
-    private static let mutationGate = HelperCertificateMutationGate.shared
+    private static let mutationGate = HelperPrivilegedMutationGate.shared
 
     private var lastProxyChangeTime: Date?
     private var ownerWatchdog: DispatchSourceTimer?

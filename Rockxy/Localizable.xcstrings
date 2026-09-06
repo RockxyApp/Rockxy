@@ -4,6 +4,216 @@
     "": {
       "shouldTranslate": false
     },
+    "%@'s recognized proxy settings were prepared temporarily and will be restored after it quits. A fresh instance was opened with Rockxy's scoped environment.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已临时准备 %@ 的已识别代理设置，并将在该应用退出后恢复。已使用 Rockxy 的作用域环境打开新实例。"
+          }
+        }
+      }
+    },
+    "%@ was opened with temporary proxy settings. Keep Rockxy open until the application quits so those settings can be restored safely.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用临时代理设置打开 %@。请保持 Rockxy 运行，直到该应用退出，以便安全恢复这些设置。"
+          }
+        }
+      }
+    },
+    "%@ was opened with an explicit scoped proxy and Rockxy's environment. These launch settings remain active until the application quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用显式作用域代理和 Rockxy 环境打开 %@。这些启动设置会持续生效，直到该应用退出。"
+          }
+        }
+      }
+    },
+    "%@ was opened with Rockxy's scoped environment. If it overrides macOS or environment proxy settings, configure that app-level proxy separately.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已使用 Rockxy 的作用域环境打开 %@。如果它会覆盖 macOS 或环境代理设置，请单独配置该应用级代理。"
+          }
+        }
+      }
+    },
+    "Choose & Open Developer App…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择并打开开发者应用…"
+          }
+        }
+      }
+    },
+    "Choose a developer application": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择开发者应用"
+          }
+        }
+      }
+    },
+    "Choose a fully quit developer application to open with Rockxy's scoped proxy and certificate environment. Rockxy also prepares recognized app-level proxy settings to follow the active macOS System Proxy at %@. Containers, emulators, devices, and already-running processes remain separate capture boundaries.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一个已完全退出的开发者应用，使用 Rockxy 的作用域代理和证书环境打开。Rockxy 还会准备已识别的应用级代理设置，使其使用当前的 macOS 系统代理 %@。容器、模拟器、设备和已运行的进程仍是独立的捕获边界。"
+          }
+        }
+      }
+    },
+    "Choose a valid macOS application.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择有效的 macOS 应用程序。"
+          }
+        }
+      }
+    },
+    "Developer application": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开发者应用"
+          }
+        }
+      }
+    },
+    "Enable macOS System Proxy in Rockxy before opening %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 Rockxy 中启用 macOS 系统代理，再打开 %@。"
+          }
+        }
+      }
+    },
+    "Open with Rockxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Rockxy 打开"
+          }
+        }
+      }
+    },
+    "Opens a fresh app instance with scoped proxy and certificate settings; recognized app-level proxy settings are prepared safely.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用作用域代理和证书设置打开新的应用实例；已识别的应用级代理设置会被安全准备。"
+          }
+        }
+      }
+    },
+    "Quit %@ completely, then try again so its proxy state and launch environment cannot be stale.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请完全退出 %@ 后重试，避免使用过期的代理状态和启动环境。"
+          }
+        }
+      }
+    },
+    "Start the Rockxy proxy before opening a developer application.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先启动 Rockxy 代理，再打开开发者应用。"
+          }
+        }
+      }
+    },
+    "The application's HTTP Proxy settings file is malformed. Rockxy left it unchanged.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该应用的 HTTP 代理设置文件格式错误。Rockxy 未对其进行更改。"
+          }
+        }
+      }
+    },
+    "The application rewrote its temporary proxy settings into an unreadable form. Rockxy restored the original settings and preserved the unreadable copy at %@. Review it, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用将临时代理设置改写成了无法读取的格式。Rockxy 已恢复原始设置，并将无法读取的副本保存在 %@。请检查该副本后重试。"
+          }
+        }
+      }
+    },
+    "The selected application's proxy metadata could not be read safely.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法安全读取所选应用的代理元数据。"
+          }
+        }
+      }
+    },
+    "The selected application reported an unsafe settings location. Rockxy left it unchanged.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选应用报告了不安全的设置位置。Rockxy 未对其进行更改。"
+          }
+        }
+      }
+    },
+    "open the developer application": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开开发者应用"
+          }
+        }
+      }
+    },
+    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. The macOS Root CA is trusted, so the affected client may use a separate trust store or certificate pinning. Restart or configure that client before retrying interception.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。macOS Root CA 已受信任，因此受影响的客户端可能使用独立的信任存储或证书固定。请重新启动或配置该客户端后再重试解密。"
+          }
+        }
+      }
+    },
+    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。请检查“钥匙串访问”中的 Rockxy Root CA 以及客户端专用信任存储，然后重新启动受影响的客户端。"
+          }
+        }
+      }
+    },
     "Added host Decrypt rules for domains observed from %@. These rules apply to every application.": {
       "localizations": {
         "zh-Hans": {
@@ -13960,12 +14170,12 @@
         }
       }
     },
-    "For Java, HTTPS interception still needs the Rockxy root CA trusted in the exact JVM or JetBrains trust store, plus a Decrypt rule for the target application or host under HTTPS Decryption.": {
+    "For Java, HTTPS interception still needs the Rockxy root CA trusted in the exact JVM or IDE trust store, plus a Decrypt rule for the target application or host under HTTPS Decryption.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "对于 Java，HTTPS 拦截仍需要在对应的 JVM 或 JetBrains 信任库中信任 Rockxy 根 CA，并在 HTTPS 解密中为目标应用或主机添加解密规则。"
+            "value": "对于 Java，HTTPS 拦截仍需要在对应的 JVM 或 IDE 信任库中信任 Rockxy 根 CA，并在 HTTPS 解密中为目标应用或主机添加解密规则。"
           }
         }
       }
@@ -14998,6 +15208,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Helper 正在响应，并且与捆绑的版本匹配。"
+          }
+        }
+      }
+    },
+    "Helper is responding and supports this app's required operations.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助工具正在响应，并支持此应用所需的操作。"
           }
         }
       }
@@ -28068,6 +28288,16 @@
         }
       }
     },
+    "Rockxy could not identify every rejecting client. ": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法识别所有拒绝证书的客户端。"
+          }
+        }
+      }
+    },
     "Rockxy cannot inspect response headers or payload for this request.": {
       "localizations": {
         "zh-Hans": {
@@ -28471,6 +28701,16 @@
     "Rockxy iOS": {
       "shouldTranslate": false
     },
+    "Rockxy is already preparing %@. Wait for that launch to finish, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 已在准备 %@。请等待该启动流程完成后再试。"
+          }
+        }
+      }
+    },
     "Rockxy is capturing traffic on this Mac.": {
       "localizations": {
         "zh-Hans": {
@@ -28807,12 +29047,12 @@
         }
       }
     },
-    "Automatic Setup prepares a scoped shell that sets JAVA_TOOL_OPTIONS proxy properties for the JVM. For HTTPS interception, import the Rockxy root CA into the exact JVM or JetBrains trust store with keytool, add a Decrypt rule for the target application or host, then run the HttpClient sample to confirm capture.": {
+    "Automatic Setup prepares a scoped shell that sets JAVA_TOOL_OPTIONS proxy properties for the JVM. For a GUI development tool, quit it and use Choose & Open Developer App so Rockxy can apply the scoped environment and prepare recognized app-level proxy settings. For HTTPS interception, import the Rockxy root CA into the exact JVM or IDE trust store with keytool, add a Decrypt rule for the target application or host, then run the HttpClient sample to confirm capture.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动设置会准备一个限定范围的 shell，为 JVM 设置 JAVA_TOOL_OPTIONS 代理属性。要拦截 HTTPS，请使用 keytool 将 Rockxy 根 CA 导入对应的 JVM 或 JetBrains 信任库，为目标应用或主机添加解密规则，然后运行 HttpClient 示例确认流量已被捕获。"
+            "value": "自动设置会准备一个作用域 shell，为 JVM 设置 JAVA_TOOL_OPTIONS 代理属性。对于 GUI 开发工具，请先退出，再使用“选择并打开开发者应用”，让 Rockxy 应用作用域环境并准备已识别的应用级代理设置。要拦截 HTTPS，请使用 keytool 将 Rockxy 根 CA 导入对应的 JVM 或 IDE 信任库，为目标应用或主机添加解密规则，然后运行 HttpClient 示例确认流量已被捕获。"
           }
         }
       }

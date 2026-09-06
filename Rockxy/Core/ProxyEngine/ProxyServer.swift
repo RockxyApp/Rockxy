@@ -331,12 +331,13 @@ actor ProxyServer {
         serverChannel != nil
     }
 
-    /// Default provider: resolves every accepted local connection when application rules can
-    /// affect TLS decisions. With no active app rule, a bounded sample keeps the observed-app
-    /// picker useful without adding an lsof lookup to every host-only connection.
+    /// Default provider: resolves every accepted local connection. TLS rejection recovery and
+    /// trust diagnostics are application-scoped even when no application rule exists, so
+    /// sampling here would make identical traffic alternate between an app identity and the
+    /// unsafe global `nil` bucket. The resolver coalesces burst lookups off the event loop.
     @Sendable
     static func defaultClientIdentityHandleProvider(
-        sslProxyingManager: SSLProxyingManager
+        sslProxyingManager _: SSLProxyingManager
     )
         -> @Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?
     {
@@ -347,11 +348,6 @@ actor ProxyServer {
                 return nil
             }
             let processResolver = ProcessResolver.shared
-            guard sslProxyingManager.hasEnabledApplicationRules()
-                || processResolver.shouldSampleApplicationIdentity() else
-            {
-                return nil
-            }
             return ClientIdentityHandle(descriptor: descriptor, resolver: processResolver.identityResolver)
         }
     }
@@ -413,12 +409,20 @@ actor ProxyServer {
             let sslProxyingManager = sslManagerOverride ?? SSLProxyingManager.shared
             let bypassProxyManager = bypassManagerOverride ?? BypassProxyManager.shared
             let registry = LiveTunnelRegistry(
-                shouldInterceptNow: { host, application in
-                    TLSInterceptHandler.initialTunnelMode(
+                shouldInterceptConnectionNow: { host, application, connectionDescriptor in
+                    let unresolvedApplicationMustTunnel = application == nil
+                        && connectionDescriptor?.clientHost.map(ClientConnectionMatcher.isLocalSource) == true
+                        && sslProxyingManager.hasEnabledApplicationTunnelRules()
+                    return TLSInterceptHandler.initialTunnelMode(
                         host: host,
                         sslProxyingManager: sslProxyingManager,
                         bypassProxyManager: bypassProxyManager,
-                        application: application
+                        application: application,
+                        clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
+                            application: application,
+                            connectionDescriptor: connectionDescriptor
+                        ),
+                        unresolvedApplicationMustTunnel: unresolvedApplicationMustTunnel
                     ) == .intercept
                 },
                 shouldResolveApplicationNow: {
