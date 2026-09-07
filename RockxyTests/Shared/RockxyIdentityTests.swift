@@ -92,6 +92,21 @@ struct RockxyIdentityTests {
         #expect(identity.appBundleIdentifier == "com.test.custom.app")
     }
 
+    @Test("The helper resolves direct backups in the app support directory")
+    func helperUsesTheAppSupportDirectorySetting() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let helperInfoURL = projectRoot.appendingPathComponent("RockxyHelperTool/Info.plist")
+        let data = try Data(contentsOf: helperInfoURL)
+        let plist = try #require(
+            PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        )
+
+        #expect(plist["RockxyAppSupportDirectoryName"] as? String == "$(ROCKXY_APP_SUPPORT_DIRECTORY_NAME)")
+    }
+
     // MARK: - Live Config (TEST_HOST = real app process)
 
     @Test("Live displayName resolves to Rockxy")
