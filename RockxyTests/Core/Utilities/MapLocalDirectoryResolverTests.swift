@@ -108,8 +108,8 @@ struct MapLocalDirectoryResolverTests {
 
     @Test("Empty suffix (mapped root) does not synthesize index.html and fails to the origin")
     func rootPathDoesNotSynthesizeIndex() {
-        // Proxyman parity: a request for the mapped root (`/static/`) is NOT rewritten to
-        // `index.html`. The resolver returns a failure so the handler forwards the origin.
+        // A request for the mapped root (`/static/`) is not rewritten to `index.html`.
+        // The resolver returns a failure so the handler forwards the origin.
         let result = MapLocalDirectoryResolver.resolve(
             requestPath: "/static/",
             urlPattern: "https://cdn.example.com/static/.*",
@@ -494,8 +494,8 @@ struct MapLocalDirectoryResolverTests {
 
     @Test("Regex without a capture group fails safely instead of reinterpreting the request path")
     func regexNoCaptureGroupFailsSafely() {
-        // Proxyman requires a capture group for regex directory mapping. A regex that matches
-        // but declares no capture group must fail (never serve) so the handler forwards the
+        // A regex directory mapping without a capture group must fail rather than serve.
+        // The handler can then forward the request to the origin.
         // origin. The request path here (`/css/style.css`) maps to a real fixture under the
         // root, so the previous docroot-relative behavior WOULD have served it — this proves
         // that reinterpretation is gone.

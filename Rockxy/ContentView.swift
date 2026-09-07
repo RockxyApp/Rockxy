@@ -323,6 +323,16 @@ struct ContentView: View {
         switch action {
         case .retry:
             coordinator.retrySystemProxy()
+        case .retryStop:
+            coordinator.stopProxy()
+        case .retryDisableSystemRouting:
+            coordinator.switchOffSystemProxyOverride()
+        case .restoreSystemRouting:
+            coordinator.retrySystemProxy()
+        case .retryCaptureCheck:
+            coordinator.runCaptureHealthCheck()
+        case .openHTTPSDecryption:
+            openWindow(id: "sslProxyingList")
         case .openGeneralSettings:
             RockxySettingsTab.select(.general)
             openWindow(id: "settings")
@@ -443,6 +453,9 @@ private struct ContentWindowNotificationHandlers: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .systemProxyDidChange)) { _ in
                 coordinator.refreshProxyOverrideStatus()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .systemProxyConfigurationDidChange)) { _ in
+                coordinator.scheduleProxyOverrideRefresh()
             }
             .onReceive(NotificationCenter.default.publisher(
                 for: RockxyIdentity.current.notificationName("openCustomColumnsWindow")

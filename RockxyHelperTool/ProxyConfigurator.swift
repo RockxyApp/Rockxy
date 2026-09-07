@@ -18,6 +18,11 @@ enum ProxyConfigurator {
         var port: Int = 0
     }
 
+    struct PACInfo {
+        var enabled: Bool = false
+        var url: String = ""
+    }
+
     // MARK: - Public API
 
     /// Override system HTTP and HTTPS proxy to 127.0.0.1 on the given port.
@@ -28,8 +33,9 @@ enum ProxyConfigurator {
             throw ProxyConfiguratorError.noActiveService
         }
 
-        logger.info("Saving original proxy settings for \(services.count) service(s)")
-        CrashRecovery.saveOriginalSettings(services: services)
+        // Existing service snapshots are preserved, while newly enabled services are added
+        // before they are mutated so every touched route has an exact restore point.
+        try CrashRecovery.saveOriginalSettings(services: services)
 
         logger.info("Setting system proxy to 127.0.0.1:\(port) for \(services.count) service(s)")
 
@@ -41,6 +47,8 @@ enum ProxyConfigurator {
                 try runNetworkSetup(["-setsecurewebproxy", service, "127.0.0.1", String(port)])
                 try runNetworkSetup(["-setsecurewebproxystate", service, "on"])
                 try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
+                try runNetworkSetup(["-setautoproxystate", service, "off"])
+                try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
                 configuredCount += 1
                 logger.info("Proxy set on '\(service)' → 127.0.0.1:\(port)")
             } catch {
@@ -69,44 +77,54 @@ enum ProxyConfigurator {
 
     /// Restore proxy settings from CrashRecovery backup. Throws on failure.
     static func restoreProxyOrThrow() throws {
-        let backup = CrashRecovery.loadBackup()
+        guard let backup = CrashRecovery.loadBackup() else {
+            logger.info("No proxy backup exists, so there is no owned proxy state to restore")
+            return
+        }
 
-        let allServices = (try? detectAllEnabledServices()) ?? []
-        for service in allServices {
+        var allSucceeded = true
+        for service in backup.services.map(\.service) {
             do {
                 try runNetworkSetup(["-setwebproxystate", service, "off"])
                 try runNetworkSetup(["-setsecurewebproxystate", service, "off"])
                 try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
+                try runNetworkSetup(["-setautoproxystate", service, "off"])
+                try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
                 logger.debug("Disabled proxy on '\(service)'")
             } catch {
+                allSucceeded = false
                 logger.debug("Failed to disable proxy for '\(service)': \(error.localizedDescription)")
             }
         }
 
-        if let backup {
-            logger.info("Restoring original proxy settings for \(backup.services.count) service(s)")
+        logger.info("Restoring original proxy settings for \(backup.services.count) service(s)")
 
-            for serviceBackup in backup.services {
-                let service = serviceBackup.service
-                logger.info("Restoring proxy settings for '\(service)'")
+        for serviceBackup in backup.services {
+            let service = serviceBackup.service
+            logger.info("Restoring proxy settings for '\(service)'")
 
-                do {
-                    if serviceBackup.httpEnabled {
-                        try runNetworkSetup([
-                            "-setwebproxy", service, serviceBackup.httpHost,
-                            String(serviceBackup.httpPort),
-                        ])
-                        try runNetworkSetup(["-setwebproxystate", service, "on"])
-                    }
+            do {
+                if !serviceBackup.httpHost.isEmpty, serviceBackup.httpPort > 0 {
+                    try runNetworkSetup([
+                        "-setwebproxy", service, serviceBackup.httpHost,
+                        String(serviceBackup.httpPort),
+                    ])
+                    try runNetworkSetup([
+                        "-setwebproxystate", service, serviceBackup.httpEnabled ? "on" : "off",
+                    ])
+                }
 
-                    if serviceBackup.httpsEnabled {
-                        try runNetworkSetup([
-                            "-setsecurewebproxy", service, serviceBackup.httpsHost,
-                            String(serviceBackup.httpsPort),
-                        ])
-                        try runNetworkSetup(["-setsecurewebproxystate", service, "on"])
-                    }
+                if !serviceBackup.httpsHost.isEmpty, serviceBackup.httpsPort > 0 {
+                    try runNetworkSetup([
+                        "-setsecurewebproxy", service, serviceBackup.httpsHost,
+                        String(serviceBackup.httpsPort),
+                    ])
+                    try runNetworkSetup([
+                        "-setsecurewebproxystate", service, serviceBackup.httpsEnabled ? "on" : "off",
+                    ])
+                }
 
+                if !serviceBackup.socksHost.isEmpty, serviceBackup.socksPort > 0 {
                     try runNetworkSetup([
                         "-setsocksfirewallproxy", service, serviceBackup.socksHost,
                         String(serviceBackup.socksPort),
@@ -114,12 +132,31 @@ enum ProxyConfigurator {
                     try runNetworkSetup([
                         "-setsocksfirewallproxystate", service, serviceBackup.socksEnabled ? "on" : "off",
                     ])
-
-                    restoreBypassDomains(service: service, domains: serviceBackup.bypassDomains)
-                } catch {
-                    logger.error("Failed to restore proxy for '\(service)': \(error.localizedDescription)")
                 }
+
+                if serviceBackup.pacEnabled {
+                    if !serviceBackup.pacURL.isEmpty {
+                        try runNetworkSetup(["-setautoproxyurl", service, serviceBackup.pacURL])
+                    }
+                    try runNetworkSetup(["-setautoproxystate", service, "on"])
+                }
+
+                if serviceBackup.autoDiscoveryEnabled {
+                    try runNetworkSetup(["-setproxyautodiscovery", service, "on"])
+                }
+
+                try restoreBypassDomains(service: service, domains: serviceBackup.bypassDomains)
+            } catch {
+                allSucceeded = false
+                logger.error("Failed to restore proxy for '\(service)': \(error.localizedDescription)")
             }
+        }
+
+        guard allSucceeded else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: "restore proxy",
+                reason: "One or more network services could not be restored; the recovery backup was preserved"
+            )
         }
 
         CrashRecovery.clearBackup()
@@ -145,6 +182,7 @@ enum ProxyConfigurator {
             )
         }
 
+        var failedServices: [String] = []
         for service in services {
             do {
                 if domains.isEmpty {
@@ -155,26 +193,30 @@ enum ProxyConfigurator {
                 }
                 logger.debug("Set bypass domains on '\(service)': \(domains)")
             } catch {
+                failedServices.append(service)
                 logger.debug("Failed to set bypass domains for '\(service)': \(error.localizedDescription)")
             }
+        }
+
+        guard failedServices.isEmpty else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: "-setproxybypassdomains",
+                reason: "Failed to update bypass domains on: \(failedServices.joined(separator: ", "))"
+            )
         }
 
         logger.info("Bypass domains updated on \(services.count) service(s)")
     }
 
     /// Restore original bypass domains for a specific service.
-    static func restoreBypassDomains(service: String, domains: [String]) {
-        do {
-            if domains.isEmpty {
-                try runNetworkSetup(["-setproxybypassdomains", service, "Empty"])
-            } else {
-                let args = ["-setproxybypassdomains", service] + domains
-                try runNetworkSetup(args)
-            }
-            logger.info("Restored original bypass domains for '\(service)'")
-        } catch {
-            logger.error("Failed to restore bypass domains for '\(service)': \(error.localizedDescription)")
+    static func restoreBypassDomains(service: String, domains: [String]) throws {
+        if domains.isEmpty {
+            try runNetworkSetup(["-setproxybypassdomains", service, "Empty"])
+        } else {
+            let args = ["-setproxybypassdomains", service] + domains
+            try runNetworkSetup(args)
         }
+        logger.info("Restored original bypass domains for '\(service)'")
     }
 
     /// Returns whether the proxy is currently overridden by Rockxy and the active port.
@@ -182,19 +224,49 @@ enum ProxyConfigurator {
         guard let services = try? detectAllEnabledServices(), !services.isEmpty else {
             return (false, 0)
         }
-
-        for service in services {
-            guard let output = try? runNetworkSetup(["-getwebproxy", service]) else {
-                continue
-            }
-
-            let parsed = parseProxyOutput(output)
-            if parsed.enabled, parsed.host == "127.0.0.1", CrashRecovery.hasBackup() {
-                return (true, parsed.port)
-            }
+        guard CrashRecovery.hasBackup() else {
+            return (false, 0)
         }
 
-        return (false, 0)
+        let servicesToCheck = detectPrimaryService(from: services).map { [$0] } ?? services
+        var matchedPort: Int?
+        for service in servicesToCheck {
+            guard let httpOutput = try? runNetworkSetup(["-getwebproxy", service]),
+                  let httpsOutput = try? runNetworkSetup(["-getsecurewebproxy", service]),
+                  let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
+                  let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
+                  let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
+                  let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service])
+            else {
+                return (false, 0)
+            }
+
+            let http = parseProxyOutput(httpOutput)
+            let https = parseProxyOutput(httpsOutput)
+            let socks = parseProxyOutput(socksOutput)
+            let pac = parsePACOutput(pacOutput)
+            let hasGlobalBypass = bypassOutput.components(separatedBy: "\n").contains {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines) == "*"
+            }
+            guard http.enabled,
+                  http.host == "127.0.0.1",
+                  https.enabled,
+                  https.host == "127.0.0.1",
+                  http.port == https.port,
+                  !socks.enabled,
+                  !pac.enabled,
+                  !parseAutoDiscoveryOutput(autoDiscoveryOutput),
+                  !hasGlobalBypass
+            else {
+                return (false, 0)
+            }
+            if let matchedPort, matchedPort != http.port {
+                return (false, 0)
+            }
+            matchedPort = http.port
+        }
+
+        return matchedPort.map { (true, $0) } ?? (false, 0)
     }
 
     static func parseProxyOutput(_ output: String) -> ProxyInfo {
@@ -215,6 +287,37 @@ enum ProxyConfigurator {
             }
         }
         return info
+    }
+
+    static func parsePACOutput(_ output: String) -> PACInfo {
+        var info = PACInfo()
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Enabled:") {
+                let value = trimmed.replacingOccurrences(of: "Enabled:", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                info.enabled = value.lowercased() == "yes"
+            } else if trimmed.hasPrefix("URL:") {
+                let value = trimmed.replacingOccurrences(of: "URL:", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if value != "(null)" {
+                    info.url = value
+                }
+            }
+        }
+        return info
+    }
+
+    static func parseAutoDiscoveryOutput(_ output: String) -> Bool {
+        output.components(separatedBy: "\n").contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("Auto Proxy Discovery:") else {
+                return false
+            }
+            let value = trimmed.replacingOccurrences(of: "Auto Proxy Discovery:", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            return value.lowercased() == "on"
+        }
     }
 
     // MARK: Private

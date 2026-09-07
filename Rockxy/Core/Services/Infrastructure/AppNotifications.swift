@@ -10,6 +10,9 @@ extension Notification.Name {
     static let proxyDidStop = identity.notificationName("proxyDidStop")
     static let stopProxyRequested = identity.notificationName("stopProxyRequested")
     static let systemProxyDidChange = identity.notificationName("systemProxyDidChange")
+    /// Posted when macOS reports that the effective proxy dictionary changed, including
+    /// changes made outside Rockxy in System Settings or by another proxy/VPN app.
+    static let systemProxyConfigurationDidChange = identity.notificationName("systemProxyConfigurationDidChange")
     static let certificateStatusChanged = identity.notificationName("certificateStatusChanged")
     static let helperStatusChanged = identity.notificationName("helperStatusChanged")
     static let sessionCleared = identity.notificationName("sessionCleared")

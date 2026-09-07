@@ -21,6 +21,14 @@ enum RequestListEmptyState: Equatable {
     case proxyStopped
     /// The proxy is running but recording is paused, so new requests are dropped from view.
     case recordingPaused
+    /// The proxy listener is running, but ordinary macOS traffic is routed elsewhere.
+    case systemRoutingUnavailable
+    /// Rockxy is running its private loopback request through the listener.
+    case captureChecking
+    /// The private loopback request did not complete as a captured transaction.
+    case captureUnverified
+    /// The Allow List is on without a valid enabled rule, so recording intentionally drops all traffic.
+    case allowListCapturesNothing
     /// The proxy is running and recording, but no traffic has arrived yet.
     case waitingForTraffic
 
@@ -47,7 +55,11 @@ enum RequestListEmptyState: Equatable {
         availableCount: Int,
         hasActiveFilters: Bool,
         scope: SidebarScope,
-        proxyState: ProxyDisplayState
+        proxyState: ProxyDisplayState,
+        isSystemProxyConfigured: Bool = true,
+        isSystemRoutingExpected: Bool = true,
+        captureHealth: CaptureHealthState = .verified,
+        allowListCapturesNothing: Bool = false
     )
         -> RequestListEmptyState?
     {
@@ -76,6 +88,18 @@ enum RequestListEmptyState: Equatable {
         case .paused:
             return .recordingPaused
         case .running:
+            if captureHealth == .checking {
+                return .captureChecking
+            }
+            if captureHealth == .failed {
+                return .captureUnverified
+            }
+            if isSystemRoutingExpected, !isSystemProxyConfigured {
+                return .systemRoutingUnavailable
+            }
+            if allowListCapturesNothing {
+                return .allowListCapturesNothing
+            }
             return .waitingForTraffic
         }
     }
@@ -90,6 +114,9 @@ enum RequestListEmptyStateAction: Equatable {
     case showAllTraffic
     case startProxy
     case resumeRecording
+    case retrySystemProxy
+    case retryCaptureCheck
+    case openAllowList
 }
 
 // MARK: - RequestListEmptyStateCopy
@@ -171,6 +198,59 @@ struct RequestListEmptyStateCopy: Equatable {
             actionTitle = String(localized: "Resume Recording", bundle: RockxyLocalization.bundle)
             actionHelp = String(
                 localized: "Resume recording so new requests are captured.",
+                bundle: RockxyLocalization.bundle
+            )
+
+        case .systemRoutingUnavailable:
+            title = String(localized: "System Traffic Is Not Routed", bundle: RockxyLocalization.bundle)
+            systemImage = "arrow.triangle.branch"
+            description = String(
+                localized: "Rockxy's listener is running, but macOS browser traffic is routed elsewhere. Manually configured apps can still use the listener.",
+                bundle: RockxyLocalization.bundle
+            )
+            action = .retrySystemProxy
+            actionTitle = String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
+            actionHelp = String(
+                localized: "Route macOS HTTP and HTTPS traffic through the running Rockxy listener.",
+                bundle: RockxyLocalization.bundle
+            )
+
+        case .captureChecking:
+            title = String(localized: "Checking Capture", bundle: RockxyLocalization.bundle)
+            systemImage = "checkmark.arrow.trianglehead.counterclockwise"
+            description = String(
+                localized: "Rockxy is sending a private loopback request through the listener to verify the capture path.",
+                bundle: RockxyLocalization.bundle
+            )
+            action = nil
+            actionTitle = nil
+            actionHelp = nil
+
+        case .captureUnverified:
+            title = String(localized: "Capture Is Not Verified", bundle: RockxyLocalization.bundle)
+            systemImage = "exclamationmark.triangle"
+            description = String(
+                localized: "The listener is running, but Rockxy's private loopback request did not complete as a captured transaction.",
+                bundle: RockxyLocalization.bundle
+            )
+            action = .retryCaptureCheck
+            actionTitle = String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
+            actionHelp = String(
+                localized: "Send another private loopback request through the running listener.",
+                bundle: RockxyLocalization.bundle
+            )
+
+        case .allowListCapturesNothing:
+            title = String(localized: "Allow List Captures Nothing", bundle: RockxyLocalization.bundle)
+            systemImage = "line.3.horizontal.decrease.circle"
+            description = String(
+                localized: "Allow List is on, but no valid enabled rule can match. Traffic is still proxied, but it is not recorded.",
+                bundle: RockxyLocalization.bundle
+            )
+            action = .openAllowList
+            actionTitle = String(localized: "Open Allow List", bundle: RockxyLocalization.bundle)
+            actionHelp = String(
+                localized: "Open Allow List and enable or create a valid rule.",
                 bundle: RockxyLocalization.bundle
             )
 

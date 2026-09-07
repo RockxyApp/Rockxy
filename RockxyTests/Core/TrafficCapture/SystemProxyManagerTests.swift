@@ -51,6 +51,8 @@ struct SystemProxyManagerTests {
             .networkSetupFailed(command: "test", output: "out", exitCode: 42),
             .noActiveNetworkService,
             .proxyActivationNotConfirmed(port: 8_888),
+            .proxyRestoreFailed,
+            .previousHelperUnavailable,
             .unexpectedOutput("bad"),
         ]
 
@@ -62,6 +64,181 @@ struct SystemProxyManagerTests {
     }
 
     // MARK: - State Management
+
+    @Test("routing readiness requires every fallback service to match")
+    func routingReadinessRejectsPartialFallbackMatch() {
+        let matching = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 8_888,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 8_888,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+        let foreign = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 9_090,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 9_090,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+
+        #expect(SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [matching]))
+        #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [matching, foreign]))
+        #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: []))
+    }
+
+    @Test("effective routing requires exact HTTP and HTTPS host and port")
+    func effectiveRoutingRequiresExactMatch() {
+        let matching: [String: Any] = [
+            "HTTPEnable": 1,
+            "HTTPProxy": "127.0.0.1",
+            "HTTPPort": 8_888,
+            "HTTPSEnable": 1,
+            "HTTPSProxy": "127.0.0.1",
+            "HTTPSPort": 8_888
+        ]
+        var foreign = matching
+        foreign["HTTPSPort"] = 9_090
+
+        #expect(SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+            port: 8_888,
+            settings: matching
+        ))
+        #expect(!SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+            port: 8_888,
+            settings: foreign
+        ))
+    }
+
+    @Test("routing readiness rejects alternate automatic and SOCKS routes")
+    func routingReadinessRejectsAlternateRoutes() {
+        let matching = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 8_888,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 8_888,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+
+        let variants = [
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: true,
+                socksHost: "foreign.proxy",
+                socksPort: 1_080,
+                pacEnabled: false,
+                pacURL: "",
+                autoDiscoveryEnabled: false
+            ),
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: false,
+                socksHost: "",
+                socksPort: 0,
+                pacEnabled: true,
+                pacURL: "https://proxy.example/proxy.pac",
+                autoDiscoveryEnabled: false
+            ),
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: false,
+                socksHost: "",
+                socksPort: 0,
+                pacEnabled: false,
+                pacURL: "",
+                autoDiscoveryEnabled: true
+            ),
+        ]
+
+        for variant in variants {
+            #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [variant]))
+        }
+    }
+
+    @Test("effective routing rejects PAC, auto discovery, SOCKS, and global bypass")
+    func effectiveRoutingRejectsAlternateRoutesAndGlobalBypass() {
+        let matching: [String: Any] = [
+            "HTTPEnable": 1,
+            "HTTPProxy": "127.0.0.1",
+            "HTTPPort": 8_888,
+            "HTTPSEnable": 1,
+            "HTTPSProxy": "127.0.0.1",
+            "HTTPSPort": 8_888,
+        ]
+        let conflictingValues: [(String, Any)] = [
+            ("SOCKSEnable", 1),
+            ("ProxyAutoConfigEnable", 1),
+            ("ProxyAutoDiscoveryEnable", 1),
+            ("ExceptionsList", ["localhost", "*"]),
+        ]
+
+        for (key, value) in conflictingValues {
+            var settings = matching
+            settings[key] = value
+            #expect(!SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+                port: 8_888,
+                settings: settings
+            ))
+        }
+    }
+
+    @Test("routing reclaim preserves the original ownership method and backup")
+    func reclaimModePreservesOriginalOwnership() {
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: true,
+            directBackupExists: true,
+            usingHelper: false,
+            isEnabled: false
+        ) == .direct)
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: false,
+            directBackupExists: false,
+            usingHelper: true,
+            isEnabled: false
+        ) == .helper)
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: false,
+            directBackupExists: false,
+            usingHelper: false,
+            isEnabled: false
+        ) == .none)
+    }
 
     @Test("systemProxyEnabled defaults to false")
     func defaultStateIsFalse() {
@@ -162,6 +339,36 @@ struct SystemProxyManagerTests {
             requestedPort: 8_888,
             status: nil
         ) == false)
+    }
+
+    @Test("activation confirmation tolerates delayed system configuration propagation")
+    func activationConfirmationRetries() async {
+        let counter = ActivationProbeCounter(succeedsOnAttempt: 3)
+
+        let confirmed = await ProxyActivationConfirmation.confirm(
+            maxAttempts: 4,
+            delay: .zero
+        ) {
+            await counter.probe()
+        }
+
+        #expect(confirmed)
+        #expect(await counter.attempts == 3)
+    }
+
+    @Test("activation confirmation fails after the bounded attempt count")
+    func activationConfirmationIsBounded() async {
+        let counter = ActivationProbeCounter(succeedsOnAttempt: 5)
+
+        let confirmed = await ProxyActivationConfirmation.confirm(
+            maxAttempts: 2,
+            delay: .zero
+        ) {
+            await counter.probe()
+        }
+
+        #expect(!confirmed)
+        #expect(await counter.attempts == 2)
     }
 
     // MARK: - Proxy Override Reconciliation
@@ -612,5 +819,19 @@ struct SystemProxyManagerTests {
         }
 
         return result
+    }
+}
+
+private actor ActivationProbeCounter {
+    init(succeedsOnAttempt: Int) {
+        self.succeedsOnAttempt = succeedsOnAttempt
+    }
+
+    private(set) var attempts = 0
+    private let succeedsOnAttempt: Int
+
+    func probe() -> Bool {
+        attempts += 1
+        return attempts >= succeedsOnAttempt
     }
 }

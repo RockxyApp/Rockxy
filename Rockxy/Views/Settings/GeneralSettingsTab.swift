@@ -108,7 +108,7 @@ struct GeneralSettingsTab: View {
     private var generalControlsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             SettingsFieldRow(String(localized: "Port Number:", bundle: RockxyLocalization.bundle)) {
-                TextField("", value: $proxyPort, format: .number)
+                TextField("", value: $proxyPort, format: .number.grouping(.never))
                     .textFieldStyle(.roundedBorder)
                     .font(settingsMetrics.font(monospaced: true))
                     .frame(width: settingsMetrics.fieldWidth(80))

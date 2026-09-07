@@ -48,10 +48,11 @@ struct RootCAInstallDispatchRuleTests {
         #expect(HelperCompatibilityPolicy.safeCertificateInstallProtocolVersion == 2)
         #expect(HelperCompatibilityPolicy.supportsSafeCertificateInstall(protocolVersion: 2))
         #expect(HelperCompatibilityPolicy.supportsSafeCertificateInstall(protocolVersion: 3))
+        #expect(HelperCompatibilityPolicy.supportsSafeCertificateInstall(protocolVersion: 4))
 
         // The selector is as old as protocol 1, so its presence proves nothing, and a build number
         // proves less: shipped copies embed a protocol 1 helper at or above this build.
-        for protocolVersion in [-1, 0, 1, 4, 99] {
+        for protocolVersion in [-1, 0, 1, 5, 99] {
             #expect(HelperCompatibilityPolicy
                 .supportsSafeCertificateInstall(protocolVersion: protocolVersion) == false)
         }

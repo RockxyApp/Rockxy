@@ -46,6 +46,10 @@ enum HelperCompatibilityPolicy {
     /// The protocol version that introduced approval-preserving executable refresh.
     static let executableRefreshProtocolVersion = 3
 
+    /// The protocol version whose proxy override preserves the original ownership
+    /// snapshot and manages PAC, auto discovery, SOCKS, and bypass conflicts.
+    static let safeProxyRoutingProtocolVersion = 4
+
     /// Classifies an installed helper without ever reading a capability out of the build
     /// number.
     ///
@@ -109,24 +113,28 @@ enum HelperCompatibilityPolicy {
     /// Whether the helper can exit on request so launchd starts the executable from the updated
     /// app bundle without unregistering the approved service.
     static func supportsExecutableRefresh(protocolVersion: Int) -> Bool {
-        protocolVersion == executableRefreshProtocolVersion
+        knownProtocolVersions.contains(protocolVersion)
+            && protocolVersion >= executableRefreshProtocolVersion
+    }
+
+    static func supportsSafeProxyRouting(protocolVersion: Int) -> Bool {
+        protocolVersion == safeProxyRoutingProtocolVersion
     }
 
     // MARK: Private
 
     /// Every helper protocol whose contract this app can reason about.
-    private static let knownProtocolVersions: Set<Int> = [1, 2, 3]
+    private static let knownProtocolVersions: Set<Int> = [1, 2, 3, 4]
 
     /// Older protocol versions whose already-implemented operations stay safe to call.
-    private static let backwardCompatibleProtocolVersions: Set<Int> = [1, 2]
+    private static let backwardCompatibleProtocolVersions: Set<Int> = [1, 2, 3]
 
     /// Protocol 3 adds a selector without changing the protocol-2 certificate contracts.
-    private static let certificateMutationProtocolVersions: Set<Int> = [2, 3]
+    private static let certificateMutationProtocolVersions: Set<Int> = [2, 3, 4]
 
     /// Protocol 3 adds only an approval-preserving maintenance operation. A protocol-2 helper
-    /// remains fully operational and must not turn onboarding incomplete or demand reinstall
-    /// after an app update. Fresh installs gain protocol 3; protocol-3 build refreshes then happen
-    /// silently without weakening protocol-based capability checks.
+    /// remains fully operational for that transition. Protocol 4 strengthens proxy ownership,
+    /// so older helpers are outdated and individually gated from safe routing/reclaim.
     private static let maintenanceOnlyUpgradePairs: Set<ProtocolPair> = [
         ProtocolPair(installed: 2, expected: 3),
     ]

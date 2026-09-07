@@ -41,6 +41,18 @@ enum ProxyMode: Equatable {
     case unavailable
 }
 
+// MARK: - CaptureHealthState
+
+/// Result of Rockxy's private loopback request through the live proxy listener.
+/// This verifies the local request/response capture path without contacting the internet
+/// or adding a diagnostic row to the user's session.
+enum CaptureHealthState: Equatable {
+    case idle
+    case checking
+    case verified
+    case failed
+}
+
 // MARK: - ReadinessWarning
 
 /// A single readiness warning shown in the main workspace banner. Only the
@@ -48,6 +60,11 @@ enum ProxyMode: Equatable {
 struct ReadinessWarning: Equatable {
     enum Action: Equatable {
         case retry
+        case retryStop
+        case retryDisableSystemRouting
+        case retryCaptureCheck
+        case restoreSystemRouting
+        case openHTTPSDecryption
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -58,6 +75,16 @@ struct ReadinessWarning: Equatable {
             switch self {
             case .retry:
                 String(localized: "Retry", bundle: RockxyLocalization.bundle)
+            case .retryStop:
+                String(localized: "Stop Capture", bundle: RockxyLocalization.bundle)
+            case .retryDisableSystemRouting:
+                String(localized: "Switch Off", bundle: RockxyLocalization.bundle)
+            case .retryCaptureCheck:
+                String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
+            case .restoreSystemRouting:
+                String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
+            case .openHTTPSDecryption:
+                String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:
@@ -177,6 +204,10 @@ final class ReadinessCoordinator {
     private(set) var helperReadiness: HelperManager.HelperStatus = .notInstalled
     private(set) var helperSigningIssue: HelperManager.SigningIssue?
     private(set) var proxyMode: ProxyMode = .unavailable
+    private(set) var systemRoutingReady = false
+    private(set) var systemRoutingExpected = true
+    private(set) var captureHealth: CaptureHealthState = .idle
+    private(set) var httpsDecryptionConfigured = false
     private(set) var activeWarning: ReadinessWarning?
     private(set) var isCaptureActive: Bool = false
     private(set) var lastCertSnapshot: RootCAStatusSnapshot?
@@ -194,13 +225,15 @@ final class ReadinessCoordinator {
     }
 
     /// True when there is a readiness issue that materially blocks capture capability.
-    /// Only cert-untrusted during active capture is truly blocking.
-    /// Direct-mode fallback and helper issues are degraded but not blocking.
+    /// Certificate trust, exact system routing, and an end-to-end probe failure are blocking.
+    /// Direct-mode fallback and helper issues are degraded but not blocking by themselves.
     var hasBlockingReadinessIssue: Bool {
         guard isCaptureActive else {
             return false
         }
         return certReadiness != .trusted
+            || (systemRoutingExpected && !systemRoutingReady)
+            || captureHealth == .failed
     }
 
     /// Pure decision function: returns the warning that Priority 2 (cert-not-trusted)
@@ -293,6 +326,7 @@ final class ReadinessCoordinator {
     /// Begins observing readiness-related notifications. Idempotent — safe to call
     /// multiple times from workspace lifecycle without creating duplicate observers.
     func startObserving() {
+        SystemProxyManager.shared.startMonitoringSystemProxyConfiguration()
         guard observers.isEmpty else {
             return
         }
@@ -304,6 +338,17 @@ final class ReadinessCoordinator {
                 Task { @MainActor in
                     self?.tlsRejectionEvidence.reset()
                     await self?.refreshCertState()
+                    self?.recomputeWarning()
+                }
+            }
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .sslProxyingStateDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshHTTPSDecryptionState()
                     self?.recomputeWarning()
                 }
             }
@@ -412,6 +457,7 @@ final class ReadinessCoordinator {
         await refreshCertState()
         refreshHelperState()
         await refreshProxyMode(isEnabled: systemProxyEnabledProbe())
+        refreshHTTPSDecryptionState()
         recomputeWarning()
     }
 
@@ -438,18 +484,40 @@ final class ReadinessCoordinator {
         await refreshCertState(performValidation: true)
         refreshHelperState()
         await refreshProxyMode(isEnabled: systemProxyEnabledProbe())
+        refreshHTTPSDecryptionState()
         recomputeWarning()
         Self.logger.debug("ReadinessCoordinator deep-refreshed all state")
     }
 
     func setCaptureActive(_ active: Bool) {
         isCaptureActive = active
+        refreshHTTPSDecryptionState()
         if !active {
             tlsRejectionEvidence.reset()
             vpnInterface = nil
             proxyEnableFailed = false
             proxyEnableErrorMessage = nil
+            proxyRestoreFailed = false
+            proxyRestoreRetryAction = nil
+            systemRoutingReady = false
+            systemRoutingExpected = true
+            captureHealth = .idle
         }
+        recomputeWarning()
+    }
+
+    func setSystemRoutingReady(_ ready: Bool) {
+        systemRoutingReady = ready
+        recomputeWarning()
+    }
+
+    func setSystemRoutingExpected(_ expected: Bool) {
+        systemRoutingExpected = expected
+        recomputeWarning()
+    }
+
+    func setCaptureHealth(_ state: CaptureHealthState) {
+        captureHealth = state
         recomputeWarning()
     }
 
@@ -462,6 +530,18 @@ final class ReadinessCoordinator {
     func clearProxyEnableFailure() {
         proxyEnableFailed = false
         proxyEnableErrorMessage = nil
+        recomputeWarning()
+    }
+
+    func setProxyRestoreFailed(retryAction: ReadinessWarning.Action) {
+        proxyRestoreFailed = true
+        proxyRestoreRetryAction = retryAction
+        recomputeWarning()
+    }
+
+    func clearProxyRestoreFailure() {
+        proxyRestoreFailed = false
+        proxyRestoreRetryAction = nil
         recomputeWarning()
     }
 
@@ -501,6 +581,8 @@ final class ReadinessCoordinator {
     private var vpnInterface: String?
     private var proxyEnableFailed = false
     private var proxyEnableErrorMessage: String?
+    private var proxyRestoreFailed = false
+    private var proxyRestoreRetryAction: ReadinessWarning.Action?
     private var dismissedWarningMessage: String?
     private let activationRefreshClock = ContinuousClock()
     private var isActivationRefreshInFlight = false
@@ -549,6 +631,10 @@ final class ReadinessCoordinator {
     private func refreshHelperState() {
         helperReadiness = HelperManager.shared.status
         helperSigningIssue = HelperManager.shared.signingIssue
+    }
+
+    private func refreshHTTPSDecryptionState() {
+        httpsDecryptionConfigured = SSLProxyingManager.shared.hasEnabledDecryptRules()
     }
 
     private func refreshProxyMode(isEnabled: Bool) {
@@ -611,7 +697,20 @@ final class ReadinessCoordinator {
             return nil
         }
 
-        // Priority 1: Proxy enable failure
+        // Priority 1: A failed restore keeps capture alive so macOS is never left
+        // pointing at a listener that Rockxy has already stopped.
+        if proxyRestoreFailed, let retryAction = proxyRestoreRetryAction {
+            return ReadinessWarning(
+                message: String(
+                    localized: "Rockxy could not restore the previous system proxy settings. Capture remains running so network traffic stays reachable.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: retryAction,
+                isDismissible: false
+            )
+        }
+
+        // Priority 2: Proxy enable failure
         if proxyEnableFailed, let message = proxyEnableErrorMessage {
             return ReadinessWarning(
                 message: message,
@@ -620,7 +719,36 @@ final class ReadinessCoordinator {
             )
         }
 
-        // Priority 2: Certificate not trusted — blocks HTTPS interception
+        // Priority 3: The private end-to-end loopback check could not traverse the
+        // running listener and complete as a captured transaction.
+        if captureHealth == .failed {
+            return ReadinessWarning(
+                message: String(
+                    localized: "Rockxy could not verify its local capture path. The listener is running, but capture is not confirmed.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .retryCaptureCheck,
+                isDismissible: false
+            )
+        }
+
+        // Priority 4: The listener may be healthy while ordinary macOS traffic is routed
+        // elsewhere. Do not reclaim the proxy automatically; make the takeover visible.
+        if systemRoutingExpected, !systemRoutingReady {
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    macOS system traffic is not routed to Rockxy. The listener may still accept manually configured apps, \
+                    but browser traffic will not be captured automatically.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .restoreSystemRouting,
+                isDismissible: false
+            )
+        }
+
+        // Priority 4: Certificate not trusted — blocks HTTPS interception
         if let certWarning = Self.certNotTrustedWarning(
             certReadiness: certReadiness,
             isCaptureActive: isCaptureActive
@@ -628,17 +756,30 @@ final class ReadinessCoordinator {
             return certWarning
         }
 
-        // Priority 3: Direct mode fallback — degraded but not blocking
+        // Priority 5: A trusted Root CA is necessary but not sufficient. With no
+        // enabled Decrypt rule, HTTPS is deliberately visible only as CONNECT tunnels.
+        if certReadiness == .trusted, !httpsDecryptionConfigured {
+            return ReadinessWarning(
+                message: String(
+                    localized: "HTTPS traffic is staying as CONNECT tunnels because no Decrypt rule is enabled.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .openHTTPSDecryption,
+                isDismissible: true
+            )
+        }
+
+        // Priority 6: Direct mode fallback — degraded but not blocking
         if proxyMode == .direct {
             return directModeWarning()
         }
 
-        // Priority 4: TLS rejection accumulation
+        // Priority 7: TLS rejection accumulation
         if tlsRejectionEvidence.hasMultiHostClientFailure {
             return tlsRejectionWarning()
         }
 
-        // Priority 5: VPN detected
+        // Priority 8: VPN detected
         if let iface = vpnInterface {
             return ReadinessWarning(
                 message: String(

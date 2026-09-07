@@ -31,21 +31,33 @@ struct CaptureStatusPresentation: Equatable {
         port: Int,
         certReadiness: CertReadiness,
         helperReadiness: HelperManager.HelperStatus,
-        isSystemProxyConfigured: Bool
+        isSystemProxyConfigured: Bool,
+        isSystemRoutingExpected: Bool = true,
+        captureHealth: CaptureHealthState = .verified
     ) {
-        title = displayState.captureTitle
-        description = displayState.captureDescription
-        systemImage = displayState.captureSystemImage
+        let header = Self.captureHeader(
+            displayState: displayState,
+            isSystemProxyConfigured: isSystemProxyConfigured,
+            isSystemRoutingExpected: isSystemRoutingExpected,
+            certReadiness: certReadiness,
+            captureHealth: captureHealth
+        )
+        title = header.title
+        description = header.description
+        systemImage = header.systemImage
         actionTitle = displayState.captureActionTitle
         isActionEnabled = displayState != .starting && displayState != .stopping
         listener = Self.listener(address: listenAddress, port: port)
+        listenerLabel = Self.listenerLabel(displayState: displayState)
         listenerScope = Self.listenerScope(address: listenAddress)
+        listenerScopeLabel = Self.listenerScopeLabel(displayState: displayState)
         https = Self.httpsItem(certReadiness)
         systemRouting = Self.systemRoutingItem(
             displayState: displayState,
             helperReadiness: helperReadiness,
             isConfigured: isSystemProxyConfigured
         )
+        capturePath = Self.capturePathItem(displayState: displayState, captureHealth: captureHealth)
     }
 
     // MARK: Internal
@@ -56,9 +68,12 @@ struct CaptureStatusPresentation: Equatable {
     let actionTitle: String
     let isActionEnabled: Bool
     let listener: String
+    let listenerLabel: String
     let listenerScope: String
+    let listenerScopeLabel: String
     let https: CaptureReadinessItem
     let systemRouting: CaptureReadinessItem
+    let capturePath: CaptureReadinessItem
 
     static func listener(address: String, port: Int) -> String {
         address.contains(":") ? "[\(address)]:\(port)" : "\(address):\(port)"
@@ -78,7 +93,100 @@ struct CaptureStatusPresentation: Equatable {
         }
     }
 
+    static func listenerLabel(displayState: ProxyDisplayState) -> String {
+        switch displayState {
+        case .stopped,
+             .starting:
+            String(localized: "Configured endpoint", bundle: RockxyLocalization.bundle)
+        case .running,
+             .paused,
+             .stopping:
+            String(localized: "Listening", bundle: RockxyLocalization.bundle)
+        }
+    }
+
+    static func listenerScopeLabel(displayState: ProxyDisplayState) -> String {
+        switch displayState {
+        case .stopped,
+             .starting:
+            String(localized: "Configured access", bundle: RockxyLocalization.bundle)
+        case .running,
+             .paused,
+             .stopping:
+            String(localized: "Reachable from", bundle: RockxyLocalization.bundle)
+        }
+    }
+
     // MARK: Private
+
+    private static func captureHeader(
+        displayState: ProxyDisplayState,
+        isSystemProxyConfigured: Bool,
+        isSystemRoutingExpected: Bool,
+        certReadiness: CertReadiness,
+        captureHealth: CaptureHealthState
+    ) -> (title: String, description: String, systemImage: String) {
+        guard displayState == .running else {
+            return (displayState.captureTitle, displayState.captureDescription, displayState.captureSystemImage)
+        }
+        if captureHealth == .checking {
+            return (
+                String(localized: "Checking Capture", bundle: RockxyLocalization.bundle),
+                String(localized: "Verifying the live listener with a private loopback request.", bundle: RockxyLocalization.bundle),
+                "checkmark.arrow.trianglehead.counterclockwise"
+            )
+        }
+        if captureHealth == .failed
+            || (isSystemRoutingExpected && !isSystemProxyConfigured)
+            || certReadiness != .trusted
+        {
+            return (
+                String(localized: "Capture Needs Attention", bundle: RockxyLocalization.bundle),
+                String(localized: "The listener is running, but automatic capture is not fully verified.", bundle: RockxyLocalization.bundle),
+                "exclamationmark.triangle.fill"
+            )
+        }
+        return (displayState.captureTitle, displayState.captureDescription, displayState.captureSystemImage)
+    }
+
+    private static func capturePathItem(
+        displayState: ProxyDisplayState,
+        captureHealth: CaptureHealthState
+    ) -> CaptureReadinessItem {
+        guard displayState != .stopped else {
+            return CaptureReadinessItem(
+                value: String(localized: "Runs on start", bundle: RockxyLocalization.bundle),
+                systemImage: "checkmark.circle",
+                level: .neutral
+            )
+        }
+        switch captureHealth {
+        case .idle:
+            return CaptureReadinessItem(
+                value: String(localized: "Not checked", bundle: RockxyLocalization.bundle),
+                systemImage: "minus.circle",
+                level: .neutral
+            )
+        case .checking:
+            return CaptureReadinessItem(
+                value: String(localized: "Checking…", bundle: RockxyLocalization.bundle),
+                systemImage: "arrow.triangle.2.circlepath",
+                level: .neutral
+            )
+        case .verified:
+            return CaptureReadinessItem(
+                value: String(localized: "Local path verified", bundle: RockxyLocalization.bundle),
+                systemImage: "checkmark.circle.fill",
+                level: .ready
+            )
+        case .failed:
+            return CaptureReadinessItem(
+                value: String(localized: "Check failed", bundle: RockxyLocalization.bundle),
+                systemImage: "exclamationmark.triangle.fill",
+                level: .attention
+            )
+        }
+    }
 
     private static func httpsItem(_ readiness: CertReadiness) -> CaptureReadinessItem {
         if readiness == .trusted {
@@ -176,14 +284,14 @@ struct ProxyStatusPopover: View {
 
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 9) {
                 valueRow(
-                    label: String(localized: "Listening", bundle: RockxyLocalization.bundle),
+                    label: presentation.listenerLabel,
                     value: presentation.listener,
                     systemImage: "network",
                     level: .neutral,
                     isMonospaced: true
                 )
                 valueRow(
-                    label: String(localized: "Reachable from", bundle: RockxyLocalization.bundle),
+                    label: presentation.listenerScopeLabel,
                     value: presentation.listenerScope,
                     systemImage: "macbook.and.iphone",
                     level: .neutral
@@ -195,6 +303,10 @@ struct ProxyStatusPopover: View {
                 valueRow(
                     label: String(localized: "System routing", bundle: RockxyLocalization.bundle),
                     item: presentation.systemRouting
+                )
+                valueRow(
+                    label: String(localized: "Capture path", bundle: RockxyLocalization.bundle),
+                    item: presentation.capturePath
                 )
             }
 
@@ -231,14 +343,22 @@ struct ProxyStatusPopover: View {
             port: port,
             certReadiness: readiness.certReadiness,
             helperReadiness: readiness.helperReadiness,
-            isSystemProxyConfigured: isSystemProxyConfigured
+            isSystemProxyConfigured: isSystemProxyConfigured,
+            isSystemRoutingExpected: readiness.systemRoutingExpected,
+            captureHealth: readiness.captureHealth
         )
     }
 
     private var headerColor: Color {
         switch displayState {
         case .running:
-            Color(nsColor: .systemGreen)
+            if readiness.captureHealth == .checking {
+                Color.accentColor
+            } else if readiness.hasBlockingReadinessIssue {
+                Color(nsColor: .systemOrange)
+            } else {
+                Color(nsColor: .systemGreen)
+            }
         case .paused:
             Color(nsColor: .systemOrange)
         case .starting,

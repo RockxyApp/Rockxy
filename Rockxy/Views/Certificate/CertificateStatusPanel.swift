@@ -550,7 +550,7 @@ private enum PanelState {
     var subtitle: String {
         switch self {
         case .trusted:
-            String(localized: "HTTPS interception is ready.", bundle: RockxyLocalization.bundle)
+            String(localized: "Root CA trust is ready for HTTPS decryption.", bundle: RockxyLocalization.bundle)
         case .trustIncomplete:
             String(localized: "Trust settings exist but macOS validation failed.", bundle: RockxyLocalization.bundle)
         case .installedNotTrusted:

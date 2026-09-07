@@ -39802,6 +39802,316 @@
           }
         }
       }
+    },
+    "Allow List Captures Nothing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许列表不会捕获任何流量"
+          }
+        }
+      }
+    },
+    "Allow List is on, but no valid enabled rule can match. Traffic is still proxied, but it is not recorded.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许列表已开启，但没有有效的已启用规则可以匹配。流量仍会被代理，但不会被记录。"
+          }
+        }
+      }
+    },
+    "Capture Is Not Verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获尚未验证"
+          }
+        }
+      }
+    },
+    "Capture Needs Attention": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获需要处理"
+          }
+        }
+      }
+    },
+    "Capture path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获链路"
+          }
+        }
+      }
+    },
+    "Check failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查失败"
+          }
+        }
+      }
+    },
+    "Checking Capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查捕获"
+          }
+        }
+      }
+    },
+    "Checking…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查…"
+          }
+        }
+      }
+    },
+    "HTTPS traffic is staying as CONNECT tunnels because no Decrypt rule is enabled.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未启用任何“解密”规则，因此 HTTPS 流量将以 CONNECT 隧道形式保留。"
+          }
+        }
+      }
+    },
+    "Local path verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地链路已验证"
+          }
+        }
+      }
+    },
+    "Not checked": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未检查"
+          }
+        }
+      }
+    },
+    "Open Allow List and enable or create a valid rule.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开允许列表并启用或创建有效规则。"
+          }
+        }
+      }
+    },
+    "Restore System Routing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复系统代理路由"
+          }
+        }
+      }
+    },
+    "Rockxy could not verify its local capture path. The listener is running, but capture is not confirmed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法验证本地捕获链路。监听器正在运行，但尚未确认能够捕获。"
+          }
+        }
+      }
+    },
+    "Rockxy could not restore the previous system proxy settings. Capture remains running so network traffic stays reachable.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法恢复之前的系统代理设置。捕获将继续运行，以保持网络流量可达。"
+          }
+        }
+      }
+    },
+    "Rockxy is sending a private loopback request through the listener to verify the capture path.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 正在通过监听器发送私有环回请求，以验证捕获链路。"
+          }
+        }
+      }
+    },
+    "Rockxy's listener is running, but macOS browser traffic is routed elsewhere. Manually configured apps can still use the listener.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 的监听器正在运行，但 macOS 浏览器流量被路由到了其他位置。手动配置的应用仍可使用该监听器。"
+          }
+        }
+      }
+    },
+    "Root CA trust is ready for HTTPS decryption.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Root CA 信任已就绪，可用于 HTTPS 解密。"
+          }
+        }
+      }
+    },
+    "Route macOS HTTP and HTTPS traffic through the running Rockxy listener.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 macOS HTTP 和 HTTPS 流量路由到正在运行的 Rockxy 监听器。"
+          }
+        }
+      }
+    },
+    "Run Capture Check": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行捕获检查"
+          }
+        }
+      }
+    },
+    "Runs on start": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动时运行"
+          }
+        }
+      }
+    },
+    "Send another private loopback request through the running listener.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次通过运行中的监听器发送私有环回请求。"
+          }
+        }
+      }
+    },
+    "System Traffic Is Not Routed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统流量未路由"
+          }
+        }
+      }
+    },
+    "The listener is running, but automatic capture is not fully verified.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监听器正在运行，但自动捕获尚未完全验证。"
+          }
+        }
+      }
+    },
+    "The listener is running, but Rockxy's private loopback request did not complete as a captured transaction.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监听器正在运行，但 Rockxy 的私有环回请求未能作为已捕获事务完成。"
+          }
+        }
+      }
+    },
+    "Verifying the live listener with a private loopback request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用私有环回请求验证实时监听器。"
+          }
+        }
+      }
+    },
+    "Configured access": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置的访问范围"
+          }
+        }
+      }
+    },
+    "Configured endpoint": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置的端点"
+          }
+        }
+      }
+    },
+    "Configured endpoint: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置的端点：%@"
+          }
+        }
+      }
+    },
+    "Starting on %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在于 %@ 启动"
+          }
+        }
+      }
+    },
+    "macOS system traffic is not routed to Rockxy. The listener may still accept manually configured apps, but browser traffic will not be captured automatically.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 系统流量未路由到 Rockxy。监听器仍可接收手动配置的应用流量，但浏览器流量不会自动被捕获。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

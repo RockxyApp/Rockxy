@@ -37,6 +37,12 @@ struct BypassDomain: Identifiable, Codable, Hashable {
                 && Self.isIPv4Address(normalizedHost)
         }
 
+        if let cidr = ProxyBypassDomainValidator.ipv4CIDR(normalizedDomain),
+           let address = ProxyBypassDomainValidator.ipv4Address(normalizedHost)
+        {
+            return address & cidr.mask == cidr.network
+        }
+
         if Self.shouldMatchSubdomains(normalizedDomain) {
             return normalizedHost == normalizedDomain || normalizedHost.hasSuffix(".\(normalizedDomain)")
         }
@@ -48,6 +54,10 @@ struct BypassDomain: Identifiable, Codable, Hashable {
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !normalizedDomain.isEmpty else {
             return []
+        }
+
+        if ProxyBypassDomainValidator.ipv4CIDR(normalizedDomain) != nil {
+            return [normalizedDomain]
         }
 
         if shouldMatchSubdomains(normalizedDomain) {
@@ -81,6 +91,7 @@ struct BypassDomain: Identifiable, Codable, Hashable {
             && !domain.contains(":")
             && !domain.contains("[")
             && !domain.contains("]")
+            && !domain.contains("/")
             && !isIPv4Address(domain)
     }
 
