@@ -85,7 +85,10 @@ struct ReadinessCoordinatorTests {
     @MainActor
     func routingTakeoverWarning() {
         let coordinator = ReadinessCoordinator.shared
+        defer { coordinator.setCaptureActive(false) }
+
         coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingExpected(true)
         coordinator.setSystemRoutingReady(true)
         coordinator.setCaptureHealth(.verified)
         coordinator.setCaptureActive(true)
@@ -94,13 +97,17 @@ struct ReadinessCoordinatorTests {
 
         #expect(coordinator.activeWarning?.action == .restoreSystemRouting)
         #expect(coordinator.hasBlockingReadinessIssue)
-        coordinator.setCaptureActive(false)
     }
 
     @Test("deliberate manual-app routing does not produce a takeover warning")
     @MainActor
     func deliberateManualRouting() {
         let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            coordinator.setSystemRoutingExpected(true)
+        }
+
         coordinator.setCaptureActive(false)
         coordinator.setSystemRoutingExpected(false)
         coordinator.setSystemRoutingReady(false)
@@ -108,7 +115,6 @@ struct ReadinessCoordinatorTests {
         coordinator.setCaptureActive(true)
 
         #expect(coordinator.activeWarning?.action != .restoreSystemRouting)
-        coordinator.setCaptureActive(false)
     }
 
     @Test("failed local capture check outranks lost system routing")
