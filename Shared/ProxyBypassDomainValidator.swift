@@ -24,12 +24,12 @@ enum ProxyBypassDomainValidator {
         guard components.count == 2,
               let address = ipv4Address(String(components[0])),
               let prefix = Int(components[1]),
-              (0 ... 32).contains(prefix)
+              (1 ... 32).contains(prefix)
         else {
             return nil
         }
 
-        let mask = prefix == 0 ? UInt32(0) : UInt32.max << UInt32(32 - prefix)
+        let mask = UInt32.max << UInt32(32 - prefix)
         return (address & mask, mask)
     }
 

@@ -522,4 +522,19 @@ struct ProxyOverrideCommandActionsTests {
         #expect(coordinator.isProxyOverridden == false)
         #expect(coordinator.isSystemProxyConfigured == false)
     }
+
+    @Test("stale proxy override keeps the footer recovery action visible")
+    func staleProxyOverrideKeepsRecoveryActionVisible() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: 9_090,
+            activeProxyPort: 8_888
+        )
+        let actions = FooterActionDescriptor.toolingActions(
+            isAllowListActive: false,
+            isProxyOverridden: reconciliation.isOverridden
+        )
+
+        #expect(!reconciliation.matchesActiveProxyPort)
+        #expect(actions.last?.id == .proxyOverride)
+    }
 }

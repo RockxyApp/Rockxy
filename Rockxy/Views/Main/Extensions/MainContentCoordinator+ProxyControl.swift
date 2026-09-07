@@ -378,17 +378,16 @@ extension MainContentCoordinator {
             uri: session.url.absoluteString,
             headers: headers
         )
+        let responseHandler = CaptureHealthProbeResponseHandler(
+            requestHead: requestHead,
+            responsePromise: responsePromise
+        )
 
         let bootstrap = ClientBootstrap(group: group)
             .connectTimeout(.seconds(4))
             .channelInitializer { channel in
                 channel.pipeline.addHTTPClientHandlers().flatMap {
-                    channel.pipeline.addHandler(
-                        CaptureHealthProbeResponseHandler(
-                            requestHead: requestHead,
-                            responsePromise: responsePromise
-                        )
-                    )
+                    channel.pipeline.addHandler(responseHandler)
                 }
             }
 
@@ -402,7 +401,7 @@ extension MainContentCoordinator {
         }
 
         let timeout = channel.eventLoop.scheduleTask(in: .seconds(5)) {
-            responsePromise.fail(CaptureHealthProbeError.timeout)
+            responseHandler.timeout()
         }
 
         do {
@@ -973,14 +972,15 @@ extension MainContentCoordinator {
 
 // MARK: - CaptureHealthProbeResponseHandler
 
-private enum CaptureHealthProbeError: Error {
+enum CaptureHealthProbeError: Error {
+    case connectionClosed
     case timeout
 }
 
 /// Sends an absolute-form HTTP request directly to the active proxy listener. Foundation's
 /// URL loading system may bypass configured proxies for loopback destinations, which would
 /// make the readiness check report a false success without traversing Rockxy.
-private final class CaptureHealthProbeResponseHandler: ChannelInboundHandler, @unchecked Sendable {
+final class CaptureHealthProbeResponseHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPClientResponsePart
     typealias OutboundOut = HTTPClientRequestPart
 
@@ -1004,17 +1004,43 @@ private final class CaptureHealthProbeResponseHandler: ChannelInboundHandler, @u
         case .body:
             break
         case .end:
-            responsePromise.succeed(receivedResponseHead)
+            succeed(receivedResponseHead)
             context.close(promise: nil)
         }
     }
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
-        responsePromise.fail(error)
+        fail(error)
         context.close(promise: nil)
+    }
+
+    func channelInactive(context: ChannelHandlerContext) {
+        fail(CaptureHealthProbeError.connectionClosed)
+        context.fireChannelInactive()
+    }
+
+    func timeout() {
+        fail(CaptureHealthProbeError.timeout)
     }
 
     private let requestHead: HTTPRequestHead
     private let responsePromise: EventLoopPromise<Bool>
     private var receivedResponseHead = false
+    private var isCompleted = false
+
+    private func succeed(_ value: Bool) {
+        guard !isCompleted else {
+            return
+        }
+        isCompleted = true
+        responsePromise.succeed(value)
+    }
+
+    private func fail(_ error: Error) {
+        guard !isCompleted else {
+            return
+        }
+        isCompleted = true
+        responsePromise.fail(error)
+    }
 }

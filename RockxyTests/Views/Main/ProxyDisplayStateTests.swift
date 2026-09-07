@@ -1,4 +1,7 @@
 import Foundation
+import NIOCore
+import NIOEmbedded
+import NIOHTTP1
 @testable import Rockxy
 import Testing
 
@@ -217,26 +220,54 @@ struct ProxyDisplayStateTests {
             action: .throttle(delayMs: 10_000)
         )
         await RuleEngine.shared.addRule(broadThrottle)
-        defer {
-            Task {
-                await RuleEngine.shared.removeRule(id: broadThrottle.id)
+        do {
+            try await coordinator.proxyServer.start()
+            coordinator.activeProxyPort = resolution.port
+            coordinator.isProxyRunning = true
+            coordinator.runCaptureHealthCheck()
+            coordinator.runCaptureHealthCheck()
+
+            for _ in 0 ..< 70 where coordinator.readiness.captureHealth == .checking {
+                try await Task.sleep(for: .milliseconds(100))
             }
+            try await Task.sleep(for: .milliseconds(200))
+
+            #expect(coordinator.readiness.captureHealth == .verified)
+            #expect(coordinator.transactions.isEmpty)
+        } catch {
+            await cleanUpCaptureHealthCheck(coordinator, ruleID: broadThrottle.id)
+            throw error
         }
-        try await coordinator.proxyServer.start()
-        coordinator.activeProxyPort = resolution.port
-        coordinator.isProxyRunning = true
-        coordinator.runCaptureHealthCheck()
-        coordinator.runCaptureHealthCheck()
+        await cleanUpCaptureHealthCheck(coordinator, ruleID: broadThrottle.id)
+    }
 
-        for _ in 0 ..< 70 where coordinator.readiness.captureHealth == .checking {
-            try await Task.sleep(for: .milliseconds(100))
+    @Test("Health probe fails promptly when the peer closes before the response ends")
+    func captureHealthProbeHandlesEarlyClose() throws {
+        let channel = EmbeddedChannel()
+        let promise = channel.eventLoop.makePromise(of: Bool.self)
+        let requestHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/")
+        let handler = CaptureHealthProbeResponseHandler(
+            requestHead: requestHead,
+            responsePromise: promise
+        )
+        try channel.pipeline.addHandler(handler).wait()
+
+        try channel.close().wait()
+        channel.embeddedEventLoop.run()
+
+        #expect(throws: CaptureHealthProbeError.self) {
+            _ = try promise.futureResult.wait()
         }
-        try await Task.sleep(for: .milliseconds(200))
+        _ = try? channel.finish(acceptAlreadyClosed: true)
+    }
 
-        #expect(coordinator.readiness.captureHealth == .verified)
-        #expect(coordinator.transactions.isEmpty)
-        await RuleEngine.shared.removeRule(id: broadThrottle.id)
+    @Test("Capture listener formats IPv6 endpoints without ambiguity")
+    func ipv6ListenerFormatting() {
+        #expect(CaptureStatusPresentation.listener(address: "::1", port: 8_888) == "[::1]:8888")
+    }
 
+    private func cleanUpCaptureHealthCheck(_ coordinator: MainContentCoordinator, ruleID: UUID) async {
+        await RuleEngine.shared.removeRule(id: ruleID)
         coordinator.captureHealthTask?.cancel()
         await coordinator.captureProbeServer.stop()
         coordinator.captureProbeTracker.cancel()
@@ -244,10 +275,5 @@ struct ProxyDisplayStateTests {
         await coordinator.proxyServer.stop()
         coordinator.isProxyRunning = false
         coordinator.readiness.setCaptureActive(false)
-    }
-
-    @Test("Capture listener formats IPv6 endpoints without ambiguity")
-    func ipv6ListenerFormatting() {
-        #expect(CaptureStatusPresentation.listener(address: "::1", port: 8_888) == "[::1]:8888")
     }
 }

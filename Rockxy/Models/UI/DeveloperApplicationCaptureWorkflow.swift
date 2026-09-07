@@ -107,8 +107,7 @@ final class DeveloperApplicationTransactionSettler {
         isSettling = true
         defer { isSettling = false }
 
-        if let successor = await waitForSuccessor() {
-            await rebind(to: successor)
+        if let successor = await waitForSuccessor(), await rebind(to: successor) {
             settlement = .reboundToSuccessor(processIdentifier: successor.processIdentifier)
             return
         }
@@ -151,7 +150,7 @@ final class DeveloperApplicationTransactionSettler {
         return nil
     }
 
-    private func rebind(to successor: DeveloperApplicationRunningInstance) async {
+    private func rebind(to successor: DeveloperApplicationRunningInstance) async -> Bool {
         let preparation = self.preparation
         let applicationSupportURL = self.applicationSupportURL
         let processIdentifier = successor.processIdentifier
@@ -173,6 +172,7 @@ final class DeveloperApplicationTransactionSettler {
             developerApplicationWorkflowLogger.error(
                 "Could not rebind a developer-application settings transaction to the successor process: \(error.localizedDescription)"
             )
+            return false
         }
         do {
             try restorationMonitor.startMonitoring(
@@ -184,6 +184,7 @@ final class DeveloperApplicationTransactionSettler {
                 "Could not monitor the successor of a prepared developer application: \(error.localizedDescription)"
             )
         }
+        return true
     }
 }
 

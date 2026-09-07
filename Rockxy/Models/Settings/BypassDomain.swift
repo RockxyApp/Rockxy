@@ -27,7 +27,9 @@ struct BypassDomain: Identifiable, Codable, Hashable {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        guard !normalizedHost.isEmpty, !normalizedDomain.isEmpty else {
+        guard !normalizedHost.isEmpty,
+              ProxyBypassDomainValidator.isValid(normalizedDomain)
+        else {
             return false
         }
 
@@ -52,7 +54,7 @@ struct BypassDomain: Identifiable, Codable, Hashable {
 
     static func systemProxyPatterns(for domain: String) -> [String] {
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedDomain.isEmpty else {
+        guard ProxyBypassDomainValidator.isValid(normalizedDomain) else {
             return []
         }
 

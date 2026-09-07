@@ -189,7 +189,13 @@ actor DeveloperSetupProbeServer {
         guard activeSession == session else {
             return
         }
-        await stop()
+        lifecycleGeneration += 1
+        activeSession = nil
+        let channel = serverChannel
+        let group = eventLoopGroup
+        serverChannel = nil
+        eventLoopGroup = nil
+        await close(channel: channel, group: group)
     }
 
     private func close(

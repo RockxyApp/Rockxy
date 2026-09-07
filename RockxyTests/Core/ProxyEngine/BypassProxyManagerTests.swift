@@ -52,10 +52,11 @@ struct BypassProxyManagerTests {
         #expect(manager.domains.isEmpty)
     }
 
-    @Test("addDomain rejects a global bypass")
+    @Test("addDomain rejects global bypass patterns")
     func addDomainRejectsGlobalBypass() {
         let manager = makeManager()
         manager.addDomain("*")
+        manager.addDomain("0.0.0.0/0")
         #expect(manager.domains.isEmpty)
     }
 
@@ -235,13 +236,14 @@ struct BypassProxyManagerTests {
         #expect(imported.isHostBypassed("169.254.10.20"))
     }
 
-    @Test("import rejects a global bypass")
+    @Test("import rejects global bypass patterns")
     func importRejectsGlobalBypass() throws {
         let manager = makeManager()
-        let data = try JSONEncoder().encode([BypassDomain(domain: "*")])
-
-        #expect(throws: BypassProxyManagerError.self) {
-            try manager.importDomains(from: data)
+        for domain in ["*", "0.0.0.0/0"] {
+            let data = try JSONEncoder().encode([BypassDomain(domain: domain)])
+            #expect(throws: BypassProxyManagerError.self) {
+                try manager.importDomains(from: data)
+            }
         }
         #expect(manager.domains.isEmpty)
     }
@@ -266,27 +268,33 @@ struct BypassProxyManagerTests {
         try? FileManager.default.removeItem(at: url)
     }
 
-    @Test("load preserves but disables a legacy global bypass")
+    @Test("load preserves but disables legacy global bypass patterns")
     func loadDisablesLegacyGlobalBypass() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("rockxy-global-bypass-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
         let data = try JSONEncoder().encode([
             BypassDomain(domain: "*"),
+            BypassDomain(domain: "0.0.0.0/0"),
             BypassDomain(domain: "localhost"),
         ])
         try data.write(to: url, options: .atomic)
 
         let manager = BypassProxyManager(storageURL: url)
 
-        #expect(manager.domains.count == 2)
+        #expect(manager.domains.count == 3)
         #expect(manager.domains.first(where: { $0.domain == "*" })?.isEnabled == false)
+        #expect(manager.domains.first(where: { $0.domain == "0.0.0.0/0" })?.isEnabled == false)
         #expect(manager.domains.first(where: { $0.domain == "localhost" })?.isEnabled == true)
         #expect(!manager.isHostBypassed("example.com"))
 
         let globalBypassID = try #require(manager.domains.first(where: { $0.domain == "*" })?.id)
         manager.toggleDomain(id: globalBypassID)
         #expect(manager.domains.first(where: { $0.domain == "*" })?.isEnabled == false)
+
+        let cidrBypassID = try #require(manager.domains.first(where: { $0.domain == "0.0.0.0/0" })?.id)
+        manager.toggleDomain(id: cidrBypassID)
+        #expect(manager.domains.first(where: { $0.domain == "0.0.0.0/0" })?.isEnabled == false)
     }
 
     // MARK: Private
