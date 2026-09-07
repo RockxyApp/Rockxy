@@ -15,8 +15,8 @@ enum ProxyRecoveryJournalFixtures {
     static let service = "Wi-Fi"
     static let rockxyPort = 9_090
 
-    /// The strict loopback override Rockxy writes, with the SOCKS endpoint and PAC URL the user
-    /// already had left switched off but otherwise untouched.
+    /// The strict loopback override Rockxy writes. With no application record naming a bypass
+    /// update, the completed-state proof keeps the captured bypass list unchanged.
     static let rockxyOverride = ProxyServiceRestorationState(
         service: service,
         http: ProxyEndpointState(enabled: true, host: "127.0.0.1", port: rockxyPort),
@@ -25,7 +25,7 @@ enum ProxyRecoveryJournalFixtures {
         pacEnabled: false,
         pacURL: "https://proxy.corp.example/config.pac",
         autoDiscoveryEnabled: false,
-        bypassDomains: ["*.corp.internal"]
+        bypassDomains: ["*.corp.internal", "localhost"]
     )
 
     /// Everything the user had configured before Rockxy took the route: both web proxies, SOCKS,
@@ -258,9 +258,16 @@ struct ProxyServiceRecoveryPolicyTests {
 
     @Test("An interrupted sequence is resumed at every point it can stop")
     func partialCommandStatesAreResumed() {
-        let entry = Fixtures.entry(stage: .inFlight)
-        let disabled = Fixtures.rockxyOverride.withProxyModesDisabled
-        let restored = Fixtures.restoredSettings
+        let overrideWithAppliedBypass = Fixtures.replacing(
+            Fixtures.rockxyOverride,
+            bypassDomains: ["*.corp.internal"]
+        )
+        let entry = Fixtures.entry(stage: .inFlight, pre: overrideWithAppliedBypass)
+        let disabled = overrideWithAppliedBypass.withProxyModesDisabled
+        let restored = ProxyServiceRestorationState.expectedRestorationResult(
+            target: Fixtures.capturedSettings,
+            from: overrideWithAppliedBypass
+        )
 
         // Stopped right after every mode was switched off.
         #expect(ProxyServiceRecoveryPolicy.continuation(for: entry, live: disabled) == .restore)
@@ -288,7 +295,7 @@ struct ProxyServiceRecoveryPolicyTests {
         // Everything but the bypass list.
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: entry,
-            live: Fixtures.replacing(restored, bypassDomains: Fixtures.rockxyOverride.bypassDomains)
+            live: Fixtures.replacing(restored, bypassDomains: overrideWithAppliedBypass.bypassDomains)
         ) == .restore)
     }
 
@@ -441,7 +448,11 @@ struct ProxyRestoreTransitionTests {
 
     @Test("A field combination no ordered prefix produces belongs to whoever wrote it")
     func impossibleCombinationsAreForeign() {
-        let entry = Fixtures.entry(stage: .inFlight)
+        let overrideWithAppliedBypass = Fixtures.replacing(
+            Fixtures.rockxyOverride,
+            bypassDomains: ["*.corp.internal"]
+        )
+        let entry = Fixtures.entry(stage: .inFlight, pre: overrideWithAppliedBypass)
         let restored = Fixtures.restoredSettings
 
         // The bypass list is written last, so it cannot be the restore's while HTTP and HTTPS
@@ -449,7 +460,7 @@ struct ProxyRestoreTransitionTests {
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: entry,
             live: Fixtures.replacing(
-                Fixtures.rockxyOverride,
+                overrideWithAppliedBypass,
                 bypassDomains: Fixtures.capturedSettings.bypassDomains
             )
         ) == .abandon)
@@ -457,20 +468,20 @@ struct ProxyRestoreTransitionTests {
         // PAC is switched on after every endpoint has been written back.
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: entry,
-            live: Fixtures.replacing(Fixtures.rockxyOverride, pacEnabled: true)
+            live: Fixtures.replacing(overrideWithAppliedBypass, pacEnabled: true)
         ) == .abandon)
 
         // Auto discovery comes after PAC, which comes after the endpoints.
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: entry,
-            live: Fixtures.replacing(Fixtures.rockxyOverride, autoDiscoveryEnabled: true)
+            live: Fixtures.replacing(overrideWithAppliedBypass, autoDiscoveryEnabled: true)
         ) == .abandon)
 
         // A restored bypass list beside a half-written set of endpoints is not a prefix either.
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: entry,
             live: Fixtures.replacing(
-                Fixtures.rockxyOverride.withProxyModesDisabled,
+                overrideWithAppliedBypass.withProxyModesDisabled,
                 http: restored.http,
                 bypassDomains: restored.bypassDomains
             )
@@ -1809,7 +1820,7 @@ struct ProxyRecoveryPlannerTests {
     }
 
     @Test("A service the restore never reached stays pending, and a prefix match cannot claim it")
-    func untouchedServiceStaysPendingAcrossACrash() {
+    func untouchedServiceStaysPendingAcrossACrash() throws {
         let ethernetTarget = Fixtures.renamed(Fixtures.capturedSettings, to: "Ethernet")
         let ethernetOverride = Fixtures.renamed(Fixtures.rockxyOverride, to: "Ethernet")
 
@@ -1837,7 +1848,7 @@ struct ProxyRecoveryPlannerTests {
         // shape Ethernet's own restore would have passed through. A record that claimed the
         // commands had started would read that as its own interrupted work and write over it.
         let userDisabledEthernet = ethernetOverride.withProxyModesDisabled
-        let ethernetEntry = persistedJournal[1]
+        let ethernetEntry = try #require(persistedJournal.first { $0.service == "Ethernet" })
 
         #expect(ProxyServiceRecoveryPolicy.continuation(
             for: ethernetEntry,
@@ -1892,7 +1903,7 @@ struct ProxyRecoveryPlannerTests {
     }
 
     @Test("A service that changes between planning and its first command is dropped, not written")
-    func serviceChangedAfterPlanningIsDroppedWithoutStrandingTheOther() {
+    func serviceChangedAfterPlanningIsDroppedWithoutStrandingTheOther() throws {
         let ethernetTarget = Fixtures.renamed(Fixtures.capturedSettings, to: "Ethernet")
         let ethernetOverride = Fixtures.renamed(Fixtures.rockxyOverride, to: "Ethernet")
 
@@ -1926,7 +1937,7 @@ struct ProxyRecoveryPlannerTests {
 
         // An unreadable service at the same moment keeps its restore point rather than losing it.
         #expect(ProxyServiceRecoveryPolicy.continuation(
-            for: plan.entriesToRestore[1],
+            for: try #require(plan.entriesToRestore.first { $0.service == "Ethernet" }),
             live: nil
         ) == .retryLater)
     }
