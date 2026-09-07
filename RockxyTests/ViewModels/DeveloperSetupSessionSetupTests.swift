@@ -34,7 +34,7 @@ private final class RecordingDeveloperApplicationLauncher: DeveloperApplicationL
 @MainActor
 private final class SuspendingDeveloperApplicationLauncher: DeveloperApplicationLaunching {
     private(set) var launchCount = 0
-    private var continuation: CheckedContinuation<DeveloperApplicationLaunchReceipt, Never>?
+    private var continuations: [CheckedContinuation<DeveloperApplicationLaunchReceipt, Never>] = []
 
     func launch(
         _: DeveloperApplicationInstallation,
@@ -43,16 +43,20 @@ private final class SuspendingDeveloperApplicationLauncher: DeveloperApplication
         onTermination _: (@MainActor @Sendable () -> Void)?
     ) async throws -> DeveloperApplicationLaunchReceipt {
         launchCount += 1
-        return await withCheckedContinuation { continuation = $0 }
+        return await withCheckedContinuation { continuations.append($0) }
     }
 
     func finish() {
-        continuation?.resume(returning: DeveloperApplicationLaunchReceipt(
+        let receipt = DeveloperApplicationLaunchReceipt(
             lifecycleProcessIdentifier: 42_425,
             registeredProcessIdentifier: 52_425,
             registrationState: .registered
-        ))
-        continuation = nil
+        )
+        let pending = continuations
+        continuations.removeAll()
+        for continuation in pending {
+            continuation.resume(returning: receipt)
+        }
     }
 }
 
@@ -684,7 +688,11 @@ struct DeveloperSetupSessionSetupTests {
             applicationSupportURL: fixture.applicationSupportURL
         )
 
-        let firstLaunch = Task { await first.openDeveloperApplication(at: fixture.appURL) }
+        var firstLaunchFinished = false
+        let firstLaunch = Task {
+            await first.openDeveloperApplication(at: fixture.appURL)
+            firstLaunchFinished = true
+        }
         while launcher.launchCount == 0 {
             await Task.yield()
         }
@@ -693,7 +701,15 @@ struct DeveloperSetupSessionSetupTests {
         #expect(launcher.launchCount == 1)
         #expect(second.statusMessage?.contains("already preparing") == true)
         launcher.finish()
-        await firstLaunch.value
+        for _ in 0 ..< 200 where !firstLaunchFinished {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(firstLaunchFinished)
+        if firstLaunchFinished {
+            await firstLaunch.value
+        } else {
+            firstLaunch.cancel()
+        }
     }
 
     @Test("Restoration preserves proxy settings changed by the application during the session")

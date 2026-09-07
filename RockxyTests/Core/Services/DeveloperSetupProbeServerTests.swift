@@ -114,6 +114,19 @@ struct DeveloperSetupProbeServerTests {
         await server.stop()
     }
 
+    @Test("A stale session cannot stop the newer probe server")
+    func staleSessionStopPreservesNewestServer() async throws {
+        let server = DeveloperSetupProbeServer()
+        let staleSession = try await server.start(targetID: .python)
+        let newestSession = try await server.start(targetID: .ruby)
+
+        await server.stop(ifCurrent: staleSession)
+
+        #expect(await server.activeSession == newestSession)
+        #expect(await server.isRunning)
+        await server.stop()
+    }
+
     @Test("Stop prevents an in-flight start from publishing afterward")
     func stopIsPublicationBarrier() async {
         let server = DeveloperSetupProbeServer()

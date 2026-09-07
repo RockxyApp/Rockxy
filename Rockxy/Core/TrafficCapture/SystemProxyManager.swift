@@ -807,22 +807,26 @@ final class SystemProxyManager: @unchecked Sendable {
     /// left behind by a crash or force-quit.
     func recoverStaleProxyIfNeeded() async {
         if let backup = loadDirectBackup() {
-            if Date().timeIntervalSince(backup.timestamp) > 86_400 {
-                Self.logger.info("Stale direct backup >24h old, clearing without restore")
-                clearDirectBackup()
-            } else {
-                let backedUpServices = backup.services.map(\.service)
-                if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices) {
-                    Self.logger.info("Recovering stale direct-mode proxy override from crash")
-                    do {
-                        try await disableSystemProxy()
-                    } catch {
-                        Self.logger.error("Stale direct proxy recovery failed: \(error.localizedDescription)")
-                    }
-                } else {
-                    Self.logger.info("Proxy no longer Rockxy-owned, clearing stale direct backup")
-                    clearDirectBackup()
+            let backedUpServices = backup.services.map(\.service)
+            switch ProxyBackupRecoveryPolicy.action(
+                proxyStillPointsAtRockxy: currentProxyMatchesRockxy(
+                    port: backup.rockxyPort,
+                    backedUpServices: backedUpServices
+                ),
+                listenerIsReachable: false
+            ) {
+            case .restore:
+                Self.logger.info("Recovering stale direct-mode proxy override from crash")
+                do {
+                    try await disableSystemProxy()
+                } catch {
+                    Self.logger.error("Stale direct proxy recovery failed: \(error.localizedDescription)")
                 }
+            case .clear:
+                Self.logger.info("Proxy no longer Rockxy-owned, clearing stale direct backup")
+                clearDirectBackup()
+            case .preserve:
+                break
             }
         }
 

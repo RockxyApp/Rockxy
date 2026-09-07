@@ -41,6 +41,8 @@ struct ProxyBackupBypassTests {
             "bad host",
             "bad;host",
             "bad/host",
+            "0.0.0.0/0",
+            "10.0.0.0/-0",
             "10.0.0.0/33",
             "10.0.0/8",
             "10.0.0.0/-1",
@@ -96,7 +98,8 @@ struct ProxyBackupBypassTests {
         )
         let original = ProxyBackupMirror(
             services: [serviceBackup],
-            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            rockxyPort: 8_888
         )
 
         let data = try PropertyListEncoder().encode(original)
@@ -119,6 +122,7 @@ struct ProxyBackupBypassTests {
         #expect(decodedService.autoDiscoveryEnabled == true)
         #expect(decodedService.bypassDomains.count == 3)
         #expect(decodedService.bypassDomains.contains("*.internal.corp.com"))
+        #expect(decoded.rockxyPort == 8_888)
     }
 
     @Test("Old single-service backup format fails to decode with new multi-service struct")
@@ -207,7 +211,8 @@ struct ProxyBackupBypassTests {
         )
         let original = ProxyBackupMirror(
             services: [wifiBackup, ethernetBackup],
-            timestamp: Date()
+            timestamp: Date(),
+            rockxyPort: 9_090
         )
 
         let data = try PropertyListEncoder().encode(original)
@@ -228,6 +233,7 @@ struct ProxyBackupBypassTests {
         #expect(decoded.services[1].pacEnabled == true)
         #expect(decoded.services[1].pacURL == "https://proxy.corp.com/config.pac")
         #expect(decoded.services[1].bypassDomains == ["*.internal.corp.com", "10.0.0.0/8"])
+        #expect(decoded.rockxyPort == 9_090)
     }
 
     // MARK: Private
@@ -254,6 +260,7 @@ struct ProxyBackupBypassTests {
     private struct ProxyBackupMirror: Codable {
         let services: [ServiceProxyBackupMirror]
         let timestamp: Date
+        let rockxyPort: Int?
     }
 
     private func makeServiceBackup(
@@ -289,7 +296,8 @@ struct ProxyBackupBypassTests {
         let services = serviceBackups ?? [makeServiceBackup(bypassDomains: bypassDomains)]
         return ProxyBackupMirror(
             services: services,
-            timestamp: Date()
+            timestamp: Date(),
+            rockxyPort: 8_888
         )
     }
 }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -102,22 +103,22 @@ enum CrashRecovery {
     struct ProxyBackup: Codable {
         let services: [ServiceProxyBackup]
         let timestamp: Date
+        let rockxyPort: Int?
     }
 
     // MARK: - Public API
 
     /// Save current proxy settings for all specified services before overriding them.
-    static func saveOriginalSettings(services: [String]) throws {
+    static func saveOriginalSettings(services: [String], rockxyPort: Int) throws {
         let existingBackup = loadBackup()
         let existingServices = Set(existingBackup?.services.map(\.service) ?? [])
         let servicesToCapture = services.filter { !existingServices.contains($0) }
 
-        guard !servicesToCapture.isEmpty else {
+        if servicesToCapture.isEmpty {
             logger.info("Preserving the existing proxy backup for \(existingServices.count) service(s)")
-            return
+        } else {
+            logger.info("Saving original proxy settings for \(servicesToCapture.count) new service(s)")
         }
-
-        logger.info("Saving original proxy settings for \(servicesToCapture.count) new service(s)")
 
         var serviceBackups: [ServiceProxyBackup] = []
         for service in servicesToCapture {
@@ -163,7 +164,8 @@ enum CrashRecovery {
 
         let backup = ProxyBackup(
             services: (existingBackup?.services ?? []) + serviceBackups,
-            timestamp: existingBackup?.timestamp ?? Date()
+            timestamp: existingBackup?.timestamp ?? Date(),
+            rockxyPort: rockxyPort
         )
 
         do {
@@ -200,15 +202,21 @@ enum CrashRecovery {
             return
         }
 
-        let maxAge: TimeInterval = 24 * 60 * 60
-        if Date().timeIntervalSince(backup.timestamp) > maxAge {
-            logger.warning("Backup is stale (> 24h old) — discarding rather than restoring")
+        let status = ProxyConfigurator.getCurrentStatus()
+        switch ProxyBackupRecoveryPolicy.action(
+            proxyStillPointsAtRockxy: status.isOverridden &&
+                (backup.rockxyPort == nil || backup.rockxyPort == status.port),
+            listenerIsReachable: listenerIsReachable(port: status.port)
+        ) {
+        case .restore:
+            logger.warning("Owned proxy backup has no live listener — restoring proxy settings")
+            ProxyConfigurator.restoreProxy()
+        case .preserve:
+            logger.info("Owned proxy backup belongs to a live listener — preserving the active session")
+        case .clear:
+            logger.info("Proxy no longer points at the backed-up Rockxy session — clearing stale backup")
             clearBackup()
-            return
         }
-
-        logger.warning("Recent proxy backup found — previous session may have crashed. Restoring proxy settings.")
-        ProxyConfigurator.restoreProxy()
     }
 
     /// Load the backup data from disk.
@@ -282,6 +290,52 @@ enum CrashRecovery {
                 )
             }
         }
+    }
+
+    private static func listenerIsReachable(port: Int) -> Bool {
+        guard let port = UInt16(exactly: port), port > 0 else {
+            return false
+        }
+
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            return false
+        }
+        defer { Darwin.close(descriptor) }
+
+        let flags = fcntl(descriptor, F_GETFL, 0)
+        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
+            return false
+        }
+
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        if result == 0 {
+            return true
+        }
+        guard errno == EINPROGRESS else {
+            return false
+        }
+
+        var state = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
+        guard Darwin.poll(&state, 1, 250) > 0 else {
+            return false
+        }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) == 0 else {
+            return false
+        }
+        return socketError == 0
     }
 
     private static func readBypassDomains(service: String) throws -> [String] {

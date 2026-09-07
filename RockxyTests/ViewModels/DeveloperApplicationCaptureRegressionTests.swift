@@ -465,6 +465,33 @@ struct DeveloperApplicationCaptureRegressionTests {
         #expect(FileManager.default.fileExists(atPath: prepared.preparation.backupURL.path))
     }
 
+    @Test("A failed successor association restores instead of reporting a rebound")
+    @MainActor
+    func failedSuccessorAssociationRestores() async throws {
+        let prepared = try makePreparedFixture()
+        defer { try? FileManager.default.removeItem(at: prepared.fixture.rootURL) }
+        let monitor = CapabilityTestRestorationMonitor()
+        let scope = DeveloperApplicationCaptureConfigurator.scopeIdentity(for: prepared.installation)
+        let settler = makeSettler(
+            for: prepared,
+            monitor: monitor,
+            runningInstances: [
+                DeveloperApplicationRunningInstance(processIdentifier: getpid(), scope: scope),
+            ]
+        )
+        settler.bindLaunchedProcess(42_424)
+        try FileManager.default.removeItem(at: prepared.preparation.recoveryRecordURL)
+
+        await settler.settleAfterApplicationExit()
+
+        #expect(settler.settlement == DeveloperApplicationTransactionSettlement.restored)
+        #expect(monitor.startCount == 0)
+        let restored = try String(contentsOf: prepared.settingsURL, encoding: .utf8)
+        #expect(restored.contains("USE_HTTP_PROXY"))
+        #expect(!restored.contains("USE_PROXY_PAC"))
+        #expect(!FileManager.default.fileExists(atPath: prepared.preparation.backupURL.path))
+    }
+
     @Test("An ordinary application exit still restores the original settings")
     @MainActor
     func ordinaryExitRestoresOriginalSettings() async throws {

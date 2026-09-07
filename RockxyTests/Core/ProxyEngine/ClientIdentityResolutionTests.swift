@@ -449,7 +449,7 @@ struct ClientIdentityResolutionTests {
         let handle = ClientIdentityHandle(descriptor: descriptor, resolver: resolver)
 
         handle.startResolution()
-        try await Task.sleep(for: .milliseconds(50))
+        _ = await handle.awaitIdentity()
 
         #expect(handle.currentIdentity == Self.sampleIdentity)
     }
@@ -468,7 +468,9 @@ struct ClientIdentityResolutionTests {
         let handle = ClientIdentityHandle(descriptor: descriptor, resolver: resolver)
 
         #expect(await handle.awaitIdentity() == nil)
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0 ..< 100 where handle.currentIdentity != Self.sampleIdentity {
+            try await Task.sleep(for: .milliseconds(20))
+        }
 
         #expect(handle.currentIdentity == Self.sampleIdentity)
     }

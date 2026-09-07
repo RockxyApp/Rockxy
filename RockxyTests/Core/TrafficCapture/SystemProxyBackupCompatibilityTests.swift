@@ -66,6 +66,22 @@ struct SystemProxyBackupCompatibilityTests {
         #expect(decoded.bypassDomains == ["*.corp.internal"])
     }
 
+    @Test("Backup recovery follows live ownership instead of backup age")
+    func backupRecoveryUsesLiveOwnership() {
+        #expect(ProxyBackupRecoveryPolicy.action(
+            proxyStillPointsAtRockxy: true,
+            listenerIsReachable: true
+        ) == .preserve)
+        #expect(ProxyBackupRecoveryPolicy.action(
+            proxyStillPointsAtRockxy: true,
+            listenerIsReachable: false
+        ) == .restore)
+        #expect(ProxyBackupRecoveryPolicy.action(
+            proxyStillPointsAtRockxy: false,
+            listenerIsReachable: false
+        ) == .clear)
+    }
+
     // MARK: Private
 
     private struct OldDirectServiceBackup: Codable {

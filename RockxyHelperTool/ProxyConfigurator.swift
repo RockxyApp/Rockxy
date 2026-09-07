@@ -35,7 +35,7 @@ enum ProxyConfigurator {
 
         // Existing service snapshots are preserved, while newly enabled services are added
         // before they are mutated so every touched route has an exact restore point.
-        try CrashRecovery.saveOriginalSettings(services: services)
+        try CrashRecovery.saveOriginalSettings(services: services, rockxyPort: port)
 
         logger.info("Setting system proxy to 127.0.0.1:\(port) for \(services.count) service(s)")
 
@@ -224,7 +224,7 @@ enum ProxyConfigurator {
         guard let services = try? detectAllEnabledServices(), !services.isEmpty else {
             return (false, 0)
         }
-        guard CrashRecovery.hasBackup() else {
+        guard let backup = CrashRecovery.loadBackup() else {
             return (false, 0)
         }
 
@@ -261,6 +261,9 @@ enum ProxyConfigurator {
                 return (false, 0)
             }
             if let matchedPort, matchedPort != http.port {
+                return (false, 0)
+            }
+            if let rockxyPort = backup.rockxyPort, rockxyPort != http.port {
                 return (false, 0)
             }
             matchedPort = http.port
