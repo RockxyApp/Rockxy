@@ -1,11 +1,11 @@
 ---
 title: Automatic Setup
-description: Open a prepared Rockxy terminal session for runtimes and tools that do not automatically follow the macOS system proxy.
+description: Open prepared terminal sessions and developer applications with scoped Rockxy proxy and certificate settings.
 ---
 
 # Automatic Setup
 
-Automatic Setup prepares a scoped terminal session so supported runtimes and command-line tools can send traffic through Rockxy without changing your whole macOS network configuration.
+Automatic Setup prepares a scoped terminal session or a fresh developer-application launch so supported clients can send traffic through Rockxy without permanently changing shell configuration.
 
 Use it when the app or script you are debugging runs from a terminal or local runtime that may ignore the system proxy.
 
@@ -17,27 +17,44 @@ Some developer tools do not automatically use the macOS system proxy. That commo
 - Python scripts and workers
 - Ruby scripts and Rails-style local services
 - Go, Rust, Java, and cURL workflows
-- Electron and framework-adjacent local development flows
+- developer applications whose own proxy selector overrides macOS or shell settings
 
 When those processes do not inherit proxy and certificate settings, Rockxy may be running correctly but still show no traffic from that target.
 
 ## What Rockxy does
 
-Automatic Setup prepares a new session with Rockxy proxy and certificate hints already applied.
+Automatic Setup prepares a new session with Rockxy proxy settings and, when an exported root certificate is available, certificate hints already applied.
 
-For terminal-oriented flows, Rockxy generates a local setup script and launches the selected terminal with that script sourced. The script exports proxy environment variables such as `HTTP_PROXY`, `HTTPS_PROXY`, and related certificate hints for the current session.
+For terminal-oriented flows, Rockxy generates a local setup script and launches the selected terminal with that script sourced. The script exports upper- and lower-case proxy variables used by clients that honor them. Node receives an additive CA hint when an exported Rockxy root certificate is available; Java receives explicit proxy properties in the Java workflow. Other runtimes may require their own trust-store configuration.
+
+For developer applications, **Choose & Open Developer App** launches a fresh selected `.app` with the same scoped environment. Rockxy inspects the bundle for a recognized, declarative app-level proxy schema. When one is present, Rockxy temporarily selects automatic proxy discovery so the application can consume the active macOS proxy configuration; unrelated settings are preserved. Unknown application schemas are never edited.
 
 <Note>
 Automatic Setup is scoped to the launched session. It does not edit your shell profile, permanently change your OS proxy, or make every app on your Mac use Rockxy.
 </Note>
 
 <Warning>
-Automatic Setup only affects the session it launches. An app that is already running keeps its current environment, so a prepared session cannot retrofit proxy settings onto it. Some GUI apps also ignore shell environment variables entirely. For an already-running or GUI client, launch it fresh from the prepared session where that is possible, or fall back to macOS System Proxy or the target's [Manual Setup](/automatic-setup/manual-setup).
+Automatic Setup cannot retrofit state into an already-running process. Fully quit an application before using **Choose & Open Developer App**. A fresh launch still cannot force an unknown application or networking library to honor macOS or environment proxy settings; Rockxy reports that boundary instead of changing opaque preferences.
 </Warning>
 
-## Java VMs
+## Capture capability matrix
+
+| Client boundary | Automatic behavior | Examples and limits |
+| --- | --- | --- |
+| macOS system proxy and trust | Uses the active Rockxy system proxy and macOS root trust | Safari, Chromium-based IDE shells, and clients that follow macOS networking by default |
+| Scoped session environment | Exports proxy variables plus non-destructive CA hints to a prepared terminal or fresh selected app | CLI runtimes, package managers, child tools, and run configurations that honor inherited variables; Rockxy never replaces a runtime's normal CA bundle with a single root |
+| Detected Chromium application runtime | Adds documented per-launch proxy arguments as well as the scoped environment | Electron and Chromium-embedded developer tools; native extensions and child CLIs can still use another network stack |
+| Recognized app-level proxy schema | Safely selects system/auto-detect proxy before launch | Current IntelliJ-platform products, including IDE variants that ship the recognized metadata/schema |
+| Runtime-specific trust store | Routing is prepared; trust remains runtime-specific | JVMs and libraries with a private CA bundle still require the Rockxy CA in that exact trust store |
+| Isolated network runtime | Separate setup is required | Existing containers, VMs, simulators, physical devices, and already-running processes do not share the host app's launch environment |
+
+This model follows the same separation documented by other debugging proxies and tool vendors: system proxy, process environment, application proxy, certificate trust, and isolated runtimes are different control planes. No single launch flag can safely cover all five.
+
+## Java VMs and IDEs
 
 Java VMs is an Automatic Setup target. In addition to the shared proxy exports, the generated script sets `JAVA_TOOL_OPTIONS` with explicit `-Dhttp.proxyHost`, `-Dhttp.proxyPort`, `-Dhttps.proxyHost`, and `-Dhttps.proxyPort` properties so a JVM started from that session routes through Rockxy. Existing `JAVA_TOOL_OPTIONS` content is preserved, and re-sourcing does not stack the proxy block.
+
+For an IDE, quit it completely and use **Choose & Open Developer App**. Rockxy detects recognized app-level proxy metadata rather than matching a specific product or bundle ID. Current IntelliJ-platform IDE variants use this path because their persisted HTTP Proxy selector can override JVM properties. The original proxy selector is backed up before launch. On normal termination, Rockxy semantically restores only the selector fields it changed while preserving unrelated settings the application wrote. If you change the proxy selector itself, your newer choice wins. If Rockxy closes first, an external monitor and a bounded durable recovery ledger preserve the transaction; a later Rockxy launch restores it only after the recorded process has exited. Other selected apps receive the scoped launch environment and remain unmodified if their settings schema is unknown.
 
 HTTPS interception still requires importing and trusting the Rockxy root CA in the exact JVM or JetBrains trust store and adding the target host under SSL Proxying — the proxy properties handle routing only. See [Java VMs](/setup-guides/java-vms) for the trust-store steps.
 
@@ -46,10 +63,11 @@ HTTPS interception still requires importing and trusting the Rockxy root CA in t
 1. Open Rockxy.
 2. Open the Setup menu or Developer Setup Hub.
 3. Choose **Automatic Setup**.
-4. Pick the terminal you want to launch.
-5. Click **Open Prepared Terminal**.
-6. Start your server, script, test runner, or client from that prepared session.
-7. Trigger a request and confirm the traffic appears in Rockxy.
+4. Pick a terminal and click **Open Prepared Terminal**, or fully quit a GUI development tool and click **Choose & Open Developer App**.
+5. Start your server, script, test runner, or client from the prepared app or session.
+6. Trigger a request and confirm the traffic appears in Rockxy.
+
+Confirm the traffic source, not merely the IDE shell: an IDE update request proves the IDE is routed, while a request from the application under test proves its child runtime or simulator is routed.
 
 <img src="/images/AutomaticSetupRockxy.png" alt="Rockxy Automatic Setup window for a prepared terminal session" />
 
@@ -66,7 +84,7 @@ If you choose **My own Terminal**, Rockxy copies the setup command for you so yo
 
 ## Why the generated script exists
 
-Rockxy writes a setup script under Rockxy's Application Support directory. The script is generated from the current app state, including the active proxy host, proxy port, and exported root certificate path when available.
+Rockxy writes a setup script under Rockxy's Application Support directory. The script is generated from the current app state, including the active proxy host, proxy port, and exported root certificate path when available. The root path is exposed as `ROCKXY_ROOT_CA_PATH`, and Node receives the additive `NODE_EXTRA_CA_CERTS` hint. Replacement-style variables such as `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` are left untouched so existing public or corporate trust anchors are not discarded.
 
 The prepared terminal sources that script before you run your own server or command. That keeps the setup repeatable while avoiding permanent shell changes.
 

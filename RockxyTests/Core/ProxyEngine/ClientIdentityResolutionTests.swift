@@ -28,6 +28,69 @@ private final class IntBox: @unchecked Sendable {
     private var value = 0
 }
 
+// MARK: - ProcessMapFixture
+
+private final class ProcessMapFixture: @unchecked Sendable {
+    // MARK: Internal
+
+    func next(proxyPort: Int) -> [UInt16: String] {
+        lock.lock()
+        defer { lock.unlock() }
+        requestedProxyPorts.append(proxyPort)
+        let index = min(requestedProxyPorts.count - 1, snapshots.count - 1)
+        return snapshots[index]
+    }
+
+    func requests() -> [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedProxyPorts
+    }
+
+    let snapshots: [[UInt16: String]] = [
+        [51_001: "Existing App"],
+        [51_001: "Existing App", 51_002: "New App"],
+        [52_001: "Other Proxy App"],
+    ]
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var requestedProxyPorts: [Int] = []
+}
+
+// MARK: - SlowProcessMapFixture
+
+private final class SlowProcessMapFixture: @unchecked Sendable {
+    // MARK: Internal
+
+    func next(proxyPort _: Int) -> [UInt16: String] {
+        lock.lock()
+        requests += 1
+        lock.unlock()
+        Thread.sleep(forTimeInterval: 0.1)
+        return [53_001: "Burst App"]
+    }
+
+    func requestCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var requests = 0
+}
+
+private final class ConcurrentProxyMapFixture: @unchecked Sendable {
+    func next(proxyPort: Int) -> [UInt16: String] {
+        Thread.sleep(forTimeInterval: proxyPort == 8_888 ? 0.08 : 0.02)
+        return proxyPort == 8_888 ? [53_101: "First Proxy App"] : [53_102: "Second Proxy App"]
+    }
+}
+
 // MARK: - ClientIdentityResolutionTests
 
 @Suite(.serialized)
@@ -35,6 +98,88 @@ struct ClientIdentityResolutionTests {
     // MARK: Internal
 
     // MARK: - Directional endpoint matching
+
+    @Test("process map cache refreshes for a missing source port and a changed proxy port")
+    func processMapCacheRefreshesForRequiredConnection() {
+        let fixture = ProcessMapFixture()
+        let resolver = ProcessResolver(
+            processMapProvider: { proxyPort in
+                fixture.next(proxyPort: proxyPort)
+            },
+            minimumRefreshInterval: 0
+        )
+
+        let initial = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_001])
+        let cached = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_001])
+        let refreshed = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_002])
+        let otherProxy = resolver.resolveProcesses(proxyPort: 9_090, requiring: [52_001])
+
+        #expect(initial[51_001] == "Existing App")
+        #expect(cached[51_001] == "Existing App")
+        #expect(refreshed[51_002] == "New App")
+        #expect(otherProxy[52_001] == "Other Proxy App")
+        #expect(fixture.requests() == [8_888, 8_888, 9_090])
+    }
+
+    @Test("missing process ports coalesce repeated lsof refreshes")
+    func processMapCacheCoalescesMissingPorts() {
+        let fixture = ProcessMapFixture()
+        let resolver = ProcessResolver { proxyPort in
+            fixture.next(proxyPort: proxyPort)
+        }
+
+        _ = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_001])
+        let firstMiss = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_002])
+        let repeatedMiss = resolver.resolveProcesses(proxyPort: 8_888, requiring: [51_003])
+
+        #expect(firstMiss[51_002] == nil)
+        #expect(repeatedMiss[51_003] == nil)
+        #expect(fixture.requests() == [8_888])
+    }
+
+    @Test("first process-map burst coalesces while the initial query is in flight")
+    func initialProcessMapBurstCoalesces() async {
+        let fixture = SlowProcessMapFixture()
+        let resolver = ProcessResolver { proxyPort in
+            fixture.next(proxyPort: proxyPort)
+        }
+
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for _ in 0 ..< 24 {
+                group.addTask {
+                    let result = await resolver.resolveProcessesAsync(proxyPort: 8_888, requiring: [53_001])
+                    return result[53_001] == "Burst App"
+                }
+            }
+
+            var results: [Bool] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        #expect(fixture.requestCount() == 1)
+        #expect(results.allSatisfy { $0 })
+    }
+
+    @Test("concurrent proxy ports retain independent process maps")
+    func concurrentProxyPortsDoNotOverwriteEachOther() async {
+        let fixture = ConcurrentProxyMapFixture()
+        let resolver = ProcessResolver(
+            processMapProvider: { proxyPort in fixture.next(proxyPort: proxyPort) },
+            minimumRefreshInterval: 0
+        )
+
+        async let first = resolver.resolveProcessesAsync(proxyPort: 8_888, requiring: [53_101])
+        async let second = resolver.resolveProcessesAsync(proxyPort: 9_090, requiring: [53_102])
+        let (firstResult, secondResult) = await (first, second)
+
+        #expect(firstResult[53_101] == "First Proxy App")
+        #expect(secondResult[53_102] == "Second Proxy App")
+        #expect(resolver.resolveProcesses(proxyPort: 8_888)[53_101] == "First Proxy App")
+        #expect(resolver.resolveProcesses(proxyPort: 9_090)[53_102] == "Second Proxy App")
+    }
 
     @Test("matches a local client to its owning pid via exact source endpoint")
     func matchesLocalClient() {
@@ -297,6 +442,39 @@ struct ClientIdentityResolutionTests {
         #expect(identity == Self.sampleIdentity)
     }
 
+    @Test("connection handle can resolve eagerly before a transaction is emitted")
+    func handleResolvesEagerly() async throws {
+        let resolver = makeResolver(records: [Self.matchingRecord])
+        let descriptor = makeDescriptor(clientHost: "127.0.0.1", clientPort: 54_321, proxyPort: 9_090)
+        let handle = ClientIdentityHandle(descriptor: descriptor, resolver: resolver)
+
+        handle.startResolution()
+        _ = await handle.awaitIdentity()
+
+        #expect(handle.currentIdentity == Self.sampleIdentity)
+    }
+
+    @Test("connection handle backfills an identity that resolves after the decision deadline")
+    func handleBackfillsLateIdentity() async throws {
+        let resolver = ClientIdentityResolver(
+            connectionTableProvider: { _, _ in
+                Thread.sleep(forTimeInterval: 1.0)
+                return [Self.matchingRecord]
+            },
+            identityProvider: { _, _ in Self.sampleIdentity },
+            excludePID: 999
+        )
+        let descriptor = makeDescriptor(clientHost: "127.0.0.1", clientPort: 54_321, proxyPort: 9_090)
+        let handle = ClientIdentityHandle(descriptor: descriptor, resolver: resolver)
+
+        #expect(await handle.awaitIdentity() == nil)
+        for _ in 0 ..< 100 where handle.currentIdentity != Self.sampleIdentity {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(handle.currentIdentity == Self.sampleIdentity)
+    }
+
     @Test("remote descriptor short-circuits without collecting the table")
     func remoteShortCircuits() async {
         let collections = IntBox()
@@ -370,6 +548,22 @@ struct ClientIdentityResolutionTests {
         #expect(records[1].sourceHost == "::1")
         #expect(records[1].sourcePort == 60_000)
         #expect(records[1].destPort == 9_090)
+    }
+
+    @Test("pid identity validation accepts truncated names and rejects recycled processes")
+    func commandValidationRejectsPIDReuse() {
+        #expect(ProcessResolver.commandMatchesExecutable(
+            command: "Electron H",
+            executablePath: "/Applications/Editor.app/Contents/Frameworks/Electron Helper (Renderer)"
+        ))
+        #expect(ProcessResolver.commandMatchesExecutable(
+            command: "python3",
+            executablePath: "/usr/local/bin/python3.12"
+        ))
+        #expect(!ProcessResolver.commandMatchesExecutable(
+            command: "old-client",
+            executablePath: "/Applications/NewClient.app/Contents/MacOS/new-client"
+        ))
     }
 
     // MARK: - Transaction stamping

@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import os
 
@@ -12,6 +13,26 @@ final class ProcessResolver: @unchecked Sendable {
     // MARK: Lifecycle
 
     init() {
+        processMapProvider = nil
+        minimumRefreshInterval = 0.5
+        identityResolver = ClientIdentityResolver(
+            connectionTableProvider: { proxyPort, deadline in
+                ProcessResolver.runLsofConnectionTable(proxyPort: proxyPort, deadline: deadline)
+            },
+            identityProvider: { pid, command in
+                ProcessResolver.applicationIdentity(forPID: pid, command: command)
+            },
+            excludePID: getpid()
+        )
+    }
+
+    init(
+        processMapProvider: @escaping @Sendable (_ proxyPort: Int) -> [UInt16: String],
+        minimumRefreshInterval: Double = 0.5
+    ) {
+        precondition(minimumRefreshInterval >= 0)
+        self.processMapProvider = processMapProvider
+        self.minimumRefreshInterval = minimumRefreshInterval
         identityResolver = ClientIdentityResolver(
             connectionTableProvider: { proxyPort, deadline in
                 ProcessResolver.runLsofConnectionTable(proxyPort: proxyPort, deadline: deadline)
@@ -31,42 +52,54 @@ final class ProcessResolver: @unchecked Sendable {
     /// Used by the proxy to drive application-scoped SSL proxying decisions.
     let identityResolver: ClientIdentityResolver
 
-    /// Samples accepted connections for the observed-app picker when no application rules
-    /// are active. TLS decisions resolve every connection once an app rule can affect them;
-    /// discovery-only work is throttled to avoid shelling out on the common host-only path.
-    func shouldSampleApplicationIdentity() -> Bool {
-        let now = DispatchTime.now().uptimeNanoseconds
-        observationSampleLock.lock()
-        defer { observationSampleLock.unlock() }
-        guard lastObservationSample == 0
-            || now &- lastObservationSample >= Self.observationSampleIntervalNanoseconds else
-        {
-            return false
-        }
-        lastObservationSample = now
-        return true
-    }
-
     /// Runs a single `lsof` call against the proxy port and returns a mapping of
-    /// client source port → human-readable app name. Cached for 2 seconds to avoid
-    /// shelling out on every batch.
-    func resolveProcesses(proxyPort: Int) -> [UInt16: String] {
+    /// client source port → human-readable app name. Missing source ports can request an early
+    /// refresh, but refreshes are globally coalesced so closed or remote sockets cannot cause an
+    /// `lsof` process on every delivery flush.
+    func resolveProcesses(proxyPort: Int, requiring sourcePorts: Set<UInt16> = []) -> [UInt16: String] {
         let now = DispatchTime.now()
         lock.lock()
-        if let cached = cachedResult,
-           let cacheTime = cacheTimestamp,
-           Double(now.uptimeNanoseconds - cacheTime.uptimeNanoseconds) / 1_000_000_000 < cacheTTL
+        if let inFlightQuery = inFlightQueries[proxyPort] {
+            lock.unlock()
+            _ = inFlightQuery.wait(timeout: .now() + .seconds(1))
+            lock.lock()
+            let result = cachedProcessMaps[proxyPort]?.result ?? [:]
+            lock.unlock()
+            return result
+        }
+        if let cachedEntry = cachedProcessMaps[proxyPort],
+           Double(now.uptimeNanoseconds - cachedEntry.timestamp.uptimeNanoseconds) / 1_000_000_000 < cacheTTL
         {
+            let cached = cachedEntry.result
+            let containsRequiredPorts = sourcePorts.allSatisfy { cached[$0] != nil }
+            let refreshAge = lastQueryStartedAt[proxyPort].map {
+                Double(now.uptimeNanoseconds - $0.uptimeNanoseconds) / 1_000_000_000
+            } ?? .infinity
+            if containsRequiredPorts || refreshAge < minimumRefreshInterval {
+                lock.unlock()
+                return cached
+            }
+        }
+        if let lastQueryStartedAt = lastQueryStartedAt[proxyPort],
+           Double(now.uptimeNanoseconds - lastQueryStartedAt.uptimeNanoseconds) / 1_000_000_000
+               < minimumRefreshInterval
+        {
+            let cached = cachedProcessMaps[proxyPort]?.result ?? [:]
             lock.unlock()
             return cached
         }
+        lastQueryStartedAt[proxyPort] = now
+        let inFlightQuery = DispatchGroup()
+        inFlightQuery.enter()
+        inFlightQueries[proxyPort] = inFlightQuery
         lock.unlock()
 
         let result = queryLsof(proxyPort: proxyPort)
 
         lock.lock()
-        cachedResult = result
-        cacheTimestamp = now
+        cachedProcessMaps[proxyPort] = CachedProcessMap(result: result, timestamp: .now())
+        inFlightQueries.removeValue(forKey: proxyPort)
+        inFlightQuery.leave()
         lock.unlock()
 
         return result
@@ -74,36 +107,18 @@ final class ProcessResolver: @unchecked Sendable {
 
     /// Async version that dispatches the blocking lsof call off the cooperative thread pool.
     /// Safe to call from Swift actors without blocking their executor.
-    func resolveProcessesAsync(proxyPort: Int) async -> [UInt16: String] {
-        let now = DispatchTime.now()
-        lock.lock()
-        if let cached = cachedResult,
-           let cacheTime = cacheTimestamp,
-           Double(now.uptimeNanoseconds - cacheTime.uptimeNanoseconds) / 1_000_000_000 < cacheTTL
-        {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-
-        return await withCheckedContinuation { continuation in
+    func resolveProcessesAsync(proxyPort: Int, requiring sourcePorts: Set<UInt16> = []) async -> [UInt16: String] {
+        await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
-                let result = self.resolveProcesses(proxyPort: proxyPort)
+                let result = self.resolveProcesses(proxyPort: proxyPort, requiring: sourcePorts)
                 continuation.resume(returning: result)
             }
         }
     }
 
-    /// Resolves a single source port to an app name using `proc_pidinfo`-style lookup.
-    /// Used as a fallback when `lsof` batch hasn't run yet.
+    /// Resolves a single source port to an app name without consulting proxy-port-specific caches.
+    /// Used as a fallback when the caller does not have the corresponding proxy listener port.
     func resolveAppName(remotePort: UInt16) -> String? {
-        lock.lock()
-        if let cached = cachedResult, let name = cached[remotePort] {
-            lock.unlock()
-            return name
-        }
-        lock.unlock()
-
         guard let pid = findPIDForLocalPort(remotePort) else {
             return nil
         }
@@ -113,44 +128,38 @@ final class ProcessResolver: @unchecked Sendable {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProcessResolver")
-    private static let observationSampleIntervalNanoseconds: UInt64 = 500_000_000
-
-    private let observationSampleLock = NSLock()
-    private var lastObservationSample: UInt64 = 0
+    private struct CachedProcessMap {
+        let result: [UInt16: String]
+        let timestamp: DispatchTime
+    }
 
     private let lock = NSLock()
-    private var cachedResult: [UInt16: String]?
-    private var cacheTimestamp: DispatchTime?
+    private let processMapProvider: (@Sendable (_ proxyPort: Int) -> [UInt16: String])?
+    private var cachedProcessMaps: [Int: CachedProcessMap] = [:]
+    private var lastQueryStartedAt: [Int: DispatchTime] = [:]
+    private var inFlightQueries: [Int: DispatchGroup] = [:]
     private let cacheTTL: Double = 5.0
+    private let minimumRefreshInterval: Double
 
     /// Runs `lsof -i TCP:PORT -n -P -F pcn` and parses the output into a port→appName map.
     /// The `-F` flag produces machine-parseable output:
     ///   `p<pid>` lines, `c<command>` lines, `n<connection>` lines.
     private func queryLsof(proxyPort: Int) -> [UInt16: String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-i", "TCP:\(proxyPort)", "-n", "-P", "-F", "pcn"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            Self.logger.warning("Failed to launch lsof: \(error.localizedDescription)")
+        if let processMapProvider {
+            return processMapProvider(proxyPort)
+        }
+        guard let execution = Self.runBoundedLsof(
+            arguments: ["-i", "TCP:\(proxyPort)", "-n", "-P", "-F", "pcn"],
+            deadline: .now() + .milliseconds(700)
+        ) else {
             return [:]
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            return [:]
+        let output = String(data: execution.data, encoding: .utf8) ?? ""
+        let parsed = parseLsofOutput(output, proxyPort: proxyPort)
+        if execution.status != 0, parsed.isEmpty {
+            Self.logger.debug("lsof process map exited with status \(execution.status)")
         }
-
-        let output = String(data: data, encoding: .utf8) ?? ""
-        return parseLsofOutput(output, proxyPort: proxyPort)
+        return parsed
     }
 
     private func parseLsofOutput(_ output: String, proxyPort: Int) -> [UInt16: String] {
@@ -263,7 +272,7 @@ final class ProcessResolver: @unchecked Sendable {
 
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -341,6 +350,10 @@ extension ProcessResolver {
         }
 
         let path = String(cString: pathBuffer)
+        guard commandMatchesExecutable(command: command, executablePath: path) else {
+            Self.logger.debug("Declining stale client identity because the pid command no longer matches")
+            return nil
+        }
         if let outerBundlePath = ClientApplicationIdentity.outerAppBundlePath(forExecutablePath: path) {
             let displayName = ClientApplicationIdentity.appName(fromBundlePath: outerBundlePath)
             if let bundle = Bundle(path: outerBundlePath), let bundleID = bundle.bundleIdentifier {
@@ -348,8 +361,6 @@ extension ProcessResolver {
             }
             return .executable(normalizedPath: outerBundlePath, displayName: displayName)
         }
-
-
         if let running = NSRunningApplication(processIdentifier: pid), let bundleID = running.bundleIdentifier {
             let name = running.localizedName ?? command
             return .bundle(identifier: bundleID, displayName: name)
@@ -359,49 +370,43 @@ extension ProcessResolver {
         return .executable(normalizedPath: path, displayName: execName)
     }
 
+    /// `lsof` command names may be truncated or omit punctuation, so compare normalized prefixes.
+    /// A mismatch is strong evidence that the pid was recycled between socket collection and
+    /// `proc_pidpath`; declining is safer than applying another process's application rule.
+    static func commandMatchesExecutable(command: String, executablePath: String) -> Bool {
+        let allowed = CharacterSet.alphanumerics
+        func normalized(_ value: String) -> String {
+            value.unicodeScalars
+                .filter { allowed.contains($0) }
+                .map(String.init)
+                .joined()
+                .lowercased()
+        }
+
+        let commandName = normalized(command)
+        let executableName = normalized((executablePath as NSString).lastPathComponent)
+        guard !commandName.isEmpty, !executableName.isEmpty else {
+            return false
+        }
+        return commandName.hasPrefix(executableName) || executableName.hasPrefix(commandName)
+    }
+
     /// Collects the live TCP connection table for the proxy port via `lsof`, bounded by a
     /// watchdog deadline. Reads the pipe on a background queue to avoid a full-pipe deadlock,
     /// and terminates the process if it overruns the deadline (returning an empty table).
     static func runLsofConnectionTable(proxyPort: Int, deadline: DispatchTime) -> [ProxyConnectionRecord] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-iTCP:\(proxyPort)", "-Fpcn"]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            Self.logger.warning("Failed to launch lsof for connection table: \(error.localizedDescription)")
+        guard let execution = runBoundedLsof(
+            arguments: ["-nP", "-iTCP:\(proxyPort)", "-Fpcn"],
+            deadline: deadline
+        ) else {
             return []
         }
-
-        let handle = pipe.fileHandleForReading
-        let outputBox = LsofOutputBox()
-        let completion = DispatchSemaphore(value: 0)
-        Self.lsofReadQueue.async {
-            let data = handle.readDataToEndOfFile()
-            outputBox.set(data)
-            completion.signal()
+        let output = String(data: execution.data, encoding: .utf8) ?? ""
+        let parsed = parseConnectionTable(output)
+        if execution.status != 0, parsed.isEmpty {
+            Self.logger.debug("lsof connection table exited with status \(execution.status)")
         }
-
-        let waitDeadline = deadline > DispatchTime.now() ? deadline : DispatchTime.now()
-        if completion.wait(timeout: waitDeadline) == .timedOut {
-            process.terminate()
-            _ = completion.wait(timeout: .now() + .milliseconds(200))
-            Self.logger.debug("lsof connection table timed out for port \(proxyPort)")
-            return []
-        }
-
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            return []
-        }
-
-        let output = String(data: outputBox.get(), encoding: .utf8) ?? ""
-        return parseConnectionTable(output)
+        return parsed
     }
 
     /// Parses `lsof -Fpcn` output into directional connection records. Kept pure and internal
@@ -434,7 +439,57 @@ extension ProcessResolver {
         return records
     }
 
-    private static let lsofReadQueue = DispatchQueue(label: "rockxy.client-identity.lsof", qos: .utility)
+    private struct LsofExecution {
+        let data: Data
+        let status: Int32
+    }
+
+    private static let lsofReadQueue = DispatchQueue(
+        label: "rockxy.client-identity.lsof",
+        qos: .utility,
+        attributes: .concurrent
+    )
+
+    private static func runBoundedLsof(
+        arguments: [String],
+        deadline: DispatchTime
+    ) -> LsofExecution? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = arguments
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            logger.warning("Failed to launch lsof: \(error.localizedDescription)")
+            return nil
+        }
+
+        let outputBox = LsofOutputBox()
+        let completion = DispatchSemaphore(value: 0)
+        lsofReadQueue.async {
+            outputBox.set(pipe.fileHandleForReading.readDataToEndOfFile())
+            completion.signal()
+        }
+
+        let waitDeadline = deadline > DispatchTime.now() ? deadline : DispatchTime.now()
+        guard completion.wait(timeout: waitDeadline) == .success else {
+            process.terminate()
+            if completion.wait(timeout: .now() + .milliseconds(200)) == .timedOut {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = completion.wait(timeout: .now() + .milliseconds(200))
+            }
+            logger.debug("lsof timed out")
+            return nil
+        }
+
+        process.waitUntilExit()
+        return LsofExecution(data: outputBox.get(), status: process.terminationStatus)
+    }
 
     private static func parseConnectionLine(
         _ value: String,

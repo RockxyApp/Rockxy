@@ -334,7 +334,7 @@ struct AdvancedSettingsTab: View {
             )
         case .installedCompatible:
             String(
-                localized: "Helper is responding and matches the bundled version.",
+                localized: "Helper is responding and supports this app's required operations.",
                 bundle: RockxyLocalization.bundle
             )
         case .installedOutdated:

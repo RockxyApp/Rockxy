@@ -183,6 +183,21 @@ actor DeveloperSetupProbeServer {
         await close(channel: channel, group: group)
     }
 
+    /// Stops only when `session` still owns the server. A superseded health check must
+    /// not tear down the newer check that replaced it.
+    func stop(ifCurrent session: DeveloperSetupProbeSession) async {
+        guard activeSession == session else {
+            return
+        }
+        lifecycleGeneration += 1
+        activeSession = nil
+        let channel = serverChannel
+        let group = eventLoopGroup
+        serverChannel = nil
+        eventLoopGroup = nil
+        await close(channel: channel, group: group)
+    }
+
     private func close(
         channel: Channel?,
         group: MultiThreadedEventLoopGroup?

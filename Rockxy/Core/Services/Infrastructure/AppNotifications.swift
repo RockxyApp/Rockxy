@@ -10,6 +10,9 @@ extension Notification.Name {
     static let proxyDidStop = identity.notificationName("proxyDidStop")
     static let stopProxyRequested = identity.notificationName("stopProxyRequested")
     static let systemProxyDidChange = identity.notificationName("systemProxyDidChange")
+    /// Posted when macOS reports that the effective proxy dictionary changed, including
+    /// changes made outside Rockxy in System Settings or by another proxy/VPN app.
+    static let systemProxyConfigurationDidChange = identity.notificationName("systemProxyConfigurationDidChange")
     static let certificateStatusChanged = identity.notificationName("certificateStatusChanged")
     static let helperStatusChanged = identity.notificationName("helperStatusChanged")
     static let sessionCleared = identity.notificationName("sessionCleared")
@@ -20,6 +23,7 @@ extension Notification.Name {
     static let systemProxyVPNWarning = identity.notificationName("systemProxyVPNWarning")
     static let rootCANotTrusted = identity.notificationName("rootCANotTrusted")
     static let tlsMitmRejected = identity.notificationName("tlsMitmRejected")
+    static let tlsMitmAccepted = identity.notificationName("tlsMitmAccepted")
     static let sslProxyingStateDidChange = identity.notificationName("sslProxyingStateDidChange")
     static let bypassProxyListDidChange = identity.notificationName("bypassProxyListDidChange")
     static let upstreamProxyConfigurationDidChange = identity.notificationName("upstreamProxyConfigurationDidChange")
@@ -45,4 +49,9 @@ extension Notification.Name {
     static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")
+}
+
+enum TLSMITMNotificationUserInfoKey {
+    static let host = "host"
+    static let clientIdentifier = "clientIdentifier"
 }

@@ -304,6 +304,7 @@ actor ProxyServer {
         bypassProxyManager: BypassProxyManager? = nil,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
+        shouldBypassUserModifications: @escaping @Sendable (HTTPRequestData) -> Bool = { _ in false },
         clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)? = nil,
         clientIdentityResolver: @escaping @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity? = {
             await ProcessResolver.shared.identityResolver.resolveIdentity(descriptor: $0)
@@ -319,6 +320,7 @@ actor ProxyServer {
         self.bypassProxyManagerOverride = bypassProxyManager
         self.upstreamProxySnapshotProvider = upstreamProxySnapshotProvider
         self.captureContextProvider = captureContextProvider
+        self.shouldBypassUserModifications = shouldBypassUserModifications
         self.clientIdentityHandleProvider = clientIdentityHandleProvider
         self.clientIdentityResolver = clientIdentityResolver
         self.onTransactionComplete = onTransactionComplete
@@ -331,12 +333,13 @@ actor ProxyServer {
         serverChannel != nil
     }
 
-    /// Default provider: resolves every accepted local connection when application rules can
-    /// affect TLS decisions. With no active app rule, a bounded sample keeps the observed-app
-    /// picker useful without adding an lsof lookup to every host-only connection.
+    /// Default provider: resolves every accepted local connection. TLS rejection recovery and
+    /// trust diagnostics are application-scoped even when no application rule exists, so
+    /// sampling here would make identical traffic alternate between an app identity and the
+    /// unsafe global `nil` bucket. The resolver coalesces burst lookups off the event loop.
     @Sendable
     static func defaultClientIdentityHandleProvider(
-        sslProxyingManager: SSLProxyingManager
+        sslProxyingManager _: SSLProxyingManager
     )
         -> @Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?
     {
@@ -347,11 +350,6 @@ actor ProxyServer {
                 return nil
             }
             let processResolver = ProcessResolver.shared
-            guard sslProxyingManager.hasEnabledApplicationRules()
-                || processResolver.shouldSampleApplicationIdentity() else
-            {
-                return nil
-            }
             return ClientIdentityHandle(descriptor: descriptor, resolver: processResolver.identityResolver)
         }
     }
@@ -398,6 +396,7 @@ actor ProxyServer {
         let limiter = connectionLimiter
         let callback = onTransactionComplete
         let captureProvider = captureContextProvider
+        let bypassUserModifications = shouldBypassUserModifications
         let breakpointHit = onBreakpointHit
         let childRegistry = childChannelRegistry
         let bridgeTracker = breakpointBridgeTracker
@@ -413,12 +412,20 @@ actor ProxyServer {
             let sslProxyingManager = sslManagerOverride ?? SSLProxyingManager.shared
             let bypassProxyManager = bypassManagerOverride ?? BypassProxyManager.shared
             let registry = LiveTunnelRegistry(
-                shouldInterceptNow: { host, application in
-                    TLSInterceptHandler.initialTunnelMode(
+                shouldInterceptConnectionNow: { host, application, connectionDescriptor in
+                    let unresolvedApplicationMustTunnel = application == nil
+                        && connectionDescriptor?.clientHost.map(ClientConnectionMatcher.isLocalSource) == true
+                        && sslProxyingManager.hasEnabledApplicationTunnelRules()
+                    return TLSInterceptHandler.initialTunnelMode(
                         host: host,
                         sslProxyingManager: sslProxyingManager,
                         bypassProxyManager: bypassProxyManager,
-                        application: application
+                        application: application,
+                        clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
+                            application: application,
+                            connectionDescriptor: connectionDescriptor
+                        ),
+                        unresolvedApplicationMustTunnel: unresolvedApplicationMustTunnel
                     ) == .intercept
                 },
                 shouldResolveApplicationNow: {
@@ -490,6 +497,7 @@ actor ProxyServer {
                     proxyPort: proxyPort
                 )
                 let identityHandle = identityProvider(descriptor)
+                identityHandle?.startResolution()
                 let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
                     handle: identityHandle,
                     downstream: callback
@@ -510,6 +518,7 @@ actor ProxyServer {
                         bypassProxyManager: bypassProxyManager,
                         upstreamProxySnapshotProvider: upstreamProxyProvider,
                         captureContextProvider: captureProvider,
+                        shouldBypassUserModifications: bypassUserModifications,
                         clientIdentityHandle: identityHandle,
                         clientConnectionDescriptor: descriptor,
                         liveTunnelRegistry: tunnelRegistry,
@@ -592,6 +601,7 @@ actor ProxyServer {
     private let bypassProxyManagerOverride: BypassProxyManager?
     private let upstreamProxySnapshotProvider: @Sendable () -> UpstreamProxyResolvedConfiguration?
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
+    private let shouldBypassUserModifications: @Sendable (HTTPRequestData) -> Bool
     private let clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)?
     private let clientIdentityResolver: @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?
     private let connectionLimiter = ConnectionLimiter()

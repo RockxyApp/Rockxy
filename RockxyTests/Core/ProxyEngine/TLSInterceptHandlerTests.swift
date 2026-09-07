@@ -53,6 +53,70 @@ private final class RecordedTransactionBox: @unchecked Sendable {
 struct TLSInterceptHandlerTests {
     // MARK: Internal
 
+    @Test("TLS rejection notification attributes evidence without exposing an executable path")
+    func rejectionNotificationUsesStableApplicationIdentity() {
+        let identity = ClientApplicationIdentity.executable(
+            normalizedPath: "/Users/example/Private Tool/bin/client",
+            displayName: "client"
+        )
+
+        let userInfo = PostHandshakeHandler.rejectionNotificationUserInfo(
+            host: "api.example.com",
+            clientIdentifier: identity.identifier
+        )
+
+        #expect(userInfo[TLSMITMNotificationUserInfoKey.host] == "api.example.com")
+        #expect(userInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] == identity.identifier)
+        #expect(!userInfo.values.contains(where: { $0.contains("/Users/example") }))
+    }
+
+    @Test("remote clients receive a stable privacy-preserving TLS recovery scope")
+    func remoteClientScopeIsStableAndPrivate() {
+        let first = ProxyConnectionDescriptor(
+            acceptedAt: .now(),
+            clientHost: "192.168.1.42",
+            clientPort: 54_321,
+            proxyHost: "192.168.1.2",
+            proxyPort: 9_090
+        )
+        let second = ProxyConnectionDescriptor(
+            acceptedAt: .now(),
+            clientHost: "192.168.1.42",
+            clientPort: 54_322,
+            proxyHost: "192.168.1.2",
+            proxyPort: 9_090
+        )
+
+        let firstScope = TLSInterceptHandler.clientScopeIdentifier(
+            application: nil,
+            connectionDescriptor: first
+        )
+        let secondScope = TLSInterceptHandler.clientScopeIdentifier(
+            application: nil,
+            connectionDescriptor: second
+        )
+
+        #expect(firstScope == secondScope)
+        #expect(firstScope?.hasPrefix("remote:") == true)
+        #expect(firstScope?.contains("192.168.1.42") == false)
+    }
+
+    @Test("local unresolved clients never share a global TLS recovery scope")
+    func unresolvedLocalClientHasNoFallbackScope() {
+        let descriptor = ProxyConnectionDescriptor(
+            acceptedAt: .now(),
+            clientHost: "127.0.0.1",
+            clientPort: 54_321,
+            proxyHost: "127.0.0.1",
+            proxyPort: 9_090
+        )
+
+        #expect(TLSInterceptHandler.clientScopeIdentifier(
+            application: nil,
+            connectionDescriptor: descriptor
+        ) == nil)
+    }
+
     @Test("bypass proxy list forces raw tunnel before SSL interception")
     func bypassProxyListForcesRawTunnel() {
         let sslManager = makeSSLProxyingManager()
@@ -82,6 +146,45 @@ struct TLSInterceptHandlerTests {
         )
 
         #expect(mode == .intercept)
+    }
+
+    @Test("one application's certificate fallback does not tunnel another application")
+    func autoPassthroughDecisionIsApplicationScoped() {
+        let sslManager = makeSSLProxyingManager()
+        sslManager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        let bypassManager = makeBypassProxyManager()
+        let first = ClientApplicationIdentity.bundle(identifier: "app.one", displayName: "One")
+        let second = ClientApplicationIdentity.bundle(identifier: "app.two", displayName: "Two")
+        sslManager.markHostForPassthrough("shared.example", application: first)
+
+        #expect(TLSInterceptHandler.initialTunnelMode(
+            host: "shared.example",
+            sslProxyingManager: sslManager,
+            bypassProxyManager: bypassManager,
+            application: first
+        ) == .rawTunnel(.autoPassthrough))
+        #expect(TLSInterceptHandler.initialTunnelMode(
+            host: "shared.example",
+            sslProxyingManager: sslManager,
+            bypassProxyManager: bypassManager,
+            application: second
+        ) == .intercept)
+    }
+
+    @Test("unresolved local application fails closed while any application Tunnel rule is active")
+    func unresolvedLocalApplicationDoesNotBypassTunnelRules() {
+        let sslManager = makeSSLProxyingManager()
+        sslManager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        let bypassManager = makeBypassProxyManager()
+
+        let mode = TLSInterceptHandler.initialTunnelMode(
+            host: "api.example.com",
+            sslProxyingManager: sslManager,
+            bypassProxyManager: bypassManager,
+            unresolvedApplicationMustTunnel: true
+        )
+
+        #expect(mode == .rawTunnel(.unresolvedApplicationIdentity))
     }
 
     @Test("central raw tunnel setup invokes success callback")
@@ -129,6 +232,21 @@ struct TLSInterceptHandlerTests {
         #expect(transaction.sourcePort == 54_321)
         #expect(transaction.measuredDuration == 0.125)
         #expect(transaction.isTLSFailure == false)
+    }
+
+    @Test("CONNECT transaction retains only its privacy-preserving TLS client scope")
+    func tunnelTransactionRetainsTLSClientScope() {
+        let transaction = TLSInterceptHandler.makeTunnelTransaction(
+            host: "example.com",
+            port: 443,
+            statusCode: 200,
+            statusMessage: "Connection Established",
+            state: .completed,
+            sourcePort: 54_321,
+            clientIdentifier: "remote:deadbeef"
+        )
+
+        #expect(transaction.tlsClientScopeIdentifier == "remote:deadbeef")
     }
 
     @Test("raw tunnel capture builds IPv6 CONNECT transaction")

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - DeveloperSetupAutomaticWindowView
 
@@ -47,7 +48,7 @@ struct DeveloperSetupAutomaticWindowView: View {
         #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             ScrollView {
-                terminalSection
+                setupSections
                     .padding(.horizontal, 24)
                     .padding(.vertical, 20)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -75,7 +76,7 @@ struct DeveloperSetupAutomaticWindowView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 Divider()
-                terminalSection
+                setupSections
                 footer
             }
             .padding(.horizontal, 24)
@@ -132,7 +133,7 @@ struct DeveloperSetupAutomaticWindowView: View {
                         String(
                             localized: """
                             For Java, HTTPS interception still needs the Rockxy root CA trusted in the exact \
-                            JVM or JetBrains trust store, plus a Decrypt rule for the target application or \
+                            JVM or IDE trust store, plus a Decrypt rule for the target application or \
                             host under HTTPS Decryption.
                             """,
                             bundle: RockxyLocalization.bundle
@@ -162,13 +163,6 @@ struct DeveloperSetupAutomaticWindowView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-                if let javaProxyGuidanceText = viewModel.javaProxyGuidanceText {
-                    Text(javaProxyGuidanceText)
-                        .font(setupMetrics.secondaryFont())
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
                 Divider()
 
                 ViewThatFits(in: .horizontal) {
@@ -184,6 +178,43 @@ struct DeveloperSetupAutomaticWindowView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            )
+        }
+    }
+
+    private var setupSections: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            terminalSection
+            developerApplicationSection
+        }
+    }
+
+    private var developerApplicationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(String(localized: "Developer application", bundle: RockxyLocalization.bundle))
+                .font(setupMetrics.font(size: setupMetrics.sectionTitleFontSize, weight: .semibold))
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text(viewModel.developerApplicationGuidanceText)
+                    .font(setupMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button(String(localized: "Choose & Open Developer App…", bundle: RockxyLocalization.bundle)) {
+                    chooseAndOpenDeveloperApplication()
+                }
+                .help(
+                    String(
+                        localized: "Opens a fresh app instance with scoped proxy and certificate settings; recognized app-level proxy settings are prepared safely.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                )
+                .rockxyGlassButtonStyle(prominent: true)
             }
             .padding(14)
             .background(
@@ -233,5 +264,24 @@ struct DeveloperSetupAutomaticWindowView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func chooseAndOpenDeveloperApplication() {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "Choose a developer application", bundle: RockxyLocalization.bundle)
+        panel.prompt = String(localized: "Open with Rockxy", bundle: RockxyLocalization.bundle)
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.resolvesAliases = true
+
+        guard panel.runModal() == .OK, let appURL = panel.url else {
+            return
+        }
+        Task {
+            await viewModel.openDeveloperApplication(at: appURL)
+        }
     }
 }

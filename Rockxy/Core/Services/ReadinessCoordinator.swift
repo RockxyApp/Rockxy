@@ -41,6 +41,18 @@ enum ProxyMode: Equatable {
     case unavailable
 }
 
+// MARK: - CaptureHealthState
+
+/// Result of Rockxy's private loopback request through the live proxy listener.
+/// This verifies the local request/response capture path without contacting the internet
+/// or adding a diagnostic row to the user's session.
+enum CaptureHealthState: Equatable {
+    case idle
+    case checking
+    case verified
+    case failed
+}
+
 // MARK: - ReadinessWarning
 
 /// A single readiness warning shown in the main workspace banner. Only the
@@ -48,6 +60,11 @@ enum ProxyMode: Equatable {
 struct ReadinessWarning: Equatable {
     enum Action: Equatable {
         case retry
+        case retryStop
+        case retryDisableSystemRouting
+        case retryCaptureCheck
+        case restoreSystemRouting
+        case openHTTPSDecryption
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -58,6 +75,16 @@ struct ReadinessWarning: Equatable {
             switch self {
             case .retry:
                 String(localized: "Retry", bundle: RockxyLocalization.bundle)
+            case .retryStop:
+                String(localized: "Stop Capture", bundle: RockxyLocalization.bundle)
+            case .retryDisableSystemRouting:
+                String(localized: "Switch Off", bundle: RockxyLocalization.bundle)
+            case .retryCaptureCheck:
+                String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
+            case .restoreSystemRouting:
+                String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
+            case .openHTTPSDecryption:
+                String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:
@@ -71,6 +98,89 @@ struct ReadinessWarning: Equatable {
     let message: String
     let action: Action?
     let isDismissible: Bool
+}
+
+// MARK: - TLSRejectionEvidence
+
+/// Aggregates certificate rejection evidence per originating application.
+///
+/// A global set of hosts conflates unrelated clients and turns certificate pinning into a false
+/// root-trust warning. A successful intercepted handshake proves that the same client accepts the
+/// active Rockxy CA, so pinning failures from that client cannot later become a global CA warning.
+struct TLSRejectionEvidence: Equatable {
+    static let warningThreshold = 3
+    static let maximumTrackedClients = 128
+
+    private(set) var rejectedHostsByClient: [String: Set<String>] = [:]
+    private(set) var clientsAcceptingCurrentCA: Set<String> = []
+    private var acceptingClientOrder: [String] = []
+
+    var hasMultiHostClientFailure: Bool {
+        rejectedHostsByClient.contains { $0.value.count >= Self.warningThreshold }
+    }
+
+    @discardableResult
+    mutating func recordRejection(host: String, clientIdentifier: String?) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty else {
+            return false
+        }
+        guard let clientIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+            // A missing identity cannot prove that failures on different hosts came from the
+            // same client, so it must never create a machine-wide trust warning.
+            return false
+        }
+        guard !clientsAcceptingCurrentCA.contains(clientIdentifier) else {
+            return false
+        }
+        guard rejectedHostsByClient[clientIdentifier] != nil
+            || rejectedHostsByClient.count < Self.maximumTrackedClients else {
+            return false
+        }
+        var hosts = rejectedHostsByClient[clientIdentifier, default: []]
+        if hosts.count < Self.warningThreshold {
+            let inserted = hosts.insert(normalizedHost).inserted
+            rejectedHostsByClient[clientIdentifier] = hosts
+            return inserted
+        }
+        return false
+    }
+
+    @discardableResult
+    mutating func recordSuccessfulHandshake(clientIdentifier: String?) -> Bool {
+        guard let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+            return false
+        }
+        let removedRejections = rejectedHostsByClient.removeValue(forKey: normalizedIdentifier) != nil
+        let wasAlreadyAccepted = clientsAcceptingCurrentCA.contains(normalizedIdentifier)
+        acceptingClientOrder.removeAll { $0 == normalizedIdentifier }
+        if clientsAcceptingCurrentCA.insert(normalizedIdentifier).inserted,
+           clientsAcceptingCurrentCA.count > Self.maximumTrackedClients,
+           let evicted = acceptingClientOrder.first
+        {
+            clientsAcceptingCurrentCA.remove(evicted)
+            acceptingClientOrder.removeFirst()
+        }
+        acceptingClientOrder.append(normalizedIdentifier)
+        return removedRejections || !wasAlreadyAccepted
+    }
+
+    mutating func reset() {
+        rejectedHostsByClient.removeAll()
+        clientsAcceptingCurrentCA.removeAll()
+        acceptingClientOrder.removeAll()
+    }
+
+    private func normalizedClientIdentifier(_ clientIdentifier: String?) -> String? {
+        guard let normalized = clientIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !normalized.isEmpty
+        else {
+            return nil
+        }
+        return normalized
+    }
 }
 
 // MARK: - ReadinessCoordinator
@@ -94,6 +204,10 @@ final class ReadinessCoordinator {
     private(set) var helperReadiness: HelperManager.HelperStatus = .notInstalled
     private(set) var helperSigningIssue: HelperManager.SigningIssue?
     private(set) var proxyMode: ProxyMode = .unavailable
+    private(set) var systemRoutingReady = false
+    private(set) var systemRoutingExpected = true
+    private(set) var captureHealth: CaptureHealthState = .idle
+    private(set) var httpsDecryptionConfigured = false
     private(set) var activeWarning: ReadinessWarning?
     private(set) var isCaptureActive: Bool = false
     private(set) var lastCertSnapshot: RootCAStatusSnapshot?
@@ -111,27 +225,38 @@ final class ReadinessCoordinator {
     }
 
     /// True when there is a readiness issue that materially blocks capture capability.
-    /// Only cert-untrusted during active capture is truly blocking.
-    /// Direct-mode fallback and helper issues are degraded but not blocking.
+    /// Certificate trust, exact system routing, and an end-to-end probe failure are blocking.
+    /// Direct-mode fallback and helper issues are degraded but not blocking by themselves.
     var hasBlockingReadinessIssue: Bool {
         guard isCaptureActive else {
             return false
         }
         return certReadiness != .trusted
+            || (systemRoutingExpected && !systemRoutingReady)
+            || captureHealth == .failed
     }
 
     /// Pure decision function: returns the warning that Priority 2 (cert-not-trusted)
     /// would produce, or nil if the cert is trusted. Extracted for deterministic testing.
+    ///
+    /// Each readable state names the step that is actually missing. Reporting "not trusted" for
+    /// a root that was never generated, or for one that is not in any keychain, describes a
+    /// trust decision the user never made and hides which recovery step is outstanding. The
+    /// unreadable state stays separate: it is a failed read, so it offers a recheck instead of
+    /// asking for administrator approval.
     nonisolated static func certNotTrustedWarning(
         certReadiness: CertReadiness,
         isCaptureActive: Bool
     )
         -> ReadinessWarning?
     {
-        guard isCaptureActive, certReadiness != .trusted else {
+        guard isCaptureActive else {
             return nil
         }
-        if certReadiness == .unknown {
+        switch certReadiness {
+        case .trusted:
+            return nil
+        case .unknown:
             // Nothing is known to be wrong with the certificate, so the offer is a status check
             // rather than a reinstall that would ask for administrator approval on the strength
             // of a failed read. HTTPS interception stays paused either way.
@@ -145,17 +270,40 @@ final class ReadinessCoordinator {
                 action: .openGeneralSettings,
                 isDismissible: false
             )
+        case .notGenerated:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA has not been generated yet. \
+                    HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
+        case .generatedNotInstalled:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA is not installed in the \
+                    login or System keychain. HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
+        case .installedNotTrusted:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA is installed but not \
+                    trusted for SSL. HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
         }
-        return ReadinessWarning(
-            message: String(
-                localized: """
-                HTTPS interception is unavailable because the Rockxy Root CA is not trusted. \
-                HTTP traffic and logs are still captured.
-                """, bundle: RockxyLocalization.bundle
-            ),
-            action: .reinstallAndTrust,
-            isDismissible: false
-        )
     }
 
     nonisolated static func shouldPerformActivationDeepRefresh(
@@ -178,6 +326,7 @@ final class ReadinessCoordinator {
     /// Begins observing readiness-related notifications. Idempotent — safe to call
     /// multiple times from workspace lifecycle without creating duplicate observers.
     func startObserving() {
+        SystemProxyManager.shared.startMonitoringSystemProxyConfiguration()
         guard observers.isEmpty else {
             return
         }
@@ -187,7 +336,19 @@ final class ReadinessCoordinator {
                 forName: .certificateStatusChanged, object: nil, queue: .main
             ) { [weak self] _ in
                 Task { @MainActor in
+                    self?.tlsRejectionEvidence.reset()
                     await self?.refreshCertState()
+                    self?.recomputeWarning()
+                }
+            }
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .sslProxyingStateDidChange, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshHTTPSDecryptionState()
                     self?.recomputeWarning()
                 }
             }
@@ -220,12 +381,36 @@ final class ReadinessCoordinator {
             NotificationCenter.default.addObserver(
                 forName: .tlsMitmRejected, object: nil, queue: .main
             ) { [weak self] notification in
-                guard let host = notification.userInfo?["host"] as? String else {
+                guard let host = notification.userInfo?[TLSMITMNotificationUserInfoKey.host] as? String else {
                     return
                 }
-                Task { @MainActor in
-                    self?.tlsRejectionHosts.insert(host)
-                    self?.recomputeWarning()
+                let clientIdentifier = notification
+                    .userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
+                MainActor.assumeIsolated {
+                    let evidenceChanged = self?.tlsRejectionEvidence.recordRejection(
+                        host: host,
+                        clientIdentifier: clientIdentifier
+                    ) ?? false
+                    if evidenceChanged {
+                        self?.recomputeWarning()
+                    }
+                }
+            }
+        )
+
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: .tlsMitmAccepted, object: nil, queue: .main
+            ) { [weak self] notification in
+                let clientIdentifier = notification
+                    .userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
+                MainActor.assumeIsolated {
+                    let evidenceChanged = self?.tlsRejectionEvidence.recordSuccessfulHandshake(
+                        clientIdentifier: clientIdentifier
+                    ) ?? false
+                    if evidenceChanged {
+                        self?.recomputeWarning()
+                    }
                 }
             }
         )
@@ -272,6 +457,23 @@ final class ReadinessCoordinator {
         await refreshCertState()
         refreshHelperState()
         await refreshProxyMode(isEnabled: systemProxyEnabledProbe())
+        refreshHTTPSDecryptionState()
+        recomputeWarning()
+    }
+
+    /// Forced certificate revalidation: re-snapshots certificate state and, when positive trust
+    /// metadata exists, runs a real `SecTrust` evaluation instead of reusing the last cached
+    /// validation result. Known-absent trust metadata still fails closed without the expensive
+    /// evaluation.
+    ///
+    /// `refresh()` is deliberately cheap and may answer from a cached negative that a trust
+    /// approval since then has already invalidated. Capture start decides HTTPS passthrough for
+    /// a whole session from this answer, so it evaluates trust for real. Narrower than
+    /// `deepRefresh()` on purpose: no helper XPC probe and no system-proxy read, because neither
+    /// participates in the passthrough decision. This never requests certificate installation or
+    /// changes trust settings.
+    func refreshCertificateTrustValidation() async {
+        await refreshCertState(performValidation: true)
         recomputeWarning()
     }
 
@@ -282,18 +484,40 @@ final class ReadinessCoordinator {
         await refreshCertState(performValidation: true)
         refreshHelperState()
         await refreshProxyMode(isEnabled: systemProxyEnabledProbe())
+        refreshHTTPSDecryptionState()
         recomputeWarning()
         Self.logger.debug("ReadinessCoordinator deep-refreshed all state")
     }
 
     func setCaptureActive(_ active: Bool) {
         isCaptureActive = active
+        refreshHTTPSDecryptionState()
         if !active {
-            tlsRejectionHosts.removeAll()
+            tlsRejectionEvidence.reset()
             vpnInterface = nil
             proxyEnableFailed = false
             proxyEnableErrorMessage = nil
+            proxyRestoreFailed = false
+            proxyRestoreRetryAction = nil
+            systemRoutingReady = false
+            systemRoutingExpected = true
+            captureHealth = .idle
         }
+        recomputeWarning()
+    }
+
+    func setSystemRoutingReady(_ ready: Bool) {
+        systemRoutingReady = ready
+        recomputeWarning()
+    }
+
+    func setSystemRoutingExpected(_ expected: Bool) {
+        systemRoutingExpected = expected
+        recomputeWarning()
+    }
+
+    func setCaptureHealth(_ state: CaptureHealthState) {
+        captureHealth = state
         recomputeWarning()
     }
 
@@ -309,6 +533,18 @@ final class ReadinessCoordinator {
         recomputeWarning()
     }
 
+    func setProxyRestoreFailed(retryAction: ReadinessWarning.Action) {
+        proxyRestoreFailed = true
+        proxyRestoreRetryAction = retryAction
+        recomputeWarning()
+    }
+
+    func clearProxyRestoreFailure() {
+        proxyRestoreFailed = false
+        proxyRestoreRetryAction = nil
+        recomputeWarning()
+    }
+
     /// Called when the user dismisses a dismissible warning.
     func dismissWarning() {
         guard activeWarning?.isDismissible == true else {
@@ -320,7 +556,7 @@ final class ReadinessCoordinator {
 
     /// Clears TLS rejection state. Called when proxy restarts or session clears.
     func clearTLSRejections() {
-        tlsRejectionHosts.removeAll()
+        tlsRejectionEvidence.reset()
         recomputeWarning()
     }
 
@@ -341,10 +577,12 @@ final class ReadinessCoordinator {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ReadinessCoordinator")
 
     private var observers: [NSObjectProtocol] = []
-    private var tlsRejectionHosts: Set<String> = []
+    private var tlsRejectionEvidence = TLSRejectionEvidence()
     private var vpnInterface: String?
     private var proxyEnableFailed = false
     private var proxyEnableErrorMessage: String?
+    private var proxyRestoreFailed = false
+    private var proxyRestoreRetryAction: ReadinessWarning.Action?
     private var dismissedWarningMessage: String?
     private let activationRefreshClock = ContinuousClock()
     private var isActivationRefreshInFlight = false
@@ -393,6 +631,10 @@ final class ReadinessCoordinator {
     private func refreshHelperState() {
         helperReadiness = HelperManager.shared.status
         helperSigningIssue = HelperManager.shared.signingIssue
+    }
+
+    private func refreshHTTPSDecryptionState() {
+        httpsDecryptionConfigured = SSLProxyingManager.shared.hasEnabledDecryptRules()
     }
 
     private func refreshProxyMode(isEnabled: Bool) {
@@ -445,7 +687,9 @@ final class ReadinessCoordinator {
             dismissedWarningMessage = nil
         }
 
-        activeWarning = warning
+        if activeWarning != warning {
+            activeWarning = warning
+        }
     }
 
     private func computeHighestPriorityWarning() -> ReadinessWarning? {
@@ -453,7 +697,20 @@ final class ReadinessCoordinator {
             return nil
         }
 
-        // Priority 1: Proxy enable failure
+        // Priority 1: A failed restore keeps capture alive so macOS is never left
+        // pointing at a listener that Rockxy has already stopped.
+        if proxyRestoreFailed, let retryAction = proxyRestoreRetryAction {
+            return ReadinessWarning(
+                message: String(
+                    localized: "Rockxy could not restore the previous system proxy settings. Capture remains running so network traffic stays reachable.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: retryAction,
+                isDismissible: false
+            )
+        }
+
+        // Priority 2: Proxy enable failure
         if proxyEnableFailed, let message = proxyEnableErrorMessage {
             return ReadinessWarning(
                 message: message,
@@ -462,7 +719,36 @@ final class ReadinessCoordinator {
             )
         }
 
-        // Priority 2: Certificate not trusted — blocks HTTPS interception
+        // Priority 3: The private end-to-end loopback check could not traverse the
+        // running listener and complete as a captured transaction.
+        if captureHealth == .failed {
+            return ReadinessWarning(
+                message: String(
+                    localized: "Rockxy could not verify its local capture path. The listener is running, but capture is not confirmed.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .retryCaptureCheck,
+                isDismissible: false
+            )
+        }
+
+        // Priority 4: The listener may be healthy while ordinary macOS traffic is routed
+        // elsewhere. Do not reclaim the proxy automatically; make the takeover visible.
+        if systemRoutingExpected, !systemRoutingReady {
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    macOS system traffic is not routed to Rockxy. The listener may still accept manually configured apps, \
+                    but browser traffic will not be captured automatically.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .restoreSystemRouting,
+                isDismissible: false
+            )
+        }
+
+        // Priority 4: Certificate not trusted — blocks HTTPS interception
         if let certWarning = Self.certNotTrustedWarning(
             certReadiness: certReadiness,
             isCaptureActive: isCaptureActive
@@ -470,17 +756,30 @@ final class ReadinessCoordinator {
             return certWarning
         }
 
-        // Priority 3: Direct mode fallback — degraded but not blocking
+        // Priority 5: A trusted Root CA is necessary but not sufficient. With no
+        // enabled Decrypt rule, HTTPS is deliberately visible only as CONNECT tunnels.
+        if certReadiness == .trusted, !httpsDecryptionConfigured {
+            return ReadinessWarning(
+                message: String(
+                    localized: "HTTPS traffic is staying as CONNECT tunnels because no Decrypt rule is enabled.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                action: .openHTTPSDecryption,
+                isDismissible: true
+            )
+        }
+
+        // Priority 6: Direct mode fallback — degraded but not blocking
         if proxyMode == .direct {
             return directModeWarning()
         }
 
-        // Priority 4: TLS rejection accumulation
-        if tlsRejectionHosts.count >= 3 {
+        // Priority 7: TLS rejection accumulation
+        if tlsRejectionEvidence.hasMultiHostClientFailure {
             return tlsRejectionWarning()
         }
 
-        // Priority 5: VPN detected
+        // Priority 8: VPN detected
         if let iface = vpnInterface {
             return ReadinessWarning(
                 message: String(
@@ -528,28 +827,28 @@ final class ReadinessCoordinator {
         )
     }
 
-    /// TLS rejection warning with contextual messaging based on certificate trust state.
-    /// Existing TLS sessions are not re-intercepted — only new connections are affected
-    /// after trust changes, so browser restart guidance is always included.
+    /// TLS rejection warning based only on multiple-host evidence from one identified client.
+    /// Unattributed connections are intentionally excluded because they cannot prove that the
+    /// failures share one trust store.
     private func tlsRejectionWarning() -> ReadinessWarning? {
-        let message = if lastCertSnapshot?.isSystemTrustValidated == true {
+        let detail = if lastCertSnapshot?.isSystemTrustValidated == true {
             String(
                 localized: """
-                Multiple HTTPS hosts rejected the proxy certificate. \
-                Restart your browser to pick up the new Rockxy Root CA trust settings.
+                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
+                The macOS Root CA is trusted, so the affected client may use a separate trust store or certificate pinning. \
+                Restart or configure that client before retrying interception.
                 """, bundle: RockxyLocalization.bundle
             )
         } else {
             String(
                 localized: """
-                Multiple HTTPS hosts rejected the proxy certificate. \
-                Check that the Rockxy Root CA is trusted in Keychain Access, then restart your browser.
+                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
+                Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.
                 """, bundle: RockxyLocalization.bundle
             )
         }
-
         return ReadinessWarning(
-            message: message,
+            message: detail,
             action: .openGeneralSettings,
             isDismissible: true
         )

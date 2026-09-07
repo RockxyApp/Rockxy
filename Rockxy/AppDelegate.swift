@@ -22,11 +22,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             )
         }
         Self.logger.info("Rockxy launched")
-        if !RockxyIdentity.isRunningTests {
-            AppUpdater.shared.startIfConfigured()
-        }
         Task {
-            await SystemProxyManager.shared.recoverStaleProxyIfNeeded()
+            // Restore network reachability before any updater or startup service can create a
+            // request through a proxy left behind by a previous abnormal termination.
+            await SystemProxyStartupRecovery.task.value
+            if !RockxyIdentity.isRunningTests {
+                AppUpdater.shared.startIfConfigured()
+            }
+            let applicationSupportURL = FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first
+            if !RockxyIdentity.isRunningTests, let applicationSupportURL {
+                let runningApplicationProcesses = Dictionary(
+                    NSWorkspace.shared.runningApplications.compactMap { application -> (String, Int32)? in
+                        guard !application.isTerminated,
+                              application.processIdentifier > 0,
+                              let bundleIdentifier = application.bundleIdentifier,
+                              let bundleURL = application.bundleURL
+                        else {
+                            return nil
+                        }
+                        return (
+                            Self.developerApplicationIdentityKey(
+                                bundleIdentifier: bundleIdentifier,
+                                bundleURL: bundleURL
+                            ),
+                            application.processIdentifier
+                        )
+                    },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                Task.detached(priority: .utility) {
+                    DeveloperApplicationCaptureConfigurator.reconcileOutstandingPreparations(
+                        applicationSupportURL: applicationSupportURL,
+                        recordedApplicationProcessIdentifier: { bundleIdentifier, bundlePath in
+                            runningApplicationProcesses[
+                                Self.developerApplicationIdentityKey(
+                                    bundleIdentifier: bundleIdentifier,
+                                    bundleURL: URL(fileURLWithPath: bundlePath)
+                                )
+                            ]
+                        },
+                        livePreparationHandler: { processIdentifier, preparation in
+                            Task { @MainActor in
+                                do {
+                                    try DeveloperApplicationSettingsRestorationMonitor.shared.startMonitoring(
+                                        processIdentifier: processIdentifier,
+                                        preparation: preparation
+                                    )
+                                } catch {
+                                    Self.logger.error(
+                                        "Could not resume a developer-application settings restoration monitor: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
+                    )
+                }
+            }
             if !RockxyIdentity.isRunningTests {
                 do {
                     try await CertificateManager.shared.ensureRootCA()
@@ -34,7 +88,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                     Self.logger.error("Failed to initialize root CA: \(error.localizedDescription)")
                 }
             }
-            await HelperManager.shared.checkStatus()
+            if RockxyIdentity.isRunningTests {
+                await HelperManager.shared.checkStatus()
+            } else {
+                await HelperManager.shared.refreshAfterAppUpdateIfNeeded()
+            }
             await PluginManager.shared.ensureLoadedOnce()
             guard !RockxyIdentity.isRunningTests else {
                 return
@@ -133,6 +191,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
     private static let identity = RockxyIdentity.current
 
     private static let logger = Logger(subsystem: identity.logSubsystem, category: "AppDelegate")
+
+    nonisolated private static func developerApplicationIdentityKey(
+        bundleIdentifier: String,
+        bundleURL: URL
+    ) -> String {
+        let normalizedIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPath = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
+        return "\(normalizedIdentifier)|\(normalizedPath)"
+    }
 
     private var skipNextQuitConfirmation = false
 

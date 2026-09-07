@@ -72,6 +72,25 @@ struct BypassDomainTests {
         #expect(!BypassDomain.isIPv4PrefixWildcard("169.999.*"))
     }
 
+    @Test("IPv4 CIDR matches only addresses inside its prefix")
+    func ipv4CIDR() {
+        let domain = TestFixtures.makeBypassDomain(domain: "10.0.0.0/8")
+        #expect(domain.matches("10.0.0.1"))
+        #expect(domain.matches("10.255.255.255"))
+        #expect(!domain.matches("11.0.0.1"))
+        #expect(!domain.matches("api.example.com"))
+        #expect(BypassDomain.systemProxyPatterns(for: domain.domain) == ["10.0.0.0/8"])
+    }
+
+    @Test("Global IPv4 CIDR fails closed")
+    func globalIPv4CIDRFailsClosed() {
+        let domain = TestFixtures.makeBypassDomain(domain: "0.0.0.0/0")
+
+        #expect(!domain.matches("10.0.0.1"))
+        #expect(!domain.matches("192.168.1.10"))
+        #expect(BypassDomain.systemProxyPatterns(for: domain.domain).isEmpty)
+    }
+
     // MARK: - Codable
 
     @Test("Codable roundtrip preserves all fields")

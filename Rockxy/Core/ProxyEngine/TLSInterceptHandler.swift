@@ -18,16 +18,19 @@ nonisolated(unsafe) private let tlsLogger = Logger(
 
 // MARK: - RecentFailureTracker
 
-/// Tracks recent TLS handshake failures per host to suppress duplicate noise.
+/// Tracks recent TLS handshake failures per host and originating client to suppress duplicate
+/// noise without allowing one application to hide another application's evidence.
 /// Thread-safe via NSLock; designed for use from NIO event loops.
 final class RecentFailureTracker: @unchecked Sendable {
     // MARK: Lifecycle
 
     init(
         windowSeconds: Double = 30.0,
+        maximumEntries: Int = 2_048,
         nowProvider: @escaping @Sendable () -> DispatchTime = DispatchTime.now
     ) {
         self.windowSeconds = windowSeconds
+        self.maximumEntries = max(1, maximumEntries)
         self.nowProvider = nowProvider
     }
 
@@ -38,12 +41,14 @@ final class RecentFailureTracker: @unchecked Sendable {
         var lastFailed: DispatchTime
     }
 
-    func recordFailure(host: String) -> FailureInfo {
+    func recordFailure(host: String, clientIdentifier: String? = nil) -> FailureInfo {
         lock.lock()
         defer { lock.unlock() }
         let now = nowProvider()
+        let key = FailureKey(host: host, clientIdentifier: clientIdentifier)
+        pruneIfNeeded(now: now, preserving: key)
 
-        if let existing = failures[host] {
+        if let existing = failures[key] {
             let lastFailed = existing.lastFailed.uptimeNanoseconds
             let current = now.uptimeNanoseconds
 
@@ -51,26 +56,82 @@ final class RecentFailureTracker: @unchecked Sendable {
                 let elapsed = Double(current - lastFailed) / 1_000_000_000
                 if elapsed < windowSeconds {
                     let updated = FailureInfo(count: existing.count + 1, lastFailed: now)
-                    failures[host] = updated
+                    failures[key] = updated
                     return updated
                 }
             } else {
                 let updated = FailureInfo(count: existing.count + 1, lastFailed: now)
-                failures[host] = updated
+                failures[key] = updated
                 return updated
             }
         }
         let fresh = FailureInfo(count: 1, lastFailed: now)
-        failures[host] = fresh
+        failures[key] = fresh
         return fresh
+    }
+
+    func recordIdentifiedFailure(host: String, clientIdentifier: String?) -> FailureInfo? {
+        guard let clientIdentifier,
+              !clientIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+        return recordFailure(host: host, clientIdentifier: clientIdentifier)
+    }
+
+    func recordSuccess(host: String, clientIdentifier: String? = nil) {
+        lock.lock()
+        failures.removeValue(forKey: FailureKey(host: host, clientIdentifier: clientIdentifier))
+        lock.unlock()
+    }
+
+    var trackedEntryCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return failures.count
     }
 
     // MARK: Private
 
-    private var failures: [String: FailureInfo] = [:]
+    private struct FailureKey: Hashable {
+        let host: String
+        let clientIdentifier: String?
+
+        init(host: String, clientIdentifier: String?) {
+            self.host = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            self.clientIdentifier = clientIdentifier?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        }
+    }
+
+    private var failures: [FailureKey: FailureInfo] = [:]
     private let lock = NSLock()
     private let windowSeconds: Double
+    private let maximumEntries: Int
     private let nowProvider: @Sendable () -> DispatchTime
+
+    private func pruneIfNeeded(now: DispatchTime, preserving key: FailureKey) {
+        guard failures.count >= maximumEntries, failures[key] == nil else {
+            return
+        }
+        let current = now.uptimeNanoseconds
+        failures = failures.filter { _, info in
+            let previous = info.lastFailed.uptimeNanoseconds
+            guard current >= previous else {
+                return true
+            }
+            return Double(current - previous) / 1_000_000_000 < windowSeconds
+        }
+        guard failures.count >= maximumEntries,
+              let oldest = failures.min(by: {
+                  $0.value.lastFailed.uptimeNanoseconds < $1.value.lastFailed.uptimeNanoseconds
+              })?.key
+        else {
+            return
+        }
+        failures.removeValue(forKey: oldest)
+    }
 }
 
 // MARK: - TLSInterceptHandler
@@ -144,7 +205,34 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     enum RawTunnelReason: Equatable {
         case bypassProxyList
         case noSSLProxyingRule
+        case unresolvedApplicationIdentity
         case autoPassthrough
+    }
+
+    /// Stable scope for TLS recovery. Local clients use their application identity. Remote
+    /// devices use a one-way digest of their source address so failures from one device never
+    /// disable interception for another and persisted recovery state does not expose the address.
+    nonisolated static func clientScopeIdentifier(
+        application: ClientApplicationIdentity?,
+        connectionDescriptor: ProxyConnectionDescriptor?
+    ) -> String? {
+        if let application {
+            return application.identifier
+        }
+        guard let sourceHost = connectionDescriptor?.clientHost,
+              !ClientConnectionMatcher.isLocalSource(sourceHost)
+        else {
+            return nil
+        }
+        let normalized = sourceHost.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else {
+            return nil
+        }
+        let digest = SHA256.hash(data: Data(normalized.utf8))
+            .prefix(16)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "remote:\(digest)"
     }
 
     nonisolated static func makeTunnelTransaction(
@@ -157,7 +245,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         measuredDuration: TimeInterval? = nil,
         isTLSFailure: Bool = false,
         sslCapture: HTTPTransaction.SSLCaptureMode? = nil,
-        captureContext: TrafficCaptureContext? = nil
+        captureContext: TrafficCaptureContext? = nil,
+        clientIdentifier: String? = nil
     )
         -> HTTPTransaction
     {
@@ -184,7 +273,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 measuredDuration: measuredDuration,
                 isTLSFailure: isTLSFailure,
                 sslCapture: sslCapture,
-                captureContext: captureContext
+                captureContext: captureContext,
+                clientIdentifier: clientIdentifier
             )
         }
         let requestData = HTTPRequestData(
@@ -209,6 +299,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         transaction.sourcePort = sourcePort
         transaction.isTLSFailure = isTLSFailure
         transaction.sslCapture = sslCapture
+        transaction.tlsClientScopeIdentifier = clientIdentifier
         return transaction
     }
 
@@ -259,7 +350,9 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         host: String,
         sslProxyingManager: SSLProxyingManager,
         bypassProxyManager: BypassProxyManager,
-        application: ClientApplicationIdentity? = nil
+        application: ClientApplicationIdentity? = nil,
+        clientIdentifier: String? = nil,
+        unresolvedApplicationMustTunnel: Bool = false
     )
         -> InitialTunnelMode
     {
@@ -267,11 +360,18 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             return .rawTunnel(.bypassProxyList)
         }
 
+        if unresolvedApplicationMustTunnel {
+            return .rawTunnel(.unresolvedApplicationIdentity)
+        }
+
         if !sslProxyingManager.shouldIntercept(host: host, application: application) {
             return .rawTunnel(.noSSLProxyingRule)
         }
 
-        if sslProxyingManager.isAutoPassthrough(host) {
+        if sslProxyingManager.isAutoPassthrough(
+            host,
+            clientIdentifier: clientIdentifier ?? application?.identifier
+        ) {
             return .rawTunnel(.autoPassthrough)
         }
 
@@ -290,7 +390,11 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             state: .failed,
             sourcePort: clientSourcePort,
             measuredDuration: tunnelElapsedDuration(),
-            captureContext: tunnelCaptureContext
+            captureContext: tunnelCaptureContext,
+            clientIdentifier: Self.clientScopeIdentifier(
+                application: clientApplicationIdentity,
+                connectionDescriptor: clientConnectionDescriptor
+            )
         )
     }
 
@@ -350,11 +454,20 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         // classification is detectable when the raw tunnel is registered (see LiveTunnelRegistry).
         let decisionGeneration = liveTunnelRegistry?.currentGeneration() ?? 0
 
+        let clientIdentifier = Self.clientScopeIdentifier(
+            application: clientApplicationIdentity,
+            connectionDescriptor: clientConnectionDescriptor
+        )
+        let unresolvedApplicationMustTunnel = clientApplicationIdentity == nil
+            && clientConnectionDescriptor?.clientHost.map(ClientConnectionMatcher.isLocalSource) == true
+            && sslProxyingManager.hasEnabledApplicationTunnelRules()
         switch Self.initialTunnelMode(
             host: host,
             sslProxyingManager: sslProxyingManager,
             bypassProxyManager: bypassProxyManager,
-            application: clientApplicationIdentity
+            application: clientApplicationIdentity,
+            clientIdentifier: clientIdentifier,
+            unresolvedApplicationMustTunnel: unresolvedApplicationMustTunnel
         ) {
         case let .rawTunnel(reason):
             switch reason {
@@ -362,6 +475,10 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 tlsLogger.info("Bypass proxy list matched \(host), passing through as raw tunnel")
             case .noSSLProxyingRule:
                 tlsLogger.info("No SSL proxying rule for \(host), passing through as raw tunnel")
+            case .unresolvedApplicationIdentity:
+                tlsLogger.info(
+                    "Application identity is unresolved while a Tunnel rule is active for \(host); failing closed to a raw tunnel"
+                )
             case .autoPassthrough:
                 tlsLogger.info("Auto-passthrough for \(host) (previous TLS rejection), raw tunnel")
             }
@@ -458,6 +575,11 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 captureContextProvider: self.captureContextProvider,
                 tunnelCaptureContext: self.tunnelCaptureContext,
                 clientSourcePort: self.clientSourcePort,
+                clientApplicationIdentity: self.clientApplicationIdentity,
+                clientIdentifier: Self.clientScopeIdentifier(
+                    application: self.clientApplicationIdentity,
+                    connectionDescriptor: self.clientConnectionDescriptor
+                ),
                 onTransactionComplete: callback,
                 onBreakpointHit: breakpointHit,
                 breakpointBridgeTracker: self.breakpointBridgeTracker
@@ -581,7 +703,11 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                             sourcePort: self.clientSourcePort,
                             measuredDuration: self.tunnelElapsedDuration(),
                             sslCapture: .tunneled,
-                            captureContext: self.tunnelCaptureContext
+                            captureContext: self.tunnelCaptureContext,
+                            clientIdentifier: Self.clientScopeIdentifier(
+                                application: self.clientApplicationIdentity,
+                                connectionDescriptor: self.clientConnectionDescriptor
+                            )
                         )
                     )
                 } onFailure: { error in
@@ -629,6 +755,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
         tunnelCaptureContext: TrafficCaptureContext? = nil,
         clientSourcePort: UInt16? = nil,
+        clientApplicationIdentity: ClientApplicationIdentity? = nil,
+        clientIdentifier: String? = nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
@@ -645,6 +773,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         self.captureContextProvider = captureContextProvider
         self.tunnelCaptureContext = tunnelCaptureContext
         self.clientSourcePort = clientSourcePort
+        self.clientApplicationIdentity = clientApplicationIdentity
+        self.clientIdentifier = clientIdentifier ?? clientApplicationIdentity?.identifier
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
         self.breakpointBridgeTracker = breakpointBridgeTracker
@@ -661,6 +791,21 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             }
             handshakeResolved = true
             tlsLogger.info("TLS handshake completed for \(self.host) — adding HTTP codecs")
+            if let clientIdentifier {
+                Self.recentTLSFailures.recordSuccess(
+                    host: host,
+                    clientIdentifier: clientIdentifier
+                )
+            }
+            var acceptanceUserInfo: [String: String] = [:]
+            if let clientIdentifier {
+                acceptanceUserInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier
+            }
+            NotificationCenter.default.post(
+                name: .tlsMitmAccepted,
+                object: nil,
+                userInfo: acceptanceUserInfo
+            )
 
             let httpHandler = HTTPSProxyRelayHandler(
                 host: host,
@@ -701,27 +846,37 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             return
         }
         handshakeResolved = true
-        let failInfo = Self.recentTLSFailures.recordFailure(host: host)
         let isCertRejection = Self.isCertificateRejection(error)
 
         if isCertRejection {
-            sslProxyingManager.markHostForPassthrough(host)
-        }
-
-        if failInfo.count > 1 {
-            tlsLogger.debug("Suppressing duplicate TLS failure for \(self.host) (count: \(failInfo.count))")
-            context.close(promise: nil)
-            return
-        }
-
-        if isCertRejection {
+            if let clientIdentifier {
+                sslProxyingManager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
+            } else {
+                tlsLogger.info(
+                    "TLS rejection for \(self.host) has no resolved client identity; using one-connection passthrough only"
+                )
+            }
+            let failInfo = Self.recentTLSFailures.recordIdentifiedFailure(
+                host: host,
+                clientIdentifier: clientIdentifier
+            )
+            if let failInfo, failInfo.count > 1 {
+                tlsLogger.debug(
+                    "Suppressing duplicate TLS rejection for \(self.host) and the same client scope (count: \(failInfo.count))"
+                )
+                context.close(promise: nil)
+                return
+            }
             tlsLogger.warning(
-                "TLS cert rejected by client for \(self.host): \(String(describing: error)), marking auto-passthrough"
+                "TLS cert rejected by client for \(self.host): \(String(describing: error))"
             )
             NotificationCenter.default.post(
                 name: .tlsMitmRejected,
                 object: nil,
-                userInfo: ["host": host]
+                userInfo: Self.rejectionNotificationUserInfo(
+                    host: host,
+                    clientIdentifier: clientIdentifier
+                )
             )
         } else {
             tlsLogger.warning(
@@ -739,7 +894,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                 sourcePort: clientSourcePort,
                 measuredDuration: tunnelElapsedDuration(),
                 isTLSFailure: true,
-                captureContext: tunnelCaptureContext
+                captureContext: tunnelCaptureContext,
+                clientIdentifier: clientIdentifier
             )
         )
 
@@ -759,7 +915,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             sourcePort: clientSourcePort,
             measuredDuration: tunnelElapsedDuration(),
             sslCapture: .tunneled,
-            captureContext: tunnelCaptureContext
+            captureContext: tunnelCaptureContext,
+            clientIdentifier: clientIdentifier
         )
     }
 
@@ -779,7 +936,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             state: .failed,
             sourcePort: clientSourcePort,
             measuredDuration: tunnelElapsedDuration(),
-            captureContext: tunnelCaptureContext
+            captureContext: tunnelCaptureContext,
+            clientIdentifier: clientIdentifier
         )
     }
 
@@ -805,6 +963,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
     private let tunnelCaptureContext: TrafficCaptureContext?
     private let clientSourcePort: UInt16?
+    private let clientApplicationIdentity: ClientApplicationIdentity?
+    private let clientIdentifier: String?
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
         BreakpointDecision,
@@ -827,6 +987,17 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             "certificate_verify_failed",
         ]
         return certRejectionPatterns.contains { desc.contains($0) }
+    }
+
+    nonisolated static func rejectionNotificationUserInfo(
+        host: String,
+        clientIdentifier: String?
+    ) -> [String: String] {
+        var userInfo = [TLSMITMNotificationUserInfoKey.host: host]
+        if let clientIdentifier {
+            userInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier
+        }
+        return userInfo
     }
 
     nonisolated private func tunnelElapsedDuration() -> TimeInterval {

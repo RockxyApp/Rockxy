@@ -11,7 +11,7 @@ import SwiftUI
 /// Standalone diagnostics + configuration window for the proxy listener.
 ///
 /// System routing derives entirely from the live coordinator (`isProxyRunning`,
-/// `isProxyOverridden`, `activeProxyPort`) and drives the existing coordinator
+/// `isSystemProxyConfigured`, `activeProxyPort`) and drives the existing coordinator
 /// override path — it never reads the persisted launch-time recording preference.
 /// The live endpoint and restart-needed status read the coordinator's
 /// `runtimeListenerSnapshot`, captured from the exact settings the running proxy
@@ -133,21 +133,21 @@ struct AdvancedProxySettingsView: View {
         guard coordinator.isProxyRunning else {
             return "circle.slash"
         }
-        return coordinator.isProxyOverridden ? "checkmark.circle.fill" : "circle"
+        return coordinator.isSystemProxyConfigured ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
     }
 
     private var routingColor: Color {
         guard coordinator.isProxyRunning else {
             return .secondary
         }
-        return coordinator.isProxyOverridden ? .green : .orange
+        return coordinator.isSystemProxyConfigured ? .green : .orange
     }
 
     private var routingTitle: String {
         guard coordinator.isProxyRunning else {
             return String(localized: "Proxy Server Stopped", bundle: RockxyLocalization.bundle)
         }
-        return coordinator.isProxyOverridden
+        return coordinator.isSystemProxyConfigured
             ? String(localized: "macOS System Proxy Enabled", bundle: RockxyLocalization.bundle)
             : String(localized: "macOS System Proxy Disabled", bundle: RockxyLocalization.bundle)
     }
@@ -159,7 +159,7 @@ struct AdvancedProxySettingsView: View {
                 bundle: RockxyLocalization.bundle
             )
         }
-        return coordinator.isProxyOverridden
+        return coordinator.isSystemProxyConfigured
             ? String(
                 localized: "Proxy-aware traffic is routed to Rockxy. Some apps ignore the macOS system proxy and stay direct.",
                 bundle: RockxyLocalization.bundle
@@ -266,7 +266,7 @@ struct AdvancedProxySettingsView: View {
             )
         case .installedCompatible:
             String(
-                localized: "Helper is responding and matches the bundled version.",
+                localized: "Helper is responding and supports this app's required operations.",
                 bundle: RockxyLocalization.bundle
             )
         case .installedOutdated:
@@ -377,7 +377,7 @@ struct AdvancedProxySettingsView: View {
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if coordinator.isProxyOverridden, let endpoint = liveEndpointText {
+                    if coordinator.isSystemProxyConfigured, let endpoint = liveEndpointText {
                         Text(endpoint)
                             .font(toolMetrics.secondaryFont(monospaced: true))
                             .foregroundStyle(.secondary)
@@ -394,7 +394,7 @@ struct AdvancedProxySettingsView: View {
             }
 
             HStack(spacing: toolMetrics.controlSpacing) {
-                Button(coordinator.isProxyOverridden
+                Button(coordinator.isSystemProxyConfigured
                     ? String(localized: "Disable macOS System Proxy", bundle: RockxyLocalization.bundle)
                     : String(localized: "Enable macOS System Proxy", bundle: RockxyLocalization.bundle))
                 {

@@ -75,7 +75,11 @@ struct ResponseInspectorView: View {
             for: transaction.request.host,
             application: resolvedApplicationIdentity
         )
-        let hasRecentTLSRejection = SSLProxyingManager.shared.isAutoPassthrough(transaction.request.host)
+        let hasRecentTLSRejection = SSLProxyingManager.shared.isAutoPassthrough(
+            transaction.request.host,
+            clientIdentifier: transaction.tlsClientScopeIdentifier
+                ?? resolvedApplicationIdentity?.identifier
+        )
         let promptWithoutAppScope = HTTPSInspectionPromptModel.make(
             transaction: transaction,
             canInterceptHTTPS: canInterceptHTTPS,

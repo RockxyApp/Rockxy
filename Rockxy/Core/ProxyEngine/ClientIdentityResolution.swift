@@ -2,7 +2,7 @@ import Foundation
 
 // Defines the per-connection client-application identity resolution pipeline used to drive
 // application-scoped SSL proxying decisions. Identity is resolved once per accepted
-// connection, off the NIO event loop, before the TLS interception decision is made.
+// connection, off the NIO event loop, when a TLS interception decision needs it.
 
 // MARK: - ProxyConnectionDescriptor
 
@@ -190,6 +190,9 @@ private actor SnapshotCoordinator {
     // MARK: Internal
 
     func snapshot(freshAfter acceptedAt: DispatchTime, proxyPort: Int) async -> ProxyConnectionSnapshot {
+        guard !Task.isCancelled else {
+            return ProxyConnectionSnapshot(startedAt: now(), proxyPort: proxyPort, records: [])
+        }
         if let latest,
            latest.proxyPort == proxyPort,
            latest.startedAt.uptimeNanoseconds > acceptedAt.uptimeNanoseconds
@@ -199,6 +202,9 @@ private actor SnapshotCoordinator {
         if let inFlight {
             let snapshot = await inFlight.task.value
             commit(snapshot, inFlightID: inFlight.id)
+            guard !Task.isCancelled else {
+                return ProxyConnectionSnapshot(startedAt: snapshot.startedAt, proxyPort: proxyPort, records: [])
+            }
             if snapshot.proxyPort == proxyPort,
                snapshot.startedAt.uptimeNanoseconds > acceptedAt.uptimeNanoseconds
             {
@@ -253,32 +259,17 @@ private actor SnapshotCoordinator {
 
 // MARK: - ClientIdentityHandle
 
-/// Per-connection handle retaining the descriptor and the in-flight resolution Task. The
+/// Per-connection handle retaining the descriptor and a single shared resolution Task. The
 /// resolved identity is retained for the connection lifetime: `currentIdentity` provides a
 /// non-blocking snapshot for transaction stamping, while `awaitIdentity()` bounds the TLS
-/// decision on the already-started task.
+/// decision. The proxy starts resolution at accept time so short-lived sockets remain observable;
+/// later policy and stamping reads reuse that work without launching another OS lookup.
 final class ClientIdentityHandle: @unchecked Sendable {
     // MARK: Lifecycle
 
     init(descriptor: ProxyConnectionDescriptor, resolver: ClientIdentityResolver) {
         self.descriptor = descriptor
-        let state = IdentityState()
-        self.state = state
-        let gate = IdentityResolutionGate()
-        task = Task {
-            let identity = await withCheckedContinuation { continuation in
-                Task {
-                    let resolved = await resolver.resolveIdentity(descriptor: descriptor)
-                    gate.resolve(resolved, continuation: continuation)
-                }
-                Task {
-                    try? await Task.sleep(for: .milliseconds(850))
-                    gate.resolve(nil, continuation: continuation)
-                }
-            }
-            state.set(identity)
-            return identity
-        }
+        self.resolver = resolver
     }
 
     // MARK: Internal
@@ -290,15 +281,62 @@ final class ClientIdentityHandle: @unchecked Sendable {
         state.get()
     }
 
-    /// Awaits the bounded resolution task and returns the identity (nil on timeout/unresolved).
+    /// Starts resolution without waiting for it. The proxy calls this as soon as a local
+    /// connection is accepted so short-lived raw tunnels can still be attributed after their
+    /// client socket disappears from the OS connection table.
+    func startResolution() {
+        _ = resolutionTask()
+    }
+
+    /// Starts resolution once, then awaits the same bounded result for every caller.
     func awaitIdentity() async -> ClientApplicationIdentity? {
-        await task.value
+        await resolutionTask().value
     }
 
     // MARK: Private
 
-    private let state: IdentityState
-    private let task: Task<ClientApplicationIdentity?, Never>
+    private func resolutionTask() -> Task<ClientApplicationIdentity?, Never> {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        if let existing = task {
+            return existing
+        }
+        let descriptor = descriptor
+        let resolver = resolver
+        let state = state
+        let created = Task {
+            let gate = IdentityResolutionGate()
+            let resolverTask = Task {
+                await resolver.resolveIdentity(descriptor: descriptor)
+            }
+            let identity = await withCheckedContinuation { continuation in
+                Task {
+                    let resolved = await resolverTask.value
+                    _ = gate.resolve(resolved, continuation: continuation)
+                }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(850))
+                    _ = gate.resolve(nil, continuation: continuation)
+                }
+            }
+            state.set(identity)
+            if identity == nil {
+                Task {
+                    if let lateIdentity = await resolverTask.value {
+                        state.set(lateIdentity)
+                    }
+                }
+            }
+            return identity
+        }
+        task = created
+        return created
+    }
+
+    private let resolver: ClientIdentityResolver
+    private let state = IdentityState()
+    private let taskLock = NSLock()
+    private var task: Task<ClientApplicationIdentity?, Never>?
 }
 
 // MARK: - IdentityResolutionGate
@@ -310,15 +348,16 @@ private final class IdentityResolutionGate: @unchecked Sendable {
     func resolve(
         _ identity: ClientApplicationIdentity?,
         continuation: CheckedContinuation<ClientApplicationIdentity?, Never>
-    ) {
+    ) -> Bool {
         lock.lock()
         guard !isResolved else {
             lock.unlock()
-            return
+            return false
         }
         isResolved = true
         lock.unlock()
         continuation.resume(returning: identity)
+        return true
     }
 
     private let lock = NSLock()

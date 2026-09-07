@@ -17,6 +17,8 @@ If Rockxy cannot reliably start, stop, or control the system proxy path, fix tha
 
 ## Fast checks
 
+After an online app update, a helper that supports approval-preserving executable refresh exits cleanly and is relaunched by macOS from the updated Rockxy app bundle. Rockxy does not unregister that working service, auto-install a missing helper, downgrade a newer helper, or bypass macOS approval. A previous helper whose protocol still provides every required operation remains ready instead of making onboarding incomplete. Only a genuinely incompatible helper requires an explicit update.
+
 1. verify the configured port is free,
 2. verify Rockxy is allowed to manage its helper path,
 3. inspect the Advanced settings state for helper and proxy diagnostics,

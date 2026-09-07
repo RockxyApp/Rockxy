@@ -16,16 +16,31 @@ final class HelperDelegate: NSObject, NSXPCListenerDelegate {
             return false
         }
 
-        Self.logger.info("Accepted XPC connection from pid \(connection.processIdentifier)")
+        let processID = connection.processIdentifier
+        guard let startSignature = ProcessStartIdentity.startSignature(for: processID),
+              !startSignature.isEmpty
+        else {
+            Self.logger.warning("Rejected XPC connection whose process identity could not be captured (pid: \(processID))")
+            return false
+        }
+
+        Self.logger.info("Accepted XPC connection from pid \(processID)")
         IdleExitMonitor.resetIdleTimer()
 
         connection.exportedInterface = NSXPCInterface(with: RockxyHelperProtocol.self)
-        connection.exportedObject = HelperService.shared
+        // One service object per connection, bound to the peer this listener just authenticated.
+        // Exporting a process-wide object would leave every ownership-bearing method deciding
+        // from an identifier the message carried, which the sender chooses.
+        connection.exportedObject = HelperService(
+            boundConnectionPID: processID,
+            boundConnectionStartSignature: startSignature,
+            boundUserID: connection.effectiveUserIdentifier
+        )
 
         connection.invalidationHandler = {
             let processID = connection.processIdentifier
             Self.logger.warning("XPC connection invalidated for pid \(processID)")
-            HelperService.shared.handleConnectionInvalidated(processID: processID)
+            HelperService.handleConnectionInvalidated(processID: processID)
         }
 
         connection.interruptionHandler = {

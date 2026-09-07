@@ -554,6 +554,48 @@ struct LiveTunnelRegistryTests {
         _ = try? channel.finish()
     }
 
+    @Test("non-raced unresolved registration does not enter a reconnect loop")
+    func nonRacedUnresolvedRegistrationDoesNotResolveOrClose() async throws {
+        let sslManager = makeSSLProxyingManager()
+        let bypassManager = makeBypassProxyManager()
+        let application = ClientApplicationIdentity.bundle(
+            identifier: "com.example.LongRunningTool",
+            displayName: "Long Running Tool"
+        )
+        sslManager.setEnabled(true)
+        sslManager.setBypassDomains("")
+        sslManager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        sslManager.addApplicationRule(ApplicationSSLProxyingRule(identity: application, listType: .exclude))
+
+        let gate = ResolutionGate()
+        let registry = makeResolvingRegistry(
+            sslManager: sslManager,
+            bypassManager: bypassManager
+        ) { _ in
+            gate.markResolved()
+            return application
+        }
+        let channel = EmbeddedChannel()
+        let flag = CloseFlag()
+        flag.observe(channel)
+
+        registry.registerRawTunnel(
+            channel: channel,
+            host: "stable.example.com",
+            connectionDescriptor: makeDescriptor(clientPort: 51_035),
+            reason: .unresolvedApplicationIdentity,
+            decisionGeneration: registry.currentGeneration()
+        )
+        try await Task.sleep(for: .milliseconds(50))
+        drain(channel)
+
+        #expect(!gate.resolved)
+        #expect(!flag.closed)
+        #expect(registry.trackedTunnelCount() == 1)
+
+        _ = try? channel.finish()
+    }
+
     @Test("raced registration falls back to the host decision when no resolver is available")
     func racedRegistrationWithoutResolverStillCloses() throws {
         let sslManager = makeSSLProxyingManager()
@@ -854,6 +896,55 @@ struct LiveTunnelRegistryTests {
         #expect(!flag.closed)
         #expect(registry.trackedTunnelCount() == 1)
 
+        _ = try? channel.finish()
+    }
+
+    @Test("remote client auto-passthrough survives connection-aware policy invalidation")
+    func remoteClientPassthroughSurvivesInvalidation() throws {
+        let sslManager = makeSSLProxyingManager()
+        let bypassManager = makeBypassProxyManager()
+        sslManager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        let descriptor = ProxyConnectionDescriptor(
+            acceptedAt: .now(),
+            clientHost: "192.0.2.42",
+            clientPort: 51_100,
+            proxyHost: "0.0.0.0",
+            proxyPort: 9_090
+        )
+        let clientIdentifier = try #require(TLSInterceptHandler.clientScopeIdentifier(
+            application: nil,
+            connectionDescriptor: descriptor
+        ))
+        sslManager.markHostForPassthrough("pinned.example", clientIdentifier: clientIdentifier)
+
+        let registry = LiveTunnelRegistry(shouldInterceptConnectionNow: { host, application, connection in
+            TLSInterceptHandler.initialTunnelMode(
+                host: host,
+                sslProxyingManager: sslManager,
+                bypassProxyManager: bypassManager,
+                application: application,
+                clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
+                    application: application,
+                    connectionDescriptor: connection
+                )
+            ) == .intercept
+        })
+        let channel = EmbeddedChannel()
+        let flag = CloseFlag()
+        flag.observe(channel)
+        registry.registerRawTunnel(
+            channel: channel,
+            host: "pinned.example",
+            connectionDescriptor: descriptor,
+            reason: .autoPassthrough,
+            decisionGeneration: registry.currentGeneration()
+        )
+
+        registry.invalidateTunnelsNowRequiringInterception()
+        drain(channel)
+
+        #expect(!flag.closed)
+        #expect(registry.trackedTunnelCount() == 1)
         _ = try? channel.finish()
     }
 

@@ -50,7 +50,13 @@ struct SystemProxyManagerTests {
         let cases: [SystemProxyError] = [
             .networkSetupFailed(command: "test", output: "out", exitCode: 42),
             .noActiveNetworkService,
+            .proxyActivationNotConfirmed(port: 8_888),
+            .proxyRestoreFailed,
+            .proxySessionInUse,
+            .previousHelperUnavailable,
             .unexpectedOutput("bad"),
+            .directProxyWatchdogUnavailable(reason: "no start signature"),
+            .overrideRollbackIncomplete(reason: "networksetup exited non-zero"),
         ]
 
         for error in cases {
@@ -61,6 +67,181 @@ struct SystemProxyManagerTests {
     }
 
     // MARK: - State Management
+
+    @Test("routing readiness requires every fallback service to match")
+    func routingReadinessRejectsPartialFallbackMatch() {
+        let matching = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 8_888,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 8_888,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+        let foreign = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 9_090,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 9_090,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+
+        #expect(SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [matching]))
+        #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [matching, foreign]))
+        #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: []))
+    }
+
+    @Test("effective routing requires exact HTTP and HTTPS host and port")
+    func effectiveRoutingRequiresExactMatch() {
+        let matching: [String: Any] = [
+            "HTTPEnable": 1,
+            "HTTPProxy": "127.0.0.1",
+            "HTTPPort": 8_888,
+            "HTTPSEnable": 1,
+            "HTTPSProxy": "127.0.0.1",
+            "HTTPSPort": 8_888
+        ]
+        var foreign = matching
+        foreign["HTTPSPort"] = 9_090
+
+        #expect(SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+            port: 8_888,
+            settings: matching
+        ))
+        #expect(!SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+            port: 8_888,
+            settings: foreign
+        ))
+    }
+
+    @Test("routing readiness rejects alternate automatic and SOCKS routes")
+    func routingReadinessRejectsAlternateRoutes() {
+        let matching = ServiceProxySnapshot(
+            httpEnabled: true,
+            httpHost: "127.0.0.1",
+            httpPort: 8_888,
+            httpsEnabled: true,
+            httpsHost: "127.0.0.1",
+            httpsPort: 8_888,
+            socksEnabled: false,
+            socksHost: "",
+            socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
+        )
+
+        let variants = [
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: true,
+                socksHost: "foreign.proxy",
+                socksPort: 1_080,
+                pacEnabled: false,
+                pacURL: "",
+                autoDiscoveryEnabled: false
+            ),
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: false,
+                socksHost: "",
+                socksPort: 0,
+                pacEnabled: true,
+                pacURL: "https://proxy.example/proxy.pac",
+                autoDiscoveryEnabled: false
+            ),
+            ServiceProxySnapshot(
+                httpEnabled: matching.httpEnabled,
+                httpHost: matching.httpHost,
+                httpPort: matching.httpPort,
+                httpsEnabled: matching.httpsEnabled,
+                httpsHost: matching.httpsHost,
+                httpsPort: matching.httpsPort,
+                socksEnabled: false,
+                socksHost: "",
+                socksPort: 0,
+                pacEnabled: false,
+                pacURL: "",
+                autoDiscoveryEnabled: true
+            ),
+        ]
+
+        for variant in variants {
+            #expect(!SystemProxyManager.proxySnapshotsMatchRockxy(port: 8_888, snapshots: [variant]))
+        }
+    }
+
+    @Test("effective routing rejects PAC, auto discovery, SOCKS, and global bypass")
+    func effectiveRoutingRejectsAlternateRoutesAndGlobalBypass() {
+        let matching: [String: Any] = [
+            "HTTPEnable": 1,
+            "HTTPProxy": "127.0.0.1",
+            "HTTPPort": 8_888,
+            "HTTPSEnable": 1,
+            "HTTPSProxy": "127.0.0.1",
+            "HTTPSPort": 8_888,
+        ]
+        let conflictingValues: [(String, Any)] = [
+            ("SOCKSEnable", 1),
+            ("ProxyAutoConfigEnable", 1),
+            ("ProxyAutoDiscoveryEnable", 1),
+            ("ExceptionsList", ["localhost", "*"]),
+        ]
+
+        for (key, value) in conflictingValues {
+            var settings = matching
+            settings[key] = value
+            #expect(!SystemProxyManager.effectiveProxyDictionaryMatchesRockxy(
+                port: 8_888,
+                settings: settings
+            ))
+        }
+    }
+
+    @Test("routing reclaim preserves the original ownership method and backup")
+    func reclaimModePreservesOriginalOwnership() {
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: true,
+            directBackupExists: true,
+            usingHelper: false,
+            isEnabled: false
+        ) == .direct)
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: false,
+            directBackupExists: false,
+            usingHelper: true,
+            isEnabled: false
+        ) == .helper)
+        #expect(SystemProxyManager.reclaimMode(
+            directRestorePending: false,
+            directBackupExists: false,
+            usingHelper: false,
+            isEnabled: false
+        ) == .none)
+    }
 
     @Test("systemProxyEnabled defaults to false")
     func defaultStateIsFalse() {
@@ -95,28 +276,91 @@ struct SystemProxyManagerTests {
         ) == false)
     }
 
-    @Test("direct proxy watchdog exits once backup is gone")
-    func directProxyWatchdogExitsWhenBackupRemoved() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: true,
-            backupExists: false
-        ) == .exit)
+    @Test("a direct override is refused when its watchdog cannot be armed")
+    func directWatchdogPreflightRequiresBothHalves() {
+        // Resolved before any service is mutated. An override applied without a live watchdog is
+        // only noticed at the next launch, and one armed against a bare identifier watches
+        // whatever process later inherits it.
+        #expect(SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: "1699999999.123456"
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: false,
+            parentStartSignature: "1699999999.123456"
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: nil
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: ""
+        ))
     }
 
-    @Test("direct proxy watchdog keeps waiting while parent is alive")
-    func directProxyWatchdogWaitsForParentExit() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: true,
-            backupExists: true
-        ) == .wait)
+    @Test("an override that could not be applied reports whether its rollback finished")
+    func failedOverrideReportsAnIncompleteRollback() {
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: true,
+            rollbackSucceeded: false
+        ) == .enabled)
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: false,
+            rollbackSucceeded: true
+        ) == .rolledBack)
+        // A rollback that could not finish keeps the backup and reports the failure: the services
+        // still overridden have no other way back, so the rollback's answer is never discarded in
+        // favour of the original apply error alone.
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: false,
+            rollbackSucceeded: false
+        ) == .rollbackIncomplete)
     }
 
-    @Test("direct proxy watchdog restores after parent exits with backup present")
-    func directProxyWatchdogRestoresOnParentExit() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: false,
-            backupExists: true
-        ) == .restore)
+    @Test("the watchdog is armed before the first proxy command, never after")
+    func watchdogIsArmedBeforeAnyProxyMutation() {
+        var steps: [DirectOverrideApplicationStep] = []
+        let failure = DirectOverrideApplication.run(
+            persistBackup: { steps.append(.persistBackup) },
+            armWatchdog: { steps.append(.armWatchdog) },
+            mutateServices: { steps.append(.mutateServices) }
+        )
+
+        // A process that dies between the first proxy command and the watchdog submission leaves
+        // an override behind with nothing watching it, so the order is the guarantee.
+        #expect(steps == [.persistBackup, .armWatchdog, .mutateServices])
+        #expect(failure == nil)
+    }
+
+    @Test("a watchdog that cannot be armed stops the attempt before any service is mutated")
+    func watchdogFailureLeavesEverySettingUntouched() {
+        var mutated = false
+        let failure = DirectOverrideApplication.run(
+            persistBackup: {},
+            armWatchdog: { throw DirectOverrideStepError.failed },
+            mutateServices: { mutated = true }
+        )
+
+        #expect(!mutated)
+        #expect(failure?.step == .armWatchdog)
+    }
+
+    @Test("a backup that cannot be published stops the attempt before the watchdog is armed")
+    func backupFailureStopsBeforeArming() {
+        var armed = false
+        var mutated = false
+        let failure = DirectOverrideApplication.run(
+            persistBackup: { throw DirectOverrideStepError.failed },
+            armWatchdog: { armed = true },
+            mutateServices: { mutated = true }
+        )
+
+        // The watchdog watches the backup file. Arming one with no restore point behind it would
+        // give it nothing to act on.
+        #expect(!armed)
+        #expect(!mutated)
+        #expect(failure?.step == .persistBackup)
     }
 
     @Test("direct restore clears backup only after commands succeed and proxy ownership is gone")
@@ -143,25 +387,104 @@ struct SystemProxyManagerTests {
         ) == false)
     }
 
-    @Test("direct proxy watchdog launchctl submission uses helper entrypoint and backup path")
-    func directProxyWatchdogSubmitArguments() {
-        let arguments = SystemProxyManager.directWatchdogSubmitArguments(
-            label: "com.amunx.rockxy.community.direct-proxy-watchdog",
-            executablePath: "/tmp/RockxyHelperTool",
-            parentPID: 4_242,
-            backupPath: "/tmp/proxy-backup-direct.plist"
+    @Test("helper override confirmation requires active state on the requested port")
+    func helperOverrideConfirmationRequiresExactLiveState() {
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: true, port: 8_888)
+        ))
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: false, port: 8_888)
+        ) == false)
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: true, port: 9_090)
+        ) == false)
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: nil
+        ) == false)
+    }
+
+    @Test("activation confirmation tolerates delayed system configuration propagation")
+    func activationConfirmationRetries() async {
+        let counter = ActivationProbeCounter(succeedsOnAttempt: 3)
+
+        let confirmed = await ProxyActivationConfirmation.confirm(
+            maxAttempts: 4,
+            delay: .zero
+        ) {
+            await counter.probe()
+        }
+
+        #expect(confirmed)
+        #expect(await counter.attempts == 3)
+    }
+
+    @Test("activation confirmation fails after the bounded attempt count")
+    func activationConfirmationIsBounded() async {
+        let counter = ActivationProbeCounter(succeedsOnAttempt: 5)
+
+        let confirmed = await ProxyActivationConfirmation.confirm(
+            maxAttempts: 2,
+            delay: .zero
+        ) {
+            await counter.probe()
+        }
+
+        #expect(!confirmed)
+        #expect(await counter.attempts == 2)
+    }
+
+    // MARK: - Proxy Override Reconciliation
+
+    @Test("An override on the active proxy port reports both override and capture readiness")
+    func overrideOnActivePortIsCaptureReady() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: 8_888,
+            activeProxyPort: 8_888
         )
 
-        #expect(arguments == [
-            "submit",
-            "-l",
-            "com.amunx.rockxy.community.direct-proxy-watchdog",
-            "--",
-            "/tmp/RockxyHelperTool",
-            "--rockxy-direct-proxy-watchdog",
-            "4242",
-            "/tmp/proxy-backup-direct.plist",
-        ])
+        #expect(reconciliation == ProxyOverrideReconciliation(
+            isOverridden: true,
+            matchesActiveProxyPort: true
+        ))
+    }
+
+    @Test("An override on a different port stays an override but is not capture ready")
+    func overrideOnDifferentPortIsNotCaptureReady() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: 9_090,
+            activeProxyPort: 8_888
+        )
+
+        #expect(reconciliation.isOverridden)
+        #expect(!reconciliation.matchesActiveProxyPort)
+    }
+
+    @Test("No override reports neither an override nor capture readiness")
+    func absentOverrideReportsNothing() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: nil,
+            activeProxyPort: 8_888
+        )
+
+        #expect(!reconciliation.isOverridden)
+        #expect(!reconciliation.matchesActiveProxyPort)
+    }
+
+    @Test("Override ownership resolves the port from direct backups and helper status")
+    func overridePortIsResolvedFromOwnership() {
+        let backup = DirectProxyBackup(
+            services: [],
+            timestamp: Date(timeIntervalSince1970: 0),
+            rockxyPort: 9_090
+        )
+
+        #expect(MainContentCoordinator.proxyOverridePort(for: .none) == nil)
+        #expect(MainContentCoordinator.proxyOverridePort(for: .direct(backup: backup)) == 9_090)
+        #expect(MainContentCoordinator.proxyOverridePort(for: .helper(port: 8_888)) == 8_888)
     }
 
     // MARK: - Network Service Parsing Logic
@@ -542,4 +865,24 @@ struct SystemProxyManagerTests {
 
         return result
     }
+}
+
+private actor ActivationProbeCounter {
+    init(succeedsOnAttempt: Int) {
+        self.succeedsOnAttempt = succeedsOnAttempt
+    }
+
+    private(set) var attempts = 0
+    private let succeedsOnAttempt: Int
+
+    func probe() -> Bool {
+        attempts += 1
+        return attempts >= succeedsOnAttempt
+    }
+}
+
+// MARK: - DirectOverrideStepError
+
+private enum DirectOverrideStepError: Error {
+    case failed
 }

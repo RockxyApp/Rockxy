@@ -33,6 +33,8 @@ struct HelperConnectionBypassTests {
             .certInstallFailed("test"),
             .certRemoveFailed("test"),
             .bypassDomainsFailed("test"),
+            .executableRefreshUnsupported,
+            .executableRefreshDeferred,
         ]
 
         for error in cases {

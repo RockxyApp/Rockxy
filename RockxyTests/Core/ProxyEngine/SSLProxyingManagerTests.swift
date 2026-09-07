@@ -224,6 +224,30 @@ struct SSLProxyingManagerTests {
         #expect(!manager.retryInterception(for: "missing.example.com"))
     }
 
+    @Test("certificate rejection passthrough is scoped to the originating application")
+    func autoPassthroughIsApplicationScoped() {
+        let manager = makeManager()
+        let first = ClientApplicationIdentity.bundle(identifier: "app.one", displayName: "One")
+        let second = ClientApplicationIdentity.bundle(identifier: "app.two", displayName: "Two")
+
+        manager.markHostForPassthrough("shared.example", application: first)
+
+        #expect(manager.isAutoPassthrough("shared.example", application: first))
+        #expect(!manager.isAutoPassthrough("shared.example", application: second))
+        #expect(!manager.isAutoPassthrough("shared.example"))
+    }
+
+    @Test("certificate rejection passthrough is isolated between remote clients")
+    func autoPassthroughIsRemoteClientScoped() {
+        let manager = makeManager()
+
+        manager.markHostForPassthrough("shared.example", clientIdentifier: "remote:first")
+
+        #expect(manager.isAutoPassthrough("shared.example", clientIdentifier: "remote:first"))
+        #expect(!manager.isAutoPassthrough("shared.example", clientIdentifier: "remote:second"))
+        #expect(!manager.isAutoPassthrough("shared.example"))
+    }
+
     // MARK: - Bypass Domains
 
     @Test("shouldIntercept returns false for bypass domain")

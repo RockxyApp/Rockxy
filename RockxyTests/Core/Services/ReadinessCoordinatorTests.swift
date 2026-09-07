@@ -52,6 +52,84 @@ struct ReadinessCoordinatorTests {
         coordinator.setCaptureActive(false)
     }
 
+    @Test("proxy restore failure is blocking and exposes the requested recovery action")
+    @MainActor
+    func proxyRestoreFailureLifecycle() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setCaptureActive(true)
+
+        coordinator.setProxyRestoreFailed(retryAction: .retryStop)
+        #expect(coordinator.activeWarning?.action == .retryStop)
+        #expect(coordinator.activeWarning?.isDismissible == false)
+        #expect(coordinator.activeWarning?.message.contains("Capture remains running") == true)
+
+        coordinator.clearProxyRestoreFailure()
+        #expect(coordinator.activeWarning?.action != .retryStop)
+        coordinator.setCaptureActive(false)
+    }
+
+    @Test("capture stop clears proxy restore failure state")
+    @MainActor
+    func captureStopClearsProxyRestoreFailure() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(true)
+        coordinator.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
+        #expect(coordinator.activeWarning?.action == .retryDisableSystemRouting)
+
+        coordinator.setCaptureActive(false)
+        #expect(coordinator.activeWarning == nil)
+    }
+
+    @Test("routing takeover remains visible after an enable failure clears")
+    @MainActor
+    func routingTakeoverWarning() {
+        let coordinator = ReadinessCoordinator.shared
+        defer { coordinator.setCaptureActive(false) }
+
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingExpected(true)
+        coordinator.setSystemRoutingReady(true)
+        coordinator.setCaptureHealth(.verified)
+        coordinator.setCaptureActive(true)
+
+        coordinator.setSystemRoutingReady(false)
+
+        #expect(coordinator.activeWarning?.action == .restoreSystemRouting)
+        #expect(coordinator.hasBlockingReadinessIssue)
+    }
+
+    @Test("deliberate manual-app routing does not produce a takeover warning")
+    @MainActor
+    func deliberateManualRouting() {
+        let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            coordinator.setSystemRoutingExpected(true)
+        }
+
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingExpected(false)
+        coordinator.setSystemRoutingReady(false)
+        coordinator.setCaptureHealth(.verified)
+        coordinator.setCaptureActive(true)
+
+        #expect(coordinator.activeWarning?.action != .restoreSystemRouting)
+    }
+
+    @Test("failed local capture check outranks lost system routing")
+    @MainActor
+    func captureHealthFailurePriority() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingReady(false)
+        coordinator.setCaptureActive(true)
+        coordinator.setCaptureHealth(.failed)
+
+        #expect(coordinator.activeWarning?.action == .retryCaptureCheck)
+        coordinator.setCaptureActive(false)
+    }
+
     @Test("capture stop clears all transient warning state")
     @MainActor
     func captureStopClearsAllState() {
@@ -135,15 +213,113 @@ struct ReadinessCoordinatorTests {
 
     // MARK: - TLS Rejection
 
+    @Test("TLS rejection evidence never combines unrelated applications")
+    func tlsRejectionEvidenceIsApplicationScoped() {
+        var evidence = TLSRejectionEvidence()
+        evidence.recordRejection(host: "one.example", clientIdentifier: "app.one")
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.two")
+        evidence.recordRejection(host: "three.example", clientIdentifier: "app.three")
+
+        #expect(!evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("three rejected hosts from one application produce trust evidence")
+    func tlsRejectionEvidenceRequiresMultipleHostsFromOneApplication() {
+        var evidence = TLSRejectionEvidence()
+        let insertedFirstRejection = evidence.recordRejection(
+            host: "one.example",
+            clientIdentifier: "app.one"
+        )
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
+        evidence.recordRejection(host: "THREE.EXAMPLE", clientIdentifier: "app.one")
+        let insertedDuplicateRejection = evidence.recordRejection(
+            host: "three.example",
+            clientIdentifier: "app.one"
+        )
+
+        #expect(insertedFirstRejection)
+        #expect(!insertedDuplicateRejection)
+        #expect(evidence.hasMultiHostClientFailure)
+        #expect(evidence.rejectedHostsByClient["app.one"]?.count == 3)
+    }
+
+    @Test("successful interception clears only that application's rejection evidence")
+    func tlsSuccessClearsMatchingApplicationEvidence() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+            evidence.recordRejection(host: host, clientIdentifier: "app.two")
+        }
+        #expect(evidence.hasMultiHostClientFailure)
+
+        evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+
+        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.rejectedHostsByClient["app.two"]?.count == 3)
+        #expect(evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("an application that accepted the current CA cannot later trigger a global trust warning")
+    func tlsSuccessSuppressesLaterPinnedHostFailuresForMatchingApplication() {
+        var evidence = TLSRejectionEvidence()
+        let firstSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+        let duplicateSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+        #expect(firstSuccessChangedEvidence)
+        #expect(!duplicateSuccessChangedEvidence)
+
+        for host in ["pinned-one.example", "pinned-two.example", "pinned-three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+        }
+
+        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
+        #expect(!evidence.hasMultiHostClientFailure)
+    }
+
+    @Test("unattributed TLS rejections never become a global trust warning")
+    func unattributedTLSRejectionsAreIgnored() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example", "four.example", "five.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: nil)
+        }
+
+        #expect(!evidence.hasMultiHostClientFailure)
+        #expect(evidence.rejectedHostsByClient.isEmpty)
+    }
+
+    @Test("an unattributed success cannot suppress a later identified client")
+    func unattributedTLSSuccessIsIgnored() {
+        var evidence = TLSRejectionEvidence()
+        evidence.recordSuccessfulHandshake(clientIdentifier: nil)
+
+        evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
+        #expect(evidence.rejectedHostsByClient["app.one"] == ["two.example"])
+    }
+
+    @Test("the bounded acceptance cache always retains the most recently successful client")
+    func tlsAcceptanceCacheRetainsNewestClient() {
+        var evidence = TLSRejectionEvidence()
+        for index in 0 ..< TLSRejectionEvidence.maximumTrackedClients {
+            evidence.recordSuccessfulHandshake(clientIdentifier: "app.\(index)")
+        }
+
+        evidence.recordSuccessfulHandshake(clientIdentifier: "app.newest")
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.newest")
+        }
+
+        #expect(evidence.clientsAcceptingCurrentCA.count == TLSRejectionEvidence.maximumTrackedClients)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.newest"))
+        #expect(evidence.rejectedHostsByClient["app.newest"] == nil)
+    }
+
     @Test("clearTLSRejections removes TLS rejection warning source")
     @MainActor
     func clearTLSRejectionsResets() {
         let coordinator = ReadinessCoordinator.shared
         coordinator.setCaptureActive(true)
         coordinator.clearTLSRejections()
-        if let warning = coordinator.activeWarning {
-            #expect(!warning.message.contains("Multiple HTTPS hosts rejected"))
-        }
+        #expect(coordinator.activeWarning?.action != .openGeneralSettings)
         coordinator.setCaptureActive(false)
     }
 
@@ -362,6 +538,18 @@ struct ReadinessCoordinatorTests {
         }
     }
 
+    @Test("forced trust revalidation refreshes the snapshot and derived capability")
+    @MainActor
+    func forcedTrustRevalidationRefreshesSnapshot() async throws {
+        let coordinator = ReadinessCoordinator.shared
+        // This path never requests installation or changes trust settings. Positive trust
+        // metadata triggers SecTrust evaluation; known absence fails closed before that work.
+        await coordinator.refreshCertificateTrustValidation()
+
+        let snapshot = try #require(coordinator.lastCertSnapshot)
+        #expect(coordinator.canInterceptHTTPS == snapshot.isSystemTrustValidated)
+    }
+
     @Test("mid-capture passthrough matches cert readiness")
     @MainActor
     func midCaptureTrustChangeAffectsFuture() async {
@@ -441,6 +629,82 @@ struct ReadinessWarningTests {
         #expect(!CertReadiness.unknown.localizedDescription.isEmpty)
     }
 
+    @Test("each readable certificate state names the step that is actually missing")
+    func readableCertStatesProduceDistinctWarnings() throws {
+        let notGenerated = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .notGenerated,
+            isCaptureActive: true
+        ))
+        let generatedNotInstalled = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .generatedNotInstalled,
+            isCaptureActive: true
+        ))
+        let installedNotTrusted = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .installedNotTrusted,
+            isCaptureActive: true
+        ))
+        let unknown = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .unknown,
+            isCaptureActive: true
+        ))
+
+        // Each readable state describes its own missing step. "Not trusted" for a root that was
+        // never generated, or for one that is in no keychain, names a decision the user never made.
+        #expect(notGenerated.message.contains("has not been generated"))
+        #expect(generatedNotInstalled.message.contains("not installed in the login or System keychain"))
+        #expect(installedNotTrusted.message.contains("installed but not trusted"))
+
+        let messages = [
+            notGenerated.message,
+            generatedNotInstalled.message,
+            installedNotTrusted.message,
+            unknown.message,
+        ]
+        #expect(Set(messages).count == messages.count)
+
+        for warning in [notGenerated, generatedNotInstalled, installedNotTrusted, unknown] {
+            // HTTP and log capture keep running in every one of these states, and none of the
+            // warnings may be dismissed away while HTTPS interception is paused.
+            #expect(warning.message.contains("HTTP traffic and logs are still captured"))
+            #expect(warning.isDismissible == false)
+        }
+
+        // The recovery stays as it was: a readable missing step offers the install, an
+        // unreadable status offers only a recheck.
+        #expect(notGenerated.action == .reinstallAndTrust)
+        #expect(generatedNotInstalled.action == .reinstallAndTrust)
+        #expect(installedNotTrusted.action == .reinstallAndTrust)
+        #expect(unknown.action == .openGeneralSettings)
+    }
+
+    @Test("no certificate warning is produced while capture is idle, in any readable state")
+    func certWarningsRequireActiveCaptureInEveryState() {
+        for readiness in [
+            CertReadiness.notGenerated,
+            .generatedNotInstalled,
+            .installedNotTrusted,
+            .trusted,
+            .unknown,
+        ] {
+            #expect(
+                ReadinessCoordinator.certNotTrustedWarning(
+                    certReadiness: readiness,
+                    isCaptureActive: false
+                ) == nil
+            )
+        }
+    }
+
+    @Test("a trusted root produces no certificate warning during capture")
+    func trustedRootProducesNoWarningDuringCapture() {
+        #expect(
+            ReadinessCoordinator.certNotTrustedWarning(
+                certReadiness: .trusted,
+                isCaptureActive: true
+            ) == nil
+        )
+    }
+
     @Test("an unreadable cert status warns that verification failed and offers a status check")
     func unknownCertReadinessOffersStatusCheck() throws {
         let warning = try #require(ReadinessCoordinator.certNotTrustedWarning(
@@ -459,5 +723,84 @@ struct ReadinessWarningTests {
             certReadiness: .installedNotTrusted,
             isCaptureActive: true
         )?.action == .reinstallAndTrust)
+    }
+}
+
+// MARK: - ProxyStartTrustValidationContractTests
+
+/// Source-contract coverage for the Start Capture trust gate.
+///
+/// Starting the real proxy would bind a port, replace the system proxy configuration, and
+/// launch a second capture session on this machine, so the call path is pinned at the source
+/// level instead: capture start must force a fresh trust resolution (including real `SecTrust`
+/// evaluation when trust metadata is present) before it decides global passthrough and before the
+/// server accepts connections. A cached negative recorded before the user approved the root would
+/// otherwise pass every HTTPS connection through for the whole session.
+struct ProxyStartTrustValidationContractTests {
+    // MARK: Internal
+
+    @Test("Start Capture forces certificate revalidation before passthrough and server start")
+    func startProxyForcesFreshTrustValidation() throws {
+        let source = try String(
+            contentsOf: resolveProjectRoot()
+                .appendingPathComponent("Rockxy/Views/Main/Extensions/MainContentCoordinator+ProxyControl.swift"),
+            encoding: .utf8
+        )
+        let startBody = try #require(bodyOfStartProxy(in: source))
+
+        let validation = try #require(startBody.range(of: "await readiness.refreshCertificateTrustValidation()"))
+        let passthrough = try #require(
+            startBody.range(of: "SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS")
+        )
+        let serverStart = try #require(startBody.range(of: "try await proxyServer.start()"))
+
+        #expect(validation.upperBound <= passthrough.lowerBound)
+        #expect(passthrough.upperBound <= serverStart.lowerBound)
+        // The cheap cached refresh must not be what decides this gate.
+        #expect(!startBody.contains("await readiness.refresh()"))
+    }
+
+    @Test("the forced revalidation entry point requests fresh validation")
+    func forcedRevalidationRequestsRealValidation() throws {
+        let source = try String(
+            contentsOf: resolveProjectRoot()
+                .appendingPathComponent("Rockxy/Core/Services/ReadinessCoordinator.swift"),
+            encoding: .utf8
+        )
+        let declaration = try #require(source.range(of: "func refreshCertificateTrustValidation() async {"))
+        let body = source[declaration.upperBound...].prefix(400)
+
+        #expect(body.contains("refreshCertState(performValidation: true)"))
+    }
+
+    // MARK: Private
+
+    private enum ContractError: Error {
+        case rootNotFound(filePath: String)
+    }
+
+    /// The text of `startProxy()`, bounded by the next function declaration so later lifecycle
+    /// code cannot satisfy or break an ordering assertion about capture start.
+    private func bodyOfStartProxy(in source: String) -> String? {
+        guard let start = source.range(of: "func startProxy() {") else {
+            return nil
+        }
+        let remainder = source[start.upperBound...]
+        guard let end = remainder.range(of: "func stopProxy() {") else {
+            return String(remainder)
+        }
+        return String(remainder[..<end.lowerBound])
+    }
+
+    private func resolveProjectRoot() throws -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.lastPathComponent != "RockxyTests", url.path != "/" {
+            url.deleteLastPathComponent()
+        }
+        guard url.lastPathComponent == "RockxyTests" else {
+            throw ContractError.rootNotFound(filePath: #filePath)
+        }
+        url.deleteLastPathComponent()
+        return url
     }
 }

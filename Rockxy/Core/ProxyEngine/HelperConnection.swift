@@ -17,6 +17,8 @@ enum HelperConnectionError: LocalizedError {
     case certRemoveFailed(String)
     case certRemovalUnsupported
     case bypassDomainsFailed(String)
+    case executableRefreshUnsupported
+    case executableRefreshDeferred
     case applicationMustReopen
     case appSignatureInvalid(String)
     case signingIdentityMismatch(app: String, helper: String)
@@ -45,6 +47,10 @@ enum HelperConnectionError: LocalizedError {
             "The installed Rockxy helper does not support safe certificate removal. Update the helper in Settings > Advanced > Proxy Helper Tool, then try again."
         case let .bypassDomainsFailed(reason):
             "Helper failed to set bypass domains: \(reason)"
+        case .executableRefreshUnsupported:
+            "The installed helper does not support approval-preserving executable refresh"
+        case .executableRefreshDeferred:
+            "The helper is busy with proxy or certificate work; executable refresh was deferred"
         case .applicationMustReopen:
             "Rockxy was updated or replaced while it was open. Quit and reopen Rockxy, then check the helper again."
         case .appSignatureInvalid:
@@ -599,7 +605,11 @@ final class HelperConnection {
             }
 
             Task {
-                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                // A live status probe reads every relevant proxy mode for the routed
+                // service. Several SystemConfiguration notifications can also make
+                // those reads contend briefly, so use the same bounded window as the
+                // proxy mutations instead of reporting a false routing loss.
+                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
                 let alreadyResumed = resumed.withLock { val -> Bool in
                     if val {
                         return true
@@ -658,6 +668,93 @@ final class HelperConnection {
         connection?.invalidate()
         connection = nil
         signingCache.invalidate()
+    }
+
+    /// Ask a protocol-3-or-newer helper to exit without unregistering its approved SMAppService job.
+    /// The manager reconnects afterward, causing launchd to start the helper embedded in the
+    /// current app bundle.
+    func refreshHelperExecutable() async throws {
+        let proxy = try await getProxy()
+        let info = try await helperInfo(using: proxy)
+        guard HelperCompatibilityPolicy.supportsExecutableRefresh(
+            protocolVersion: info.protocolVersion
+        ) else {
+            throw HelperConnectionError.executableRefreshUnsupported
+        }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+
+            proxy.prepareForExecutableRefresh { success in
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                guard !alreadyResumed else {
+                    return
+                }
+                if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: HelperConnectionError.executableRefreshDeferred)
+                }
+            }
+
+            Task {
+                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                if !alreadyResumed {
+                    continuation.resume(throwing: HelperConnectionError.xpcTimeout)
+                }
+            }
+        }
+        resetConnection()
+        signingCache.invalidate()
+    }
+
+    private func helperInfo(using proxy: any RockxyHelperProtocol) async throws -> HelperInfo {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HelperInfo, Error>) in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            proxy.getHelperInfo { version, build, protocolVersion in
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                guard !alreadyResumed else {
+                    return
+                }
+                continuation.resume(returning: HelperInfo(
+                    binaryVersion: version,
+                    buildNumber: build,
+                    protocolVersion: protocolVersion
+                ))
+            }
+
+            Task {
+                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                if !alreadyResumed {
+                    continuation.resume(throwing: HelperConnectionError.xpcTimeout)
+                }
+            }
+        }
     }
 
     /// Set the system proxy bypass domain list via the helper tool.

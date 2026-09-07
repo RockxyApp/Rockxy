@@ -37,6 +37,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         customCertificateManager: CustomCertificateManager = .shared,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
+        shouldBypassUserModifications: @escaping @Sendable (HTTPRequestData) -> Bool = { _ in false },
         clientIdentityHandle: ClientIdentityHandle? = nil,
         clientConnectionDescriptor: ProxyConnectionDescriptor? = nil,
         liveTunnelRegistry: LiveTunnelRegistry? = nil,
@@ -54,6 +55,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         self.customCertificateManager = customCertificateManager
         self.upstreamProxySnapshotProvider = upstreamProxySnapshotProvider
         self.captureContextProvider = captureContextProvider
+        self.shouldBypassUserModifications = shouldBypassUserModifications
         self.clientIdentityHandle = clientIdentityHandle
         self.clientConnectionDescriptor = clientConnectionDescriptor
         self.liveTunnelRegistry = liveTunnelRegistry
@@ -137,6 +139,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     private let customCertificateManager: CustomCertificateManager
     private let upstreamProxySnapshotProvider: @Sendable () -> UpstreamProxyResolvedConfiguration?
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
+    private let shouldBypassUserModifications: @Sendable (HTTPRequestData) -> Bool
     private let clientIdentityHandle: ClientIdentityHandle?
     private let clientConnectionDescriptor: ProxyConnectionDescriptor?
     private let liveTunnelRegistry: LiveTunnelRegistry?
@@ -207,6 +210,20 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         let headers = requestData.headers
         let method = requestData.method
         let url = requestData.url
+
+        // Internal health probes must measure the listener and upstream relay itself, not
+        // user-authored breakpoints, throttles, scripts, cache mutation, or External Proxy.
+        // The injected predicate accepts only the currently registered random probe token.
+        if shouldBypassUserModifications(requestData) {
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                bypassUserModifications: true,
+                callback: onTransactionComplete
+            )
+            return
+        }
 
         // Rule evaluation is async (actor-isolated), so bridge to NIO's EventLoopFuture world
         let eventLoop = context.eventLoop
@@ -712,10 +729,15 @@ extension HTTPProxyHandler {
         }.flatMap {
             ProxyPipeline.removeHTTPServerPipeline(from: context.pipeline, on: context.eventLoop)
         }.flatMap { () -> EventLoopFuture<ClientApplicationIdentity?> in
-            // Await the already-started, bounded identity resolution before the TLS decision.
-            // autoRead is already false so no client bytes are lost while resolving; a
-            // timeout / unresolved identity yields nil and never enables app decryption.
-            context.eventLoop.makeFutureWithTask {
+            let identityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
+                || self.sslProxyingManager.shouldIntercept(host: host, application: nil)
+            guard identityCanAffectDecision else {
+                return context.eventLoop.makeSucceededFuture(nil)
+            }
+            // Start and await bounded resolution only when host or application policy can lead
+            // to interception. autoRead is already false so no client bytes are lost; an
+            // unresolved identity fails closed for application-only rules.
+            return context.eventLoop.makeFutureWithTask {
                 await self.clientIdentityHandle?.awaitIdentity()
             }
         }.flatMap { clientApplicationIdentity in
@@ -772,12 +794,13 @@ extension HTTPProxyHandler {
         requestData: HTTPRequestData,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
+        bypassUserModifications: Bool = false,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         var head = head
         var requestData = requestData
 
-        if NoCacheHeaderMutator.isEnabled {
+        if !bypassUserModifications, NoCacheHeaderMutator.isEnabled {
             requestData.headers = NoCacheHeaderMutator.apply(to: requestData.headers)
             head.headers = HTTPHeaders(requestData.headers.map { ($0.name, $0.value) })
         }
@@ -807,7 +830,7 @@ extension HTTPProxyHandler {
             targetScheme: requestData.url.scheme ?? "http",
             targetHost: host,
             targetPort: port,
-            configuration: upstreamProxySnapshotProvider()
+            configuration: bypassUserModifications ? nil : upstreamProxySnapshotProvider()
         ) { channel in
             if useTLS {
                 do {
@@ -850,6 +873,7 @@ extension HTTPProxyHandler {
                     tcpTime: tcpTime,
                     responseHeaderOperations: responseHeaderOperations,
                     networkConditionProfile: networkConditionProfile,
+                    bypassUserModifications: bypassUserModifications,
                     onUpstreamClosed: { limiter.release(host: host, port: port) },
                     callback: callback
                 )
@@ -872,6 +896,7 @@ extension HTTPProxyHandler {
         tcpTime: DispatchTime,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
+        bypassUserModifications: Bool = false,
         onUpstreamClosed: @escaping @Sendable () -> Void,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
@@ -887,8 +912,8 @@ extension HTTPProxyHandler {
             breakpointRuleName: pendingBreakpointRuleName,
             headerResponseOperations: responseHeaderOperations,
             networkConditionProfile: networkConditionProfile,
-            scriptPluginManager: scriptPluginManager,
-            onBreakpointHit: onBreakpointHit,
+            scriptPluginManager: bypassUserModifications ? nil : scriptPluginManager,
+            onBreakpointHit: bypassUserModifications ? nil : onBreakpointHit,
             breakpointBridgeTracker: breakpointBridgeTracker,
             onTransactionComplete: callback,
             onChannelClosed: onUpstreamClosed

@@ -27,7 +27,9 @@ struct BypassDomain: Identifiable, Codable, Hashable {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        guard !normalizedHost.isEmpty, !normalizedDomain.isEmpty else {
+        guard !normalizedHost.isEmpty,
+              ProxyBypassDomainValidator.isValid(normalizedDomain)
+        else {
             return false
         }
 
@@ -35,6 +37,12 @@ struct BypassDomain: Identifiable, Codable, Hashable {
             let prefix = String(normalizedDomain.dropLast())
             return normalizedHost.hasPrefix(prefix)
                 && Self.isIPv4Address(normalizedHost)
+        }
+
+        if let cidr = ProxyBypassDomainValidator.ipv4CIDR(normalizedDomain),
+           let address = ProxyBypassDomainValidator.ipv4Address(normalizedHost)
+        {
+            return address & cidr.mask == cidr.network
         }
 
         if Self.shouldMatchSubdomains(normalizedDomain) {
@@ -46,8 +54,12 @@ struct BypassDomain: Identifiable, Codable, Hashable {
 
     static func systemProxyPatterns(for domain: String) -> [String] {
         let normalizedDomain = domain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedDomain.isEmpty else {
+        guard ProxyBypassDomainValidator.isValid(normalizedDomain) else {
             return []
+        }
+
+        if ProxyBypassDomainValidator.ipv4CIDR(normalizedDomain) != nil {
+            return [normalizedDomain]
         }
 
         if shouldMatchSubdomains(normalizedDomain) {
@@ -81,6 +93,7 @@ struct BypassDomain: Identifiable, Codable, Hashable {
             && !domain.contains(":")
             && !domain.contains("[")
             && !domain.contains("]")
+            && !domain.contains("/")
             && !isIPv4Address(domain)
     }
 

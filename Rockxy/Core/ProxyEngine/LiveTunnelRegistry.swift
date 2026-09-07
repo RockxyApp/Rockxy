@@ -39,7 +39,26 @@ final class LiveTunnelRegistry: @unchecked Sendable {
         shouldResolveApplicationNow: @escaping @Sendable () -> Bool = { false },
         resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)? = nil
     ) {
-        self.shouldInterceptNow = shouldInterceptNow
+        self.shouldInterceptNow = { host, application, _ in
+            shouldInterceptNow(host, application)
+        }
+        self.shouldResolveApplicationNow = shouldResolveApplicationNow
+        self.resolveApplication = resolveApplication
+    }
+
+    /// Connection-aware policy variant used by production. The descriptor distinguishes an
+    /// unresolved local application (which must fail closed when Tunnel rules exist) from a
+    /// remote client whose TLS recovery scope is its privacy-preserving network identity.
+    init(
+        shouldInterceptConnectionNow: @escaping @Sendable (
+            String,
+            ClientApplicationIdentity?,
+            ProxyConnectionDescriptor?
+        ) -> Bool,
+        shouldResolveApplicationNow: @escaping @Sendable () -> Bool = { false },
+        resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)? = nil
+    ) {
+        shouldInterceptNow = shouldInterceptConnectionNow
         self.shouldResolveApplicationNow = shouldResolveApplicationNow
         self.resolveApplication = resolveApplication
     }
@@ -83,18 +102,19 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             self?.remove(identifier)
         }
 
-        // Entries whose application identity is still unknown but resolvable must not be closed on
-        // a host-only decision while application rules are active: the tunnel could belong to an
-        // application with a Tunnel rule that outranks a host Decrypt. Defer to resolution, which
-        // re-evaluates the latest policy with the resolved identity (including a nil result).
-        if application == nil,
+        // Only a policy race makes this registration stale. Resolving every non-raced raw tunnel
+        // would re-run the same lookup that just hit the connection deadline and could close the
+        // channel into an unbounded reconnect loop. Later policy mutations use the invalidation
+        // sweep below, where resolution is required to respect application Tunnel precedence.
+        if raced,
+           application == nil,
            connectionDescriptor != nil,
            resolveApplicationIfNeeded(for: identifier)
         {
             return
         }
 
-        if raced, shouldInterceptNow(host, application) {
+        if raced, shouldInterceptNow(host, application, connectionDescriptor) {
             liveTunnelLogger.info(
                 "Closing raced raw tunnel for \(host, privacy: .public) — policy now requires interception"
             )
@@ -129,7 +149,11 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             guard let currentEntry = currentEntry(for: identifier) else {
                 continue
             }
-            if shouldInterceptNow(currentEntry.host, currentEntry.application) {
+            if shouldInterceptNow(
+                currentEntry.host,
+                currentEntry.application,
+                currentEntry.connectionDescriptor
+            ) {
                 toClose.append(currentEntry)
             }
         }
@@ -160,7 +184,11 @@ final class LiveTunnelRegistry: @unchecked Sendable {
     }
 
     private let lock = NSLock()
-    private let shouldInterceptNow: @Sendable (String, ClientApplicationIdentity?) -> Bool
+    private let shouldInterceptNow: @Sendable (
+        String,
+        ClientApplicationIdentity?,
+        ProxyConnectionDescriptor?
+    ) -> Bool
     private let shouldResolveApplicationNow: @Sendable () -> Bool
     private let resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)?
     private var tunnels: [ObjectIdentifier: Entry] = [:]
@@ -219,7 +247,11 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             // Re-evaluate the latest effective policy with the resolved identity. A resolved
             // application Tunnel rule preserves the channel; another application or a nil identity
             // still closes it when the current host policy requires interception.
-            guard self.shouldInterceptNow(currentEntry.host, application) else {
+            guard self.shouldInterceptNow(
+                currentEntry.host,
+                application,
+                currentEntry.connectionDescriptor
+            ) else {
                 return
             }
             liveTunnelLogger.info(
