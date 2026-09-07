@@ -70,6 +70,15 @@ final class RecentFailureTracker: @unchecked Sendable {
         return fresh
     }
 
+    func recordIdentifiedFailure(host: String, clientIdentifier: String?) -> FailureInfo? {
+        guard let clientIdentifier,
+              !clientIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+        return recordFailure(host: host, clientIdentifier: clientIdentifier)
+    }
+
     func recordSuccess(host: String, clientIdentifier: String? = nil) {
         lock.lock()
         failures.removeValue(forKey: FailureKey(host: host, clientIdentifier: clientIdentifier))
@@ -782,10 +791,12 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             }
             handshakeResolved = true
             tlsLogger.info("TLS handshake completed for \(self.host) — adding HTTP codecs")
-            Self.recentTLSFailures.recordSuccess(
-                host: host,
-                clientIdentifier: clientIdentifier
-            )
+            if let clientIdentifier {
+                Self.recentTLSFailures.recordSuccess(
+                    host: host,
+                    clientIdentifier: clientIdentifier
+                )
+            }
             var acceptanceUserInfo: [String: String] = [:]
             if let clientIdentifier {
                 acceptanceUserInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier
@@ -845,11 +856,11 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                     "TLS rejection for \(self.host) has no resolved client identity; using one-connection passthrough only"
                 )
             }
-            let failInfo = Self.recentTLSFailures.recordFailure(
+            let failInfo = Self.recentTLSFailures.recordIdentifiedFailure(
                 host: host,
                 clientIdentifier: clientIdentifier
             )
-            if failInfo.count > 1 {
+            if let failInfo, failInfo.count > 1 {
                 tlsLogger.debug(
                     "Suppressing duplicate TLS rejection for \(self.host) and the same client scope (count: \(failInfo.count))"
                 )

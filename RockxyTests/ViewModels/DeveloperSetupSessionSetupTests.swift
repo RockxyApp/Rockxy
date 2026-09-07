@@ -105,6 +105,27 @@ struct DeveloperSetupSessionSetupTests {
         #expect(!script.contains("export NODE_OPTIONS="))
     }
 
+    @Test("Certificate hints stay absent until an exported root is available")
+    func missingCertificateOmitsCertificateHints() {
+        let context = RockxySetupScriptContext(
+            proxyHost: "127.0.0.1",
+            proxyPort: 9_090,
+            certificatePath: nil,
+            generatedAt: Date(timeIntervalSince1970: 0),
+            appName: "Rockxy"
+        )
+
+        let script = RockxySetupScriptBuilder.script(context: context)
+        let environment = DeveloperCaptureEnvironmentBuilder.environment(context: context)
+
+        #expect(script.contains("NODE_EXTRA_CA_CERTS") == false)
+        #expect(script.contains("ROCKXY_ROOT_CA_PATH") == false)
+        #expect(script.contains("Export or trust the Rockxy root certificate"))
+        #expect(environment["NODE_EXTRA_CA_CERTS"] == nil)
+        #expect(environment["ROCKXY_ROOT_CA_PATH"] == nil)
+        #expect(environment["HTTP_PROXY"] == "http://127.0.0.1:9090")
+    }
+
     @Test("Java VMs script injects JAVA_TOOL_OPTIONS proxy properties once and preserves the base")
     func javaScriptInjectsProxyPropertiesAndPreservesBase() {
         let context = RockxySetupScriptContext(

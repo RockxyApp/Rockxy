@@ -105,6 +105,15 @@ struct RecentFailureTrackerTests {
         #expect(firstClientAgain.count == 2)
     }
 
+    @Test("unidentified failures never enter duplicate suppression")
+    func unidentifiedFailuresAreNotTracked() {
+        let tracker = RecentFailureTracker()
+
+        #expect(tracker.recordIdentifiedFailure(host: "example.com", clientIdentifier: nil) == nil)
+        #expect(tracker.recordIdentifiedFailure(host: "example.com", clientIdentifier: "  ") == nil)
+        #expect(tracker.trackedEntryCount == 0)
+    }
+
     @Test("success clears only the matching client and host")
     func successIsScopedByClient() {
         var timestamps: [UInt64] = [1_000_000_000, 2_000_000_000, 3_000_000_000, 4_000_000_000]

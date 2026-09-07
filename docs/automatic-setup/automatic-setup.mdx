@@ -23,9 +23,9 @@ When those processes do not inherit proxy and certificate settings, Rockxy may b
 
 ## What Rockxy does
 
-Automatic Setup prepares a new session with Rockxy proxy and certificate hints already applied.
+Automatic Setup prepares a new session with Rockxy proxy settings and, when an exported root certificate is available, certificate hints already applied.
 
-For terminal-oriented flows, Rockxy generates a local setup script and launches the selected terminal with that script sourced. The script exports upper- and lower-case proxy variables used by clients that honor them. Node receives an additive CA hint; Java receives explicit proxy properties in the Java workflow. Other runtimes may require their own trust-store configuration.
+For terminal-oriented flows, Rockxy generates a local setup script and launches the selected terminal with that script sourced. The script exports upper- and lower-case proxy variables used by clients that honor them. Node receives an additive CA hint when an exported Rockxy root certificate is available; Java receives explicit proxy properties in the Java workflow. Other runtimes may require their own trust-store configuration.
 
 For developer applications, **Choose & Open Developer App** launches a fresh selected `.app` with the same scoped environment. Rockxy inspects the bundle for a recognized, declarative app-level proxy schema. When one is present, Rockxy temporarily selects automatic proxy discovery so the application can consume the active macOS proxy configuration; unrelated settings are preserved. Unknown application schemas are never edited.
 

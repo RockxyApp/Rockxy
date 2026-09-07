@@ -2,6 +2,33 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+private final class MutationGateTestBox<Value>: @unchecked Sendable {
+    init(_ value: Value) {
+        storage = value
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func set(_ value: Value) {
+        lock.lock()
+        storage = value
+        lock.unlock()
+    }
+
+    func mutate(_ body: (inout Value) -> Void) {
+        lock.lock()
+        body(&storage)
+        lock.unlock()
+    }
+
+    private let lock = NSLock()
+    private var storage: Value
+}
+
 // The privileged helper's certificate mutations are read-mutate-verify sequences against one
 // keychain, and XPC delivers messages concurrently. These pin the gate that keeps two of them from
 // interleaving — and, just as importantly, keep it non-blocking: a refused caller must be told so
@@ -118,5 +145,104 @@ struct HelperCertificateMutationGateTests {
 
         gate.release(barrier)
         #expect(gate.tryAcquire() != nil)
+    }
+
+    @Test("automatic recovery waits for the active privileged mutation")
+    func automaticRecoveryRetriesAfterTheGateIsReleased() throws {
+        let gate = HelperPrivilegedMutationGate()
+        let holder = try #require(gate.tryAcquire())
+        let scheduled = MutationGateTestBox<(@Sendable () -> Void)?>(nil)
+        let recoveryCount = MutationGateTestBox(0)
+        let retrier = HelperPrivilegedMutationRetrier(
+            gate: gate,
+            maximumAttempts: 2,
+            scheduler: { _, operation in scheduled.set(operation) }
+        )
+
+        retrier.run(key: "owner-1") {
+            recoveryCount.mutate { $0 += 1 }
+            return true
+        }
+
+        #expect(recoveryCount.value == 0)
+        let retry = try #require(scheduled.value)
+        gate.release(holder)
+        retry()
+        #expect(recoveryCount.value == 1)
+    }
+
+    @Test("duplicate automatic recovery requests share one retry chain")
+    func duplicateAutomaticRecoveryRequestsCoalesce() throws {
+        let gate = HelperPrivilegedMutationGate()
+        let holder = try #require(gate.tryAcquire())
+        defer { gate.release(holder) }
+        let scheduledCount = MutationGateTestBox(0)
+        let retrier = HelperPrivilegedMutationRetrier(
+            gate: gate,
+            maximumAttempts: 2,
+            scheduler: { _, _ in scheduledCount.mutate { $0 += 1 } }
+        )
+
+        retrier.run(key: "owner-1") { true }
+        retrier.run(key: "owner-1") { true }
+
+        #expect(scheduledCount.value == 1)
+    }
+
+    @Test("a superseded owner cancels delayed automatic recovery")
+    func supersededOwnerCancelsRecovery() throws {
+        let gate = HelperPrivilegedMutationGate()
+        let holder = try #require(gate.tryAcquire())
+        let scheduled = MutationGateTestBox<(@Sendable () -> Void)?>(nil)
+        let currentOwner = MutationGateTestBox("owner-1")
+        let recoveryCount = MutationGateTestBox(0)
+        let retrier = HelperPrivilegedMutationRetrier(
+            gate: gate,
+            maximumAttempts: 2,
+            scheduler: { _, operation in scheduled.set(operation) }
+        )
+
+        retrier.run(key: "owner-1") {
+            guard currentOwner.value == "owner-1" else {
+                return true
+            }
+            recoveryCount.mutate { $0 += 1 }
+            return true
+        }
+
+        currentOwner.set("owner-2")
+        gate.release(holder)
+        let retry = try #require(scheduled.value)
+        retry()
+        #expect(recoveryCount.value == 0)
+    }
+
+    @Test("automatic recovery stops after its bounded retry budget")
+    func automaticRecoveryExhaustsItsBudget() throws {
+        let gate = HelperPrivilegedMutationGate()
+        let holder = try #require(gate.tryAcquire())
+        defer { gate.release(holder) }
+        let scheduled = MutationGateTestBox<(@Sendable () -> Void)?>(nil)
+        let exhaustedCount = MutationGateTestBox(0)
+        let retrier = HelperPrivilegedMutationRetrier(
+            gate: gate,
+            maximumAttempts: 3,
+            scheduler: { _, operation in scheduled.set(operation) }
+        )
+
+        retrier.run(
+            key: "owner-1",
+            operation: { true },
+            onExhausted: { exhaustedCount.mutate { $0 += 1 } }
+        )
+
+        for _ in 0 ..< 2 {
+            let retry = try #require(scheduled.value)
+            scheduled.set(nil)
+            retry()
+        }
+
+        #expect(scheduled.value == nil)
+        #expect(exhaustedCount.value == 1)
     }
 }
