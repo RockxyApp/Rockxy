@@ -8,6 +8,8 @@ private final class RecordingDeveloperApplicationLauncher: DeveloperApplicationL
     private(set) var terminationHandler: (@MainActor @Sendable () -> Void)?
     var launchError: (any Error)?
     var processIdentifier: Int32 = 42_424
+    var registeredProcessIdentifier: Int32 = 52_424
+    var registrationState: DeveloperApplicationRegistrationState = .registered
 
     @discardableResult
     func launch(
@@ -15,33 +17,41 @@ private final class RecordingDeveloperApplicationLauncher: DeveloperApplicationL
         arguments: [String],
         environment: [String: String],
         onTermination: (@MainActor @Sendable () -> Void)?
-    ) async throws -> Int32 {
+    ) async throws -> DeveloperApplicationLaunchReceipt {
         launches.append((installation, arguments, environment))
         terminationHandler = onTermination
         if let launchError {
             throw launchError
         }
-        return processIdentifier
+        return DeveloperApplicationLaunchReceipt(
+            lifecycleProcessIdentifier: processIdentifier,
+            registeredProcessIdentifier: registrationState == .registered ? registeredProcessIdentifier : nil,
+            registrationState: registrationState
+        )
     }
 }
 
 @MainActor
 private final class SuspendingDeveloperApplicationLauncher: DeveloperApplicationLaunching {
     private(set) var launchCount = 0
-    private var continuation: CheckedContinuation<Int32, Never>?
+    private var continuation: CheckedContinuation<DeveloperApplicationLaunchReceipt, Never>?
 
     func launch(
         _: DeveloperApplicationInstallation,
         arguments _: [String],
         environment _: [String: String],
         onTermination _: (@MainActor @Sendable () -> Void)?
-    ) async throws -> Int32 {
+    ) async throws -> DeveloperApplicationLaunchReceipt {
         launchCount += 1
         return await withCheckedContinuation { continuation = $0 }
     }
 
     func finish() {
-        continuation?.resume(returning: 42_425)
+        continuation?.resume(returning: DeveloperApplicationLaunchReceipt(
+            lifecycleProcessIdentifier: 42_425,
+            registeredProcessIdentifier: 52_425,
+            registrationState: .registered
+        ))
         continuation = nil
     }
 }
@@ -334,15 +344,21 @@ struct DeveloperSetupSessionSetupTests {
             applicationSupportURL: fixture.applicationSupportURL
         )
         let registry = DeveloperApplicationPreparationRegistry()
+        var resumedProcessIdentifiers: [Int32] = []
 
         let liveCount = DeveloperApplicationCaptureConfigurator.reconcileOutstandingPreparations(
             applicationSupportURL: fixture.applicationSupportURL,
             preparationRegistry: registry,
             recordedProcessIsAlive: { processIdentifier, startSignature in
                 processIdentifier == 42_424 && startSignature == "stable-process-start"
+            },
+            livePreparationHandler: { processIdentifier, resumedPreparation in
+                resumedProcessIdentifiers.append(processIdentifier)
+                #expect(resumedPreparation.settingsURL == preparation.settingsURL)
             }
         )
         #expect(liveCount == 0)
+        #expect(resumedProcessIdentifiers == [42_424])
         #expect(FileManager.default.fileExists(atPath: preparation.recoveryRecordURL.path))
 
         #expect(registry.begin(preparation.settingsURL.standardizedFileURL.path))
@@ -609,6 +625,7 @@ struct DeveloperSetupSessionSetupTests {
             targetID: .python,
             applicationLauncher: launcher,
             settingsRestorationMonitor: restorationMonitor,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -629,11 +646,13 @@ struct DeveloperSetupSessionSetupTests {
         #expect(viewModel.statusMessage?.contains("recognized proxy settings") == true)
         #expect(launcher.terminationHandler != nil)
         #expect(restorationMonitor.starts.count == 1)
-        #expect(restorationMonitor.starts[0].0 == launcher.processIdentifier)
+        #expect(restorationMonitor.starts[0].0 == launcher.registeredProcessIdentifier)
         #expect(restorationMonitor.starts[0].1.settingsURL == settingsURL)
 
         launcher.terminationHandler?()
-        for _ in 0 ..< 20 where FileManager.default.fileExists(atPath: settingsURL.path) {
+        // Normal restoration now waits through the bounded in-place-restart window before
+        // settling the transaction. Keep this integration assertion outside that timing race.
+        for _ in 0 ..< 200 where FileManager.default.fileExists(atPath: settingsURL.path) {
             try await Task.sleep(for: .milliseconds(25))
         }
         #expect(!FileManager.default.fileExists(atPath: settingsURL.path))
@@ -653,12 +672,14 @@ struct DeveloperSetupSessionSetupTests {
             coordinator: coordinator,
             applicationLauncher: launcher,
             preparationRegistry: registry,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
         let second = DeveloperSetupSessionSetupViewModel(
             coordinator: coordinator,
             applicationLauncher: launcher,
             preparationRegistry: registry,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -807,6 +828,7 @@ struct DeveloperSetupSessionSetupTests {
         let viewModel = DeveloperSetupSessionSetupViewModel(
             coordinator: coordinator,
             applicationLauncher: launcher,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -831,6 +853,7 @@ struct DeveloperSetupSessionSetupTests {
             coordinator: coordinator,
             targetID: .javaVMs,
             applicationLauncher: launcher,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -859,6 +882,7 @@ struct DeveloperSetupSessionSetupTests {
             coordinator: coordinator,
             applicationLauncher: launcher,
             applicationIsRunning: { _ in true },
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -874,19 +898,20 @@ struct DeveloperSetupSessionSetupTests {
         #expect(viewModel.statusMessage?.contains("Quit Developer App completely") == true)
     }
 
-    @Test("Recognized app-level settings require active macOS System Proxy")
+    @Test("Recognized app-level settings use live macOS System Proxy state instead of cached UI state")
     @MainActor
     func recognizedSettingsRequireSystemProxy() async throws {
         let fixture = try makeApplicationFixture(dataDirectoryName: "DeveloperIDE2026.2")
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
         let coordinator = MainContentCoordinator()
         coordinator.isProxyRunning = true
-        coordinator.isSystemProxyConfigured = false
+        coordinator.isSystemProxyConfigured = true
         let launcher = RecordingDeveloperApplicationLauncher()
         let viewModel = DeveloperSetupSessionSetupViewModel(
             coordinator: coordinator,
             targetID: .python,
             applicationLauncher: launcher,
+            systemProxyConfiguredProvider: { false },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -908,6 +933,7 @@ struct DeveloperSetupSessionSetupTests {
             coordinator: coordinator,
             targetID: .python,
             applicationLauncher: launcher,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -933,6 +959,7 @@ struct DeveloperSetupSessionSetupTests {
         let viewModel = DeveloperSetupSessionSetupViewModel(
             coordinator: coordinator,
             applicationLauncher: launcher,
+            systemProxyConfiguredProvider: { coordinator.isSystemProxyConfigured },
             applicationSupportURL: fixture.applicationSupportURL
         )
 
@@ -1043,6 +1070,7 @@ struct DeveloperSetupSessionSetupTests {
         productVendor: String = "Example Tools",
         includeMetadata: Bool = true,
         includeChromiumRuntime: Bool = false,
+        includeJPackageRuntime: Bool = false,
         parseInstallation: Bool = true
     ) throws -> ApplicationFixture {
         let rootURL = FileManager.default.temporaryDirectory
@@ -1052,10 +1080,12 @@ struct DeveloperSetupSessionSetupTests {
         let resourcesURL = contentsURL.appendingPathComponent("Resources", isDirectory: true)
         try FileManager.default.createDirectory(at: resourcesURL, withIntermediateDirectories: true)
 
+        let executableName = "developer-app"
         let info: [String: Any] = [
             "CFBundleIdentifier": "com.example.developer-app",
             "CFBundleName": "Developer App",
             "CFBundlePackageType": "APPL",
+            "CFBundleExecutable": executableName,
         ]
         let infoData = try PropertyListSerialization.data(
             fromPropertyList: info,
@@ -1075,13 +1105,46 @@ struct DeveloperSetupSessionSetupTests {
         }
 
         if includeMetadata {
+            let javaURL = contentsURL.appendingPathComponent("jbr/Contents/Home/bin/java")
+            try FileManager.default.createDirectory(
+                at: javaURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: javaURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: javaURL.path
+            )
             let productInfo: [String: Any] = [
                 "name": "Developer App",
                 "productVendor": productVendor,
                 "dataDirectoryName": dataDirectoryName,
+                "launch": [[
+                    "os": "macOS",
+                    "javaExecutablePath": "../jbr/Contents/Home/bin/java",
+                ]],
             ]
             let productInfoData = try JSONSerialization.data(withJSONObject: productInfo, options: [.sortedKeys])
             try productInfoData.write(to: resourcesURL.appendingPathComponent("product-info.json"))
+        }
+
+        if includeJPackageRuntime {
+            let javaURL = contentsURL.appendingPathComponent("runtime/Contents/Home/bin/java")
+            let configURL = contentsURL.appendingPathComponent("app/\(executableName).cfg")
+            try FileManager.default.createDirectory(
+                at: javaURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createDirectory(
+                at: configURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("#!/bin/sh\nexit 0\n".utf8).write(to: javaURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: javaURL.path
+            )
+            try Data("[Application]\napp.mainclass=com.example.Main\n".utf8).write(to: configURL)
         }
 
         let applicationSupportURL = rootURL.appendingPathComponent("Application Support", isDirectory: true)
@@ -1097,7 +1160,10 @@ struct DeveloperSetupSessionSetupTests {
                         dataDirectoryName: dataDirectoryName
                     )
                     : nil,
-                launchAdapter: includeChromiumRuntime ? .chromiumProxy : nil
+                launchAdapter: includeChromiumRuntime ? .chromiumProxy : nil,
+                runtimeCapabilities: includeMetadata || includeJPackageRuntime
+                    ? [.javaVirtualMachine]
+                    : []
             )
         } else {
             installation = try DeveloperApplicationCaptureConfigurator.installation(at: appURL)

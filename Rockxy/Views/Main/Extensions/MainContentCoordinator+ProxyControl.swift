@@ -3,6 +3,14 @@ import os
 
 // Extends `MainContentCoordinator` with proxy control behavior for the main workspace.
 
+// MARK: - ProxyOverrideReconciliation
+
+/// Result of comparing a live system proxy override with this session's proxy port.
+struct ProxyOverrideReconciliation: Equatable, Sendable {
+    let isOverridden: Bool
+    let matchesActiveProxyPort: Bool
+}
+
 // MARK: - MainContentCoordinator + ProxyControl
 
 /// Coordinator extension for proxy server lifecycle: start, stop, recording toggle,
@@ -39,10 +47,14 @@ extension MainContentCoordinator {
 
                 await certificateManager.validateCertificateChain()
 
-                // Evaluate certificate trust via the readiness layer.
+                // Evaluate certificate trust via the readiness layer, forcing a fresh trust-state
+                // resolution and a real SecTrust evaluation when positive trust metadata exists.
+                // The cheap refresh can answer from a cached negative recorded before the user
+                // approved the root, and that stale answer would pass every HTTPS connection
+                // through for the whole session.
                 // Only new HTTPS connections are affected — existing TLS sessions
                 // are not re-intercepted after trust changes.
-                await readiness.refresh()
+                await readiness.refreshCertificateTrustValidation()
                 SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS
                 if !readiness.canInterceptHTTPS {
                     Self.logger.warning(
@@ -210,17 +222,50 @@ extension MainContentCoordinator {
 
     func refreshProxyOverrideStatus() {
         Task { @MainActor in
-            let owner = await SystemProxyManager.shared.effectiveOverrideOwner()
-            let overridden = switch owner {
-            case .none:
-                false
-            case .direct,
-                 .helper:
-                true
-            }
-            isProxyOverridden = overridden
-            isSystemProxyConfigured = overridden
+            _ = await reconcileProxyOverrideStatus()
         }
+    }
+
+    @discardableResult
+    func reconcileProxyOverrideStatus() async -> Bool {
+        let owner = await SystemProxyManager.shared.effectiveOverrideOwner()
+        let reconciliation = Self.reconcileProxyOverride(
+            overridePort: Self.proxyOverridePort(for: owner),
+            activeProxyPort: activeProxyPort
+        )
+        isProxyOverridden = reconciliation.isOverridden
+        isSystemProxyConfigured = reconciliation.matchesActiveProxyPort
+        return reconciliation.matchesActiveProxyPort
+    }
+
+    /// The port a live Rockxy override points at, or `nil` when nothing overrides the proxy.
+    nonisolated static func proxyOverridePort(for owner: ProxyOverrideOwner) -> Int? {
+        switch owner {
+        case .none:
+            nil
+        case let .direct(backup):
+            backup.rockxyPort
+        case let .helper(port):
+            port
+        }
+    }
+
+    /// Separates "a Rockxy override exists" from "the override points at this session's proxy".
+    /// A stale override left by an earlier session or a differently ported one still counts as an
+    /// override the user can switch off, but it must never be reported as capture-ready.
+    nonisolated static func reconcileProxyOverride(
+        overridePort: Int?,
+        activeProxyPort: Int
+    )
+        -> ProxyOverrideReconciliation
+    {
+        guard let overridePort else {
+            return ProxyOverrideReconciliation(isOverridden: false, matchesActiveProxyPort: false)
+        }
+        return ProxyOverrideReconciliation(
+            isOverridden: true,
+            matchesActiveProxyPort: overridePort == activeProxyPort
+        )
     }
 
     func switchOffSystemProxyOverride() {

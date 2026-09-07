@@ -15793,12 +15793,32 @@
         }
       }
     },
-    "HTTPS interception is unavailable because the Rockxy Root CA is not trusted. HTTP traffic and logs are still captured.": {
+    "HTTPS interception is unavailable because the Rockxy Root CA has not been generated yet. HTTP traffic and logs are still captured.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rockxy 根 CA 不受信任，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
+            "value": "尚未生成 Rockxy 根 CA，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
+          }
+        }
+      }
+    },
+    "HTTPS interception is unavailable because the Rockxy Root CA is installed but not trusted for SSL. HTTP traffic and logs are still captured.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 根 CA 已安装但未被信任用于 SSL，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
+          }
+        }
+      }
+    },
+    "HTTPS interception is unavailable because the Rockxy Root CA is not installed in the login or System keychain. HTTP traffic and logs are still captured.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 根 CA 未安装到登录钥匙串或系统钥匙串，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
           }
         }
       }
@@ -18455,6 +18475,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "macOS 在 Rockxy 完成安装辅助工具之前阻止了其注册。请打开“系统设置”>“登录项”，如果其中出现 Rockxy，请予以批准。如果未列出 Rockxy，请清除过期的 Rockxy 辅助工具注册并再次尝试安装。"
+          }
+        }
+      }
+    },
+    "macOS accepted the request to open %@, but the application is still completing first-launch checks. Follow any macOS prompt and wait for it to open.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 已接受打开 %@ 的请求，但该应用仍在完成首次启动检查。请按提示处理任何 macOS 对话框，并等待应用打开。"
+          }
+        }
+      }
+    },
+    "macOS accepted the request to open %@, but the application is still completing first-launch checks. Follow any macOS prompt and wait for it to open. Temporary settings recovery remains active.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 已接受打开 %@ 的请求，但该应用仍在完成首次启动检查。请按提示处理任何 macOS 对话框，并等待应用打开。临时设置恢复仍处于活动状态。"
           }
         }
       }

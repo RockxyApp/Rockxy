@@ -157,6 +157,9 @@ struct ContentView: View {
             }
             coordinator.readiness.startObserving()
             coordinator.setupSSLProxyingObserver()
+            // Share the app-level recovery barrier so startup cannot restore an old proxy after
+            // this view has already enabled a new capture session.
+            await SystemProxyStartupRecovery.task.value
             coordinator.refreshProxyOverrideStatus()
             coordinator.startProxyOnLaunchIfNeeded()
             nearbyTransferReceiver.start(coordinator: coordinator)

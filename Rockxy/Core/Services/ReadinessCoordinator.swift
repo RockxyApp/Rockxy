@@ -205,16 +205,25 @@ final class ReadinessCoordinator {
 
     /// Pure decision function: returns the warning that Priority 2 (cert-not-trusted)
     /// would produce, or nil if the cert is trusted. Extracted for deterministic testing.
+    ///
+    /// Each readable state names the step that is actually missing. Reporting "not trusted" for
+    /// a root that was never generated, or for one that is not in any keychain, describes a
+    /// trust decision the user never made and hides which recovery step is outstanding. The
+    /// unreadable state stays separate: it is a failed read, so it offers a recheck instead of
+    /// asking for administrator approval.
     nonisolated static func certNotTrustedWarning(
         certReadiness: CertReadiness,
         isCaptureActive: Bool
     )
         -> ReadinessWarning?
     {
-        guard isCaptureActive, certReadiness != .trusted else {
+        guard isCaptureActive else {
             return nil
         }
-        if certReadiness == .unknown {
+        switch certReadiness {
+        case .trusted:
+            return nil
+        case .unknown:
             // Nothing is known to be wrong with the certificate, so the offer is a status check
             // rather than a reinstall that would ask for administrator approval on the strength
             // of a failed read. HTTPS interception stays paused either way.
@@ -228,17 +237,40 @@ final class ReadinessCoordinator {
                 action: .openGeneralSettings,
                 isDismissible: false
             )
+        case .notGenerated:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA has not been generated yet. \
+                    HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
+        case .generatedNotInstalled:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA is not installed in the \
+                    login or System keychain. HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
+        case .installedNotTrusted:
+            return ReadinessWarning(
+                message: String(
+                    localized: """
+                    HTTPS interception is unavailable because the Rockxy Root CA is installed but not \
+                    trusted for SSL. HTTP traffic and logs are still captured.
+                    """, bundle: RockxyLocalization.bundle
+                ),
+                action: .reinstallAndTrust,
+                isDismissible: false
+            )
         }
-        return ReadinessWarning(
-            message: String(
-                localized: """
-                HTTPS interception is unavailable because the Rockxy Root CA is not trusted. \
-                HTTP traffic and logs are still captured.
-                """, bundle: RockxyLocalization.bundle
-            ),
-            action: .reinstallAndTrust,
-            isDismissible: false
-        )
     }
 
     nonisolated static func shouldPerformActivationDeepRefresh(
@@ -380,6 +412,22 @@ final class ReadinessCoordinator {
         await refreshCertState()
         refreshHelperState()
         await refreshProxyMode(isEnabled: systemProxyEnabledProbe())
+        recomputeWarning()
+    }
+
+    /// Forced certificate revalidation: re-snapshots certificate state and, when positive trust
+    /// metadata exists, runs a real `SecTrust` evaluation instead of reusing the last cached
+    /// validation result. Known-absent trust metadata still fails closed without the expensive
+    /// evaluation.
+    ///
+    /// `refresh()` is deliberately cheap and may answer from a cached negative that a trust
+    /// approval since then has already invalidated. Capture start decides HTTPS passthrough for
+    /// a whole session from this answer, so it evaluates trust for real. Narrower than
+    /// `deepRefresh()` on purpose: no helper XPC probe and no system-proxy read, because neither
+    /// participates in the passthrough decision. This never requests certificate installation or
+    /// changes trust settings.
+    func refreshCertificateTrustValidation() async {
+        await refreshCertState(performValidation: true)
         recomputeWarning()
     }
 

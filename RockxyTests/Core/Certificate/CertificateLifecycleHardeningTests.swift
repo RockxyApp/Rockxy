@@ -482,6 +482,36 @@ struct RootCAStartupReadinessTests {
         let snapshot = await relaunched.rootCAStatusSnapshot()
         #expect(snapshot.fingerprintSHA256 == originalFingerprint)
     }
+
+    @Test("status fails closed when another process replaces the persisted root identity")
+    func statusRejectsPersistedIdentityDrift() async throws {
+        let overrides = try await installSharedTestOverrides()
+        defer { overrides.cleanup() }
+
+        let manager = CertificateManager.makeForTesting()
+        try await manager.generateRootCA()
+        let activeFingerprint = try #require(await manager.getActiveRootFingerprint())
+
+        // Model an older sibling process replacing both persisted halves while this actor still
+        // holds the previously trusted CA and its derived state in memory.
+        let replacement = try RootCAGenerator.generate()
+        try CertificateStore.saveRootCAPrivateKey(replacement.privateKey)
+        try CertificateStore.saveRootCACertificate(replacement.certificate)
+
+        let snapshot = await manager.rootCAStatusSnapshot(performValidation: true)
+
+        #expect(snapshot.isStatusUnavailable)
+        #expect(snapshot.statusReadFailure?.scope == .persistedMaterial)
+        #expect(snapshot.statusReadErrorMessage == CertificateManagerError.persistedRootIdentityDrift.localizedDescription)
+        #expect(snapshot.isSystemTrustValidated == false)
+        #expect(await manager.lastTrustValidationResult == nil)
+        // A status read is fail-closed and non-mutating. The explicit trust action owns adoption.
+        #expect(await manager.getActiveRootFingerprint() == activeFingerprint)
+        #expect(
+            certificateFingerprint(try #require(try CertificateStore.loadRootCACertificate()))
+                == certificateFingerprint(replacement.certificate)
+        )
+    }
 }
 
 // MARK: - RootCATestIsolationTests

@@ -50,6 +50,7 @@ struct SystemProxyManagerTests {
         let cases: [SystemProxyError] = [
             .networkSetupFailed(command: "test", output: "out", exitCode: 42),
             .noActiveNetworkService,
+            .proxyActivationNotConfirmed(port: 8_888),
             .unexpectedOutput("bad"),
         ]
 
@@ -141,6 +142,76 @@ struct SystemProxyManagerTests {
             commandsSucceeded: false,
             proxyStillPointsAtRockxy: false
         ) == false)
+    }
+
+    @Test("helper override confirmation requires active state on the requested port")
+    func helperOverrideConfirmationRequiresExactLiveState() {
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: true, port: 8_888)
+        ))
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: false, port: 8_888)
+        ) == false)
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: (isOverridden: true, port: 9_090)
+        ) == false)
+        #expect(SystemProxyManager.helperOverrideIsConfirmed(
+            requestedPort: 8_888,
+            status: nil
+        ) == false)
+    }
+
+    // MARK: - Proxy Override Reconciliation
+
+    @Test("An override on the active proxy port reports both override and capture readiness")
+    func overrideOnActivePortIsCaptureReady() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: 8_888,
+            activeProxyPort: 8_888
+        )
+
+        #expect(reconciliation == ProxyOverrideReconciliation(
+            isOverridden: true,
+            matchesActiveProxyPort: true
+        ))
+    }
+
+    @Test("An override on a different port stays an override but is not capture ready")
+    func overrideOnDifferentPortIsNotCaptureReady() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: 9_090,
+            activeProxyPort: 8_888
+        )
+
+        #expect(reconciliation.isOverridden)
+        #expect(!reconciliation.matchesActiveProxyPort)
+    }
+
+    @Test("No override reports neither an override nor capture readiness")
+    func absentOverrideReportsNothing() {
+        let reconciliation = MainContentCoordinator.reconcileProxyOverride(
+            overridePort: nil,
+            activeProxyPort: 8_888
+        )
+
+        #expect(!reconciliation.isOverridden)
+        #expect(!reconciliation.matchesActiveProxyPort)
+    }
+
+    @Test("Override ownership resolves the port from direct backups and helper status")
+    func overridePortIsResolvedFromOwnership() {
+        let backup = DirectProxyBackup(
+            services: [],
+            timestamp: Date(timeIntervalSince1970: 0),
+            rockxyPort: 9_090
+        )
+
+        #expect(MainContentCoordinator.proxyOverridePort(for: .none) == nil)
+        #expect(MainContentCoordinator.proxyOverridePort(for: .direct(backup: backup)) == 9_090)
+        #expect(MainContentCoordinator.proxyOverridePort(for: .helper(port: 8_888)) == 8_888)
     }
 
     @Test("direct proxy watchdog launchctl submission uses helper entrypoint and backup path")

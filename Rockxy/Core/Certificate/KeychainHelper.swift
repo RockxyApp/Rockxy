@@ -111,7 +111,9 @@ nonisolated enum KeychainHelper {
             if isUsable(data) {
                 return data
             }
-            logger.error("Root CA private key in generic-password storage is unusable — trying recovery sources")
+            logger.error(
+                "Root CA private key in generic-password storage is invalid or does not match the requested certificate — trying recovery sources"
+            )
         }
 
         for shape in PrivateKeyShape.migrationSources {
@@ -130,6 +132,27 @@ nonisolated enum KeychainHelper {
             return data
         }
 
+        return nil
+    }
+
+    /// Reads every historical Keychain shape without rewriting or deleting any of them.
+    ///
+    /// Readiness and status checks use this path so observing whether the active root still
+    /// matches durable storage cannot opportunistically migrate a legacy item. Explicit setup
+    /// and recovery actions continue to use `loadPrivateKey(label:isUsable:)`, which owns that
+    /// mutation after it has selected a usable source.
+    static func loadPrivateKeyWithoutMigration(
+        label: String,
+        isUsable: (Data) -> Bool
+    )
+        throws -> Data?
+    {
+        let shapes = [PrivateKeyShape.genericPassword] + PrivateKeyShape.migrationSources
+        for shape in shapes {
+            if let data = try readPrivateKeyItem(label: label, shape: shape), isUsable(data) {
+                return data
+            }
+        }
         return nil
     }
 

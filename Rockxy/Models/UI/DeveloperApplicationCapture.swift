@@ -1,11 +1,6 @@
 import AppKit
+import Darwin
 import Foundation
-import os
-
-nonisolated private let developerApplicationCaptureLogger = Logger(
-    subsystem: RockxyIdentity.current.logSubsystem,
-    category: "DeveloperApplicationCapture"
-)
 
 // MARK: - DeveloperApplicationInstallation
 
@@ -16,6 +11,7 @@ struct DeveloperApplicationInstallation: Equatable, Identifiable, Sendable {
     let displayName: String
     let settingsAdapter: DeveloperApplicationSettingsAdapter?
     let launchAdapter: DeveloperApplicationLaunchAdapter?
+    let runtimeCapabilities: Set<DeveloperApplicationRuntimeCapability>
 
     var id: String {
         "\(bundleIdentifier)|\(appURL.standardizedFileURL.path)"
@@ -27,6 +23,8 @@ struct DeveloperApplicationInstallation: Equatable, Identifiable, Sendable {
 /// A runtime capability that can be prepared through documented launch arguments.
 enum DeveloperApplicationLaunchAdapter: Equatable, Sendable {
     case chromiumProxy
+
+    // MARK: Internal
 
     func arguments(context: RockxySetupScriptContext) -> [String] {
         switch self {
@@ -47,6 +45,8 @@ enum DeveloperApplicationLaunchAdapter: Equatable, Sendable {
 enum DeveloperApplicationSettingsAdapter: Equatable, Sendable {
     case xmlHTTPProxyAutoDetect(vendorDirectory: String, dataDirectoryName: String)
 
+    // MARK: Internal
+
     var requiresSystemProxy: Bool {
         switch self {
         case .xmlHTTPProxyAutoDetect:
@@ -62,114 +62,27 @@ enum DeveloperApplicationSettingsAdapter: Equatable, Sendable {
     }
 }
 
-// MARK: - DeveloperApplicationLaunching
-
-@MainActor
-protocol DeveloperApplicationLaunching {
-    @discardableResult
-    func launch(
-        _ installation: DeveloperApplicationInstallation,
-        arguments: [String],
-        environment: [String: String],
-        onTermination: (@MainActor @Sendable () -> Void)?
-    ) async throws -> Int32
-}
-
-// MARK: - DeveloperApplicationWorkspaceLauncher
-
-private final class DeveloperApplicationTerminationObserver: @unchecked Sendable {
-    var token: NSObjectProtocol?
-}
-
-/// Launches a fresh application instance with a scoped environment via LaunchServices.
-@MainActor
-struct DeveloperApplicationWorkspaceLauncher: DeveloperApplicationLaunching {
-    @discardableResult
-    func launch(
-        _ installation: DeveloperApplicationInstallation,
-        arguments: [String],
-        environment: [String: String],
-        onTermination: (@MainActor @Sendable () -> Void)?
-    ) async throws -> Int32 {
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.createsNewApplicationInstance = true
-        configuration.allowsRunningApplicationSubstitution = false
-        configuration.arguments = arguments
-        configuration.environment = environment
-
-        let launchedApplication: NSRunningApplication = try await withCheckedThrowingContinuation { continuation in
-            NSWorkspace.shared.openApplication(
-                at: installation.appURL,
-                configuration: configuration
-            ) { application, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let application {
-                    continuation.resume(returning: application)
-                } else {
-                    continuation.resume(
-                        throwing: DeveloperSetupLaunchError.processFailed(
-                            command: installation.displayName,
-                            status: -1,
-                            message: nil
-                        )
-                    )
-                }
-            }
-        }
-
-        let processIdentifier = launchedApplication.processIdentifier
-        guard let onTermination else {
-            return processIdentifier
-        }
-        let notificationCenter = NSWorkspace.shared.notificationCenter
-        let observer = DeveloperApplicationTerminationObserver()
-        observer.token = notificationCenter.addObserver(
-            forName: NSWorkspace.didTerminateApplicationNotification,
-            object: nil,
-            queue: .main
-        ) { notification in
-            guard let terminated = notification
-                .userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                terminated.processIdentifier == processIdentifier
-            else {
-                return
-            }
-            if let token = observer.token {
-                notificationCenter.removeObserver(token)
-                observer.token = nil
-            }
-            Task { @MainActor in
-                onTermination()
-            }
-        }
-        if launchedApplication.isTerminated {
-            if let token = observer.token {
-                notificationCenter.removeObserver(token)
-                observer.token = nil
-            }
-            onTermination()
-        }
-        return processIdentifier
-    }
-}
-
 // MARK: - DeveloperApplicationSettingsPreparation
 
-/// A reversible settings transaction. The backup is stored beside the settings file so a later
-/// setup attempt can recover it even if Rockxy stopped before observing application termination.
+/// A reversible settings transaction. Recovery artifacts are stored in Rockxy's Application
+/// Support ledger directory so an IDE update cannot remove the only copy of the original settings.
 struct DeveloperApplicationSettingsPreparation: Equatable, Sendable {
     let settingsURL: URL
     let backupURL: URL
     let absenceMarkerURL: URL
     let preparedSnapshotURL: URL
     let recoveryRecordURL: URL
+    /// Resolved application bundle path retained only as generic process-identity evidence for
+    /// restart detection. It is never used as a filesystem mutation target.
+    let applicationBundlePath: String?
 }
 
 // MARK: - DeveloperApplicationPreparationRegistry
 
 /// Prevents two setup windows from preparing the same third-party settings file concurrently.
 final class DeveloperApplicationPreparationRegistry: @unchecked Sendable {
+    // MARK: Internal
+
     static let shared = DeveloperApplicationPreparationRegistry()
 
     func begin(_ key: String) -> Bool {
@@ -188,89 +101,10 @@ final class DeveloperApplicationPreparationRegistry: @unchecked Sendable {
         lock.unlock()
     }
 
+    // MARK: Private
+
     private let lock = NSLock()
     private var activeKeys: Set<String> = []
-}
-
-// MARK: - DeveloperApplicationSettingsRestorationMonitoring
-
-@MainActor
-protocol DeveloperApplicationSettingsRestorationMonitoring {
-    func startMonitoring(
-        processIdentifier: Int32,
-        preparation: DeveloperApplicationSettingsPreparation
-    ) throws
-}
-
-/// Runs a bounded, exact-path restoration monitor outside Rockxy's process. This closes the gap
-/// where Rockxy exits before the prepared application. The monitor restores only when the live
-/// settings still match Rockxy's prepared snapshot, so user edits made during the session win.
-@MainActor
-final class DeveloperApplicationSettingsRestorationMonitor: DeveloperApplicationSettingsRestorationMonitoring {
-    static let shared = DeveloperApplicationSettingsRestorationMonitor()
-
-    nonisolated static let script = """
-    remaining=120960
-    started=$(/bin/ps -p "$1" -o lstart= 2>/dev/null)
-    while [ -n "$started" ] && /bin/kill -0 "$1" 2>/dev/null && [ "$remaining" -gt 0 ]; do
-      current=$(/bin/ps -p "$1" -o lstart= 2>/dev/null)
-      if [ "$current" != "$started" ]; then
-        break
-      fi
-      /bin/sleep 5
-      remaining=$((remaining - 1))
-    done
-    current=$(/bin/ps -p "$1" -o lstart= 2>/dev/null)
-    if [ -n "$started" ] && /bin/kill -0 "$1" 2>/dev/null && [ "$current" = "$started" ]; then
-      exit 0
-    fi
-    settings=$2
-    backup=$3
-    absent=$4
-    prepared=$5
-    recovery_record=$6
-    if [ ! -f "$prepared" ]; then
-      exit 0
-    fi
-    if [ ! -f "$settings" ] || ! /usr/bin/cmp -s "$settings" "$prepared"; then
-      # A byte-level mismatch may be an application rewrite that preserved Rockxy's proxy
-      # selector while changing unrelated settings. Keep the recovery transaction for Rockxy's
-      # semantic reconciler instead of deleting the user's original configuration.
-      exit 0
-    fi
-    if [ -f "$absent" ]; then
-      /bin/rm -f "$settings" "$backup" "$absent" "$prepared" "$recovery_record"
-    elif [ -f "$backup" ]; then
-      /bin/mv -f "$backup" "$settings"
-      /bin/rm -f "$absent" "$prepared" "$recovery_record"
-    else
-      /bin/rm -f "$prepared" "$recovery_record"
-    fi
-    """
-
-    func startMonitoring(
-        processIdentifier: Int32,
-        preparation: DeveloperApplicationSettingsPreparation
-    ) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = [
-            "-c",
-            Self.script,
-            "rockxy-settings-restoration-monitor",
-            String(processIdentifier),
-            preparation.settingsURL.path,
-            preparation.backupURL.path,
-            preparation.absenceMarkerURL.path,
-            preparation.preparedSnapshotURL.path,
-            preparation.recoveryRecordURL.path,
-        ]
-        process.environment = ["PATH": "/usr/bin:/bin"]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        try process.run()
-    }
 }
 
 // MARK: - DeveloperApplicationCaptureError
@@ -285,27 +119,47 @@ enum DeveloperApplicationCaptureError: LocalizedError, Equatable {
     case preparationInProgress(String)
     case systemProxyRequired(String)
 
+    // MARK: Internal
+
     var errorDescription: String? {
         switch self {
         case .invalidApplication:
             String(localized: "Choose a valid macOS application.", bundle: RockxyLocalization.bundle)
         case .invalidApplicationMetadata:
-            String(localized: "The selected application's proxy metadata could not be read safely.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "The selected application's proxy metadata could not be read safely.",
+                bundle: RockxyLocalization.bundle
+            )
         case .unsafeSettingsLocation:
-            String(localized: "The selected application reported an unsafe settings location. Rockxy left it unchanged.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "The selected application reported an unsafe settings location. Rockxy left it unchanged.",
+                bundle: RockxyLocalization.bundle
+            )
         case .malformedProxySettings:
-            String(localized: "The application's HTTP Proxy settings file is malformed. Rockxy left it unchanged.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "The application's HTTP Proxy settings file is malformed. Rockxy left it unchanged.",
+                bundle: RockxyLocalization.bundle
+            )
         case let .settingsRecoveryConflict(path):
             String(
-                localized: "The application rewrote its temporary proxy settings into an unreadable form. Rockxy restored the original settings and preserved the unreadable copy at \(path). Review it, then try again.",
+                localized: "Rockxy could not safely compare the application's current proxy settings with its recovery snapshot. Rockxy restored the original settings and preserved the current file at \(path). Review it, then try again.",
                 bundle: RockxyLocalization.bundle
             )
         case let .applicationIsRunning(name):
-            String(localized: "Quit \(name) completely, then try again so its proxy state and launch environment cannot be stale.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Quit \(name) completely, then try again so its proxy state and launch environment cannot be stale.",
+                bundle: RockxyLocalization.bundle
+            )
         case let .preparationInProgress(name):
-            String(localized: "Rockxy is already preparing \(name). Wait for that launch to finish, then try again.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Rockxy is already preparing \(name). Wait for that launch to finish, then try again.",
+                bundle: RockxyLocalization.bundle
+            )
         case let .systemProxyRequired(name):
-            String(localized: "Enable macOS System Proxy in Rockxy before opening \(name).", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Enable macOS System Proxy in Rockxy before opening \(name).",
+                bundle: RockxyLocalization.bundle
+            )
         }
     }
 }
@@ -330,13 +184,19 @@ enum DeveloperApplicationCaptureConfigurator {
         fileManager: FileManager = .default,
         preparationRegistry: DeveloperApplicationPreparationRegistry = .shared,
         recordedProcessIsAlive: (Int32, String?) -> Bool = DeveloperApplicationRecoveryLedger
-            .isRecordedProcessAlive
-    ) -> Int {
+            .isRecordedProcessAlive,
+        recordedApplicationProcessIdentifier: ((String, String) -> Int32?)? = nil,
+        livePreparationHandler: ((Int32, DeveloperApplicationSettingsPreparation) -> Void)? = nil
+    )
+        -> Int
+    {
         DeveloperApplicationRecoveryLedger.reconcileOutstandingPreparations(
             applicationSupportURL: applicationSupportURL,
             fileManager: fileManager,
             preparationRegistry: preparationRegistry,
-            recordedProcessIsAlive: recordedProcessIsAlive
+            recordedProcessIsAlive: recordedProcessIsAlive,
+            recordedApplicationProcessIdentifier: recordedApplicationProcessIdentifier,
+            livePreparationHandler: livePreparationHandler
         )
     }
 
@@ -346,13 +206,28 @@ enum DeveloperApplicationCaptureConfigurator {
         with preparation: DeveloperApplicationSettingsPreparation,
         applicationSupportURL: URL,
         fileManager: FileManager = .default
-    ) throws {
+    )
+        throws
+    {
         try DeveloperApplicationRecoveryLedger.associateRunningProcess(
             processIdentifier: processIdentifier,
             processStartSignature: processStartSignature,
             with: preparation,
             applicationSupportURL: applicationSupportURL,
             fileManager: fileManager
+        )
+    }
+
+    static func recoveryArtifactURLs(for recoveryRecordURL: URL) -> (
+        backupURL: URL,
+        absenceMarkerURL: URL,
+        preparedSnapshotURL: URL
+    ) {
+        let artifactBaseURL = recoveryRecordURL.deletingPathExtension()
+        return (
+            artifactBaseURL.appendingPathExtension("backup"),
+            artifactBaseURL.appendingPathExtension("absent"),
+            artifactBaseURL.appendingPathExtension("prepared")
         )
     }
 
@@ -365,8 +240,8 @@ enum DeveloperApplicationCaptureConfigurator {
         guard standardizedURL.pathExtension.caseInsensitiveCompare("app") == .orderedSame,
               let bundle = Bundle(url: standardizedURL),
               let bundleIdentifier = bundle.bundleIdentifier,
-              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
+              !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else
+        {
             throw DeveloperApplicationCaptureError.invalidApplication
         }
 
@@ -374,12 +249,16 @@ enum DeveloperApplicationCaptureConfigurator {
             ?? (bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
             ?? standardizedURL.deletingPathExtension().lastPathComponent
 
-        return DeveloperApplicationInstallation(
+        return try DeveloperApplicationInstallation(
             appURL: standardizedURL,
             bundleIdentifier: bundleIdentifier,
             displayName: displayName,
-            settingsAdapter: try detectedSettingsAdapter(in: standardizedURL),
-            launchAdapter: detectedLaunchAdapter(in: standardizedURL)
+            settingsAdapter: detectedSettingsAdapter(in: standardizedURL),
+            launchAdapter: detectedLaunchAdapter(in: standardizedURL),
+            runtimeCapabilities: DeveloperApplicationRuntimeDetector.capabilities(
+                in: standardizedURL,
+                bundle: bundle
+            )
         )
     }
 
@@ -387,7 +266,9 @@ enum DeveloperApplicationCaptureConfigurator {
         for adapter: DeveloperApplicationSettingsAdapter,
         applicationSupportURL: URL,
         fileManager: FileManager = .default
-    ) throws -> URL {
+    )
+        throws -> URL
+    {
         let vendorDirectory: String
         let dataDirectoryName: String
         switch adapter {
@@ -397,8 +278,8 @@ enum DeveloperApplicationCaptureConfigurator {
         }
 
         guard isSafeDirectoryComponent(vendorDirectory),
-              isSafeDirectoryComponent(dataDirectoryName)
-        else {
+              isSafeDirectoryComponent(dataDirectoryName) else
+        {
             throw DeveloperApplicationCaptureError.unsafeSettingsLocation
         }
 
@@ -416,7 +297,9 @@ enum DeveloperApplicationCaptureConfigurator {
         for installation: DeveloperApplicationInstallation,
         applicationSupportURL: URL,
         fileManager: FileManager = .default
-    ) throws -> DeveloperApplicationSettingsPreparation? {
+    )
+        throws -> DeveloperApplicationSettingsPreparation?
+    {
         guard let adapter = installation.settingsAdapter else {
             return nil
         }
@@ -425,6 +308,7 @@ enum DeveloperApplicationCaptureConfigurator {
         case .xmlHTTPProxyAutoDetect:
             return try configureXMLAutoDetect(
                 adapter: adapter,
+                installation: installation,
                 applicationSupportURL: applicationSupportURL,
                 fileManager: fileManager
             )
@@ -435,7 +319,9 @@ enum DeveloperApplicationCaptureConfigurator {
         _ preparation: DeveloperApplicationSettingsPreparation,
         applicationSupportURL: URL,
         fileManager: FileManager = .default
-    ) throws {
+    )
+        throws
+    {
         try validateContainedPath(
             preparation.settingsURL,
             rootURL: applicationSupportURL,
@@ -469,46 +355,112 @@ enum DeveloperApplicationCaptureConfigurator {
                 preparedSnapshotURL: preparation.preparedSnapshotURL,
                 fileManager: fileManager
             )
-            try removeIfPresent(preparation.recoveryRecordURL, fileManager: fileManager)
+            try settleRecoveryRecord(preparation.recoveryRecordURL, fileManager: fileManager)
         } catch {
             // A malformed live file is preserved as a conflict while the original is restored.
             // Once no transaction artifacts remain, the record is settled even though the
             // caller still receives the conflict location for user-facing recovery guidance.
-            if !hasRecoveryArtifacts(preparation, fileManager: fileManager) {
-                try? removeIfPresent(preparation.recoveryRecordURL, fileManager: fileManager)
+            if case DeveloperApplicationCaptureError.settingsRecoveryConflict = error {
+                try? settleRecoveryRecord(preparation.recoveryRecordURL, fileManager: fileManager)
             }
             throw error
         }
     }
 
+    /// Identity of one installed application and the settings scope Rockxy would prepare for it.
+    static func scopeIdentity(
+        for installation: DeveloperApplicationInstallation
+    )
+        -> DeveloperApplicationScopeIdentity
+    {
+        DeveloperApplicationScopeIdentity(
+            bundlePath: installation.appURL.standardizedFileURL.resolvingSymlinksInPath().path,
+            settingsAdapter: installation.settingsAdapter
+        )
+    }
+
+    /// Resolves the same identity for an arbitrary installed bundle, such as one reported by a
+    /// running application. Adapter detection is skipped when the caller only needs path identity.
+    static func scopeIdentity(
+        forBundleAt bundleURL: URL,
+        resolvingSettingsAdapter: Bool = true,
+        fileManager: FileManager = .default
+    )
+        -> DeveloperApplicationScopeIdentity
+    {
+        let standardizedURL = bundleURL.standardizedFileURL
+        let adapter: DeveloperApplicationSettingsAdapter? = resolvingSettingsAdapter
+            ? ((try? detectedSettingsAdapter(in: standardizedURL, fileManager: fileManager)) ?? nil)
+            : nil
+        return DeveloperApplicationScopeIdentity(
+            bundlePath: standardizedURL.resolvingSymlinksInPath().path,
+            settingsAdapter: adapter
+        )
+    }
+
+    /// Rejects preparation while any running installation owns the same settings scope. Two
+    /// installations of one application family share a single settings directory, so an
+    /// exact bundle-path comparison alone would let Rockxy mutate settings underneath a
+    /// running process. Applications without a recognized adapter keep exact-path behavior.
     @MainActor
     static func isRunning(
         _ installation: DeveloperApplicationInstallation,
         workspace: NSWorkspace = .shared
-    ) -> Bool {
-        workspace.runningApplications.contains { application in
-            guard let bundleURL = application.bundleURL else {
-                return false
-            }
-            return bundleURL.standardizedFileURL.resolvingSymlinksInPath()
-                == installation.appURL.standardizedFileURL.resolvingSymlinksInPath()
+    )
+        -> Bool
+    {
+        let candidate = scopeIdentity(for: installation)
+        let runningInstances = DeveloperApplicationWorkspaceScopeProvider.runningInstances(
+            resolvingSettingsAdapters: candidate.settingsAdapter != nil,
+            workspace: workspace
+        )
+        return DeveloperApplicationScopeResolution.blockingInstance(
+            candidate: candidate,
+            runningInstances: runningInstances
+        ) != nil
+    }
+
+    static func validateContainedPath(
+        _ candidateURL: URL,
+        rootURL: URL,
+        fileManager: FileManager
+    )
+        throws
+    {
+        let root = try canonicalizedURLPreservingMissingSuffix(rootURL, fileManager: fileManager)
+        let candidate = try canonicalizedURLPreservingMissingSuffix(candidateURL, fileManager: fileManager)
+        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard candidate.path.hasPrefix(rootPath), candidate.path != root.path else {
+            throw DeveloperApplicationCaptureError.unsafeSettingsLocation
         }
+    }
+
+    static func fileSize(at url: URL, fileManager: FileManager) throws -> UInt64 {
+        let attributes = try fileManager.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else {
+            throw DeveloperApplicationCaptureError.invalidApplicationMetadata
+        }
+        return size.uint64Value
     }
 
     // MARK: Private
 
-    private struct ApplicationProxyMetadata: Decodable {
-        let productVendor: String
-        let dataDirectoryName: String
-    }
+    private static let proxySelectionOptionNames: Set<String> = [
+        "USE_PROXY_PAC",
+        "USE_HTTP_PROXY",
+        "USE_PAC_URL",
+        "PROXY_TYPE_IS_SOCKS",
+    ]
 
     /// Detects an application-level proxy schema from metadata shipped inside the app bundle.
-    /// Absence is a supported outcome. A file that declares this schema but is malformed fails
-    /// closed because silently launching would misrepresent the preparation Rockxy can perform.
+    /// Absence and partial metadata are supported outcomes: they fall back to the scoped launch
+    /// environment rather than preventing an otherwise valid application from opening.
     private static func detectedSettingsAdapter(
         in appURL: URL,
         fileManager: FileManager = .default
-    ) throws -> DeveloperApplicationSettingsAdapter? {
+    )
+        throws -> DeveloperApplicationSettingsAdapter?
+    {
         let metadataURL = appURL
             .appendingPathComponent("Contents/Resources/product-info.json", isDirectory: false)
         guard fileManager.fileExists(atPath: metadataURL.path) else {
@@ -525,37 +477,49 @@ enum DeveloperApplicationCaptureConfigurator {
             return nil
         }
 
-        let metadata: ApplicationProxyMetadata
-        do {
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["productVendor"] != nil,
-                  object["dataDirectoryName"] != nil
-            else {
-                // `product-info.json` is not a universal schema. An unrelated file with the
-                // same basename is not evidence that this adapter applies.
-                return nil
-            }
-            metadata = try JSONDecoder().decode(ApplicationProxyMetadata.self, from: data)
-        } catch {
-            throw DeveloperApplicationCaptureError.invalidApplicationMetadata
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let productVendor = object["productVendor"] as? String,
+              let dataDirectoryName = object["dataDirectoryName"] as? String,
+              let launchEntries = object["launch"] as? [[String: Any]] else
+        {
+            // `product-info.json` is not a universal or version-stable schema. Entries that do
+            // not prove this adapter applies must not block the generic environment-only path.
+            return nil
         }
 
-        guard isSafeDirectoryComponent(metadata.productVendor),
-              isSafeDirectoryComponent(metadata.dataDirectoryName)
-        else {
+        guard isSafeDirectoryComponent(productVendor),
+              isSafeDirectoryComponent(dataDirectoryName) else
+        {
             throw DeveloperApplicationCaptureError.unsafeSettingsLocation
+        }
+        guard launchEntries.contains(where: { entry in
+            guard entry["os"] as? String == "macOS",
+                  let javaExecutablePath = entry["javaExecutablePath"] as? String else
+            {
+                return false
+            }
+            return DeveloperApplicationRuntimeDetector.isContainedExecutable(
+                relativePath: javaExecutablePath,
+                relativeTo: metadataURL.deletingLastPathComponent(),
+                bundleURL: appURL,
+                fileManager: fileManager
+            )
+        }) else {
+            return nil
         }
 
         return .xmlHTTPProxyAutoDetect(
-            vendorDirectory: metadata.productVendor,
-            dataDirectoryName: metadata.dataDirectoryName
+            vendorDirectory: productVendor,
+            dataDirectoryName: dataDirectoryName
         )
     }
 
     private static func detectedLaunchAdapter(
         in appURL: URL,
         fileManager: FileManager = .default
-    ) -> DeveloperApplicationLaunchAdapter? {
+    )
+        -> DeveloperApplicationLaunchAdapter?
+    {
         let frameworksURL = appURL.appendingPathComponent("Contents/Frameworks", isDirectory: true)
         let knownRuntimeFrameworks = [
             "Electron Framework.framework",
@@ -571,30 +535,59 @@ enum DeveloperApplicationCaptureConfigurator {
 
     private static func configureXMLAutoDetect(
         adapter: DeveloperApplicationSettingsAdapter,
+        installation: DeveloperApplicationInstallation,
         applicationSupportURL: URL,
         fileManager: FileManager
-    ) throws -> DeveloperApplicationSettingsPreparation {
+    )
+        throws -> DeveloperApplicationSettingsPreparation
+    {
         let settingsURL = try proxySettingsURL(
             for: adapter,
             applicationSupportURL: applicationSupportURL,
             fileManager: fileManager
         )
-        let backupURL = settingsURL.appendingPathExtension("rockxy-backup")
-        let absenceMarkerURL = settingsURL.appendingPathExtension("rockxy-originally-absent")
-        let preparedSnapshotURL = settingsURL.appendingPathExtension("rockxy-prepared")
         let recoveryRecordURL = try DeveloperApplicationRecoveryLedger.recordURL(
             for: settingsURL,
             applicationSupportURL: applicationSupportURL,
             fileManager: fileManager
         )
+        let recoveryArtifactURLs = recoveryArtifactURLs(for: recoveryRecordURL)
+        let backupURL = recoveryArtifactURLs.backupURL
+        let absenceMarkerURL = recoveryArtifactURLs.absenceMarkerURL
+        let preparedSnapshotURL = recoveryArtifactURLs.preparedSnapshotURL
+        let recoveryDirectoryURL = recoveryRecordURL.deletingLastPathComponent()
+        try fileManager.createDirectory(at: recoveryDirectoryURL, withIntermediateDirectories: true)
         try validateContainedPath(backupURL, rootURL: applicationSupportURL, fileManager: fileManager)
         try validateContainedPath(absenceMarkerURL, rootURL: applicationSupportURL, fileManager: fileManager)
         try validateContainedPath(preparedSnapshotURL, rootURL: applicationSupportURL, fileManager: fileManager)
 
+        // Migrate a transaction created by Rockxy 0.38.x, whose artifacts lived beside the
+        // third-party settings file. New transactions keep their only recovery copy under Rockxy.
+        let legacyBackupURL = settingsURL.appendingPathExtension("rockxy-backup")
+        let legacyAbsenceMarkerURL = settingsURL.appendingPathExtension("rockxy-originally-absent")
+        let legacyPreparedSnapshotURL = settingsURL.appendingPathExtension("rockxy-prepared")
+        if fileManager.fileExists(atPath: legacyBackupURL.path)
+            || fileManager.fileExists(atPath: legacyAbsenceMarkerURL.path)
+            || fileManager.fileExists(atPath: legacyPreparedSnapshotURL.path)
+        {
+            try restoreBackup(
+                settingsURL: settingsURL,
+                backupURL: legacyBackupURL,
+                absenceMarkerURL: legacyAbsenceMarkerURL,
+                preparedSnapshotURL: legacyPreparedSnapshotURL,
+                fileManager: fileManager
+            )
+            try settleRecoveryRecord(recoveryRecordURL, fileManager: fileManager)
+        }
+
         if fileManager.fileExists(atPath: backupURL.path)
             || fileManager.fileExists(atPath: absenceMarkerURL.path)
             || fileManager.fileExists(atPath: preparedSnapshotURL.path)
+            || fileManager.fileExists(atPath: recoveryRecordURL.path)
         {
+            // A record can outlive its artifacts when a completed restore was interrupted before
+            // the ledger entry was removed. `restoreBackup` settles that case without touching
+            // the live settings file, so preparation continues instead of failing permanently.
             try restoreBackup(
                 settingsURL: settingsURL,
                 backupURL: backupURL,
@@ -602,7 +595,7 @@ enum DeveloperApplicationCaptureConfigurator {
                 preparedSnapshotURL: preparedSnapshotURL,
                 fileManager: fileManager
             )
-            try removeIfPresent(recoveryRecordURL, fileManager: fileManager)
+            try settleRecoveryRecord(recoveryRecordURL, fileManager: fileManager)
         }
 
         let document: XMLDocument
@@ -649,8 +642,10 @@ enum DeveloperApplicationCaptureConfigurator {
         try validateContainedPath(settingsURL, rootURL: applicationSupportURL, fileManager: fileManager)
         if let originalData {
             try originalData.write(to: backupURL, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
         } else {
             try Data().write(to: absenceMarkerURL, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: absenceMarkerURL.path)
         }
         let preparedData = document.xmlData(options: [.nodePrettyPrint])
         do {
@@ -659,22 +654,29 @@ enum DeveloperApplicationCaptureConfigurator {
             try DeveloperApplicationRecoveryLedger.writeRecord(
                 settingsURL: settingsURL,
                 recordURL: recoveryRecordURL,
+                bundleIdentifier: installation.bundleIdentifier,
+                applicationBundlePath: installation.appURL.path,
                 applicationSupportURL: applicationSupportURL,
                 fileManager: fileManager
             )
             try preparedData.write(to: settingsURL, options: .atomic)
             try preparedData.write(to: preparedSnapshotURL, options: .atomic)
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preparedSnapshotURL.path)
         } catch {
             // Once the backup marker exists, preparation is a transaction. A partial disk or
             // permission failure must not leave the selected application on Rockxy's settings.
-            try? restoreBackup(
-                settingsURL: settingsURL,
-                backupURL: backupURL,
-                absenceMarkerURL: absenceMarkerURL,
-                preparedSnapshotURL: preparedSnapshotURL,
-                fileManager: fileManager
-            )
-            try? removeIfPresent(recoveryRecordURL, fileManager: fileManager)
+            do {
+                try restoreBackup(
+                    settingsURL: settingsURL,
+                    backupURL: backupURL,
+                    absenceMarkerURL: absenceMarkerURL,
+                    preparedSnapshotURL: preparedSnapshotURL,
+                    fileManager: fileManager
+                )
+                try settleRecoveryRecord(recoveryRecordURL, fileManager: fileManager)
+            } catch {
+                // Keep every remaining artifact and the durable record for startup recovery.
+            }
             throw error
         }
         return DeveloperApplicationSettingsPreparation(
@@ -682,7 +684,9 @@ enum DeveloperApplicationCaptureConfigurator {
             backupURL: backupURL,
             absenceMarkerURL: absenceMarkerURL,
             preparedSnapshotURL: preparedSnapshotURL,
-            recoveryRecordURL: recoveryRecordURL
+            recoveryRecordURL: recoveryRecordURL,
+            applicationBundlePath: installation.appURL.standardizedFileURL
+                .resolvingSymlinksInPath().path
         )
     }
 
@@ -692,7 +696,22 @@ enum DeveloperApplicationCaptureConfigurator {
         absenceMarkerURL: URL,
         preparedSnapshotURL: URL,
         fileManager: FileManager
-    ) throws {
+    )
+        throws
+    {
+        guard hasAnyRecoveryArtifact(
+            backupURL: backupURL,
+            absenceMarkerURL: absenceMarkerURL,
+            preparedSnapshotURL: preparedSnapshotURL,
+            fileManager: fileManager
+        ) else {
+            // A completed restore already removed every recovery artifact and only the ledger
+            // entry survived, typically because Rockxy was terminated between the two steps.
+            // That entry owns nothing: the caller settles it and the live settings file stays
+            // exactly as the application and the user left it.
+            return
+        }
+
         if fileManager.fileExists(atPath: preparedSnapshotURL.path) {
             guard fileManager.fileExists(atPath: settingsURL.path) else {
                 // The application or user removed the file. That newer choice wins.
@@ -705,12 +724,27 @@ enum DeveloperApplicationCaptureConfigurator {
                 return
             }
 
-            let preparedDocument = try readProxySettingsDocument(at: preparedSnapshotURL, fileManager: fileManager)
+            let preparedDocument: XMLDocument
+            do {
+                preparedDocument = try readProxySettingsDocument(
+                    at: preparedSnapshotURL,
+                    fileManager: fileManager
+                )
+            } catch {
+                let conflictURL = try recoverConflictingLiveSettings(
+                    settingsURL: settingsURL,
+                    backupURL: backupURL,
+                    absenceMarkerURL: absenceMarkerURL,
+                    preparedSnapshotURL: preparedSnapshotURL,
+                    fileManager: fileManager
+                )
+                throw DeveloperApplicationCaptureError.settingsRecoveryConflict(conflictURL.path)
+            }
             let liveDocument: XMLDocument
             do {
                 liveDocument = try readProxySettingsDocument(at: settingsURL, fileManager: fileManager)
             } catch {
-                let conflictURL = try recoverMalformedLiveSettings(
+                let conflictURL = try recoverConflictingLiveSettings(
                     settingsURL: settingsURL,
                     backupURL: backupURL,
                     absenceMarkerURL: absenceMarkerURL,
@@ -776,8 +810,12 @@ enum DeveloperApplicationCaptureConfigurator {
             let originalData = try Data(contentsOf: backupURL, options: [.mappedIfSafe])
             try originalData.write(to: settingsURL, options: .atomic)
             try fileManager.removeItem(at: backupURL)
+            return
         }
-        try removeIfPresent(preparedSnapshotURL, fileManager: fileManager)
+        // A transaction that still owns artifacts but has lost its original/absence artifact
+        // cannot be settled safely. Keep the record and the live settings intact so a later
+        // repair or diagnostic can recover them.
+        throw DeveloperApplicationCaptureError.malformedProxySettings
     }
 
     private static func removeIfPresent(_ url: URL, fileManager: FileManager) throws {
@@ -787,17 +825,20 @@ enum DeveloperApplicationCaptureConfigurator {
         try fileManager.removeItem(at: url)
     }
 
-    /// Resolves a stale transaction whose live file is no longer parseable. The newer bytes are
+    /// Resolves a stale transaction whose snapshots can no longer be compared safely. The live
+    /// bytes are
     /// never discarded: they are moved beside the settings file under a unique conflict name.
     /// Rockxy then restores the exact original (or its original absence) and stops the current
     /// preparation so the user can inspect the conflict before explicitly trying again.
-    private static func recoverMalformedLiveSettings(
+    private static func recoverConflictingLiveSettings(
         settingsURL: URL,
         backupURL: URL,
         absenceMarkerURL: URL,
         preparedSnapshotURL: URL,
         fileManager: FileManager
-    ) throws -> URL {
+    )
+        throws -> URL
+    {
         let originalData: Data?
         if fileManager.fileExists(atPath: backupURL.path) {
             // Validate the recovery source before moving the only live copy out of place.
@@ -830,17 +871,12 @@ enum DeveloperApplicationCaptureConfigurator {
         }
     }
 
-    private static let proxySelectionOptionNames: Set<String> = [
-        "USE_PROXY_PAC",
-        "USE_HTTP_PROXY",
-        "USE_PAC_URL",
-        "PROXY_TYPE_IS_SOCKS",
-    ]
-
     private static func readProxySettingsDocument(
         at url: URL,
         fileManager: FileManager
-    ) throws -> XMLDocument {
+    )
+        throws -> XMLDocument
+    {
         do {
             guard try fileSize(at: url, fileManager: fileManager) <= maximumProxySettingsBytes else {
                 throw DeveloperApplicationCaptureError.malformedProxySettings
@@ -868,8 +904,8 @@ enum DeveloperApplicationCaptureConfigurator {
         var result: [String: Set<String>] = [:]
         for option in component.elements(forName: "option") {
             guard let name = option.attribute(forName: "name")?.stringValue,
-                  proxySelectionOptionNames.contains(name)
-            else {
+                  proxySelectionOptionNames.contains(name) else
+            {
                 continue
             }
             let value = option.attribute(forName: "value")?.stringValue?
@@ -886,7 +922,9 @@ enum DeveloperApplicationCaptureConfigurator {
     private static func restoreProxySelection(
         from originalDocument: XMLDocument,
         into liveDocument: XMLDocument
-    ) throws {
+    )
+        throws
+    {
         try removeProxySelectionOptions(from: liveDocument)
         guard let originalComponent = proxyComponent(in: originalDocument) else {
             return
@@ -895,8 +933,8 @@ enum DeveloperApplicationCaptureConfigurator {
         for option in originalComponent.elements(forName: "option") {
             guard let name = option.attribute(forName: "name")?.stringValue,
                   proxySelectionOptionNames.contains(name),
-                  let copy = option.copy() as? XMLNode
-            else {
+                  let copy = option.copy() as? XMLNode else
+            {
                 continue
             }
             liveComponent?.addChild(copy)
@@ -909,8 +947,8 @@ enum DeveloperApplicationCaptureConfigurator {
         }
         for option in component.elements(forName: "option") {
             guard let name = option.attribute(forName: "name")?.stringValue,
-                  proxySelectionOptionNames.contains(name)
-            else {
+                  proxySelectionOptionNames.contains(name) else
+            {
                 continue
             }
             option.detach()
@@ -927,7 +965,9 @@ enum DeveloperApplicationCaptureConfigurator {
     private static func proxyComponent(
         in document: XMLDocument,
         createIfMissing: Bool = false
-    ) -> XMLElement? {
+    )
+        -> XMLElement?
+    {
         guard let application = document.rootElement() else {
             return nil
         }
@@ -959,45 +999,73 @@ enum DeveloperApplicationCaptureConfigurator {
         absenceMarkerURL: URL,
         preparedSnapshotURL: URL,
         fileManager: FileManager
-    ) throws {
+    )
+        throws
+    {
         try removeIfPresent(backupURL, fileManager: fileManager)
         try removeIfPresent(absenceMarkerURL, fileManager: fileManager)
         try removeIfPresent(preparedSnapshotURL, fileManager: fileManager)
     }
 
-    private static func hasRecoveryArtifacts(
-        _ preparation: DeveloperApplicationSettingsPreparation,
+    private static func hasAnyRecoveryArtifact(
+        backupURL: URL,
+        absenceMarkerURL: URL,
+        preparedSnapshotURL: URL,
         fileManager: FileManager
-    ) -> Bool {
-        [
-            preparation.backupURL,
-            preparation.absenceMarkerURL,
-            preparation.preparedSnapshotURL,
-        ].contains { fileManager.fileExists(atPath: $0.path) }
+    )
+        -> Bool
+    {
+        [backupURL, absenceMarkerURL, preparedSnapshotURL]
+            .contains { fileManager.fileExists(atPath: $0.path) }
     }
 
-    static func validateContainedPath(
-        _ candidateURL: URL,
-        rootURL: URL,
+    /// Removes a ledger entry that no longer owns any recovery artifact, together with the
+    /// bounded restoration-monitor marker derived from it.
+    private static func settleRecoveryRecord(
+        _ recoveryRecordURL: URL,
         fileManager: FileManager
-    ) throws {
-        let root = rootURL.standardizedFileURL.resolvingSymlinksInPath()
-        let candidate = candidateURL.standardizedFileURL.resolvingSymlinksInPath()
-        let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-        guard candidate.path.hasPrefix(rootPath), candidate.path != root.path else {
-            throw DeveloperApplicationCaptureError.unsafeSettingsLocation
+    )
+        throws
+    {
+        try removeIfPresent(recoveryRecordURL, fileManager: fileManager)
+        DeveloperApplicationRestorationMonitorLedger.removeMarker(
+            for: recoveryRecordURL,
+            fileManager: fileManager
+        )
+    }
+
+    /// Canonicalizes every existing path component while retaining a not-yet-created suffix.
+    /// Foundation can return `/private/var` URLs from directory enumeration but leave a missing
+    /// sibling under `/var`; treating those aliases lexically would reject a valid recovery file.
+    /// Broken symbolic links remain unsafe because a later target could escape the trusted root.
+    private static func canonicalizedURLPreservingMissingSuffix(
+        _ url: URL,
+        fileManager: FileManager
+    )
+        throws -> URL
+    {
+        var existingURL = url.standardizedFileURL
+        var missingComponents: [String] = []
+
+        while !fileManager.fileExists(atPath: existingURL.path) {
+            var information = stat()
+            if lstat(existingURL.path, &information) == 0,
+               information.st_mode & S_IFMT == S_IFLNK
+            {
+                throw DeveloperApplicationCaptureError.unsafeSettingsLocation
+            }
+            guard existingURL.path != "/" else {
+                break
+            }
+            missingComponents.append(existingURL.lastPathComponent)
+            existingURL.deleteLastPathComponent()
         }
 
-        var existingAncestor = candidateURL.deletingLastPathComponent()
-        while existingAncestor.path != rootURL.path,
-              !fileManager.fileExists(atPath: existingAncestor.path)
-        {
-            existingAncestor.deleteLastPathComponent()
+        var canonicalURL = existingURL.resolvingSymlinksInPath().standardizedFileURL
+        for component in missingComponents.reversed() {
+            canonicalURL.appendPathComponent(component, isDirectory: false)
         }
-        let resolvedAncestor = existingAncestor.standardizedFileURL.resolvingSymlinksInPath()
-        guard resolvedAncestor.path == root.path || resolvedAncestor.path.hasPrefix(rootPath) else {
-            throw DeveloperApplicationCaptureError.unsafeSettingsLocation
-        }
+        return canonicalURL.standardizedFileURL
     }
 
     private static func isSafeDirectoryComponent(_ value: String) -> Bool {
@@ -1011,14 +1079,6 @@ enum DeveloperApplicationCaptureConfigurator {
             && !trimmed.contains(":")
             && !trimmed.contains("\0")
             && trimmed.rangeOfCharacter(from: .controlCharacters) == nil
-    }
-
-    static func fileSize(at url: URL, fileManager: FileManager) throws -> UInt64 {
-        let attributes = try fileManager.attributesOfItem(atPath: url.path)
-        guard let size = attributes[.size] as? NSNumber else {
-            throw DeveloperApplicationCaptureError.invalidApplicationMetadata
-        }
-        return size.uint64Value
     }
 
     private static func setOption(name: String, value: String, in component: XMLElement) {
@@ -1052,204 +1112,6 @@ enum DeveloperApplicationCaptureConfigurator {
             option.attribute(forName: "name")?.stringValue == name
         {
             option.detach()
-        }
-    }
-}
-
-// MARK: - DeveloperApplicationCaptureWorkflow
-
-enum DeveloperApplicationCaptureOutcome: Equatable {
-    case prepared(displayName: String, restorationMonitorActive: Bool)
-    case explicitProxyLaunch(displayName: String)
-    case environmentOnly(displayName: String)
-}
-
-/// Coordinates one reversible application preparation and launch. Keeping this workflow outside
-/// the setup view model makes the capability boundary independently testable and keeps UI state
-/// updates separate from filesystem and process lifecycle work.
-@MainActor
-struct DeveloperApplicationCaptureWorkflow {
-    let launcher: DeveloperApplicationLaunching
-    let restorationMonitor: DeveloperApplicationSettingsRestorationMonitoring
-    let preparationRegistry: DeveloperApplicationPreparationRegistry
-    let applicationIsRunning: @MainActor (DeveloperApplicationInstallation) -> Bool
-    let applicationSupportURL: URL
-
-    func open(
-        appURL: URL,
-        context: RockxySetupScriptContext,
-        systemProxyConfigured: Bool
-    ) async throws -> DeveloperApplicationCaptureOutcome {
-        let installation = try DeveloperApplicationCaptureConfigurator.installation(at: appURL)
-        try validate(installation, systemProxyConfigured: systemProxyConfigured)
-
-        let preparationKey = try settingsURL(for: installation)?.standardizedFileURL.path
-        if let preparationKey, !preparationRegistry.begin(preparationKey) {
-            throw DeveloperApplicationCaptureError.preparationInProgress(installation.displayName)
-        }
-        defer {
-            if let preparationKey {
-                preparationRegistry.end(preparationKey)
-            }
-        }
-
-        let preparation = try await prepareSettings(for: installation)
-        return try await launch(installation, preparation: preparation, context: context)
-    }
-
-    private func validate(
-        _ installation: DeveloperApplicationInstallation,
-        systemProxyConfigured: Bool
-    ) throws {
-        guard !applicationIsRunning(installation) else {
-            throw DeveloperApplicationCaptureError.applicationIsRunning(installation.displayName)
-        }
-        if installation.settingsAdapter?.requiresSystemProxy == true, !systemProxyConfigured {
-            throw DeveloperApplicationCaptureError.systemProxyRequired(installation.displayName)
-        }
-    }
-
-    private func settingsURL(for installation: DeveloperApplicationInstallation) throws -> URL? {
-        try installation.settingsAdapter.map {
-            try DeveloperApplicationCaptureConfigurator.proxySettingsURL(
-                for: $0,
-                applicationSupportURL: applicationSupportURL
-            )
-        }
-    }
-
-    private func prepareSettings(
-        for installation: DeveloperApplicationInstallation
-    ) async throws -> DeveloperApplicationSettingsPreparation? {
-        let applicationSupportURL = self.applicationSupportURL
-        return try await Task.detached {
-            try DeveloperApplicationCaptureConfigurator.prepareRecognizedSettings(
-                for: installation,
-                applicationSupportURL: applicationSupportURL
-            )
-        }.value
-    }
-
-    private func launch(
-        _ installation: DeveloperApplicationInstallation,
-        preparation: DeveloperApplicationSettingsPreparation?,
-        context: RockxySetupScriptContext
-    ) async throws -> DeveloperApplicationCaptureOutcome {
-        let arguments = installation.launchAdapter?.arguments(context: context) ?? []
-        let environment = DeveloperCaptureEnvironmentBuilder.environment(
-            context: context,
-            baseEnvironment: DeveloperCaptureEnvironmentBuilder.safeInheritedEnvironment(),
-            includeJavaProxyProperties: installation.settingsAdapter?.requiresJavaProxyProperties
-        )
-        let applicationSupportURL = self.applicationSupportURL
-        let terminationCallback = preparation.map {
-            Self.settingsRestorationCallback(
-                $0,
-                applicationSupportURL: applicationSupportURL
-            )
-        }
-
-        do {
-            let processIdentifier = try await launcher.launch(
-                installation,
-                arguments: arguments,
-                environment: environment,
-                onTermination: terminationCallback
-            )
-            guard let preparation else {
-                if installation.launchAdapter != nil {
-                    return .explicitProxyLaunch(displayName: installation.displayName)
-                }
-                return .environmentOnly(displayName: installation.displayName)
-            }
-            await associateRunningProcess(
-                processIdentifier: processIdentifier,
-                preparation: preparation
-            )
-            let monitorActive = startRestorationMonitor(
-                processIdentifier: processIdentifier,
-                preparation: preparation
-            )
-            return .prepared(
-                displayName: installation.displayName,
-                restorationMonitorActive: monitorActive
-            )
-        } catch {
-            if let preparation {
-                await Task.detached(priority: .utility) {
-                    Self.restoreSettings(preparation, applicationSupportURL: applicationSupportURL)
-                }.value
-            }
-            throw error
-        }
-    }
-
-    private func startRestorationMonitor(
-        processIdentifier: Int32,
-        preparation: DeveloperApplicationSettingsPreparation
-    ) -> Bool {
-        do {
-            try restorationMonitor.startMonitoring(
-                processIdentifier: processIdentifier,
-                preparation: preparation
-            )
-            return true
-        } catch {
-            developerApplicationCaptureLogger.error(
-                "Could not start the developer-application settings restoration monitor: \(error.localizedDescription)"
-            )
-            return false
-        }
-    }
-
-    private func associateRunningProcess(
-        processIdentifier: Int32,
-        preparation: DeveloperApplicationSettingsPreparation
-    ) async {
-        let applicationSupportURL = self.applicationSupportURL
-        do {
-            try await Task.detached(priority: .utility) {
-                let startSignature = DeveloperApplicationCaptureConfigurator.processStartSignature(
-                    processIdentifier: processIdentifier
-                )
-                try DeveloperApplicationCaptureConfigurator.associateRunningProcess(
-                    processIdentifier: processIdentifier,
-                    processStartSignature: startSignature,
-                    with: preparation,
-                    applicationSupportURL: applicationSupportURL
-                )
-            }.value
-        } catch {
-            developerApplicationCaptureLogger.error(
-                "Could not associate the launched application with its recovery record: \(error.localizedDescription)"
-            )
-        }
-    }
-
-    nonisolated private static func settingsRestorationCallback(
-        _ preparation: DeveloperApplicationSettingsPreparation,
-        applicationSupportURL: URL
-    ) -> @MainActor @Sendable () -> Void {
-        {
-            Task.detached {
-                restoreSettings(preparation, applicationSupportURL: applicationSupportURL)
-            }
-        }
-    }
-
-    nonisolated private static func restoreSettings(
-        _ preparation: DeveloperApplicationSettingsPreparation,
-        applicationSupportURL: URL
-    ) {
-        do {
-            try DeveloperApplicationCaptureConfigurator.restoreRecognizedSettings(
-                preparation,
-                applicationSupportURL: applicationSupportURL
-            )
-        } catch {
-            developerApplicationCaptureLogger.error(
-                "Could not restore temporary developer-application proxy settings: \(error.localizedDescription)"
-            )
         }
     }
 }

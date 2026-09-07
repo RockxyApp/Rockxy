@@ -460,6 +460,18 @@ struct ReadinessCoordinatorTests {
         }
     }
 
+    @Test("forced trust revalidation refreshes the snapshot and derived capability")
+    @MainActor
+    func forcedTrustRevalidationRefreshesSnapshot() async throws {
+        let coordinator = ReadinessCoordinator.shared
+        // This path never requests installation or changes trust settings. Positive trust
+        // metadata triggers SecTrust evaluation; known absence fails closed before that work.
+        await coordinator.refreshCertificateTrustValidation()
+
+        let snapshot = try #require(coordinator.lastCertSnapshot)
+        #expect(coordinator.canInterceptHTTPS == snapshot.isSystemTrustValidated)
+    }
+
     @Test("mid-capture passthrough matches cert readiness")
     @MainActor
     func midCaptureTrustChangeAffectsFuture() async {
@@ -539,6 +551,82 @@ struct ReadinessWarningTests {
         #expect(!CertReadiness.unknown.localizedDescription.isEmpty)
     }
 
+    @Test("each readable certificate state names the step that is actually missing")
+    func readableCertStatesProduceDistinctWarnings() throws {
+        let notGenerated = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .notGenerated,
+            isCaptureActive: true
+        ))
+        let generatedNotInstalled = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .generatedNotInstalled,
+            isCaptureActive: true
+        ))
+        let installedNotTrusted = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .installedNotTrusted,
+            isCaptureActive: true
+        ))
+        let unknown = try #require(ReadinessCoordinator.certNotTrustedWarning(
+            certReadiness: .unknown,
+            isCaptureActive: true
+        ))
+
+        // Each readable state describes its own missing step. "Not trusted" for a root that was
+        // never generated, or for one that is in no keychain, names a decision the user never made.
+        #expect(notGenerated.message.contains("has not been generated"))
+        #expect(generatedNotInstalled.message.contains("not installed in the login or System keychain"))
+        #expect(installedNotTrusted.message.contains("installed but not trusted"))
+
+        let messages = [
+            notGenerated.message,
+            generatedNotInstalled.message,
+            installedNotTrusted.message,
+            unknown.message,
+        ]
+        #expect(Set(messages).count == messages.count)
+
+        for warning in [notGenerated, generatedNotInstalled, installedNotTrusted, unknown] {
+            // HTTP and log capture keep running in every one of these states, and none of the
+            // warnings may be dismissed away while HTTPS interception is paused.
+            #expect(warning.message.contains("HTTP traffic and logs are still captured"))
+            #expect(warning.isDismissible == false)
+        }
+
+        // The recovery stays as it was: a readable missing step offers the install, an
+        // unreadable status offers only a recheck.
+        #expect(notGenerated.action == .reinstallAndTrust)
+        #expect(generatedNotInstalled.action == .reinstallAndTrust)
+        #expect(installedNotTrusted.action == .reinstallAndTrust)
+        #expect(unknown.action == .openGeneralSettings)
+    }
+
+    @Test("no certificate warning is produced while capture is idle, in any readable state")
+    func certWarningsRequireActiveCaptureInEveryState() {
+        for readiness in [
+            CertReadiness.notGenerated,
+            .generatedNotInstalled,
+            .installedNotTrusted,
+            .trusted,
+            .unknown,
+        ] {
+            #expect(
+                ReadinessCoordinator.certNotTrustedWarning(
+                    certReadiness: readiness,
+                    isCaptureActive: false
+                ) == nil
+            )
+        }
+    }
+
+    @Test("a trusted root produces no certificate warning during capture")
+    func trustedRootProducesNoWarningDuringCapture() {
+        #expect(
+            ReadinessCoordinator.certNotTrustedWarning(
+                certReadiness: .trusted,
+                isCaptureActive: true
+            ) == nil
+        )
+    }
+
     @Test("an unreadable cert status warns that verification failed and offers a status check")
     func unknownCertReadinessOffersStatusCheck() throws {
         let warning = try #require(ReadinessCoordinator.certNotTrustedWarning(
@@ -557,5 +645,84 @@ struct ReadinessWarningTests {
             certReadiness: .installedNotTrusted,
             isCaptureActive: true
         )?.action == .reinstallAndTrust)
+    }
+}
+
+// MARK: - ProxyStartTrustValidationContractTests
+
+/// Source-contract coverage for the Start Capture trust gate.
+///
+/// Starting the real proxy would bind a port, replace the system proxy configuration, and
+/// launch a second capture session on this machine, so the call path is pinned at the source
+/// level instead: capture start must force a fresh trust resolution (including real `SecTrust`
+/// evaluation when trust metadata is present) before it decides global passthrough and before the
+/// server accepts connections. A cached negative recorded before the user approved the root would
+/// otherwise pass every HTTPS connection through for the whole session.
+struct ProxyStartTrustValidationContractTests {
+    // MARK: Internal
+
+    @Test("Start Capture forces certificate revalidation before passthrough and server start")
+    func startProxyForcesFreshTrustValidation() throws {
+        let source = try String(
+            contentsOf: resolveProjectRoot()
+                .appendingPathComponent("Rockxy/Views/Main/Extensions/MainContentCoordinator+ProxyControl.swift"),
+            encoding: .utf8
+        )
+        let startBody = try #require(bodyOfStartProxy(in: source))
+
+        let validation = try #require(startBody.range(of: "await readiness.refreshCertificateTrustValidation()"))
+        let passthrough = try #require(
+            startBody.range(of: "SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS")
+        )
+        let serverStart = try #require(startBody.range(of: "try await proxyServer.start()"))
+
+        #expect(validation.upperBound <= passthrough.lowerBound)
+        #expect(passthrough.upperBound <= serverStart.lowerBound)
+        // The cheap cached refresh must not be what decides this gate.
+        #expect(!startBody.contains("await readiness.refresh()"))
+    }
+
+    @Test("the forced revalidation entry point requests fresh validation")
+    func forcedRevalidationRequestsRealValidation() throws {
+        let source = try String(
+            contentsOf: resolveProjectRoot()
+                .appendingPathComponent("Rockxy/Core/Services/ReadinessCoordinator.swift"),
+            encoding: .utf8
+        )
+        let declaration = try #require(source.range(of: "func refreshCertificateTrustValidation() async {"))
+        let body = source[declaration.upperBound...].prefix(400)
+
+        #expect(body.contains("refreshCertState(performValidation: true)"))
+    }
+
+    // MARK: Private
+
+    private enum ContractError: Error {
+        case rootNotFound(filePath: String)
+    }
+
+    /// The text of `startProxy()`, bounded by the next function declaration so later lifecycle
+    /// code cannot satisfy or break an ordering assertion about capture start.
+    private func bodyOfStartProxy(in source: String) -> String? {
+        guard let start = source.range(of: "func startProxy() {") else {
+            return nil
+        }
+        let remainder = source[start.upperBound...]
+        guard let end = remainder.range(of: "func stopProxy() {") else {
+            return String(remainder)
+        }
+        return String(remainder[..<end.lowerBound])
+    }
+
+    private func resolveProjectRoot() throws -> URL {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.lastPathComponent != "RockxyTests", url.path != "/" {
+            url.deleteLastPathComponent()
+        }
+        guard url.lastPathComponent == "RockxyTests" else {
+            throw ContractError.rootNotFound(filePath: #filePath)
+        }
+        url.deleteLastPathComponent()
+        return url
     }
 }
