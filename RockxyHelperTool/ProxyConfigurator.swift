@@ -27,7 +27,7 @@ enum ProxyConfigurator {
 
     /// Override system HTTP and HTTPS proxy to 127.0.0.1 on the given port.
     /// Saves current settings via CrashRecovery before making changes.
-    static func overrideProxy(port: Int) throws {
+    static func overrideProxy(port: Int, ownerPID: Int32) throws {
         let services = try detectAllEnabledServices()
         guard !services.isEmpty else {
             throw ProxyConfiguratorError.noActiveService
@@ -35,7 +35,7 @@ enum ProxyConfigurator {
 
         // Existing service snapshots are preserved, while newly enabled services are added
         // before they are mutated so every touched route has an exact restore point.
-        try CrashRecovery.saveOriginalSettings(services: services, rockxyPort: port)
+        try CrashRecovery.saveOriginalSettings(services: services, rockxyPort: port, ownerPID: ownerPID)
 
         logger.info("Setting system proxy to 127.0.0.1:\(port) for \(services.count) service(s)")
 
@@ -77,22 +77,27 @@ enum ProxyConfigurator {
 
     /// Restore proxy settings from CrashRecovery backup. Throws on failure.
     static func restoreProxyOrThrow() throws {
-        guard let backup = CrashRecovery.loadBackup() else {
+        guard let sourceBackup = CrashRecovery.loadBackup() else {
             logger.info("No proxy backup exists, so there is no owned proxy state to restore")
             return
         }
+        let backedUpServices = sourceBackup.services.map(\.service)
+        let inferredPort = ProxyOverrideOwnership.inferredOwnedPort(
+            in: currentOverrideStates(for: backedUpServices)
+        )
+        let backup = try CrashRecovery.reduceBackup(
+            sourceBackup,
+            to: backedUpServices,
+            rockxyPort: inferredPort
+        )
 
-        var allSucceeded = true
+        var failedServices: Set<String> = []
         for service in backup.services.map(\.service) {
             do {
-                try runNetworkSetup(["-setwebproxystate", service, "off"])
-                try runNetworkSetup(["-setsecurewebproxystate", service, "off"])
-                try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
-                try runNetworkSetup(["-setautoproxystate", service, "off"])
-                try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
+                try disableProxyStates(for: service)
                 logger.debug("Disabled proxy on '\(service)'")
             } catch {
-                allSucceeded = false
+                failedServices.insert(service)
                 logger.debug("Failed to disable proxy for '\(service)': \(error.localizedDescription)")
             }
         }
@@ -100,67 +105,167 @@ enum ProxyConfigurator {
         logger.info("Restoring original proxy settings for \(backup.services.count) service(s)")
 
         for serviceBackup in backup.services {
-            let service = serviceBackup.service
-            logger.info("Restoring proxy settings for '\(service)'")
+            logger.info("Restoring proxy settings for '\(serviceBackup.service)'")
 
             do {
-                if !serviceBackup.httpHost.isEmpty, serviceBackup.httpPort > 0 {
-                    try runNetworkSetup([
-                        "-setwebproxy", service, serviceBackup.httpHost,
-                        String(serviceBackup.httpPort),
-                    ])
-                    try runNetworkSetup([
-                        "-setwebproxystate", service, serviceBackup.httpEnabled ? "on" : "off",
-                    ])
-                }
-
-                if !serviceBackup.httpsHost.isEmpty, serviceBackup.httpsPort > 0 {
-                    try runNetworkSetup([
-                        "-setsecurewebproxy", service, serviceBackup.httpsHost,
-                        String(serviceBackup.httpsPort),
-                    ])
-                    try runNetworkSetup([
-                        "-setsecurewebproxystate", service, serviceBackup.httpsEnabled ? "on" : "off",
-                    ])
-                }
-
-                if !serviceBackup.socksHost.isEmpty, serviceBackup.socksPort > 0 {
-                    try runNetworkSetup([
-                        "-setsocksfirewallproxy", service, serviceBackup.socksHost,
-                        String(serviceBackup.socksPort),
-                    ])
-                    try runNetworkSetup([
-                        "-setsocksfirewallproxystate", service, serviceBackup.socksEnabled ? "on" : "off",
-                    ])
-                }
-
-                if serviceBackup.pacEnabled {
-                    if !serviceBackup.pacURL.isEmpty {
-                        try runNetworkSetup(["-setautoproxyurl", service, serviceBackup.pacURL])
-                    }
-                    try runNetworkSetup(["-setautoproxystate", service, "on"])
-                }
-
-                if serviceBackup.autoDiscoveryEnabled {
-                    try runNetworkSetup(["-setproxyautodiscovery", service, "on"])
-                }
-
-                try restoreBypassDomains(service: service, domains: serviceBackup.bypassDomains)
+                try applyServiceBackup(serviceBackup)
             } catch {
-                allSucceeded = false
-                logger.error("Failed to restore proxy for '\(service)': \(error.localizedDescription)")
+                failedServices.insert(serviceBackup.service)
+                logger
+                    .error(
+                        "Failed to restore proxy for '\(serviceBackup.service)': \(error.localizedDescription)"
+                    )
             }
         }
 
-        guard allSucceeded else {
+        let stillOwnedServices = Set(backup.rockxyPort.map { port in
+            ProxyOverrideOwnership.residualOwnedServices(
+                in: currentOverrideStates(for: backup.services.map(\.service)),
+                port: port
+            )
+        } ?? [])
+        let unresolvedEntries = ProxyBackupSubset.unresolvedEntries(
+            backup.services,
+            failedServices: failedServices,
+            stillOwnedServices: stillOwnedServices,
+            serviceName: \.service
+        )
+
+        guard unresolvedEntries.isEmpty else {
+            do {
+                _ = try CrashRecovery.reduceBackup(backup, to: unresolvedEntries.map(\.service))
+            } catch {
+                logger.error("Could not narrow the retained proxy backup: \(error.localizedDescription)")
+            }
             throw ProxyConfiguratorError.executionFailed(
                 command: "restore proxy",
-                reason: "One or more network services could not be restored; the recovery backup was preserved"
+                reason: "\(unresolvedEntries.count) network service(s) could not be restored; the recovery backup was preserved"
             )
         }
 
         CrashRecovery.clearBackup()
         logger.info("Proxy settings restored successfully")
+    }
+
+    /// Restores only the backed-up services that still carry Rockxy's override, leaving any
+    /// service the user (or another tool) has since re-pointed exactly as it is.
+    ///
+    /// The backup is narrowed to those services *before* the first setting is written, so a
+    /// retry after a partial failure can never replay stale settings onto a service that is no
+    /// longer Rockxy's. If that reduced backup cannot be persisted, the original backup stays
+    /// on disk and nothing is mutated — losing the restore point is worse than a stranded
+    /// override that can still be recovered later.
+    static func restoreOwnedServicesOrThrow(ownedServices: [String], port: Int?) throws {
+        guard let backup = CrashRecovery.loadBackup() else {
+            logger.info("No proxy backup exists, so there is no owned proxy state to restore")
+            return
+        }
+
+        let ownedEntries = ProxyBackupSubset.select(
+            backup.services,
+            services: Set(ownedServices),
+            serviceName: \.service
+        )
+        guard !ownedEntries.isEmpty else {
+            logger.info("No backed-up service is still Rockxy-owned — clearing the stale backup")
+            CrashRecovery.clearBackup()
+            return
+        }
+
+        let reducedBackup: CrashRecovery.ProxyBackup
+        do {
+            reducedBackup = try CrashRecovery.reduceBackup(
+                backup,
+                to: ownedEntries.map(\.service),
+                rockxyPort: port
+            )
+        } catch {
+            logger
+                .error(
+                    "Could not persist the reduced proxy backup — leaving settings untouched: \(error.localizedDescription)"
+                )
+            throw error
+        }
+
+        logger.info("Restoring original proxy settings for \(reducedBackup.services.count) owned service(s)")
+
+        var failedServices: Set<String> = []
+        for serviceBackup in reducedBackup.services {
+            do {
+                try disableProxyStates(for: serviceBackup.service)
+                try applyServiceBackup(serviceBackup)
+            } catch {
+                failedServices.insert(serviceBackup.service)
+                logger
+                    .error(
+                        "Failed to restore proxy for '\(serviceBackup.service)': \(error.localizedDescription)"
+                    )
+            }
+        }
+
+        let stillOwnedServices = Set(port.map { ownedPort in
+            ProxyOverrideOwnership.residualOwnedServices(
+                in: currentOverrideStates(for: reducedBackup.services.map(\.service)),
+                port: ownedPort
+            )
+        } ?? [])
+        let unresolvedEntries = ProxyBackupSubset.unresolvedEntries(
+            reducedBackup.services,
+            failedServices: failedServices,
+            stillOwnedServices: stillOwnedServices,
+            serviceName: \.service
+        )
+
+        guard unresolvedEntries.isEmpty else {
+            // Keep exactly the services that still need recovery so a retry has a restore point
+            // for them and only them.
+            do {
+                _ = try CrashRecovery.reduceBackup(reducedBackup, to: unresolvedEntries.map(\.service))
+            } catch {
+                logger
+                    .error(
+                        "Could not narrow the retained proxy backup: \(error.localizedDescription)"
+                    )
+            }
+            throw ProxyConfiguratorError.executionFailed(
+                command: "restore owned proxy services",
+                reason: "\(unresolvedEntries.count) network service(s) could not be restored; the recovery backup was preserved"
+            )
+        }
+
+        CrashRecovery.clearBackup()
+        logger.info("Owned proxy settings restored successfully")
+    }
+
+    /// Reads the ownership-relevant proxy fields for each service. Services that cannot be read
+    /// report as not overridden, which keeps recovery from claiming ownership it cannot prove.
+    static func currentOverrideStates(for services: [String]) -> [ProxyServiceOverrideState] {
+        services.map { service in
+            let http = parseProxyOutput((try? runNetworkSetup(["-getwebproxy", service])) ?? "")
+            let https = parseProxyOutput((try? runNetworkSetup(["-getsecurewebproxy", service])) ?? "")
+            let socks = parseProxyOutput((try? runNetworkSetup(["-getsocksfirewallproxy", service])) ?? "")
+            let pac = parsePACOutput((try? runNetworkSetup(["-getautoproxyurl", service])) ?? "")
+            let autoDiscovery = parseAutoDiscoveryOutput(
+                (try? runNetworkSetup(["-getproxyautodiscovery", service])) ?? ""
+            )
+            let bypassOutput = (try? runNetworkSetup(["-getproxybypassdomains", service])) ?? ""
+            let hasGlobalBypass = bypassOutput.components(separatedBy: "\n").contains {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines) == "*"
+            }
+            return ProxyServiceOverrideState(
+                service: service,
+                httpEnabled: http.enabled,
+                httpHost: http.host,
+                httpPort: http.port,
+                httpsEnabled: https.enabled,
+                httpsHost: https.host,
+                httpsPort: https.port,
+                socksEnabled: socks.enabled,
+                pacEnabled: pac.enabled,
+                autoDiscoveryEnabled: autoDiscovery,
+                hasGlobalBypass: hasGlobalBypass
+            )
+        }
     }
 
     /// Set bypass domains on all enabled network services.
@@ -328,6 +433,64 @@ enum ProxyConfigurator {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyConfigurator")
     private static let networkSetupPath = "/usr/sbin/networksetup"
     private static let routePath = "/sbin/route"
+
+    /// Turns every proxy mode off for one service before its snapshot is written back, so a
+    /// mode the snapshot does not mention cannot survive the restore.
+    private static func disableProxyStates(for service: String) throws {
+        try runNetworkSetup(["-setwebproxystate", service, "off"])
+        try runNetworkSetup(["-setsecurewebproxystate", service, "off"])
+        try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
+        try runNetworkSetup(["-setautoproxystate", service, "off"])
+        try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
+    }
+
+    /// Writes one service's captured pre-Rockxy proxy configuration back verbatim.
+    private static func applyServiceBackup(_ serviceBackup: CrashRecovery.ServiceProxyBackup) throws {
+        let service = serviceBackup.service
+
+        if !serviceBackup.httpHost.isEmpty, serviceBackup.httpPort > 0 {
+            try runNetworkSetup([
+                "-setwebproxy", service, serviceBackup.httpHost,
+                String(serviceBackup.httpPort),
+            ])
+            try runNetworkSetup([
+                "-setwebproxystate", service, serviceBackup.httpEnabled ? "on" : "off",
+            ])
+        }
+
+        if !serviceBackup.httpsHost.isEmpty, serviceBackup.httpsPort > 0 {
+            try runNetworkSetup([
+                "-setsecurewebproxy", service, serviceBackup.httpsHost,
+                String(serviceBackup.httpsPort),
+            ])
+            try runNetworkSetup([
+                "-setsecurewebproxystate", service, serviceBackup.httpsEnabled ? "on" : "off",
+            ])
+        }
+
+        if !serviceBackup.socksHost.isEmpty, serviceBackup.socksPort > 0 {
+            try runNetworkSetup([
+                "-setsocksfirewallproxy", service, serviceBackup.socksHost,
+                String(serviceBackup.socksPort),
+            ])
+            try runNetworkSetup([
+                "-setsocksfirewallproxystate", service, serviceBackup.socksEnabled ? "on" : "off",
+            ])
+        }
+
+        if serviceBackup.pacEnabled {
+            if !serviceBackup.pacURL.isEmpty {
+                try runNetworkSetup(["-setautoproxyurl", service, serviceBackup.pacURL])
+            }
+            try runNetworkSetup(["-setautoproxystate", service, "on"])
+        }
+
+        if serviceBackup.autoDiscoveryEnabled {
+            try runNetworkSetup(["-setproxyautodiscovery", service, "on"])
+        }
+
+        try restoreBypassDomains(service: service, domains: serviceBackup.bypassDomains)
+    }
 
     private static func validateBinary(_ path: String) throws {
         guard BinaryValidator.validateAppleSignedBinary(at: path) else {

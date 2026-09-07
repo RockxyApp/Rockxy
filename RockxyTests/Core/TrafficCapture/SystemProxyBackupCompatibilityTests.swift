@@ -69,17 +69,32 @@ struct SystemProxyBackupCompatibilityTests {
     @Test("Backup recovery follows live ownership instead of backup age")
     func backupRecoveryUsesLiveOwnership() {
         #expect(ProxyBackupRecoveryPolicy.action(
-            proxyStillPointsAtRockxy: true,
-            listenerIsReachable: true
+            residualOwnedServicesExist: true,
+            ownerSessionIsLive: true
         ) == .preserve)
         #expect(ProxyBackupRecoveryPolicy.action(
-            proxyStillPointsAtRockxy: true,
-            listenerIsReachable: false
+            residualOwnedServicesExist: true,
+            ownerSessionIsLive: false
         ) == .restore)
         #expect(ProxyBackupRecoveryPolicy.action(
-            proxyStillPointsAtRockxy: false,
-            listenerIsReachable: false
+            residualOwnedServicesExist: false,
+            ownerSessionIsLive: false
         ) == .clear)
+    }
+
+    @Test("Direct backups written before recovery markers decode as not pending")
+    func decodesLegacyDirectBackupWithoutRecoveryMarker() throws {
+        let legacy = OldDirectProxyBackup(
+            services: [],
+            timestamp: Date(),
+            rockxyPort: 9_090
+        )
+
+        let data = try PropertyListEncoder().encode(legacy)
+        let decoded = try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
+
+        #expect(decoded.rockxyPort == 9_090)
+        #expect(decoded.recoveryPending == false)
     }
 
     // MARK: Private
@@ -93,5 +108,11 @@ struct SystemProxyBackupCompatibilityTests {
         let httpsHost: String
         let httpsPort: Int
         let bypassDomains: [String]
+    }
+
+    private struct OldDirectProxyBackup: Codable {
+        let services: [DirectServiceBackup]
+        let timestamp: Date
+        let rockxyPort: Int
     }
 }

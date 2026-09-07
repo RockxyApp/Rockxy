@@ -74,9 +74,46 @@ enum ProxyActivationConfirmation {
 /// Persistent on-disk backup of the pre-Rockxy proxy state for all services.
 /// Written before any direct-mode mutation; cleared after successful restore.
 struct DirectProxyBackup: Codable {
+    init(
+        services: [DirectServiceBackup],
+        timestamp: Date,
+        rockxyPort: Int,
+        recoveryPending: Bool = false
+    ) {
+        self.services = services
+        self.timestamp = timestamp
+        self.rockxyPort = rockxyPort
+        self.recoveryPending = recoveryPending
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        services = try container.decode([DirectServiceBackup].self, forKey: .services)
+        timestamp = try container.decode(Date.self, forKey: .timestamp)
+        rockxyPort = try container.decode(Int.self, forKey: .rockxyPort)
+        recoveryPending = try container.decodeIfPresent(Bool.self, forKey: .recoveryPending) ?? false
+    }
+
     let services: [DirectServiceBackup]
     let timestamp: Date
     let rockxyPort: Int
+    let recoveryPending: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case services
+        case timestamp
+        case rockxyPort
+        case recoveryPending
+    }
+
+    func markedRecoveryPending() -> DirectProxyBackup {
+        DirectProxyBackup(
+            services: services,
+            timestamp: timestamp,
+            rockxyPort: rockxyPort,
+            recoveryPending: true
+        )
+    }
 }
 
 // MARK: - DirectServiceBackup
@@ -807,23 +844,31 @@ final class SystemProxyManager: @unchecked Sendable {
     /// left behind by a crash or force-quit.
     func recoverStaleProxyIfNeeded() async {
         if let backup = loadDirectBackup() {
-            let backedUpServices = backup.services.map(\.service)
+            let residualOwnedServices = recoverableDirectServices(in: backup)
+            // The session that wrote this backup is by definition gone: this app process is the
+            // only one that can own a direct-mode override, and it has just launched.
             switch ProxyBackupRecoveryPolicy.action(
-                proxyStillPointsAtRockxy: currentProxyMatchesRockxy(
-                    port: backup.rockxyPort,
-                    backedUpServices: backedUpServices
-                ),
-                listenerIsReachable: false
+                residualOwnedServicesExist: !residualOwnedServices.isEmpty,
+                ownerSessionIsLive: false
             ) {
             case .restore:
-                Self.logger.info("Recovering stale direct-mode proxy override from crash")
-                do {
-                    try await disableSystemProxy()
-                } catch {
-                    Self.logger.error("Stale direct proxy recovery failed: \(error.localizedDescription)")
+                Self.logger
+                    .info(
+                        "Recovering \(residualOwnedServices.count) stale direct-mode service(s) from a previous session"
+                    )
+                if recoverOwnedDirectServices(backup: backup, ownedServices: residualOwnedServices) {
+                    stopBypassListObserver()
+                    clearInMemoryOverrideState()
+                    NotificationCenter.default.post(
+                        name: .systemProxyDidChange,
+                        object: nil,
+                        userInfo: ["enabled": false]
+                    )
+                } else {
+                    Self.logger.error("Stale direct proxy recovery incomplete — backup preserved for retry")
                 }
             case .clear:
-                Self.logger.info("Proxy no longer Rockxy-owned, clearing stale direct backup")
+                Self.logger.info("No backed-up service is still Rockxy-owned, clearing stale direct backup")
                 clearDirectBackup()
             case .preserve:
                 break
@@ -847,19 +892,19 @@ final class SystemProxyManager: @unchecked Sendable {
         stopBypassListObserver()
 
         if let backup = loadDirectBackup() {
-            let backedUpServices = backup.services.map(\.service)
-            if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices) {
-                Self.logger.warning("\(reason): restoring direct-mode proxy backup during shutdown")
-                restoreDirectMode(using: backup)
-
-                if anyLoopbackProxyEnabled(on: backedUpServices) {
-                    Self.logger.warning("\(reason): direct restore incomplete, forcing proxy states off")
-                    try? disableSystemProxyViaNetworkSetup()
+            let residualOwnedServices = recoverableDirectServices(in: backup)
+            if !residualOwnedServices.isEmpty {
+                Self.logger
+                    .warning(
+                        "\(reason): restoring \(residualOwnedServices.count) owned direct-mode service(s) during shutdown"
+                    )
+                if !recoverOwnedDirectServices(backup: backup, ownedServices: residualOwnedServices) {
+                    Self.logger.warning("\(reason): direct restore incomplete, leaving the narrowed backup for retry")
                 }
                 return
             }
 
-            Self.logger.info("\(reason): clearing stale direct backup because proxy no longer matches Rockxy")
+            Self.logger.info("\(reason): clearing stale direct backup because no service is still Rockxy-owned")
             clearDirectBackup()
         }
 
@@ -981,10 +1026,18 @@ final class SystemProxyManager: @unchecked Sendable {
 
     /// Shared direct-mode restore routine used by both same-session cleanup and ownership-based cleanup.
     @discardableResult
-    private func restoreDirectMode(using backup: DirectProxyBackup) -> Bool {
+    private func restoreDirectMode(using sourceBackup: DirectProxyBackup) -> Bool {
+        let backup = sourceBackup.markedRecoveryPending()
+        do {
+            try writeDirectBackup(backup)
+        } catch {
+            Self.logger.error("Could not mark direct recovery pending — leaving settings untouched: \(error.localizedDescription)")
+            return false
+        }
         let backedUpServices = backup.services.map(\.service)
 
         var allSucceeded = true
+        var failedServices: Set<String> = []
 
         for entry in backup.services {
             let snapshot = ServiceProxySnapshot(
@@ -1005,21 +1058,26 @@ final class SystemProxyManager: @unchecked Sendable {
                 try restoreServiceProxyState(service: entry.service, snapshot: snapshot)
             } catch {
                 allSucceeded = false
+                failedServices.insert(entry.service)
                 Self.logger.error("Failed to restore proxy state for '\(entry.service)': \(error.localizedDescription)")
             }
             do {
                 try restoreServiceBypassDomains(service: entry.service, domains: entry.bypassDomains)
             } catch {
                 allSucceeded = false
+                failedServices.insert(entry.service)
                 Self.logger.error("Failed to restore bypass for '\(entry.service)': \(error.localizedDescription)")
             }
         }
 
+        // Any service still pointing at Rockxy keeps the backup alive, even when the others
+        // restored cleanly — that service has no other restore point.
+        let stillOwnedServices = allSucceeded
+            ? residualOwnedServicesAfterRestore(port: backup.rockxyPort, backedUpServices: backedUpServices)
+            : residualRockxyOwnedServices(port: backup.rockxyPort, backedUpServices: backedUpServices)
+
         let proxyStillPointsAtRockxy: Bool = if allSucceeded {
-            directProxyStillOwnedAfterRestoreVerification(
-                port: backup.rockxyPort,
-                backedUpServices: backedUpServices
-            )
+            backedUpServices.isEmpty ? anyLoopbackProxyEnabled(on: nil) : !stillOwnedServices.isEmpty
         } else {
             true
         }
@@ -1040,6 +1098,11 @@ final class SystemProxyManager: @unchecked Sendable {
             } else {
                 Self.logger.warning("Partial restore failure — keeping backup on disk for retry")
             }
+            retainUnresolvedDirectBackup(
+                backup: backup,
+                failedServices: failedServices,
+                stillOwnedServices: Set(stillOwnedServices)
+            )
             // directRestorePending stays true for same-session retry
         }
         lock.unlock()
@@ -1463,31 +1526,6 @@ final class SystemProxyManager: @unchecked Sendable {
         }
     }
 
-    private func directProxyStillOwnedAfterRestoreVerification(
-        port: Int,
-        backedUpServices: [String],
-        maxAttempts: Int = 5,
-        pollInterval: TimeInterval = 0.2
-    )
-        -> Bool
-    {
-        guard !backedUpServices.isEmpty else {
-            return anyLoopbackProxyEnabled(on: nil)
-        }
-
-        for attempt in 0 ..< maxAttempts {
-            if !currentProxyMatchesRockxy(port: port, backedUpServices: backedUpServices) {
-                return false
-            }
-
-            if attempt < maxAttempts - 1 {
-                Thread.sleep(forTimeInterval: pollInterval)
-            }
-        }
-
-        return true
-    }
-
     // MARK: - Process Execution
 
     @discardableResult
@@ -1563,6 +1601,153 @@ final class SystemProxyManager: @unchecked Sendable {
             helperBackupExists: helperBackupExists,
             loopbackProxyDetected: loopbackProxyDetected
         )
+    }
+}
+
+// MARK: - Direct-Mode Recovery
+
+/// Ownership and subset-restore behavior for direct-mode backups. Recovery asks a different
+/// question from readiness — which backed-up services still need their restore point — so it
+/// lives apart from the enable/disable flow it supports.
+extension SystemProxyManager {
+    /// Recovery's per-service ownership view of a backup. `currentProxyMatchesRockxy` answers a
+    /// readiness question — is capture actually routed through Rockxy — and deliberately requires
+    /// the routed service, or every backed-up service, to match. Recovery asks something else:
+    /// which backed-up services are still pointing at Rockxy and therefore still need their
+    /// restore point. One service the user re-pointed must not make the rest look unowned.
+    func residualRockxyOwnedServices(port: Int, backedUpServices: [String]) -> [String] {
+        ProxyOverrideOwnership.residualOwnedServices(
+            in: backedUpServices.map(currentOverrideState(for:)),
+            port: port
+        )
+    }
+
+    /// Once a restore has started, every retained entry is known unresolved even if a partial
+    /// command already changed the live shape enough that strict ownership no longer matches.
+    private func recoverableDirectServices(in backup: DirectProxyBackup) -> [String] {
+        if backup.recoveryPending {
+            return backup.services.map(\.service)
+        }
+        return residualRockxyOwnedServices(
+            port: backup.rockxyPort,
+            backedUpServices: backup.services.map(\.service)
+        )
+    }
+
+    /// Reads only the fields ownership depends on for one service.
+    private func currentOverrideState(for service: String) -> ProxyServiceOverrideState {
+        let snapshot = captureProxySnapshot(for: service)
+        let bypassOutput = (try? runNetworkSetup(["-getproxybypassdomains", service])) ?? ""
+        let hasGlobalBypass = bypassOutput.components(separatedBy: "\n").contains {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines) == "*"
+        }
+        return ProxyServiceOverrideState(
+            service: service,
+            httpEnabled: snapshot.httpEnabled,
+            httpHost: snapshot.httpHost,
+            httpPort: snapshot.httpPort,
+            httpsEnabled: snapshot.httpsEnabled,
+            httpsHost: snapshot.httpsHost,
+            httpsPort: snapshot.httpsPort,
+            socksEnabled: snapshot.socksEnabled,
+            pacEnabled: snapshot.pacEnabled,
+            autoDiscoveryEnabled: snapshot.autoDiscoveryEnabled,
+            hasGlobalBypass: hasGlobalBypass
+        )
+    }
+
+    /// Narrows the on-disk backup to the services recovery still owns, then restores exactly
+    /// those. Persisting the reduced backup first is what keeps a later retry from replaying
+    /// stale settings onto a service the user has changed in the meantime; if that write fails,
+    /// the original backup stays put and no setting is touched.
+    @discardableResult
+    private func recoverOwnedDirectServices(backup: DirectProxyBackup, ownedServices: [String]) -> Bool {
+        let ownedBackup = DirectProxyBackup(
+            services: ProxyBackupSubset.select(
+                backup.services,
+                services: Set(ownedServices),
+                serviceName: \.service
+            ),
+            timestamp: backup.timestamp,
+            rockxyPort: backup.rockxyPort,
+            recoveryPending: true
+        )
+        guard !ownedBackup.services.isEmpty else {
+            clearDirectBackup()
+            return true
+        }
+
+        do {
+            try writeDirectBackup(ownedBackup)
+        } catch {
+            Self.logger
+                .error(
+                    "Could not narrow the direct backup — leaving settings untouched: \(error.localizedDescription)"
+                )
+            return false
+        }
+
+        return restoreDirectMode(using: ownedBackup)
+    }
+
+    /// Keeps only the services a restore attempt left unresolved, so the retry cannot write the
+    /// captured settings back onto a service that already restored.
+    private func retainUnresolvedDirectBackup(
+        backup: DirectProxyBackup,
+        failedServices: Set<String>,
+        stillOwnedServices: Set<String>
+    ) {
+        let unresolvedEntries = ProxyBackupSubset.unresolvedEntries(
+            backup.services,
+            failedServices: failedServices,
+            stillOwnedServices: stillOwnedServices,
+            serviceName: \.service
+        )
+        guard !unresolvedEntries.isEmpty, unresolvedEntries.count < backup.services.count else {
+            return
+        }
+
+        do {
+            try writeDirectBackup(DirectProxyBackup(
+                services: unresolvedEntries,
+                timestamp: backup.timestamp,
+                rockxyPort: backup.rockxyPort,
+                recoveryPending: true
+            ))
+        } catch {
+            Self.logger
+                .error("Could not narrow the retained direct backup: \(error.localizedDescription)")
+        }
+    }
+
+    /// Polls the backed-up services after a restore attempt and reports whichever ones are still
+    /// Rockxy-owned. macOS applies `networksetup` writes asynchronously, so a single read right
+    /// after the commands can still show the old override.
+    private func residualOwnedServicesAfterRestore(
+        port: Int,
+        backedUpServices: [String],
+        maxAttempts: Int = 5,
+        pollInterval: TimeInterval = 0.2
+    )
+        -> [String]
+    {
+        guard !backedUpServices.isEmpty else {
+            return []
+        }
+
+        var stillOwnedServices: [String] = []
+        for attempt in 0 ..< maxAttempts {
+            stillOwnedServices = residualRockxyOwnedServices(port: port, backedUpServices: backedUpServices)
+            if stillOwnedServices.isEmpty {
+                return []
+            }
+
+            if attempt < maxAttempts - 1 {
+                Thread.sleep(forTimeInterval: pollInterval)
+            }
+        }
+
+        return stillOwnedServices
     }
 }
 
