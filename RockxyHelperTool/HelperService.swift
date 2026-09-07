@@ -47,7 +47,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
         guard let result = Self.mutationGate.withExclusiveAccess({
             Result {
-                try ProxyConfigurator.overrideProxy(port: port)
+                try ProxyConfigurator.overrideProxy(port: port, ownerPID: ownerPID)
                 lastProxyChangeTime = Date()
                 startOwnerWatchdog(for: ownerPID)
             }
@@ -157,6 +157,17 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             Foundation.exit(0)
         }
+    }
+
+    /// Re-arms the owner watchdog for a session that survived a helper relaunch.
+    /// Without this, an override preserved at startup would have no observer left, so the owner
+    /// dying later would strand the user's proxy settings with nothing to restore them.
+    func resumeOwnerWatchdog(for pid: Int32) {
+        guard pid > 0 else {
+            return
+        }
+        Self.logger.info("Re-arming owner watchdog for preserved session pid \(pid)")
+        startOwnerWatchdog(for: pid)
     }
 
     func handleConnectionInvalidated(processID: Int32) {

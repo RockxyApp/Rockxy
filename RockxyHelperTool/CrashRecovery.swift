@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import os
 
@@ -101,15 +100,79 @@ enum CrashRecovery {
     }
 
     struct ProxyBackup: Codable {
+        // MARK: Lifecycle
+
+        init(
+            services: [ServiceProxyBackup],
+            timestamp: Date,
+            rockxyPort: Int?,
+            ownerPID: Int32?,
+            ownerStartSignature: String?,
+            recoveryPending: Bool = false
+        ) {
+            self.services = services
+            self.timestamp = timestamp
+            self.rockxyPort = rockxyPort
+            self.ownerPID = ownerPID
+            self.ownerStartSignature = ownerStartSignature
+            self.recoveryPending = recoveryPending
+        }
+
+        /// Backups written before owner identity existed decode with no owner, which recovery
+        /// reads as "the session that took this override is gone".
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            services = try container.decode([ServiceProxyBackup].self, forKey: .services)
+            timestamp = try container.decode(Date.self, forKey: .timestamp)
+            rockxyPort = try container.decodeIfPresent(Int.self, forKey: .rockxyPort)
+            ownerPID = try container.decodeIfPresent(Int32.self, forKey: .ownerPID)
+            ownerStartSignature = try container.decodeIfPresent(String.self, forKey: .ownerStartSignature)
+            recoveryPending = try container.decodeIfPresent(Bool.self, forKey: .recoveryPending) ?? false
+        }
+
+        // MARK: Internal
+
         let services: [ServiceProxyBackup]
         let timestamp: Date
         let rockxyPort: Int?
+        /// The Rockxy app process that asked for the override, and the kernel start time that
+        /// tells it apart from a later process which inherited the same PID.
+        let ownerPID: Int32?
+        let ownerStartSignature: String?
+        /// True after recovery has narrowed the backup and before every retained entry has been
+        /// fully restored. Retained entries remain authoritative even after partial commands
+        /// change their live shape enough that strict ownership no longer matches.
+        let recoveryPending: Bool
+
+        // MARK: Private
+
+        private enum CodingKeys: String, CodingKey {
+            case services
+            case timestamp
+            case rockxyPort
+            case ownerPID
+            case ownerStartSignature
+            case recoveryPending
+        }
+    }
+
+    /// What launch-time recovery did with the backup it found.
+    enum StartupRecoveryOutcome: Equatable {
+        case noBackup
+        case cleared
+        case restored
+        case restoreIncomplete
+        /// The recorded owner is still alive and still passes caller validation, so its override
+        /// stays in place. The PID is handed back so the helper can re-arm its owner watchdog.
+        case preserved(ownerPID: Int32?)
     }
 
     // MARK: - Public API
 
     /// Save current proxy settings for all specified services before overriding them.
-    static func saveOriginalSettings(services: [String], rockxyPort: Int) throws {
+    /// The owning app process is recorded with the backup so a later helper launch can tell a
+    /// still-running session from a stranded override.
+    static func saveOriginalSettings(services: [String], rockxyPort: Int, ownerPID: Int32) throws {
         let existingBackup = loadBackup()
         let existingServices = Set(existingBackup?.services.map(\.service) ?? [])
         let servicesToCapture = services.filter { !existingServices.contains($0) }
@@ -165,19 +228,14 @@ enum CrashRecovery {
         let backup = ProxyBackup(
             services: (existingBackup?.services ?? []) + serviceBackups,
             timestamp: existingBackup?.timestamp ?? Date(),
-            rockxyPort: rockxyPort
+            rockxyPort: rockxyPort,
+            ownerPID: ownerPID,
+            ownerStartSignature: ProcessStartIdentity.startSignature(for: ownerPID),
+            recoveryPending: false
         )
 
         do {
-            try ensureBackupDirectoryExists()
-            let data = try PropertyListEncoder().encode(backup)
-            for url in backupURLs {
-                try data.write(to: url, options: .atomic)
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o600],
-                    ofItemAtPath: url.path
-                )
-            }
+            try persist(backup)
             logger
                 .info(
                     "Proxy backup saved to \(backupURLs.first?.path ?? "<unknown>") (\(backup.services.count) service(s))"
@@ -188,35 +246,144 @@ enum CrashRecovery {
         }
     }
 
+    /// Writes a backup to every backup location with owner-only permissions.
+    /// Used both for the initial capture and for the reduced backup a subset restore persists
+    /// before it touches any setting.
+    static func persist(_ backup: ProxyBackup) throws {
+        try ensureBackupDirectoryExists()
+        let data = try PropertyListEncoder().encode(backup)
+        for url in backupURLs {
+            try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: url.path
+            )
+        }
+    }
+
+    /// Narrows the backup on disk to `services` before a subset restore mutates anything.
+    /// Dropping the entries recovery no longer owns is what stops a later retry from writing
+    /// stale settings over a service the user has since changed.
+    static func reduceBackup(
+        _ backup: ProxyBackup,
+        to services: [String],
+        rockxyPort: Int? = nil
+    )
+        throws -> ProxyBackup
+    {
+        let reduced = ProxyBackup(
+            services: ProxyBackupSubset.select(
+                backup.services,
+                services: Set(services),
+                serviceName: \.service
+            ),
+            timestamp: backup.timestamp,
+            rockxyPort: backup.rockxyPort ?? rockxyPort,
+            ownerPID: nil,
+            ownerStartSignature: nil,
+            recoveryPending: true
+        )
+        try persist(reduced)
+        return reduced
+    }
+
     /// Check for stale backup on daemon launch and restore if found.
-    /// A backup existing at launch time means Rockxy crashed without restoring proxy settings.
-    static func restoreIfNeeded() {
+    /// A backup existing at launch time means the previous session ended without restoring proxy
+    /// settings — unless its owner is still running, which the recorded process identity proves.
+    @discardableResult
+    static func restoreIfNeeded() -> StartupRecoveryOutcome {
         guard hasBackup() else {
             logger.info("No stale proxy backup found — clean startup")
-            return
+            return .noBackup
         }
 
         guard let backup = loadBackup() else {
             logger.warning("Backup file exists but could not be read — clearing")
             clearBackup()
-            return
+            return .cleared
         }
 
-        let status = ProxyConfigurator.getCurrentStatus()
+        // Legacy backups predate the persisted port, so fall back to the port the backed-up
+        // services are still overriding, then to the port the live status reports. With none of
+        // those, nothing can be identified as Rockxy-owned.
+        let overrideStates = ProxyConfigurator.currentOverrideStates(for: backup.services.map(\.service))
+        let fallbackPort: () -> Int? = {
+            if let inferredPort = ProxyOverrideOwnership.inferredOwnedPort(in: overrideStates) {
+                return inferredPort
+            }
+            let status = ProxyConfigurator.getCurrentStatus()
+            return status.isOverridden ? status.port : nil
+        }
+        let ownedPort = backup.rockxyPort ?? fallbackPort()
+        guard backup.recoveryPending || ownedPort != nil else {
+            logger.info("No Rockxy-owned port could be identified — clearing stale backup")
+            clearBackup()
+            return .cleared
+        }
+
+        let residualOwnedServices = if backup.recoveryPending {
+            backup.services.map(\.service)
+        } else {
+            ProxyOverrideOwnership.residualOwnedServices(in: overrideStates, port: ownedPort ?? 0)
+        }
+        let liveOwnerPID = backup.recoveryPending ? nil : liveOwnerPID(for: backup)
+
         switch ProxyBackupRecoveryPolicy.action(
-            proxyStillPointsAtRockxy: status.isOverridden &&
-                (backup.rockxyPort == nil || backup.rockxyPort == status.port),
-            listenerIsReachable: listenerIsReachable(port: status.port)
+            residualOwnedServicesExist: !residualOwnedServices.isEmpty,
+            ownerSessionIsLive: liveOwnerPID != nil
         ) {
         case .restore:
-            logger.warning("Owned proxy backup has no live listener — restoring proxy settings")
-            ProxyConfigurator.restoreProxy()
+            logger
+                .warning(
+                    "Owned proxy backup has no live owner — restoring \(residualOwnedServices.count) residual service(s)"
+                )
+            do {
+                try ProxyConfigurator.restoreOwnedServicesOrThrow(
+                    ownedServices: residualOwnedServices,
+                    port: ownedPort
+                )
+                return .restored
+            } catch {
+                logger.error("Stale proxy restore incomplete: \(error.localizedDescription)")
+                return .restoreIncomplete
+            }
         case .preserve:
-            logger.info("Owned proxy backup belongs to a live listener — preserving the active session")
+            logger.info("Owned proxy backup belongs to a live authenticated owner — preserving the active session")
+            return .preserved(ownerPID: liveOwnerPID)
         case .clear:
-            logger.info("Proxy no longer points at the backed-up Rockxy session — clearing stale backup")
+            logger.info("No backed-up service still points at the Rockxy session — clearing stale backup")
             clearBackup()
+            return .cleared
         }
+    }
+
+    /// The recorded owner, but only when it is still the same live process *and* still passes
+    /// caller validation as the Rockxy app. A recycled PID, a legacy backup with no recorded
+    /// identity, or a process that no longer validates all resolve to nil, which makes recovery
+    /// treat the override as stranded.
+    static func liveOwnerPID(for backup: ProxyBackup) -> Int32? {
+        guard let ownerPID = backup.ownerPID, ownerPID > 0 else {
+            return nil
+        }
+
+        let ownerIsAlive = ProcessStartIdentity.isAlive(ownerPID)
+        let liveStartSignature = ownerIsAlive ? ProcessStartIdentity.startSignature(for: ownerPID) : nil
+        let passesCallerValidation = ownerIsAlive && CallerValidation.validateCaller(
+            pid: ownerPID,
+            allowedIdentifiers: RockxyIdentity.current.allowedCallerIdentifiers
+        )
+
+        guard ProxyBackupOwnerIdentityPolicy.ownerSessionIsLive(
+            recordedOwnerPID: ownerPID,
+            recordedStartSignature: backup.ownerStartSignature,
+            ownerProcessIsAlive: ownerIsAlive,
+            liveStartSignature: liveStartSignature,
+            ownerPassesCallerValidation: passesCallerValidation
+        ) else {
+            return nil
+        }
+
+        return ownerPID
     }
 
     /// Load the backup data from disk.
@@ -290,52 +457,6 @@ enum CrashRecovery {
                 )
             }
         }
-    }
-
-    private static func listenerIsReachable(port: Int) -> Bool {
-        guard let port = UInt16(exactly: port), port > 0 else {
-            return false
-        }
-
-        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
-        guard descriptor >= 0 else {
-            return false
-        }
-        defer { Darwin.close(descriptor) }
-
-        let flags = fcntl(descriptor, F_GETFL, 0)
-        guard flags >= 0, fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
-            return false
-        }
-
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(port).bigEndian
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        if result == 0 {
-            return true
-        }
-        guard errno == EINPROGRESS else {
-            return false
-        }
-
-        var state = pollfd(fd: descriptor, events: Int16(POLLOUT), revents: 0)
-        guard Darwin.poll(&state, 1, 250) > 0 else {
-            return false
-        }
-
-        var socketError: Int32 = 0
-        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-        guard getsockopt(descriptor, SOL_SOCKET, SO_ERROR, &socketError, &socketErrorLength) == 0 else {
-            return false
-        }
-        return socketError == 0
     }
 
     private static func readBypassDomains(service: String) throws -> [String] {
