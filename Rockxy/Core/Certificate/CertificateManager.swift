@@ -421,6 +421,12 @@ actor CertificateManager {
         // `ensureRootCA` runs without suspending, so no other call can interleave with it.
         try ensureRootCA()
 
+        // Another Rockxy process can share this certificate namespace while retaining a
+        // different root in memory. Never ask macOS to trust material that is no longer the
+        // certificate/key pair this process would load after a relaunch. Reconcile before the
+        // authorization prompt so the one prompt applies to the durable identity.
+        try reconcilePersistedRootIdentityBeforeTrust()
+
         guard let certificate = rootCACertificate else {
             throw CertificateManagerError.noRootCA
         }
@@ -492,6 +498,23 @@ actor CertificateManager {
             throw error
         }
         Self.logger.info("Root CA trusted app-side (fingerprint: \(fingerprint))")
+
+        // The authorization dialog suspends this actor while another process remains free to
+        // replace the shared certificate or key. A successful trust write is not a successful
+        // Rockxy setup if that identity will disappear on the next launch. Detect the race,
+        // report it, and never raise an automatic second prompt or delete either identity.
+        do {
+            guard try activeRootMatchesPersistedStorage() else {
+                throw CertificateManagerError.persistedRootIdentityChanged
+            }
+        } catch let error as CertificateManagerError {
+            lastValidationErrorMessage = error.localizedDescription
+            throw error
+        } catch {
+            let wrapped = CertificateManagerError.trustStateUnavailable(error.localizedDescription)
+            lastValidationErrorMessage = wrapped.localizedDescription
+            throw wrapped
+        }
 
         try Task.checkCancellation()
         activeRootFingerprint = fingerprint
@@ -1008,6 +1031,69 @@ actor CertificateManager {
         return try certToDER(certificate)
     }
 
+    /// Makes the in-memory root agree with the identity that will survive a process restart.
+    ///
+    /// This is intentionally limited to trust installation. Routine status reads stay
+    /// non-mutating, while the explicit install action may already generate a missing root. If
+    /// another process replaced either persisted half since this actor adopted its root, reload
+    /// the complete persisted pair or follow the existing one-time regeneration policy before
+    /// asking the user for administrator approval.
+    private func reconcilePersistedRootIdentityBeforeTrust() throws {
+        let matches: Bool
+        do {
+            matches = try activeRootMatchesPersistedStorage()
+        } catch {
+            throw CertificateManagerError.trustStateUnavailable(error.localizedDescription)
+        }
+        guard !matches else {
+            return
+        }
+
+        Self.logger.warning(
+            "Active root CA differs from persisted certificate/key identity — reloading before trust"
+        )
+        rootCACertificate = nil
+        rootCAPrivateKey = nil
+        try ensureRootCA()
+
+        do {
+            guard try activeRootMatchesPersistedStorage() else {
+                throw CertificateManagerError.persistedRootIdentityChanged
+            }
+        } catch let error as CertificateManagerError {
+            throw error
+        } catch {
+            throw CertificateManagerError.trustStateUnavailable(error.localizedDescription)
+        }
+    }
+
+    /// Exact certificate bytes plus the private key are the durable root identity. A key that is
+    /// decodable but belongs to another certificate is a mismatch, not proof of corruption.
+    private func activeRootMatchesPersistedStorage(migrateLegacyKey: Bool = true) throws -> Bool {
+        guard let activeCertificate = rootCACertificate,
+              let activePrivateKey = rootCAPrivateKey,
+              let persistedCertificate = try CertificateStore.loadRootCACertificate() else
+        {
+            return false
+        }
+
+        let persistedPublicKey = persistedCertificate.publicKey.subjectPublicKeyInfoBytes
+        let matchesPersistedCertificate: (P256.Signing.PrivateKey) -> Bool = { candidate in
+            Certificate.PublicKey(candidate.publicKey).subjectPublicKeyInfoBytes == persistedPublicKey
+        }
+        let persistedPrivateKey = if migrateLegacyKey {
+            try CertificateStore.loadRootCAPrivateKey(matching: matchesPersistedCertificate)
+        } else {
+            try CertificateStore.loadRootCAPrivateKeyWithoutMigration(matching: matchesPersistedCertificate)
+        }
+        guard let persistedPrivateKey else {
+            return false
+        }
+
+        return try certToDER(activeCertificate) == certToDER(persistedCertificate)
+            && activePrivateKey.rawRepresentation == persistedPrivateKey.rawRepresentation
+    }
+
     /// Rejects any operation that would replace or destroy the material another privileged
     /// operation is currently suspended inside.
     ///
@@ -1327,13 +1413,34 @@ actor CertificateManager {
     /// validation diagnostic instead of being read as "no CA exists", which would silently
     /// invalidate the fingerprint the user already approved.
     private func loadPersistedRootCAIfNeeded() -> PersistedRootLoadOutcome {
-        guard rootCACertificate == nil || rootCAPrivateKey == nil else {
-            return .resolved
-        }
-
         #if DEBUG
         persistedRootLoadAttemptsForTests += 1
         #endif
+
+        if rootCACertificate != nil, rootCAPrivateKey != nil {
+            // A privileged mutation owns this identity across an await. Its post-operation check
+            // and notification will publish the final state; a concurrent status read must not
+            // adopt or diagnose the half-finished storage transition.
+            if isInstallingTrust || isRemovingRootMaterial {
+                return .resolved
+            }
+
+            do {
+                guard try activeRootMatchesPersistedStorage(migrateLegacyKey: false) else {
+                    throw CertificateManagerError.persistedRootIdentityDrift
+                }
+                return .resolved
+            } catch {
+                Self.logger.error(
+                    "Persisted root CA no longer matches the active certificate/key identity: \(error.localizedDescription)"
+                )
+                // A cached green answer belongs to the in-memory CA. It cannot describe the CA a
+                // relaunch would use after another process changed either persisted half.
+                lastTrustValidationResult = nil
+                lastValidationErrorMessage = error.localizedDescription
+                return .failed(error.localizedDescription)
+            }
+        }
 
         do {
             _ = try loadExistingRootCA()
@@ -1573,6 +1680,8 @@ nonisolated enum CertificateManagerError: LocalizedError, Equatable {
     case rootCANotTrusted
     case trustValidationFailed
     case trustInstallationInProgress
+    case persistedRootIdentityChanged
+    case persistedRootIdentityDrift
     case rootRemovalInProgress
     case rootRemovalIncomplete(String)
     case helperInstallUnavailable(String)
@@ -1592,6 +1701,12 @@ nonisolated enum CertificateManagerError: LocalizedError, Equatable {
             "macOS has not validated the certificate for TLS. Your certificate and key were kept. Recheck the certificate status in Settings."
         case .trustInstallationInProgress:
             "A certificate trust installation is already in progress. Wait for it to finish, then try again."
+        case .persistedRootIdentityChanged:
+            "Rockxy's persisted root CA changed while trust was being prepared. Quit other running copies of Rockxy, then try again. No second trust prompt was requested."
+        case .persistedRootIdentityDrift:
+            "Rockxy's active root CA no longer matches its saved certificate and private key. " +
+                "This can happen after another Rockxy copy or a Keychain restore changed certificate storage. " +
+                "Use Install & Trust Certificate to reconcile it before HTTPS interception."
         case .rootRemovalInProgress:
             "A certificate removal is already in progress. Wait for it to finish, then try again."
         case let .trustStateUnavailable(detail):

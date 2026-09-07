@@ -168,6 +168,60 @@ struct RootCANonDestructiveInstallTests {
         #expect(try KeychainHelper.isCertificateInstalledStrict(certData: older))
     }
 
+    @Test("trust preflight adopts the persisted identity changed by another process")
+    func trustPreflightAdoptsPersistedIdentity() async throws {
+        let overrides = try await installSharedTestOverrides()
+        defer { overrides.cleanup() }
+
+        let manager = CertificateManager.makeForTesting()
+        try await manager.generateRootCA()
+        let staleDER = try #require(await manager.getRootCADER())
+
+        // Model another Rockxy process replacing the shared pair while this actor still holds
+        // its original root in memory.
+        let replacement = try RootCAGenerator.generate()
+        try CertificateStore.saveRootCAPrivateKey(replacement.privateKey)
+        try CertificateStore.saveRootCACertificate(replacement.certificate)
+        let replacementDER = try nonDestructiveInstallDER(replacement.certificate)
+
+        let recorder = InstallCallRecorder()
+        await manager.setAppInstallOverrideForTests { der in recorder.recordApp(der) }
+
+        await #expect(throws: CertificateManagerError.trustValidationFailed) {
+            try await manager.installAndTrust()
+        }
+
+        #expect(recorder.appPayloads == [replacementDER])
+        #expect(recorder.appPayloads != [staleDER])
+        #expect(try await manager.getRootCADER() == replacementDER)
+    }
+
+    @Test("identity changed during authorization fails without a second prompt")
+    func identityChangedDuringAuthorizationFailsClosed() async throws {
+        let overrides = try await installSharedTestOverrides()
+        defer { overrides.cleanup() }
+
+        let manager = CertificateManager.makeForTesting()
+        try await manager.generateRootCA()
+        let originalDER = try #require(await manager.getRootCADER())
+        let replacement = try RootCAGenerator.generate()
+        let recorder = InstallCallRecorder()
+
+        await manager.setAppInstallOverrideForTests { der in
+            recorder.recordApp(der)
+            try CertificateStore.saveRootCAPrivateKey(replacement.privateKey)
+            try CertificateStore.saveRootCACertificate(replacement.certificate)
+        }
+
+        await #expect(throws: CertificateManagerError.persistedRootIdentityChanged) {
+            try await manager.installAndTrust()
+        }
+
+        #expect(recorder.appPayloads == [originalDER])
+        #expect(try await manager.getRootCADER() == originalDER)
+        #expect(await manager.lastTrustValidationResult == nil)
+    }
+
     @Test("competing mutations are rejected while the authorization dialog is open")
     func mutationsRejectedWhileDialogIsOpen() async throws {
         let overrides = try await installSharedTestOverrides()

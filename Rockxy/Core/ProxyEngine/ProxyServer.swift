@@ -494,6 +494,7 @@ actor ProxyServer {
                     proxyPort: proxyPort
                 )
                 let identityHandle = identityProvider(descriptor)
+                identityHandle?.startResolution()
                 let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
                     handle: identityHandle,
                     downstream: callback

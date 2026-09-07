@@ -246,6 +246,44 @@ nonisolated enum CertificateStore {
         return nil
     }
 
+    /// Reads every persisted private-key source without migrating or rewriting any of them.
+    ///
+    /// Status and readiness checks use this to prove that the in-memory certificate/key pair is
+    /// still the pair a relaunch would recover. Going through `loadRootCAPrivateKey(matching:)`
+    /// here would turn a read-only status refresh into a Keychain migration and legacy-file
+    /// cleanup opportunity. A rejected source remains untouched so an explicit recovery or trust
+    /// action can still reconcile it later.
+    static func loadRootCAPrivateKeyWithoutMigration(
+        matching isExpectedKey: (P256.Signing.PrivateKey) -> Bool
+    )
+        throws -> P256.Signing.PrivateKey?
+    {
+        if let keyData = try KeychainHelper.loadPrivateKeyWithoutMigration(
+            label: keychainKeyLabel,
+            isUsable: { data in
+                guard let candidate = try? P256.Signing.PrivateKey(x963Representation: data) else {
+                    return false
+                }
+                return isExpectedKey(candidate)
+            }
+        ) {
+            return try P256.Signing.PrivateKey(x963Representation: keyData)
+        }
+
+        let legacyPaths = [
+            storageDirectory.appendingPathComponent(rootCAKeyFilename),
+            storageDirectory.appendingPathComponent(rootCAKeyFilename + ".bak")
+        ]
+        for path in legacyPaths {
+            if let key = try loadPrivateKeyPEM(at: path, sourceDescription: "legacy disk recovery"),
+               isExpectedKey(key)
+            {
+                return key
+            }
+        }
+        return nil
+    }
+
     /// Reads only the Keychain copy of the root CA private key.
     ///
     /// Used where a caller needs the currently persisted key as a value — capturing the

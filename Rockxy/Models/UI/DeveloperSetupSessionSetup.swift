@@ -443,6 +443,7 @@ final class DeveloperSetupSessionSetupViewModel {
         applicationIsRunning: @escaping @MainActor (DeveloperApplicationInstallation) -> Bool = {
             DeveloperApplicationCaptureConfigurator.isRunning($0)
         },
+        systemProxyConfiguredProvider: (@MainActor () async -> Bool)? = nil,
         applicationSupportURL: URL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -459,6 +460,7 @@ final class DeveloperSetupSessionSetupViewModel {
             ?? DeveloperApplicationSettingsRestorationMonitor.shared
         self.preparationRegistry = preparationRegistry ?? .shared
         self.applicationIsRunning = applicationIsRunning
+        self.systemProxyConfiguredProvider = systemProxyConfiguredProvider
         self.applicationSupportURL = applicationSupportURL
         context = Self.makeContext(coordinator: coordinator, targetID: targetID, generatedAt: generatedAt())
     }
@@ -678,6 +680,11 @@ final class DeveloperSetupSessionSetupViewModel {
         }
         refresh()
         do {
+            let systemProxyConfigured = if let systemProxyConfiguredProvider {
+                await systemProxyConfiguredProvider()
+            } else {
+                await coordinator.reconcileProxyOverrideStatus()
+            }
             let workflow = DeveloperApplicationCaptureWorkflow(
                 launcher: applicationLauncher,
                 restorationMonitor: settingsRestorationMonitor,
@@ -688,7 +695,7 @@ final class DeveloperSetupSessionSetupViewModel {
             let outcome = try await workflow.open(
                 appURL: appURL,
                 context: context,
-                systemProxyConfigured: coordinator.isSystemProxyConfigured
+                systemProxyConfigured: systemProxyConfigured
             )
             switch outcome {
             case let .prepared(displayName, restorationMonitorActive):
@@ -713,6 +720,18 @@ final class DeveloperSetupSessionSetupViewModel {
                     localized: "\(displayName) was opened with Rockxy's scoped environment. If it overrides macOS or environment proxy settings, configure that app-level proxy separately.",
                     bundle: RockxyLocalization.bundle
                 )
+            case let .launchPending(displayName, restorationMonitorActive):
+                if restorationMonitorActive {
+                    statusMessage = String(
+                        localized: "macOS accepted the request to open \(displayName), but the application is still completing first-launch checks. Follow any macOS prompt and wait for it to open. Temporary settings recovery remains active.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                } else {
+                    statusMessage = String(
+                        localized: "macOS accepted the request to open \(displayName), but the application is still completing first-launch checks. Follow any macOS prompt and wait for it to open.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                }
             }
         } catch {
             statusMessage = launchFailureMessage(
@@ -764,6 +783,7 @@ final class DeveloperSetupSessionSetupViewModel {
     private let settingsRestorationMonitor: DeveloperApplicationSettingsRestorationMonitoring
     private let preparationRegistry: DeveloperApplicationPreparationRegistry
     private let applicationIsRunning: @MainActor (DeveloperApplicationInstallation) -> Bool
+    private let systemProxyConfiguredProvider: (@MainActor () async -> Bool)?
     private let applicationSupportURL: URL
     private var lastAppliedRouteGeneration = 0
 

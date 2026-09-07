@@ -11,6 +11,7 @@ import os
 enum SystemProxyError: LocalizedError {
     case networkSetupFailed(command: String, output: String, exitCode: Int32)
     case noActiveNetworkService
+    case proxyActivationNotConfirmed(port: Int)
     case unexpectedOutput(String)
 
     // MARK: Internal
@@ -21,6 +22,8 @@ enum SystemProxyError: LocalizedError {
             "networksetup \(command) failed (exit \(exitCode)): \(output)"
         case .noActiveNetworkService:
             "Could not detect an active network service"
+        case let .proxyActivationNotConfirmed(port):
+            "macOS did not confirm the Rockxy system proxy on port \(port)"
         case let .unexpectedOutput(output):
             "Unexpected networksetup output: \(output)"
         }
@@ -132,6 +135,16 @@ enum DirectProxyWatchdogAction {
     case exit
 }
 
+// MARK: - SystemProxyStartupRecovery
+
+/// One process-wide recovery barrier shared by app services and the capture UI. A single task
+/// prevents launch-time restore from racing a new proxy enable when both surfaces appear together.
+enum SystemProxyStartupRecovery {
+    static let task = Task.detached(priority: .userInitiated) {
+        await SystemProxyManager.shared.recoverStaleProxyIfNeeded()
+    }
+}
+
 // MARK: - ServiceProxySnapshot
 
 /// Snapshot of a network service's proxy configuration before Rockxy modifies it.
@@ -215,6 +228,18 @@ final class SystemProxyManager: @unchecked Sendable {
         -> Bool
     {
         commandsSucceeded && !proxyStillPointsAtRockxy
+    }
+
+    nonisolated static func helperOverrideIsConfirmed(
+        requestedPort: Int,
+        status: (isOverridden: Bool, port: Int)?
+    )
+        -> Bool
+    {
+        guard let status else {
+            return false
+        }
+        return status.isOverridden && status.port == requestedPort
     }
 
     @discardableResult
@@ -325,6 +350,12 @@ final class SystemProxyManager: @unchecked Sendable {
             Self.logger
                 .info("Helper not installed (status: \(String(describing: helperStatus))), using networksetup directly")
             try enableSystemProxyViaNetworkSetup(port: port)
+        }
+
+        guard await activeOverrideMatches(port: port) else {
+            await rollbackUnconfirmedOverride()
+            clearInMemoryOverrideState()
+            throw SystemProxyError.proxyActivationNotConfirmed(port: port)
         }
 
         await applyBypassDomains()
@@ -480,19 +511,17 @@ final class SystemProxyManager: @unchecked Sendable {
     /// Determines who currently owns the system proxy override by checking
     /// on-disk backup (direct mode) and helper status.
     func effectiveOverrideOwner() async -> ProxyOverrideOwner {
-        // Check in-memory state first for fast path
+        // In-memory ownership is only a hint. The proxy can be changed outside
+        // Rockxy, or a helper watchdog can restore it after an app restart.
+        // Always reconcile against live state before exposing an active override.
         lock.lock()
         let wasEnabled = isEnabled
         let wasUsingHelper = usingHelper
         lock.unlock()
 
-        if wasEnabled, wasUsingHelper {
-            return .helper(port: 0)
-        }
-
         if let backup = loadDirectBackup() {
             let backedUpServices = backup.services.map(\.service)
-            if wasEnabled || currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices) {
+            if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices) {
                 return .direct(backup: backup)
             }
         }
@@ -503,7 +532,54 @@ final class SystemProxyManager: @unchecked Sendable {
             return .helper(port: helperStatus.port)
         }
 
+        if wasEnabled || wasUsingHelper {
+            clearInMemoryOverrideState()
+        }
+
         return .none
+    }
+
+    private func activeOverrideMatches(port: Int) async -> Bool {
+        lock.lock()
+        let helper = usingHelper
+        let services = activeServices
+        lock.unlock()
+
+        if helper {
+            let status = try? await HelperConnection.shared.getProxyStatus()
+            return Self.helperOverrideIsConfirmed(requestedPort: port, status: status)
+        }
+
+        return !services.isEmpty && currentProxyMatchesRockxy(port: port, backedUpServices: services)
+    }
+
+    private func clearInMemoryOverrideState() {
+        lock.lock()
+        isEnabled = false
+        usingHelper = false
+        activeServices = []
+        lock.unlock()
+    }
+
+    private func rollbackUnconfirmedOverride() async {
+        lock.lock()
+        let helper = usingHelper
+        lock.unlock()
+
+        if helper {
+            do {
+                try await HelperConnection.shared.restoreSystemProxy()
+            } catch {
+                Self.logger.error(
+                    "Could not roll back an unconfirmed helper proxy override: \(error.localizedDescription)"
+                )
+            }
+            return
+        }
+
+        if let backup = loadDirectBackup() {
+            restoreDirectMode(using: backup)
+        }
     }
 
     /// Checks whether the system proxy on any backed-up service currently points to Rockxy.

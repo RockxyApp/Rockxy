@@ -259,11 +259,11 @@ private actor SnapshotCoordinator {
 
 // MARK: - ClientIdentityHandle
 
-/// Per-connection handle retaining the descriptor and a lazily started resolution Task. The
+/// Per-connection handle retaining the descriptor and a single shared resolution Task. The
 /// resolved identity is retained for the connection lifetime: `currentIdentity` provides a
 /// non-blocking snapshot for transaction stamping, while `awaitIdentity()` bounds the TLS
-/// decision. Laziness avoids running `lsof` for plain HTTP and raw tunnels whose policy cannot
-/// depend on application identity.
+/// decision. The proxy starts resolution at accept time so short-lived sockets remain observable;
+/// later policy and stamping reads reuse that work without launching another OS lookup.
 final class ClientIdentityHandle: @unchecked Sendable {
     // MARK: Lifecycle
 
@@ -279,6 +279,13 @@ final class ClientIdentityHandle: @unchecked Sendable {
     /// Non-blocking snapshot of the resolved identity (nil until resolution completes).
     var currentIdentity: ClientApplicationIdentity? {
         state.get()
+    }
+
+    /// Starts resolution without waiting for it. The proxy calls this as soon as a local
+    /// connection is accepted so short-lived raw tunnels can still be attributed after their
+    /// client socket disappears from the OS connection table.
+    func startResolution() {
+        _ = resolutionTask()
     }
 
     /// Starts resolution once, then awaits the same bounded result for every caller.
@@ -309,12 +316,17 @@ final class ClientIdentityHandle: @unchecked Sendable {
                 }
                 Task {
                     try? await Task.sleep(for: .milliseconds(850))
-                    if gate.resolve(nil, continuation: continuation) {
-                        resolverTask.cancel()
-                    }
+                    _ = gate.resolve(nil, continuation: continuation)
                 }
             }
             state.set(identity)
+            if identity == nil {
+                Task {
+                    if let lateIdentity = await resolverTask.value {
+                        state.set(lateIdentity)
+                    }
+                }
+            }
             return identity
         }
         task = created
