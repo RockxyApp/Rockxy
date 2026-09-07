@@ -30,6 +30,8 @@
 	<string>$(ROCKXY_ALLOWED_CALLER_IDENTIFIERS)</string>
 	<key>RockxyLogSubsystem</key>
 	<string>$(ROCKXY_HELPER_BUNDLE_ID)</string>
+	<key>RockxyAppSupportDirectoryName</key>
+	<string>$(ROCKXY_APP_SUPPORT_DIRECTORY_NAME)</string>
 	<key>RockxySharedSupportDirectoryName</key>
 	<string>$(ROCKXY_SHARED_SUPPORT_DIRECTORY_NAME)</string>
 	<key>RockxySharedCertificateLabelPrefix</key>

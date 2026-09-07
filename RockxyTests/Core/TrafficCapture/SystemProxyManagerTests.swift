@@ -52,8 +52,11 @@ struct SystemProxyManagerTests {
             .noActiveNetworkService,
             .proxyActivationNotConfirmed(port: 8_888),
             .proxyRestoreFailed,
+            .proxySessionInUse,
             .previousHelperUnavailable,
             .unexpectedOutput("bad"),
+            .directProxyWatchdogUnavailable(reason: "no start signature"),
+            .overrideRollbackIncomplete(reason: "networksetup exited non-zero"),
         ]
 
         for error in cases {
@@ -273,28 +276,91 @@ struct SystemProxyManagerTests {
         ) == false)
     }
 
-    @Test("direct proxy watchdog exits once backup is gone")
-    func directProxyWatchdogExitsWhenBackupRemoved() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: true,
-            backupExists: false
-        ) == .exit)
+    @Test("a direct override is refused when its watchdog cannot be armed")
+    func directWatchdogPreflightRequiresBothHalves() {
+        // Resolved before any service is mutated. An override applied without a live watchdog is
+        // only noticed at the next launch, and one armed against a bare identifier watches
+        // whatever process later inherits it.
+        #expect(SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: "1699999999.123456"
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: false,
+            parentStartSignature: "1699999999.123456"
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: nil
+        ))
+        #expect(!SystemProxyManager.directWatchdogPreflightIsSatisfied(
+            executableIsAvailable: true,
+            parentStartSignature: ""
+        ))
     }
 
-    @Test("direct proxy watchdog keeps waiting while parent is alive")
-    func directProxyWatchdogWaitsForParentExit() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: true,
-            backupExists: true
-        ) == .wait)
+    @Test("an override that could not be applied reports whether its rollback finished")
+    func failedOverrideReportsAnIncompleteRollback() {
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: true,
+            rollbackSucceeded: false
+        ) == .enabled)
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: false,
+            rollbackSucceeded: true
+        ) == .rolledBack)
+        // A rollback that could not finish keeps the backup and reports the failure: the services
+        // still overridden have no other way back, so the rollback's answer is never discarded in
+        // favour of the original apply error alone.
+        #expect(SystemProxyManager.directOverrideAttemptOutcome(
+            applySucceeded: false,
+            rollbackSucceeded: false
+        ) == .rollbackIncomplete)
     }
 
-    @Test("direct proxy watchdog restores after parent exits with backup present")
-    func directProxyWatchdogRestoresOnParentExit() {
-        #expect(SystemProxyManager.directProxyWatchdogAction(
-            parentAlive: false,
-            backupExists: true
-        ) == .restore)
+    @Test("the watchdog is armed before the first proxy command, never after")
+    func watchdogIsArmedBeforeAnyProxyMutation() {
+        var steps: [DirectOverrideApplicationStep] = []
+        let failure = DirectOverrideApplication.run(
+            persistBackup: { steps.append(.persistBackup) },
+            armWatchdog: { steps.append(.armWatchdog) },
+            mutateServices: { steps.append(.mutateServices) }
+        )
+
+        // A process that dies between the first proxy command and the watchdog submission leaves
+        // an override behind with nothing watching it, so the order is the guarantee.
+        #expect(steps == [.persistBackup, .armWatchdog, .mutateServices])
+        #expect(failure == nil)
+    }
+
+    @Test("a watchdog that cannot be armed stops the attempt before any service is mutated")
+    func watchdogFailureLeavesEverySettingUntouched() {
+        var mutated = false
+        let failure = DirectOverrideApplication.run(
+            persistBackup: {},
+            armWatchdog: { throw DirectOverrideStepError.failed },
+            mutateServices: { mutated = true }
+        )
+
+        #expect(!mutated)
+        #expect(failure?.step == .armWatchdog)
+    }
+
+    @Test("a backup that cannot be published stops the attempt before the watchdog is armed")
+    func backupFailureStopsBeforeArming() {
+        var armed = false
+        var mutated = false
+        let failure = DirectOverrideApplication.run(
+            persistBackup: { throw DirectOverrideStepError.failed },
+            armWatchdog: { armed = true },
+            mutateServices: { mutated = true }
+        )
+
+        // The watchdog watches the backup file. Arming one with no restore point behind it would
+        // give it nothing to act on.
+        #expect(!armed)
+        #expect(!mutated)
+        #expect(failure?.step == .persistBackup)
     }
 
     @Test("direct restore clears backup only after commands succeed and proxy ownership is gone")
@@ -419,27 +485,6 @@ struct SystemProxyManagerTests {
         #expect(MainContentCoordinator.proxyOverridePort(for: .none) == nil)
         #expect(MainContentCoordinator.proxyOverridePort(for: .direct(backup: backup)) == 9_090)
         #expect(MainContentCoordinator.proxyOverridePort(for: .helper(port: 8_888)) == 8_888)
-    }
-
-    @Test("direct proxy watchdog launchctl submission uses helper entrypoint and backup path")
-    func directProxyWatchdogSubmitArguments() {
-        let arguments = SystemProxyManager.directWatchdogSubmitArguments(
-            label: "com.amunx.rockxy.community.direct-proxy-watchdog",
-            executablePath: "/tmp/RockxyHelperTool",
-            parentPID: 4_242,
-            backupPath: "/tmp/proxy-backup-direct.plist"
-        )
-
-        #expect(arguments == [
-            "submit",
-            "-l",
-            "com.amunx.rockxy.community.direct-proxy-watchdog",
-            "--",
-            "/tmp/RockxyHelperTool",
-            "--rockxy-direct-proxy-watchdog",
-            "4242",
-            "/tmp/proxy-backup-direct.plist",
-        ])
     }
 
     // MARK: - Network Service Parsing Logic
@@ -834,4 +879,10 @@ private actor ActivationProbeCounter {
         attempts += 1
         return attempts >= succeedsOnAttempt
     }
+}
+
+// MARK: - DirectOverrideStepError
+
+private enum DirectOverrideStepError: Error {
+    case failed
 }

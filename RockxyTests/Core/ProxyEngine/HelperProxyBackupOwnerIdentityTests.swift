@@ -28,6 +28,7 @@ struct HelperProxyBackupOwnerIdentityTests {
         #expect(decoded.ownerPID == nil)
         #expect(decoded.ownerStartSignature == nil)
         #expect(decoded.recoveryPending == false)
+        #expect(decoded.journal.isEmpty)
     }
 
     @Test("Helper backups predating the persisted port still decode")
@@ -89,6 +90,122 @@ struct HelperProxyBackupOwnerIdentityTests {
         #expect(decoded.recoveryPending)
     }
 
+    @Test("A helper backup carries its recovery journal through a plist roundtrip")
+    func recoveryJournalRoundtrips() throws {
+        let live = ProxyServiceRestorationState(
+            service: "Wi-Fi",
+            http: ProxyEndpointState(enabled: true, host: "127.0.0.1", port: 9_090),
+            https: ProxyEndpointState(enabled: true, host: "127.0.0.1", port: 9_090),
+            socks: ProxyEndpointState(enabled: false, host: "", port: 0),
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false,
+            bypassDomains: []
+        )
+        let target = ProxyServiceRestorationState(
+            service: "Wi-Fi",
+            http: ProxyEndpointState(enabled: true, host: "proxy.corp.example", port: 8_080),
+            https: ProxyEndpointState(enabled: true, host: "proxy.corp.example", port: 8_080),
+            socks: ProxyEndpointState(enabled: false, host: "", port: 0),
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false,
+            bypassDomains: ["localhost"]
+        )
+        let entry = ProxyServiceRecoveryJournalEntry(
+            service: "Wi-Fi",
+            stage: .restored,
+            expectedPreStepState: live,
+            target: target
+        )
+        let backup = ProxyBackupMirror(
+            services: [makeServiceBackup()],
+            timestamp: Date(),
+            rockxyPort: 9_090,
+            ownerPID: nil,
+            ownerStartSignature: nil,
+            recoveryPending: true,
+            journal: [entry]
+        )
+
+        let data = try PropertyListEncoder().encode(backup)
+        let decoded = try PropertyListDecoder().decode(ProxyBackupMirror.self, from: data)
+
+        #expect(decoded.journal == [entry])
+        #expect(decoded.journal.first?.stage == .restored)
+    }
+
+    @Test("A backup written before the copy marker existed still decodes, and still counts")
+    func aLegacyCopyKeepsItsMigrationBehaviour() throws {
+        let legacy = LegacyProxyBackupMirror(
+            services: [makeServiceBackup()],
+            timestamp: Date(),
+            rockxyPort: 9_090
+        )
+
+        let data = try PropertyListEncoder().encode(legacy)
+        let decoded = try PropertyListDecoder().decode(ProxyBackupMirror.self, from: data)
+
+        #expect(decoded.copyRole == nil)
+        // An unmarked copy in the compatibility location was written by a build that predates the
+        // marker, so it is the only backup that build ever had — refusing it would strand it.
+        #expect(ProxyBackupCopyPolicy.isRecoveryTruth(
+            role: decoded.copyRole,
+            isAuthoritativeLocation: false
+        ))
+    }
+
+    @Test("A prepared compatibility copy remains a recovery answer")
+    func aCurrentFormatMirrorIsAccepted() throws {
+        let mirror = ProxyBackupMirror(
+            services: [makeServiceBackup()],
+            timestamp: Date(),
+            rockxyPort: 9_090,
+            ownerPID: nil,
+            ownerStartSignature: nil,
+            copyRole: .mirror
+        )
+
+        let data = try PropertyListEncoder().encode(mirror)
+        let decoded = try PropertyListDecoder().decode(ProxyBackupMirror.self, from: data)
+
+        #expect(decoded.copyRole == .mirror)
+        // Mirrors are prepared before the authoritative commit. A surviving copy is therefore the
+        // committed record, or a safe attempt whose failed commit authorized no proxy command.
+        #expect(ProxyBackupCopyPolicy.isRecoveryTruth(
+            role: decoded.copyRole,
+            isAuthoritativeLocation: false
+        ))
+    }
+
+    @Test("The authoritative location is recovery's answer whatever it is marked as")
+    func theAuthoritativeCopyIsAlwaysTruth() {
+        // A file explicitly marked as a mirror never becomes authoritative merely by being moved.
+        #expect(ProxyBackupCopyPolicy.isRecoveryTruth(role: .authoritative, isAuthoritativeLocation: true))
+        #expect(ProxyBackupCopyPolicy.isRecoveryTruth(role: nil, isAuthoritativeLocation: true))
+        #expect(!ProxyBackupCopyPolicy.isRecoveryTruth(role: .mirror, isAuthoritativeLocation: true))
+    }
+
+    @Test("The copy marker survives a plist roundtrip alongside everything else")
+    func theCopyMarkerRoundtrips() throws {
+        let backup = ProxyBackupMirror(
+            services: [makeServiceBackup()],
+            timestamp: Date(),
+            rockxyPort: 9_090,
+            ownerPID: 4_242,
+            ownerStartSignature: "1788787973.748707",
+            recoveryPending: true,
+            copyRole: .authoritative
+        )
+
+        let data = try PropertyListEncoder().encode(backup)
+        let decoded = try PropertyListDecoder().decode(ProxyBackupMirror.self, from: data)
+
+        #expect(decoded.copyRole == .authoritative)
+        #expect(decoded.ownerPID == 4_242)
+        #expect(decoded.recoveryPending)
+    }
+
     // MARK: Private
 
     /// Mirror of CrashRecovery.ServiceProxyBackup — must match the helper tool's struct layout.
@@ -127,7 +244,9 @@ struct HelperProxyBackupOwnerIdentityTests {
             rockxyPort: Int?,
             ownerPID: Int32?,
             ownerStartSignature: String?,
-            recoveryPending: Bool = false
+            recoveryPending: Bool = false,
+            journal: [ProxyServiceRecoveryJournalEntry] = [],
+            copyRole: ProxyBackupCopyRole? = nil
         ) {
             self.services = services
             self.timestamp = timestamp
@@ -135,6 +254,8 @@ struct HelperProxyBackupOwnerIdentityTests {
             self.ownerPID = ownerPID
             self.ownerStartSignature = ownerStartSignature
             self.recoveryPending = recoveryPending
+            self.journal = journal
+            self.copyRole = copyRole
         }
 
         init(from decoder: any Decoder) throws {
@@ -145,6 +266,11 @@ struct HelperProxyBackupOwnerIdentityTests {
             ownerPID = try container.decodeIfPresent(Int32.self, forKey: .ownerPID)
             ownerStartSignature = try container.decodeIfPresent(String.self, forKey: .ownerStartSignature)
             recoveryPending = try container.decodeIfPresent(Bool.self, forKey: .recoveryPending) ?? false
+            journal = (try? container.decodeIfPresent(
+                [ProxyServiceRecoveryJournalEntry].self,
+                forKey: .journal
+            )) ?? []
+            copyRole = try? container.decodeIfPresent(ProxyBackupCopyRole.self, forKey: .copyRole)
         }
 
         // MARK: Internal
@@ -155,6 +281,8 @@ struct HelperProxyBackupOwnerIdentityTests {
         let ownerPID: Int32?
         let ownerStartSignature: String?
         let recoveryPending: Bool
+        let journal: [ProxyServiceRecoveryJournalEntry]
+        let copyRole: ProxyBackupCopyRole?
 
         // MARK: Private
 
@@ -165,6 +293,8 @@ struct HelperProxyBackupOwnerIdentityTests {
             case ownerPID
             case ownerStartSignature
             case recoveryPending
+            case journal
+            case copyRole
         }
     }
 

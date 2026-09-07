@@ -32,6 +32,8 @@ enum IdleExitMonitor {
     )
 
     private static let idleTimeout: TimeInterval = 5 * 60
+    /// The same gate every privileged mutation takes, so exiting is serialized against them.
+    private static let mutationGate = HelperPrivilegedMutationGate.shared
     private static let queue = DispatchQueue(label: "com.amunx.rockxy.helper.idle-exit")
 
     private static var idleTimer: DispatchSourceTimer?
@@ -55,15 +57,41 @@ enum IdleExitMonitor {
         timer.resume()
     }
 
+    /// Must be called on `queue`.
+    ///
+    /// A timer event that has already been dequeued cannot be cancelled, so reading the proxy
+    /// status and exiting on the answer used to be enough to exit in the middle of somebody
+    /// else's privileged mutation — with the reply never arriving and the settings left part-way.
+    /// The decision now runs through the same exclusive gate every proxy and certificate mutation
+    /// takes: a busy gate means the helper is still needed, and a free one cannot be filled
+    /// between the recheck and the exit because this holds it.
     private static func checkAndExit() {
-        let status = ProxyConfigurator.getCurrentStatus()
-        if status.isOverridden {
-            logger.info("Idle timeout reached but proxy is still overridden on port \(status.port) — deferring exit")
+        switch HelperIdleExitSequence.run(
+            proxyIsOverridden: {
+                // The status answers for the routed service alone, so an override that stopped on
+                // a secondary one reads as idle. A restore point still on disk names exactly the
+                // services in that position, and exiting would take away the only process left
+                // that could put them back.
+                HelperOverrideResidencyPolicy.overrideNeedsHelper(
+                    routedServiceIsOverridden: ProxyConfigurator.getCurrentStatus().isOverridden,
+                    unresolvedBackupExists: CrashRecovery.hasBackup()
+                )
+            },
+            acquireExitBarrier: { mutationGate.beginProcessExitBarrier() },
+            release: { mutationGate.release($0) }
+        ) {
+        case .deferOverridden:
+            logger.info("Idle timeout reached but a proxy override or its restore point is still in place — deferring exit")
+            if CrashRecovery.hasBackup() {
+                HelperService.scheduleBackupRecovery(reason: "idle residency check")
+            }
             scheduleTimerOnQueue()
-            return
+        case .deferBusy:
+            logger.info("Idle timeout reached while a privileged operation is running — deferring exit")
+            scheduleTimerOnQueue()
+        case .exit:
+            logger.info("Idle timeout reached with no active proxy override — exiting")
+            exit(0)
         }
-
-        logger.info("Idle timeout reached with no active proxy override — exiting")
-        exit(0)
     }
 }
