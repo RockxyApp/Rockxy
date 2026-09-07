@@ -2,6 +2,7 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+@Suite(.serialized, .sharedPolicyState)
 @MainActor
 struct ProxyDisplayStateTests {
     @Test("Coordinator reports stopped by default")
@@ -89,11 +90,29 @@ struct ProxyDisplayStateTests {
 
         #expect(presentation.title == "Capture Stopped")
         #expect(presentation.listener == "0.0.0.0:8888")
+        #expect(presentation.listenerLabel == "Configured endpoint")
         #expect(presentation.listenerScope == "This Mac and local network")
+        #expect(presentation.listenerScopeLabel == "Configured access")
         #expect(presentation.https.level == .ready)
         #expect(presentation.systemRouting.level == .ready)
         #expect(presentation.actionTitle == "Start Capture")
         #expect(presentation.isActionEnabled)
+    }
+
+    @Test("Stopped capture describes configured listener values without claiming they are live")
+    func stoppedCaptureUsesConfiguredEndpointLabels() {
+        let presentation = CaptureStatusPresentation(
+            displayState: .stopped,
+            listenAddress: "127.0.0.1",
+            port: 8_888,
+            certReadiness: .trusted,
+            helperReadiness: .installedCompatible,
+            isSystemProxyConfigured: false
+        )
+
+        #expect(presentation.listenerLabel == "Configured endpoint")
+        #expect(presentation.listenerScopeLabel == "Configured access")
+        #expect(presentation.listener == "127.0.0.1:8888")
     }
 
     @Test("Running capture surfaces degraded readiness without relying on color")
@@ -107,12 +126,124 @@ struct ProxyDisplayStateTests {
             isSystemProxyConfigured: false
         )
 
+        #expect(presentation.title == "Capture Needs Attention")
         #expect(presentation.listenerScope == "This Mac only")
         #expect(presentation.https.level == .attention)
         #expect(presentation.https.value == "Root CA installed but not trusted")
         #expect(presentation.systemRouting.level == .attention)
         #expect(presentation.systemRouting.value == "Manual app setup")
         #expect(presentation.actionTitle == "Stop Capture")
+    }
+
+    @Test("Running listener never claims capture while the local path is unverified")
+    func failedCaptureHealthPresentation() {
+        let presentation = CaptureStatusPresentation(
+            displayState: .running,
+            listenAddress: "127.0.0.1",
+            port: 8_888,
+            certReadiness: .trusted,
+            helperReadiness: .installedCompatible,
+            isSystemProxyConfigured: true,
+            captureHealth: .failed
+        )
+
+        #expect(presentation.title == "Capture Needs Attention")
+        #expect(presentation.capturePath.level == .attention)
+        #expect(presentation.capturePath.value == "Check failed")
+    }
+
+    @Test("Deliberate manual routing keeps capture truthful without a false warning header")
+    func manualRoutingPresentation() {
+        let presentation = CaptureStatusPresentation(
+            displayState: .running,
+            listenAddress: "127.0.0.1",
+            port: 8_888,
+            certReadiness: .trusted,
+            helperReadiness: .installedCompatible,
+            isSystemProxyConfigured: false,
+            isSystemRoutingExpected: false,
+            captureHealth: .verified
+        )
+
+        #expect(presentation.title == "Capturing Traffic")
+        #expect(presentation.systemRouting.value == "Manual app setup")
+    }
+
+    @Test("Diagnostic transactions are consumed only for registered private tokens")
+    func captureProbeTrackerIsolation() async {
+        let tracker = CaptureProbeTracker()
+        let generation = tracker.begin(token: "private-token")
+        let diagnostic = HTTPTransaction(request: HTTPRequestData(
+            method: "GET",
+            url: URL(string: "http://127.0.0.1/probe")!,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: CaptureProbeTracker.headerName, value: "private-token")]
+        ))
+        let ordinary = HTTPTransaction(request: HTTPRequestData(
+            method: "GET",
+            url: URL(string: "http://127.0.0.1/ordinary")!,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: CaptureProbeTracker.headerName, value: "user-token")]
+        ))
+
+        #expect(!tracker.shouldBypassUserModifications(ordinary.request))
+        #expect(tracker.shouldBypassUserModifications(diagnostic.request))
+        let consumedOrdinary = tracker.consumeIfExpected(ordinary)
+        let consumedDiagnostic = tracker.consumeIfExpected(diagnostic)
+        let observed = tracker.wasObserved(generation: generation)
+
+        #expect(!consumedOrdinary)
+        #expect(consumedDiagnostic)
+        #expect(observed)
+    }
+
+    @Test("Private health check traverses the real listener without polluting traffic")
+    func captureHealthCheckIntegration() async throws {
+        let coordinator = MainContentCoordinator()
+        var settings = AppSettings()
+        settings.onlyListenOnLocalhost = true
+        settings.listenIPv6 = false
+        settings.enableLogCapture = false
+        let resolution = try ProxyPortResolver.resolve(
+            preferred: 58_200,
+            address: settings.effectiveListenAddress,
+            autoSelect: true
+        )
+
+        await coordinator.configureProxy(port: resolution.port, settings: settings)
+        let broadThrottle = ProxyRule(
+            name: "Broad user throttle",
+            matchCondition: RuleMatchCondition(urlPattern: ".*"),
+            action: .throttle(delayMs: 10_000)
+        )
+        await RuleEngine.shared.addRule(broadThrottle)
+        defer {
+            Task {
+                await RuleEngine.shared.removeRule(id: broadThrottle.id)
+            }
+        }
+        try await coordinator.proxyServer.start()
+        coordinator.activeProxyPort = resolution.port
+        coordinator.isProxyRunning = true
+        coordinator.runCaptureHealthCheck()
+        coordinator.runCaptureHealthCheck()
+
+        for _ in 0 ..< 70 where coordinator.readiness.captureHealth == .checking {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(coordinator.readiness.captureHealth == .verified)
+        #expect(coordinator.transactions.isEmpty)
+        await RuleEngine.shared.removeRule(id: broadThrottle.id)
+
+        coordinator.captureHealthTask?.cancel()
+        await coordinator.captureProbeServer.stop()
+        coordinator.captureProbeTracker.cancel()
+        await coordinator.sessionManager.stopBatchTimer()
+        await coordinator.proxyServer.stop()
+        coordinator.isProxyRunning = false
+        coordinator.readiness.setCaptureActive(false)
     }
 
     @Test("Capture listener formats IPv6 endpoints without ambiguity")

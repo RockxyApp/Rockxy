@@ -44,6 +44,18 @@ final class AllowListManager {
     /// (`addRule`, `updateRule`, `removeRule`, `toggleRule`, `replaceAll`, `importRulesJSON`).
     private(set) var rules: [AllowListRule] = []
 
+    /// Whether at least one enabled rule compiled successfully and can match traffic.
+    /// An active Allow List without an effective rule deliberately records nothing.
+    var hasEffectiveRules: Bool {
+        rules.contains { rule in
+            rule.isEnabled && AllowListRulePatternValidation.isValid(
+                rawPattern: rule.rawPattern,
+                matchType: rule.matchType,
+                includeSubpaths: rule.includeSubpaths
+            )
+        }
+    }
+
     // MARK: - Legacy Migration
 
     /// Maps a legacy `AllowListEntry` (host-only) to an anchored regex rule that

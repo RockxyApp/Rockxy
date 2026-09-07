@@ -29,11 +29,14 @@ struct SystemProxyBackupCompatibilityTests {
         #expect(decoded.socksEnabled == false)
         #expect(decoded.socksHost.isEmpty)
         #expect(decoded.socksPort == 0)
+        #expect(decoded.pacEnabled == false)
+        #expect(decoded.pacURL.isEmpty)
+        #expect(decoded.autoDiscoveryEnabled == false)
         #expect(decoded.bypassDomains == ["localhost"])
     }
 
-    @Test("DirectServiceBackup preserves SOCKS fields in roundtrip")
-    func roundtripsSocksFields() throws {
+    @Test("DirectServiceBackup preserves alternate proxy fields in roundtrip")
+    func roundtripsAlternateProxyFields() throws {
         let original = DirectServiceBackup(
             service: "Ethernet",
             httpEnabled: false,
@@ -45,6 +48,9 @@ struct SystemProxyBackupCompatibilityTests {
             socksEnabled: true,
             socksHost: "socks.corp.com",
             socksPort: 1_080,
+            pacEnabled: true,
+            pacURL: "https://proxy.corp.com/config.pac",
+            autoDiscoveryEnabled: true,
             bypassDomains: ["*.corp.internal"]
         )
 
@@ -54,6 +60,9 @@ struct SystemProxyBackupCompatibilityTests {
         #expect(decoded.socksEnabled == true)
         #expect(decoded.socksHost == "socks.corp.com")
         #expect(decoded.socksPort == 1_080)
+        #expect(decoded.pacEnabled == true)
+        #expect(decoded.pacURL == "https://proxy.corp.com/config.pac")
+        #expect(decoded.autoDiscoveryEnabled == true)
         #expect(decoded.bypassDomains == ["*.corp.internal"])
     }
 

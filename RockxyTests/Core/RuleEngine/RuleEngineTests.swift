@@ -514,8 +514,8 @@ struct RuleEngineTests {
 
     @Test("Trailing ? wildcard anchors to end of URL and never allows a trailing query")
     func trailingQuestionMarkWildcardAnchorsToEnd() async throws {
-        // Validated Proxyman behavior: `/api/item?` matches `item` + exactly one character and
-        // then the URL must END — a trailing `?query` must NOT match (it reaches the origin).
+        // `/api/item?` matches `item` plus exactly one character, then the URL must end.
+        // A trailing `?query` must not match and should reach the origin.
         let engine = RuleEngine()
         await engine.addRule(ProxyRule(
             name: "MapLocal",

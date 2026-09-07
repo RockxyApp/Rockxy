@@ -16,7 +16,7 @@ struct HelperCompatibilityPolicyTests {
             #expect(HelperCompatibilityPolicy.classify(
                 installedProtocolVersion: 1,
                 installedBuildNumber: build,
-                expectedProtocolVersion: 3,
+                expectedProtocolVersion: 4,
                 bundledBuildNumber: 8
             ) == .outdated)
         }
@@ -34,23 +34,33 @@ struct HelperCompatibilityPolicyTests {
     @Test("the expected protocol falls through to the normal build comparison")
     func expectedProtocolUsesBuildComparison() {
         #expect(HelperCompatibilityPolicy.classify(
-            installedProtocolVersion: 3,
+            installedProtocolVersion: 4,
             installedBuildNumber: 8,
-            expectedProtocolVersion: 3,
+            expectedProtocolVersion: 4,
             bundledBuildNumber: 8
         ) == .compatible)
 
         #expect(HelperCompatibilityPolicy.classify(
-            installedProtocolVersion: 3,
+            installedProtocolVersion: 4,
             installedBuildNumber: 9,
-            expectedProtocolVersion: 3,
+            expectedProtocolVersion: 4,
             bundledBuildNumber: 8
         ) == .compatible)
 
         #expect(HelperCompatibilityPolicy.classify(
-            installedProtocolVersion: 3,
+            installedProtocolVersion: 4,
             installedBuildNumber: 7,
-            expectedProtocolVersion: 3,
+            expectedProtocolVersion: 4,
+            bundledBuildNumber: 8
+        ) == .outdated)
+    }
+
+    @Test("protocol 3 is outdated when protocol 4 owns safe proxy routing")
+    func protocolThreeRequiresRoutingUpgrade() {
+        #expect(HelperCompatibilityPolicy.classify(
+            installedProtocolVersion: 3,
+            installedBuildNumber: 1_000_000,
+            expectedProtocolVersion: 4,
             bundledBuildNumber: 8
         ) == .outdated)
     }
@@ -69,7 +79,7 @@ struct HelperCompatibilityPolicyTests {
 
     @Test("a missing, nonpositive, unknown, or future protocol fails closed")
     func unusableProtocolsFailClosed() {
-        for expected in [4, 99] {
+        for expected in [5, 99] {
             for installed in [1, expected] {
                 #expect(HelperCompatibilityPolicy.classify(
                     installedProtocolVersion: installed,
@@ -83,16 +93,16 @@ struct HelperCompatibilityPolicyTests {
             #expect(HelperCompatibilityPolicy.classify(
                 installedProtocolVersion: installed,
                 installedBuildNumber: 1_000_000,
-                expectedProtocolVersion: 3,
+                expectedProtocolVersion: 4,
                 bundledBuildNumber: 8
             ) == .incompatible)
         }
 
         // Newer than this build understands.
         #expect(HelperCompatibilityPolicy.classify(
-            installedProtocolVersion: 4,
+            installedProtocolVersion: 5,
             installedBuildNumber: 8,
-            expectedProtocolVersion: 3,
+            expectedProtocolVersion: 4,
             bundledBuildNumber: 8
         ) == .incompatible)
 
@@ -100,7 +110,7 @@ struct HelperCompatibilityPolicyTests {
         #expect(HelperCompatibilityPolicy.classify(
             installedProtocolVersion: 2,
             installedBuildNumber: 8,
-            expectedProtocolVersion: 4,
+            expectedProtocolVersion: 5,
             bundledBuildNumber: 8
         ) == .incompatible)
 
@@ -118,18 +128,28 @@ struct HelperCompatibilityPolicyTests {
         #expect(HelperCompatibilityPolicy.exactCertificateRemovalProtocolVersion == 2)
         #expect(HelperCompatibilityPolicy.supportsExactCertificateRemoval(protocolVersion: 2))
         #expect(HelperCompatibilityPolicy.supportsExactCertificateRemoval(protocolVersion: 3))
+        #expect(HelperCompatibilityPolicy.supportsExactCertificateRemoval(protocolVersion: 4))
 
-        for protocolVersion in [-1, 0, 1, 4, 99] {
+        for protocolVersion in [-1, 0, 1, 5, 99] {
             #expect(HelperCompatibilityPolicy
                 .supportsExactCertificateRemoval(protocolVersion: protocolVersion) == false)
         }
     }
 
-    @Test("only protocol 3 supports approval-preserving executable refresh")
-    func onlyProtocolThreeSupportsExecutableRefresh() {
+    @Test("protocol 3 and newer known helpers support approval-preserving refresh")
+    func knownModernProtocolsSupportExecutableRefresh() {
         #expect(HelperCompatibilityPolicy.supportsExecutableRefresh(protocolVersion: 3))
-        for protocolVersion in [-1, 0, 1, 2, 4, 99] {
+        #expect(HelperCompatibilityPolicy.supportsExecutableRefresh(protocolVersion: 4))
+        for protocolVersion in [-1, 0, 1, 2, 5, 99] {
             #expect(!HelperCompatibilityPolicy.supportsExecutableRefresh(protocolVersion: protocolVersion))
+        }
+    }
+
+    @Test("only protocol 4 owns PAC-safe proxy routing and reclaim")
+    func onlyProtocolFourSupportsSafeProxyRouting() {
+        #expect(HelperCompatibilityPolicy.supportsSafeProxyRouting(protocolVersion: 4))
+        for protocolVersion in [-1, 0, 1, 2, 3, 5, 99] {
+            #expect(!HelperCompatibilityPolicy.supportsSafeProxyRouting(protocolVersion: protocolVersion))
         }
     }
 
@@ -143,6 +163,7 @@ struct HelperCompatibilityPolicyTests {
         try #require(expected > 0)
         #expect(HelperCompatibilityPolicy.supportsSafeCertificateInstall(protocolVersion: expected))
         #expect(HelperCompatibilityPolicy.supportsExactCertificateRemoval(protocolVersion: expected))
+        #expect(HelperCompatibilityPolicy.supportsSafeProxyRouting(protocolVersion: expected))
         #expect(HelperCompatibilityPolicy.classify(
             installedProtocolVersion: expected,
             installedBuildNumber: bundledBuild,

@@ -59,7 +59,7 @@ struct RockxyApp: App {
         )
         .defaultPosition(.center)
         .commands {
-            RockxyMenuCommands(lifecycleState: lifecycleState)
+            RockxyMenuCommands(lifecycleState: lifecycleState, coordinator: mainCoordinator)
             BabylonCaptureCommands()
         }
 
@@ -710,6 +710,7 @@ struct RockxyMenuCommands: Commands {
     // MARK: Internal
 
     let lifecycleState: AppLifecycleState
+    let coordinator: MainContentCoordinator
 
     var body: some Commands {
         appMenu
@@ -730,6 +731,8 @@ struct RockxyMenuCommands: Commands {
     @Environment(\.openWindow) private var openWindow
     @FocusedValue(\.commandActions) private var actions: MainContentCommandActions?
     @ObservedObject private var updater = AppUpdater.shared
+
+    private var proxyActions: MainContentCommandActions { actions ?? MainContentCommandActions(coordinator: coordinator) }
 
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
     @StateObject private var externalProxyMenuState = ExternalProxyMenuState()
@@ -1072,31 +1075,31 @@ struct RockxyMenuCommands: Commands {
     private var toolsMenu: some Commands {
         CommandMenu(String(localized: "Tools", bundle: RockxyLocalization.bundle)) {
             Button(String(localized: "Start Proxy", bundle: RockxyLocalization.bundle)) {
-                actions?.startProxy()
+                proxyActions.startProxy()
             }
-            .disabled(actions?.isProxyRunning == true)
+            .disabled(proxyActions.isProxyRunning)
 
             Button(String(localized: "Stop Proxy", bundle: RockxyLocalization.bundle)) {
-                actions?.stopProxy()
+                proxyActions.stopProxy()
             }
             .keyboardShortcut(".", modifiers: [.command])
-            .disabled(actions?.isProxyRunning != true)
+            .disabled(!proxyActions.isProxyRunning)
 
             Button(
-                actions?.isRecording == false
+                !proxyActions.isRecording
                     ? String(localized: "Resume Recording", bundle: RockxyLocalization.bundle)
                     : String(localized: "Pause Recording", bundle: RockxyLocalization.bundle)
             ) {
-                actions?.toggleRecording()
+                proxyActions.toggleRecording()
             }
             .keyboardShortcut("r", modifiers: [.command, .option])
-            .disabled(actions?.canToggleRecording != true)
+            .disabled(!proxyActions.canToggleRecording)
 
             Button(String(localized: "Toggle System Proxy", bundle: RockxyLocalization.bundle)) {
-                actions?.toggleSystemProxyOverride()
+                proxyActions.toggleSystemProxyOverride()
             }
             .keyboardShortcut("o", modifiers: [.command, .option])
-            .disabled(actions?.canToggleSystemProxyOverride != true)
+            .disabled(!proxyActions.canToggleSystemProxyOverride)
 
             Divider()
 

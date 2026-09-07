@@ -174,6 +174,14 @@ final class MainContentCoordinator {
         }
         projectTabAutosaveTask?.cancel()
         projectHydrationTask?.cancel()
+        captureHealthTask?.cancel()
+        proxyConfigurationRefreshTask?.cancel()
+        let probeServer = captureProbeServer
+        let probeTracker = captureProbeTracker
+        Task {
+            await probeServer.stop()
+            probeTracker.cancel()
+        }
         if let rulesObserver {
             NotificationCenter.default.removeObserver(rulesObserver)
         }
@@ -227,6 +235,8 @@ final class MainContentCoordinator {
     let certificateManager = CertificateManager.shared
     let sessionManager = TrafficSessionManager()
     let logEngine = LogCaptureEngine()
+    let captureProbeServer = DeveloperSetupProbeServer()
+    let captureProbeTracker = CaptureProbeTracker()
 
     // MARK: - Rules
 
@@ -258,6 +268,8 @@ final class MainContentCoordinator {
     var deferredSessionBatches: [DeferredBatch] = []
     var proxyError: String?
     var isSystemProxyConfigured = false
+    @ObservationIgnored var captureHealthTask: Task<Void, Never>?
+    @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
 
     /// The listener configuration the running proxy actually started with.
     /// Non-nil only while the proxy is running; captured from the same settings
@@ -384,6 +396,11 @@ final class MainContentCoordinator {
         }
         let action: SystemProxyWarning.Action? = switch warning.action {
         case .retry: .retry
+        case .retryStop: .retryStop
+        case .retryDisableSystemRouting: .retryDisableSystemRouting
+        case .retryCaptureCheck: .retryCaptureCheck
+        case .restoreSystemRouting: .restoreSystemRouting
+        case .openHTTPSDecryption: .openHTTPSDecryption
         case .openGeneralSettings: .openGeneralSettings
         case .openAdvancedProxySettings: .openAdvancedProxySettings
         case .reinstallAndTrust: .reinstallAndTrust
@@ -735,6 +752,11 @@ final class MainContentCoordinator {
 struct SystemProxyWarning {
     enum Action {
         case retry
+        case retryStop
+        case retryDisableSystemRouting
+        case restoreSystemRouting
+        case retryCaptureCheck
+        case openHTTPSDecryption
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -745,6 +767,16 @@ struct SystemProxyWarning {
             switch self {
             case .retry:
                 String(localized: "Retry", bundle: RockxyLocalization.bundle)
+            case .retryStop:
+                String(localized: "Stop Capture", bundle: RockxyLocalization.bundle)
+            case .retryDisableSystemRouting:
+                String(localized: "Switch Off", bundle: RockxyLocalization.bundle)
+            case .restoreSystemRouting:
+                String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
+            case .retryCaptureCheck:
+                String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
+            case .openHTTPSDecryption:
+                String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:

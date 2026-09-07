@@ -23,7 +23,7 @@ extension HelperManager {
 
     /// Reconciles an already installed helper with the helper embedded in the newly launched app.
     ///
-    /// `SMAppService` keeps the daemon inside the app bundle. A protocol-3 helper can terminate
+    /// `SMAppService` keeps the daemon inside the app bundle. A protocol-3-or-newer helper can terminate
     /// itself after acknowledging this request, allowing launchd to resolve the executable from
     /// the updated app bundle while preserving the existing Background Items approval. Older
     /// helpers are deliberately left working rather than automatically unregistering them.

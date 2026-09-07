@@ -23,6 +23,9 @@ enum CrashRecovery {
             socksEnabled: Bool,
             socksHost: String,
             socksPort: Int,
+            pacEnabled: Bool,
+            pacURL: String,
+            autoDiscoveryEnabled: Bool,
             bypassDomains: [String]
         ) {
             self.service = service
@@ -35,6 +38,9 @@ enum CrashRecovery {
             self.socksEnabled = socksEnabled
             self.socksHost = socksHost
             self.socksPort = socksPort
+            self.pacEnabled = pacEnabled
+            self.pacURL = pacURL
+            self.autoDiscoveryEnabled = autoDiscoveryEnabled
             self.bypassDomains = bypassDomains
         }
 
@@ -50,6 +56,9 @@ enum CrashRecovery {
             socksEnabled = try container.decodeIfPresent(Bool.self, forKey: .socksEnabled) ?? false
             socksHost = try container.decodeIfPresent(String.self, forKey: .socksHost) ?? ""
             socksPort = try container.decodeIfPresent(Int.self, forKey: .socksPort) ?? 0
+            pacEnabled = try container.decodeIfPresent(Bool.self, forKey: .pacEnabled) ?? false
+            pacURL = try container.decodeIfPresent(String.self, forKey: .pacURL) ?? ""
+            autoDiscoveryEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoDiscoveryEnabled) ?? false
             bypassDomains = try container.decode([String].self, forKey: .bypassDomains)
         }
 
@@ -65,6 +74,9 @@ enum CrashRecovery {
         let socksEnabled: Bool
         let socksHost: String
         let socksPort: Int
+        let pacEnabled: Bool
+        let pacURL: String
+        let autoDiscoveryEnabled: Bool
         let bypassDomains: [String]
 
         // MARK: Private
@@ -80,6 +92,9 @@ enum CrashRecovery {
             case socksEnabled
             case socksHost
             case socksPort
+            case pacEnabled
+            case pacURL
+            case autoDiscoveryEnabled
             case bypassDomains
         }
     }
@@ -92,20 +107,32 @@ enum CrashRecovery {
     // MARK: - Public API
 
     /// Save current proxy settings for all specified services before overriding them.
-    static func saveOriginalSettings(services: [String]) {
-        logger.info("Saving original proxy settings for \(services.count) service(s)")
+    static func saveOriginalSettings(services: [String]) throws {
+        let existingBackup = loadBackup()
+        let existingServices = Set(existingBackup?.services.map(\.service) ?? [])
+        let servicesToCapture = services.filter { !existingServices.contains($0) }
+
+        guard !servicesToCapture.isEmpty else {
+            logger.info("Preserving the existing proxy backup for \(existingServices.count) service(s)")
+            return
+        }
+
+        logger.info("Saving original proxy settings for \(servicesToCapture.count) new service(s)")
 
         var serviceBackups: [ServiceProxyBackup] = []
-        for service in services {
+        for service in servicesToCapture {
             do {
                 let httpOutput = try readProxySettings(type: "webproxy", service: service)
                 let httpsOutput = try readProxySettings(type: "securewebproxy", service: service)
                 let socksOutput = try readProxySettings(type: "socksfirewallproxy", service: service)
+                let pacOutput = try readProxySettings(type: "autoproxyurl", service: service)
+                let autoDiscoveryOutput = try readProxySettings(type: "proxyautodiscovery", service: service)
                 let bypassDomains = try readBypassDomains(service: service)
 
                 let httpInfo = ProxyConfigurator.parseProxyOutput(httpOutput)
                 let httpsInfo = ProxyConfigurator.parseProxyOutput(httpsOutput)
                 let socksInfo = ProxyConfigurator.parseProxyOutput(socksOutput)
+                let pacInfo = ProxyConfigurator.parsePACOutput(pacOutput)
 
                 let serviceBackup = ServiceProxyBackup(
                     service: service,
@@ -118,6 +145,9 @@ enum CrashRecovery {
                     socksEnabled: socksInfo.enabled,
                     socksHost: socksInfo.host,
                     socksPort: socksInfo.port,
+                    pacEnabled: pacInfo.enabled,
+                    pacURL: pacInfo.url,
+                    autoDiscoveryEnabled: ProxyConfigurator.parseAutoDiscoveryOutput(autoDiscoveryOutput),
                     bypassDomains: bypassDomains
                 )
                 serviceBackups.append(serviceBackup)
@@ -127,13 +157,13 @@ enum CrashRecovery {
                     .error(
                         "Failed to read proxy settings for '\(service)': \(error.localizedDescription) — aborting backup"
                     )
-                return
+                throw error
             }
         }
 
         let backup = ProxyBackup(
-            services: serviceBackups,
-            timestamp: Date()
+            services: (existingBackup?.services ?? []) + serviceBackups,
+            timestamp: existingBackup?.timestamp ?? Date()
         )
 
         do {
@@ -148,10 +178,11 @@ enum CrashRecovery {
             }
             logger
                 .info(
-                    "Proxy backup saved to \(backupURLs.first?.path ?? "<unknown>") (\(serviceBackups.count) service(s))"
+                    "Proxy backup saved to \(backupURLs.first?.path ?? "<unknown>") (\(backup.services.count) service(s))"
                 )
         } catch {
             logger.error("Failed to save proxy backup: \(error.localizedDescription)")
+            throw error
         }
     }
 
@@ -261,7 +292,14 @@ enum CrashRecovery {
     }
 
     private static func readProxySettings(type: String, service: String) throws -> String {
-        let allowedTypes: Set = ["webproxy", "securewebproxy", "socksfirewallproxy", "proxybypassdomains"]
+        let allowedTypes: Set = [
+            "webproxy",
+            "securewebproxy",
+            "socksfirewallproxy",
+            "autoproxyurl",
+            "proxyautodiscovery",
+            "proxybypassdomains",
+        ]
         guard allowedTypes.contains(type) else {
             throw ProxyConfiguratorError.executionFailed(command: "-get\(type)", reason: "Invalid proxy type: \(type)")
         }

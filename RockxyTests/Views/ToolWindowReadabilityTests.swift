@@ -1419,7 +1419,7 @@ extension ToolWindowReadabilityTests {
         // bare activeProxyPort, so the endpoint reflects the real address + fallback.
         #expect(viewSource.contains("let coordinator: MainContentCoordinator"))
         #expect(viewSource.contains("coordinator.isProxyRunning"))
-        #expect(viewSource.contains("coordinator.isProxyOverridden"))
+        #expect(viewSource.contains("coordinator.isSystemProxyConfigured"))
         #expect(viewSource.contains("coordinator.toggleSystemProxyOverride()"))
         #expect(viewSource.contains("coordinator.refreshProxyOverrideStatus()"))
 

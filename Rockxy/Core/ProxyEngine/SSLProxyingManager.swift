@@ -333,6 +333,16 @@ final class SSLProxyingManager {
         return cachedIsEnabled && (!cachedEnabledAppIncludeRules.isEmpty || !cachedEnabledAppExcludeRules.isEmpty)
     }
 
+    /// Whether the current policy contains any enabled host or application Decrypt rule.
+    /// A trusted Root CA alone does not decrypt HTTPS; without one of these rules every
+    /// HTTPS connection is intentionally recorded as an opaque CONNECT tunnel.
+    nonisolated func hasEnabledDecryptRules() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cachedIsEnabled
+            && (!cachedEnabledIncludeRules.isEmpty || !cachedEnabledAppIncludeRules.isEmpty)
+    }
+
     /// Whether an unresolved local application must remain tunneled. A host Decrypt rule cannot
     /// safely override an application Tunnel rule until the connection owner is known.
     nonisolated func hasEnabledApplicationTunnelRules() -> Bool {

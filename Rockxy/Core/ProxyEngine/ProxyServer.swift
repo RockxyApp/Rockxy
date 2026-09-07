@@ -304,6 +304,7 @@ actor ProxyServer {
         bypassProxyManager: BypassProxyManager? = nil,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
+        shouldBypassUserModifications: @escaping @Sendable (HTTPRequestData) -> Bool = { _ in false },
         clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)? = nil,
         clientIdentityResolver: @escaping @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity? = {
             await ProcessResolver.shared.identityResolver.resolveIdentity(descriptor: $0)
@@ -319,6 +320,7 @@ actor ProxyServer {
         self.bypassProxyManagerOverride = bypassProxyManager
         self.upstreamProxySnapshotProvider = upstreamProxySnapshotProvider
         self.captureContextProvider = captureContextProvider
+        self.shouldBypassUserModifications = shouldBypassUserModifications
         self.clientIdentityHandleProvider = clientIdentityHandleProvider
         self.clientIdentityResolver = clientIdentityResolver
         self.onTransactionComplete = onTransactionComplete
@@ -394,6 +396,7 @@ actor ProxyServer {
         let limiter = connectionLimiter
         let callback = onTransactionComplete
         let captureProvider = captureContextProvider
+        let bypassUserModifications = shouldBypassUserModifications
         let breakpointHit = onBreakpointHit
         let childRegistry = childChannelRegistry
         let bridgeTracker = breakpointBridgeTracker
@@ -515,6 +518,7 @@ actor ProxyServer {
                         bypassProxyManager: bypassProxyManager,
                         upstreamProxySnapshotProvider: upstreamProxyProvider,
                         captureContextProvider: captureProvider,
+                        shouldBypassUserModifications: bypassUserModifications,
                         clientIdentityHandle: identityHandle,
                         clientConnectionDescriptor: descriptor,
                         liveTunnelRegistry: tunnelRegistry,
@@ -597,6 +601,7 @@ actor ProxyServer {
     private let bypassProxyManagerOverride: BypassProxyManager?
     private let upstreamProxySnapshotProvider: @Sendable () -> UpstreamProxyResolvedConfiguration?
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
+    private let shouldBypassUserModifications: @Sendable (HTTPRequestData) -> Bool
     private let clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)?
     private let clientIdentityResolver: @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?
     private let connectionLimiter = ConnectionLimiter()

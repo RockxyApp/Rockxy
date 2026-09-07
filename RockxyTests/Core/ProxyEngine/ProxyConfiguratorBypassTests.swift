@@ -22,6 +22,8 @@ struct ProxyBackupBypassTests {
             "[::1]",
             "gmail.com",
             "*.gmail.com",
+            "10.0.0.0/8",
+            "192.168.1.0/24",
         ]
 
         for entry in accepted {
@@ -35,9 +37,14 @@ struct ProxyBackupBypassTests {
             "",
             " gmail.com",
             "gmail.com ",
+            "*",
             "bad host",
             "bad;host",
             "bad/host",
+            "10.0.0.0/33",
+            "10.0.0/8",
+            "10.0.0.0/-1",
+            "10.0.0.0/8/1",
             String(repeating: "a", count: 254),
         ]
 
@@ -82,6 +89,9 @@ struct ProxyBackupBypassTests {
             socksEnabled: true,
             socksHost: "socks.corp.com",
             socksPort: 1_080,
+            pacEnabled: true,
+            pacURL: "https://proxy.corp.com/config.pac",
+            autoDiscoveryEnabled: true,
             bypassDomains: ["localhost", "127.0.0.1", "*.internal.corp.com"]
         )
         let original = ProxyBackupMirror(
@@ -104,6 +114,9 @@ struct ProxyBackupBypassTests {
         #expect(decodedService.socksEnabled == true)
         #expect(decodedService.socksHost == "socks.corp.com")
         #expect(decodedService.socksPort == 1_080)
+        #expect(decodedService.pacEnabled == true)
+        #expect(decodedService.pacURL == "https://proxy.corp.com/config.pac")
+        #expect(decodedService.autoDiscoveryEnabled == true)
         #expect(decodedService.bypassDomains.count == 3)
         #expect(decodedService.bypassDomains.contains("*.internal.corp.com"))
     }
@@ -171,6 +184,9 @@ struct ProxyBackupBypassTests {
             socksEnabled: false,
             socksHost: "",
             socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false,
             bypassDomains: ["localhost"]
         )
         let ethernetBackup = ServiceProxyBackupMirror(
@@ -184,6 +200,9 @@ struct ProxyBackupBypassTests {
             socksEnabled: true,
             socksHost: "socks.corp.com",
             socksPort: 1_080,
+            pacEnabled: true,
+            pacURL: "https://proxy.corp.com/config.pac",
+            autoDiscoveryEnabled: false,
             bypassDomains: ["*.internal.corp.com", "10.0.0.0/8"]
         )
         let original = ProxyBackupMirror(
@@ -206,6 +225,8 @@ struct ProxyBackupBypassTests {
         #expect(decoded.services[1].socksEnabled == true)
         #expect(decoded.services[1].socksHost == "socks.corp.com")
         #expect(decoded.services[1].socksPort == 1_080)
+        #expect(decoded.services[1].pacEnabled == true)
+        #expect(decoded.services[1].pacURL == "https://proxy.corp.com/config.pac")
         #expect(decoded.services[1].bypassDomains == ["*.internal.corp.com", "10.0.0.0/8"])
     }
 
@@ -223,6 +244,9 @@ struct ProxyBackupBypassTests {
         let socksEnabled: Bool
         let socksHost: String
         let socksPort: Int
+        let pacEnabled: Bool
+        let pacURL: String
+        let autoDiscoveryEnabled: Bool
         let bypassDomains: [String]
     }
 
@@ -249,6 +273,9 @@ struct ProxyBackupBypassTests {
             socksEnabled: false,
             socksHost: "",
             socksPort: 0,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false,
             bypassDomains: bypassDomains
         )
     }

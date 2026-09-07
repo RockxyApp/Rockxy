@@ -190,4 +190,69 @@ struct RequestListEmptyStateTests {
         #expect(state == .waitingForTraffic)
         #expect(RequestListEmptyStateCopy(.waitingForTraffic).action == nil)
     }
+
+    @Test("Running proxy reports missing system routing before claiming capture")
+    func runningWithoutRouting() {
+        let state = RequestListEmptyState.resolve(
+            hasVisibleRows: false,
+            availableCount: 0,
+            hasActiveFilters: false,
+            scope: .allTraffic,
+            proxyState: .running,
+            isSystemProxyConfigured: false,
+            captureHealth: .verified
+        )
+
+        #expect(state == .systemRoutingUnavailable)
+        #expect(RequestListEmptyStateCopy(.systemRoutingUnavailable).action == .retrySystemProxy)
+    }
+
+    @Test("Deliberate manual routing can wait for app traffic without a false error")
+    func deliberateManualRoutingWaitsForTraffic() {
+        let state = RequestListEmptyState.resolve(
+            hasVisibleRows: false,
+            availableCount: 0,
+            hasActiveFilters: false,
+            scope: .allTraffic,
+            proxyState: .running,
+            isSystemProxyConfigured: false,
+            isSystemRoutingExpected: false,
+            captureHealth: .verified
+        )
+
+        #expect(state == .waitingForTraffic)
+    }
+
+    @Test("Capture check failure outranks a generic waiting state")
+    func captureCheckFailure() {
+        let state = RequestListEmptyState.resolve(
+            hasVisibleRows: false,
+            availableCount: 0,
+            hasActiveFilters: false,
+            scope: .allTraffic,
+            proxyState: .running,
+            isSystemProxyConfigured: true,
+            captureHealth: .failed
+        )
+
+        #expect(state == .captureUnverified)
+        #expect(RequestListEmptyStateCopy(.captureUnverified).action == .retryCaptureCheck)
+    }
+
+    @Test("Active empty Allow List explains intentional record filtering")
+    func allowListCapturesNothing() {
+        let state = RequestListEmptyState.resolve(
+            hasVisibleRows: false,
+            availableCount: 0,
+            hasActiveFilters: false,
+            scope: .allTraffic,
+            proxyState: .running,
+            isSystemProxyConfigured: true,
+            captureHealth: .verified,
+            allowListCapturesNothing: true
+        )
+
+        #expect(state == .allowListCapturesNothing)
+        #expect(RequestListEmptyStateCopy(.allowListCapturesNothing).action == .openAllowList)
+    }
 }

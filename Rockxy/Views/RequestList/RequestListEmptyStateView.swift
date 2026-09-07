@@ -44,7 +44,12 @@ struct RequestListEmptyStateView: View {
             availableCount: coordinator.availableTransactionCountForCurrentScope,
             hasActiveFilters: coordinator.hasActiveWorkspaceFilters,
             scope: coordinator.filterCriteria.sidebarScope,
-            proxyState: coordinator.proxyDisplayState
+            proxyState: coordinator.proxyDisplayState,
+            isSystemProxyConfigured: coordinator.isSystemProxyConfigured,
+            isSystemRoutingExpected: coordinator.readiness.systemRoutingExpected,
+            captureHealth: coordinator.readiness.captureHealth,
+            allowListCapturesNothing: AllowListManager.shared.isActive
+                && !AllowListManager.shared.hasEffectiveRules
         )
     }
 
@@ -57,6 +62,12 @@ struct RequestListEmptyStateView: View {
             coordinator.startProxy()
         case .resumeRecording:
             coordinator.toggleRecording()
+        case .retrySystemProxy:
+            coordinator.retrySystemProxy()
+        case .retryCaptureCheck:
+            coordinator.runCaptureHealthCheck()
+        case .openAllowList:
+            NotificationCenter.default.post(name: .openAllowListWindow, object: nil)
         }
     }
 }

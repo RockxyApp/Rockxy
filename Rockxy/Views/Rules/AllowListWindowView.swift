@@ -88,10 +88,7 @@ final class AllowListWindowViewModel {
 
     var effectiveRuleCount: Int {
         manager.rules.count { rule in
-            guard rule.isEnabled else {
-                return false
-            }
-            return AllowListRulePatternValidation.isValid(
+            rule.isEnabled && AllowListRulePatternValidation.isValid(
                 rawPattern: rule.rawPattern,
                 matchType: rule.matchType,
                 includeSubpaths: rule.includeSubpaths

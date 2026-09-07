@@ -8,8 +8,8 @@ import os
 /// Two payload shapes are recognized deterministically:
 /// - **Full HTTP response message.** When the file begins with an `HTTP/x.y NNN` status line and
 ///   parses as a complete message (status line, header lines, blank line, body) the file is
-///   authoritative: its valid status, ordered/repeated headers, and body are used — matching the
-///   Proxyman authoring workflow. Headers are still run through `MapLocalResponseBuilder`, so
+///   authoritative: its valid status, ordered/repeated headers, and body are used. Headers are
+///   still run through `MapLocalResponseBuilder`, so
 ///   framing/hop-by-hop headers are dropped and `Content-Length` is recomputed from the body.
 /// - **Raw / binary / empty file.** The whole file is the body and the rule's own status +
 ///   configured headers apply (again framed through `MapLocalResponseBuilder`).

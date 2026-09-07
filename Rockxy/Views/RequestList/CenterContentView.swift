@@ -38,7 +38,7 @@ struct CenterContentView: View {
                 totalDataSize: coordinator.totalDataSize,
                 uploadSpeed: coordinator.uploadSpeed,
                 downloadSpeed: coordinator.downloadSpeed,
-                isProxyOverridden: coordinator.isProxyOverridden,
+                isProxyOverridden: coordinator.isSystemProxyConfigured,
                 isAllowListActive: allowListManager.isActive,
                 isNoCachingActive: isNoCachingEnabled,
                 activeFilterCount: activeFilterCount,

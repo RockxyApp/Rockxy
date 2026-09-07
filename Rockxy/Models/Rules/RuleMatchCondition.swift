@@ -99,7 +99,7 @@ struct RuleMatchCondition: Codable, Equatable {
     }
 }
 
-// MARK: - Wildcard end-boundary parity
+// MARK: - Wildcard end boundaries
 
 private extension RuleMatchCondition {
     /// The suffix `RulePatternBuilder` appends for an anchored (non-subpath) wildcard rule.
@@ -107,9 +107,9 @@ private extension RuleMatchCondition {
     /// The suffix `RulePatternBuilder` appends for a subpath-including wildcard rule.
     static let subpathWildcardSuffix = ".*"
 
-    /// Corrects the end-boundary `RulePatternBuilder` produces so wildcard matching mirrors
-    /// the validated full-URL behavior observed in Proxyman. The core escaping is left to
-    /// `RulePatternBuilder`; only the trailing boundary is rewritten here.
+    /// Corrects the end-boundary `RulePatternBuilder` produces so wildcard matching remains
+    /// predictable across full URLs. The core escaping is left to `RulePatternBuilder`; only
+    /// the trailing boundary is rewritten here.
     ///
     /// Two corrections:
     /// - **Trailing `?` wildcard, no subpaths:** the single-character wildcard already consumes

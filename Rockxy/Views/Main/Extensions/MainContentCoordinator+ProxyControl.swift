@@ -1,4 +1,7 @@
 import Foundation
+import NIOCore
+import NIOHTTP1
+import NIOPosix
 import os
 
 // Extends `MainContentCoordinator` with proxy control behavior for the main workspace.
@@ -9,6 +12,83 @@ import os
 struct ProxyOverrideReconciliation: Equatable, Sendable {
     let isOverridden: Bool
     let matchesActiveProxyPort: Bool
+}
+
+// MARK: - CaptureProbeTracker
+
+/// Keeps the diagnostic request out of the user's session while proving that the live
+/// proxy completed it. A small lock keeps NIO callbacks safe to compare with the
+/// main-actor health-check task without introducing asynchronous callback races.
+final class CaptureProbeTracker: @unchecked Sendable {
+    func begin(token: String) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        expectedToken = token
+        diagnosticTokens.insert(token)
+        diagnosticTokenOrder.append(token)
+        if diagnosticTokenOrder.count > Self.maximumRetainedTokens {
+            diagnosticTokens.remove(diagnosticTokenOrder.removeFirst())
+        }
+        observedGeneration = nil
+        return generation
+    }
+
+    func consumeIfExpected(_ transaction: HTTPTransaction) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let token = transaction.request.headers.first(where: {
+            $0.name.caseInsensitiveCompare(Self.headerName) == .orderedSame
+        })?.value,
+            diagnosticTokens.contains(token)
+        else {
+            return false
+        }
+
+        if token == expectedToken {
+            observedGeneration = generation
+            expectedToken = nil
+        }
+        diagnosticTokens.remove(token)
+        diagnosticTokenOrder.removeAll { $0 == token }
+        return true
+    }
+
+    func wasObserved(generation: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return observedGeneration == generation
+    }
+
+    func shouldBypassUserModifications(_ request: HTTPRequestData) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let token = request.headers.first(where: {
+            $0.name.caseInsensitiveCompare(Self.headerName) == .orderedSame
+        })?.value else {
+            return false
+        }
+        return diagnosticTokens.contains(token)
+    }
+
+    func cancel() {
+        lock.lock()
+        defer { lock.unlock() }
+        expectedToken = nil
+        observedGeneration = nil
+        diagnosticTokens.removeAll()
+        diagnosticTokenOrder.removeAll()
+    }
+
+    nonisolated static let headerName = "X-Rockxy-Capture-Probe"
+
+    private static let maximumRetainedTokens = 8
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+    private var expectedToken: String?
+    private var observedGeneration: UInt64?
+    private var diagnosticTokens: Set<String> = []
+    private var diagnosticTokenOrder: [String] = []
 }
 
 // MARK: - MainContentCoordinator + ProxyControl
@@ -26,6 +106,7 @@ extension MainContentCoordinator {
         }
         proxyError = nil
         isProxyStarting = true
+        readiness.clearProxyRestoreFailure()
 
         Task {
             defer {
@@ -116,22 +197,27 @@ extension MainContentCoordinator {
                 }
 
                 readiness.startObserving()
-                readiness.setCaptureActive(true)
+                readiness.setSystemRoutingExpected(true)
 
                 Self.logger.info("Configuring system proxy...")
                 do {
                     try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
                     isSystemProxyConfigured = true
                     isProxyOverridden = true
+                    readiness.setSystemRoutingReady(true)
                     Self.logger.info("System proxy enabled on port \(resolvedPort)")
                 } catch {
                     isSystemProxyConfigured = false
                     isProxyOverridden = false
+                    readiness.setSystemRoutingReady(false)
                     readiness.setProxyEnableFailed(message: error.localizedDescription)
                     Self.logger.warning(
                         "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(resolvedPort)"
                     )
                 }
+
+                readiness.setCaptureActive(true)
+                runCaptureHealthCheck()
 
                 NotificationCenter.default.post(name: .proxyDidStart, object: nil)
                 Self.logger.info("Proxy started on port \(resolvedPort)")
@@ -147,25 +233,39 @@ extension MainContentCoordinator {
         guard isProxyRunning, !isProxyStopping else {
             return
         }
-        isProxyRunning = false
         isProxyStopping = true
+        captureHealthTask?.cancel()
+        captureHealthTask = nil
+        proxyConfigurationRefreshTask?.cancel()
+        proxyConfigurationRefreshTask = nil
         let serverToStop = proxyServer
+        let probeServer = captureProbeServer
+        let probeTracker = captureProbeTracker
 
         Task {
             defer {
                 isProxyStopping = false
             }
+            do {
+                try await SystemProxyManager.shared.disableSystemProxy()
+                readiness.clearProxyRestoreFailure()
+                Self.logger.info("System proxy disabled")
+            } catch {
+                Self.logger.error("Failed to restore proxy: \(error.localizedDescription)")
+                readiness.setProxyRestoreFailed(retryAction: .retryStop)
+                isProxyStopping = false
+                _ = await reconcileProxyOverrideStatus()
+                runCaptureHealthCheck()
+                return
+            }
+
+            isProxyRunning = false
             if let evictionObserver {
                 NotificationCenter.default.removeObserver(evictionObserver)
                 self.evictionObserver = nil
             }
-
-            do {
-                try await SystemProxyManager.shared.disableSystemProxy()
-                Self.logger.info("System proxy disabled")
-            } catch {
-                Self.logger.error("Failed to restore proxy: \(error.localizedDescription)")
-            }
+            probeTracker.cancel()
+            await probeServer.stop()
             isSystemProxyConfigured = false
             isProxyOverridden = false
             readiness.setCaptureActive(false)
@@ -199,21 +299,145 @@ extension MainContentCoordinator {
         isRecording.toggle()
     }
 
+    /// Sends a private, synthetic HTTP request through the live listener to a loopback-only
+    /// origin. Passing requires both a real HTTP response and observation of the completed
+    /// transaction inside `ProxyServer`; the diagnostic transaction is consumed before it can
+    /// enter the user's session buffer.
+    func runCaptureHealthCheck() {
+        guard isProxyRunning, !isProxyStopping else {
+            return
+        }
+
+        captureHealthTask?.cancel()
+        readiness.setCaptureHealth(.checking)
+
+        let proxyPort = activeProxyPort
+        let probeServer = captureProbeServer
+        let probeTracker = captureProbeTracker
+        captureHealthTask = Task { @MainActor [weak self] in
+            var activeProbeSession: DeveloperSetupProbeSession?
+            do {
+                let probeSession = try await probeServer.start(targetID: .curl)
+                activeProbeSession = probeSession
+                try Task.checkCancellation()
+                let generation = probeTracker.begin(token: probeSession.token)
+                let receivedHTTPResponse = try await Self.performCaptureHealthProbe(
+                    session: probeSession,
+                    proxyPort: proxyPort
+                )
+
+                var observed = probeTracker.wasObserved(generation: generation)
+                for _ in 0 ..< 20 where !observed {
+                    try await Task.sleep(for: .milliseconds(50))
+                    observed = probeTracker.wasObserved(generation: generation)
+                }
+
+                await probeServer.stop(ifCurrent: probeSession)
+                try Task.checkCancellation()
+                guard let self, self.isProxyRunning, self.activeProxyPort == proxyPort else {
+                    return
+                }
+                self.readiness.setCaptureHealth(receivedHTTPResponse && observed ? .verified : .failed)
+            } catch is CancellationError {
+                if let activeProbeSession {
+                    await probeServer.stop(ifCurrent: activeProbeSession)
+                }
+            } catch {
+                if let activeProbeSession {
+                    await probeServer.stop(ifCurrent: activeProbeSession)
+                }
+                guard !Task.isCancelled,
+                      let self,
+                      self.isProxyRunning,
+                      self.activeProxyPort == proxyPort
+                else {
+                    return
+                }
+                Self.logger.warning("Capture health check failed: \(error.localizedDescription)")
+                self.readiness.setCaptureHealth(.failed)
+            }
+        }
+    }
+
+    nonisolated static func performCaptureHealthProbe(
+        session: DeveloperSetupProbeSession,
+        proxyPort: Int
+    ) async throws
+        -> Bool
+    {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let responsePromise = group.next().makePromise(of: Bool.self)
+
+        var headers = HTTPHeaders()
+        headers.add(name: "Host", value: "\(DeveloperSetupProbeSession.host):\(session.port)")
+        headers.add(name: CaptureProbeTracker.headerName, value: session.token)
+        headers.add(name: "Connection", value: "close")
+        let requestHead = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: session.url.absoluteString,
+            headers: headers
+        )
+
+        let bootstrap = ClientBootstrap(group: group)
+            .connectTimeout(.seconds(4))
+            .channelInitializer { channel in
+                channel.pipeline.addHTTPClientHandlers().flatMap {
+                    channel.pipeline.addHandler(
+                        CaptureHealthProbeResponseHandler(
+                            requestHead: requestHead,
+                            responsePromise: responsePromise
+                        )
+                    )
+                }
+            }
+
+        let channel: Channel
+        do {
+            channel = try await bootstrap.connect(host: "127.0.0.1", port: proxyPort).get()
+        } catch {
+            responsePromise.fail(error)
+            try? await group.shutdownGracefully()
+            throw error
+        }
+
+        let timeout = channel.eventLoop.scheduleTask(in: .seconds(5)) {
+            responsePromise.fail(CaptureHealthProbeError.timeout)
+        }
+
+        do {
+            let receivedHTTPResponse = try await responsePromise.futureResult.get()
+            timeout.cancel()
+            try? await channel.close().get()
+            try? await group.shutdownGracefully()
+            return receivedHTTPResponse
+        } catch {
+            timeout.cancel()
+            try? await channel.close().get()
+            try? await group.shutdownGracefully()
+            throw error
+        }
+    }
+
     func retrySystemProxy() {
         guard isProxyRunning else {
             return
         }
         readiness.clearProxyEnableFailure()
+        readiness.setSystemRoutingExpected(true)
 
         Task {
             do {
                 try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
                 isProxyOverridden = true
+                readiness.setSystemRoutingReady(true)
+                runCaptureHealthCheck()
                 Self.logger.info("System proxy enabled on retry")
             } catch {
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
+                readiness.setSystemRoutingReady(false)
                 readiness.setProxyEnableFailed(message: error.localizedDescription)
                 Self.logger.warning("System proxy retry failed: \(error.localizedDescription)")
             }
@@ -226,6 +450,24 @@ extension MainContentCoordinator {
         }
     }
 
+    /// Coalesces the several SystemConfiguration callbacks macOS may emit while one
+    /// HTTP/HTTPS proxy update is being applied. This prevents a transient half-written
+    /// dictionary from becoming a false takeover warning.
+    func scheduleProxyOverrideRefresh() {
+        proxyConfigurationRefreshTask?.cancel()
+        proxyConfigurationRefreshTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return
+            }
+            guard let self, self.isProxyRunning else {
+                return
+            }
+            _ = await self.reconcileProxyOverrideStatus()
+        }
+    }
+
     @discardableResult
     func reconcileProxyOverrideStatus() async -> Bool {
         let owner = await SystemProxyManager.shared.effectiveOverrideOwner()
@@ -235,6 +477,7 @@ extension MainContentCoordinator {
         )
         isProxyOverridden = reconciliation.isOverridden
         isSystemProxyConfigured = reconciliation.matchesActiveProxyPort
+        readiness.setSystemRoutingReady(reconciliation.matchesActiveProxyPort)
         return reconciliation.matchesActiveProxyPort
     }
 
@@ -274,10 +517,12 @@ extension MainContentCoordinator {
                 try await SystemProxyManager.shared.disableSystemProxy()
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
+                readiness.setSystemRoutingExpected(false)
+                readiness.setSystemRoutingReady(false)
                 await readiness.refresh()
                 Self.logger.info("System proxy override switched off")
             } catch {
-                readiness.setProxyEnableFailed(message: error.localizedDescription)
+                readiness.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
                 Self.logger.error("Failed to switch off system proxy override: \(error.localizedDescription)")
             }
         }
@@ -288,17 +533,21 @@ extension MainContentCoordinator {
             return
         }
         readiness.clearProxyEnableFailure()
+        readiness.setSystemRoutingExpected(true)
 
         Task { @MainActor in
             do {
                 try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
                 isProxyOverridden = true
+                readiness.setSystemRoutingReady(true)
+                runCaptureHealthCheck()
                 await readiness.refresh()
                 Self.logger.info("System proxy override switched on")
             } catch {
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
+                readiness.setSystemRoutingReady(false)
                 readiness.setProxyEnableFailed(message: error.localizedDescription)
                 Self.logger.error("Failed to switch on system proxy override: \(error.localizedDescription)")
             }
@@ -306,7 +555,9 @@ extension MainContentCoordinator {
     }
 
     func toggleSystemProxyOverride() {
-        if isProxyOverridden {
+        // Only disable when the live routing is confirmed to point at this listener.
+        // A stale/foreign override must be reclaimed, not switched off as if Rockxy owned it.
+        if isSystemProxyConfigured {
             switchOffSystemProxyOverride()
         } else {
             switchOnSystemProxyOverride()
@@ -420,6 +671,7 @@ extension MainContentCoordinator {
         let settings = settings ?? AppSettingsStorage.load()
         let resolvedPort = port ?? settings.proxyPort
         let manager = sessionManager
+        let captureProbeTracker = captureProbeTracker
 
         let configuration = ProxyConfiguration(
             port: resolvedPort,
@@ -443,8 +695,14 @@ extension MainContentCoordinator {
             captureContextProvider: { [captureContextStore] in
                 captureContextStore.snapshot()
             },
+            shouldBypassUserModifications: { request in
+                captureProbeTracker.shouldBypassUserModifications(request)
+            },
             onTransactionComplete: { transaction in
                 Task {
+                    if captureProbeTracker.consumeIfExpected(transaction) {
+                        return
+                    }
                     await manager.addTransaction(transaction)
                 }
             },
@@ -711,4 +969,52 @@ extension MainContentCoordinator {
             manager.isRequestAllowed(method: $0.request.method, url: $0.request.url)
         }
     }
+}
+
+// MARK: - CaptureHealthProbeResponseHandler
+
+private enum CaptureHealthProbeError: Error {
+    case timeout
+}
+
+/// Sends an absolute-form HTTP request directly to the active proxy listener. Foundation's
+/// URL loading system may bypass configured proxies for loopback destinations, which would
+/// make the readiness check report a false success without traversing Rockxy.
+private final class CaptureHealthProbeResponseHandler: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = HTTPClientResponsePart
+    typealias OutboundOut = HTTPClientRequestPart
+
+    init(
+        requestHead: HTTPRequestHead,
+        responsePromise: EventLoopPromise<Bool>
+    ) {
+        self.requestHead = requestHead
+        self.responsePromise = responsePromise
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        context.write(wrapOutboundOut(.head(requestHead)), promise: nil)
+        context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        switch unwrapInboundIn(data) {
+        case .head:
+            receivedResponseHead = true
+        case .body:
+            break
+        case .end:
+            responsePromise.succeed(receivedResponseHead)
+            context.close(promise: nil)
+        }
+    }
+
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        responsePromise.fail(error)
+        context.close(promise: nil)
+    }
+
+    private let requestHead: HTTPRequestHead
+    private let responsePromise: EventLoopPromise<Bool>
+    private var receivedResponseHead = false
 }

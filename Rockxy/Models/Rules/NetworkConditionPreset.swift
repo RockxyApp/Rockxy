@@ -1,7 +1,6 @@
 import Foundation
 
-/// Named presets for Network Conditions, modeled after Apple's Network Link Conditioner
-/// naming and Proxyman-style bandwidth profile ranges.
+/// Named presets for common Network Conditions profiles.
 enum NetworkConditionPreset: String, CaseIterable, Codable {
     case threeG
     case edge

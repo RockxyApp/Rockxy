@@ -50,6 +50,8 @@ struct ProxyStatusIndicator: View {
             }
             .buttonStyle(.plain)
             .help(statusHelpText)
+            .accessibilityLabel(statusText)
+            .accessibilityValue(listenerStatusText)
 
             if let updateStatusSummary {
                 Divider()
@@ -91,7 +93,13 @@ struct ProxyStatusIndicator: View {
              .stopping:
             Color.accentColor
         case .running:
-            Color(nsColor: .systemGreen)
+            if readiness.captureHealth == .checking {
+                Color.accentColor
+            } else if readiness.hasBlockingReadinessIssue {
+                Color(nsColor: .systemOrange)
+            } else {
+                Color(nsColor: .systemGreen)
+            }
         case .paused:
             Color(nsColor: .systemOrange)
         case .stopped:
@@ -102,7 +110,13 @@ struct ProxyStatusIndicator: View {
     private var statusShadowColor: Color {
         switch displayState {
         case .running:
-            Color(nsColor: .systemGreen).opacity(0.45)
+            if readiness.captureHealth == .checking {
+                Color.accentColor.opacity(0.35)
+            } else if readiness.hasBlockingReadinessIssue {
+                Color(nsColor: .systemOrange).opacity(0.35)
+            } else {
+                Color(nsColor: .systemGreen).opacity(0.45)
+            }
         case .starting,
              .stopping:
             Color.accentColor.opacity(0.35)
@@ -112,17 +126,37 @@ struct ProxyStatusIndicator: View {
     }
 
     private var statusText: String {
-        displayState.captureTitle
+        let needsAttention = readiness.hasBlockingReadinessIssue
+        if displayState == .running, readiness.captureHealth == .checking {
+            return String(localized: "Checking Capture", bundle: RockxyLocalization.bundle)
+        }
+        if displayState == .running, needsAttention {
+            return String(localized: "Capture Needs Attention", bundle: RockxyLocalization.bundle)
+        }
+        return displayState.captureTitle
     }
 
     private var listenerText: String {
         CaptureStatusPresentation.listener(address: listenAddress, port: port)
     }
 
+    private var listenerStatusText: String {
+        switch displayState {
+        case .stopped:
+            String(localized: "Configured endpoint: \(listenerText)", bundle: RockxyLocalization.bundle)
+        case .starting:
+            String(localized: "Starting on \(listenerText)", bundle: RockxyLocalization.bundle)
+        case .running,
+             .paused,
+             .stopping:
+            String(localized: "Listening on \(listenerText)", bundle: RockxyLocalization.bundle)
+        }
+    }
+
     private var statusHelpText: String {
         let captureContext = [
             statusText,
-            String(localized: "Listening on \(listenerText)", bundle: RockxyLocalization.bundle),
+            listenerStatusText,
         ]
         if let updateStatusSummary {
             return (captureContext + [

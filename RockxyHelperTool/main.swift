@@ -18,6 +18,24 @@ private struct DirectProxyBackup: Decodable {
 // MARK: - DirectServiceBackup
 
 private struct DirectServiceBackup: Decodable {
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        service = try container.decode(String.self, forKey: .service)
+        httpEnabled = try container.decode(Bool.self, forKey: .httpEnabled)
+        httpHost = try container.decode(String.self, forKey: .httpHost)
+        httpPort = try container.decode(Int.self, forKey: .httpPort)
+        httpsEnabled = try container.decode(Bool.self, forKey: .httpsEnabled)
+        httpsHost = try container.decode(String.self, forKey: .httpsHost)
+        httpsPort = try container.decode(Int.self, forKey: .httpsPort)
+        socksEnabled = try container.decodeIfPresent(Bool.self, forKey: .socksEnabled) ?? false
+        socksHost = try container.decodeIfPresent(String.self, forKey: .socksHost) ?? ""
+        socksPort = try container.decodeIfPresent(Int.self, forKey: .socksPort) ?? 0
+        pacEnabled = try container.decodeIfPresent(Bool.self, forKey: .pacEnabled) ?? false
+        pacURL = try container.decodeIfPresent(String.self, forKey: .pacURL) ?? ""
+        autoDiscoveryEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoDiscoveryEnabled) ?? false
+        bypassDomains = try container.decode([String].self, forKey: .bypassDomains)
+    }
+
     let service: String
     let httpEnabled: Bool
     let httpHost: String
@@ -28,7 +46,27 @@ private struct DirectServiceBackup: Decodable {
     let socksEnabled: Bool
     let socksHost: String
     let socksPort: Int
+    let pacEnabled: Bool
+    let pacURL: String
+    let autoDiscoveryEnabled: Bool
     let bypassDomains: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case service
+        case httpEnabled
+        case httpHost
+        case httpPort
+        case httpsEnabled
+        case httpsHost
+        case httpsPort
+        case socksEnabled
+        case socksHost
+        case socksPort
+        case pacEnabled
+        case pacURL
+        case autoDiscoveryEnabled
+        case bypassDomains
+    }
 }
 
 // MARK: - DirectProxySnapshot
@@ -43,6 +81,9 @@ private struct DirectProxySnapshot {
     let socksEnabled: Bool
     let socksHost: String
     let socksPort: Int
+    let pacEnabled: Bool
+    let pacURL: String
+    let autoDiscoveryEnabled: Bool
 }
 
 // MARK: - DirectProxyWatchdog
@@ -109,7 +150,10 @@ private enum DirectProxyWatchdog {
                 httpsPort: entry.httpsPort,
                 socksEnabled: entry.socksEnabled,
                 socksHost: entry.socksHost,
-                socksPort: entry.socksPort
+                socksPort: entry.socksPort,
+                pacEnabled: entry.pacEnabled,
+                pacURL: entry.pacURL,
+                autoDiscoveryEnabled: entry.autoDiscoveryEnabled
             )
 
             do {
@@ -182,7 +226,10 @@ private enum DirectProxyWatchdog {
             httpsPort: https.port,
             socksEnabled: socks.enabled,
             socksHost: socks.host,
-            socksPort: socks.port
+            socksPort: socks.port,
+            pacEnabled: false,
+            pacURL: "",
+            autoDiscoveryEnabled: false
         )
     }
 
@@ -190,20 +237,33 @@ private enum DirectProxyWatchdog {
         try runNetworkSetup(["-setwebproxystate", service, "off"])
         try runNetworkSetup(["-setsecurewebproxystate", service, "off"])
         try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
+        try runNetworkSetup(["-setautoproxystate", service, "off"])
+        try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
 
-        if snapshot.httpEnabled {
+        if !snapshot.httpHost.isEmpty, snapshot.httpPort > 0 {
             try runNetworkSetup(["-setwebproxy", service, snapshot.httpHost, String(snapshot.httpPort)])
-            try runNetworkSetup(["-setwebproxystate", service, "on"])
+            try runNetworkSetup(["-setwebproxystate", service, snapshot.httpEnabled ? "on" : "off"])
         }
 
-        if snapshot.httpsEnabled {
+        if !snapshot.httpsHost.isEmpty, snapshot.httpsPort > 0 {
             try runNetworkSetup(["-setsecurewebproxy", service, snapshot.httpsHost, String(snapshot.httpsPort)])
-            try runNetworkSetup(["-setsecurewebproxystate", service, "on"])
+            try runNetworkSetup(["-setsecurewebproxystate", service, snapshot.httpsEnabled ? "on" : "off"])
         }
 
-        if snapshot.socksEnabled {
+        if !snapshot.socksHost.isEmpty, snapshot.socksPort > 0 {
             try runNetworkSetup(["-setsocksfirewallproxy", service, snapshot.socksHost, String(snapshot.socksPort)])
-            try runNetworkSetup(["-setsocksfirewallproxystate", service, "on"])
+            try runNetworkSetup(["-setsocksfirewallproxystate", service, snapshot.socksEnabled ? "on" : "off"])
+        }
+
+        if snapshot.pacEnabled {
+            if !snapshot.pacURL.isEmpty {
+                try runNetworkSetup(["-setautoproxyurl", service, snapshot.pacURL])
+            }
+            try runNetworkSetup(["-setautoproxystate", service, "on"])
+        }
+
+        if snapshot.autoDiscoveryEnabled {
+            try runNetworkSetup(["-setproxyautodiscovery", service, "on"])
         }
     }
 

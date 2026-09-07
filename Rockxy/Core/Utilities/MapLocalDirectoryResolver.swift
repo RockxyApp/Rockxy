@@ -65,7 +65,7 @@ enum MapLocalDirectoryResolver {
 
     /// Resolves a request to a local file using the authored match context the editor
     /// persisted. Wildcard rules map the suffix after the authored prefix; regex rules
-    /// use the first capture group when one is present (Proxyman directory semantics).
+    /// use the first capture group when one is present.
     /// Query and fragment are stripped before any filesystem access.
     ///
     /// - Returns: A `ResolvedFile` on success, or a `MapLocalError` on failure so the
@@ -130,8 +130,7 @@ enum MapLocalDirectoryResolver {
         var isDirTarget: ObjCBool = false
         if fm.fileExists(atPath: resolved.path, isDirectory: &isDirTarget), isDirTarget.boolValue {
             // A directory target (including the mapped root reached by an empty suffix) never
-            // synthesizes an index file — the handler forwards the origin request instead. This
-            // matches the validated Proxyman directory behavior where `/dir/` falls through.
+            // synthesizes an index file — the handler forwards the origin request instead.
             logger.info("Map local target is a directory, no index synthesis: \(resolved.path)")
             return .failure(.fileNotFound(path: subpath))
         }
@@ -218,7 +217,7 @@ enum MapLocalDirectoryResolver {
     }
 
     /// Applies a regex rule to the request URL and returns the first capture group as the
-    /// subpath (Proxyman directory semantics). A capture group is REQUIRED: a regex that
+    /// subpath. A capture group is required: a regex that
     /// matches but declares no capture group (or an empty one) fails so the handler falls back
     /// to the origin rather than reinterpreting the whole request path as a docroot-relative
     /// path. Query/fragment are always stripped.

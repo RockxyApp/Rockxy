@@ -52,6 +52,78 @@ struct ReadinessCoordinatorTests {
         coordinator.setCaptureActive(false)
     }
 
+    @Test("proxy restore failure is blocking and exposes the requested recovery action")
+    @MainActor
+    func proxyRestoreFailureLifecycle() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setCaptureActive(true)
+
+        coordinator.setProxyRestoreFailed(retryAction: .retryStop)
+        #expect(coordinator.activeWarning?.action == .retryStop)
+        #expect(coordinator.activeWarning?.isDismissible == false)
+        #expect(coordinator.activeWarning?.message.contains("Capture remains running") == true)
+
+        coordinator.clearProxyRestoreFailure()
+        #expect(coordinator.activeWarning?.action != .retryStop)
+        coordinator.setCaptureActive(false)
+    }
+
+    @Test("capture stop clears proxy restore failure state")
+    @MainActor
+    func captureStopClearsProxyRestoreFailure() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(true)
+        coordinator.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
+        #expect(coordinator.activeWarning?.action == .retryDisableSystemRouting)
+
+        coordinator.setCaptureActive(false)
+        #expect(coordinator.activeWarning == nil)
+    }
+
+    @Test("routing takeover remains visible after an enable failure clears")
+    @MainActor
+    func routingTakeoverWarning() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingReady(true)
+        coordinator.setCaptureHealth(.verified)
+        coordinator.setCaptureActive(true)
+
+        coordinator.setSystemRoutingReady(false)
+
+        #expect(coordinator.activeWarning?.action == .restoreSystemRouting)
+        #expect(coordinator.hasBlockingReadinessIssue)
+        coordinator.setCaptureActive(false)
+    }
+
+    @Test("deliberate manual-app routing does not produce a takeover warning")
+    @MainActor
+    func deliberateManualRouting() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingExpected(false)
+        coordinator.setSystemRoutingReady(false)
+        coordinator.setCaptureHealth(.verified)
+        coordinator.setCaptureActive(true)
+
+        #expect(coordinator.activeWarning?.action != .restoreSystemRouting)
+        coordinator.setCaptureActive(false)
+    }
+
+    @Test("failed local capture check outranks lost system routing")
+    @MainActor
+    func captureHealthFailurePriority() {
+        let coordinator = ReadinessCoordinator.shared
+        coordinator.setCaptureActive(false)
+        coordinator.setSystemRoutingReady(false)
+        coordinator.setCaptureActive(true)
+        coordinator.setCaptureHealth(.failed)
+
+        #expect(coordinator.activeWarning?.action == .retryCaptureCheck)
+        coordinator.setCaptureActive(false)
+    }
+
     @Test("capture stop clears all transient warning state")
     @MainActor
     func captureStopClearsAllState() {

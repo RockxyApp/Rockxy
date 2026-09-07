@@ -35,7 +35,8 @@ final class BypassProxyManager {
 
     func addDomain(_ domainString: String) {
         let trimmed = domainString.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !trimmed.isEmpty else {
+        guard ProxyBypassDomainValidator.isValid(trimmed) else {
+            Self.logger.warning("Rejected invalid bypass domain")
             return
         }
 
@@ -65,6 +66,12 @@ final class BypassProxyManager {
 
     func toggleDomain(id: UUID) {
         guard let index = domains.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        if !domains[index].isEnabled,
+           !ProxyBypassDomainValidator.isValid(domains[index].domain)
+        {
+            Self.logger.warning("Refused to enable an invalid persisted bypass domain")
             return
         }
         domains[index].isEnabled.toggle()
@@ -112,7 +119,22 @@ final class BypassProxyManager {
         if FileManager.default.fileExists(atPath: url.path) {
             do {
                 let data = try Data(contentsOf: url)
-                domains = try JSONDecoder().decode([BypassDomain].self, from: data)
+                var decoded = try JSONDecoder().decode([BypassDomain].self, from: data)
+                var disabledInvalidEntries = 0
+                for index in decoded.indices
+                    where decoded[index].isEnabled
+                    && !ProxyBypassDomainValidator.isValid(decoded[index].domain)
+                {
+                    decoded[index].isEnabled = false
+                    disabledInvalidEntries += 1
+                }
+                domains = decoded
+                if disabledInvalidEntries > 0 {
+                    save()
+                    Self.logger.warning(
+                        "Disabled \(disabledInvalidEntries) invalid persisted bypass domain(s)"
+                    )
+                }
                 Self.logger.info("Loaded \(self.domains.count) bypass proxy domains")
             } catch {
                 Self.logger.error("Failed to load bypass proxy domains: \(error.localizedDescription)")
@@ -143,6 +165,13 @@ final class BypassProxyManager {
 
     func importDomains(from data: Data) throws {
         let decoded = try JSONDecoder().decode([BypassDomain].self, from: data)
+        let normalizedPatterns = decoded.map { $0.domain.lowercased() }
+        guard decoded.allSatisfy({ ProxyBypassDomainValidator.isValid($0.domain) }),
+              Set(decoded.map(\.id)).count == decoded.count,
+              Set(normalizedPatterns).count == decoded.count
+        else {
+            throw BypassProxyManagerError.invalidEntries
+        }
         domains = decoded
         save()
         postChangeNotification()
@@ -202,5 +231,13 @@ final class BypassProxyManager {
 
     private func postChangeNotification() {
         NotificationCenter.default.post(name: .bypassProxyListDidChange, object: nil)
+    }
+}
+
+enum BypassProxyManagerError: LocalizedError {
+    case invalidEntries
+
+    var errorDescription: String? {
+        "The bypass list contains invalid or duplicate entries."
     }
 }

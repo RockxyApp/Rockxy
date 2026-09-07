@@ -605,7 +605,11 @@ final class HelperConnection {
             }
 
             Task {
-                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                // A live status probe reads every relevant proxy mode for the routed
+                // service. Several SystemConfiguration notifications can also make
+                // those reads contend briefly, so use the same bounded window as the
+                // proxy mutations instead of reporting a false routing loss.
+                try? await Task.sleep(nanoseconds: 10 * 1_000_000_000)
                 let alreadyResumed = resumed.withLock { val -> Bool in
                     if val {
                         return true
@@ -666,7 +670,7 @@ final class HelperConnection {
         signingCache.invalidate()
     }
 
-    /// Ask a protocol-3 helper to exit without unregistering its approved SMAppService job.
+    /// Ask a protocol-3-or-newer helper to exit without unregistering its approved SMAppService job.
     /// The manager reconnects afterward, causing launchd to start the helper embedded in the
     /// current app bundle.
     func refreshHelperExecutable() async throws {
