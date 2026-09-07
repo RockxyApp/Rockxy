@@ -616,6 +616,7 @@ struct DeveloperSetupSessionSetupTests {
         let fixture = try makeApplicationFixture(dataDirectoryName: "DeveloperIDE2026.2")
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
         let coordinator = MainContentCoordinator()
+        coordinator.activeProxyPort = 8_888
         coordinator.isProxyRunning = true
         coordinator.isSystemProxyConfigured = true
         let launcher = RecordingDeveloperApplicationLauncher()
@@ -954,6 +955,7 @@ struct DeveloperSetupSessionSetupTests {
         )
         defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
         let coordinator = MainContentCoordinator()
+        coordinator.activeProxyPort = 8_888
         coordinator.isProxyRunning = true
         let launcher = RecordingDeveloperApplicationLauncher()
         let viewModel = DeveloperSetupSessionSetupViewModel(
