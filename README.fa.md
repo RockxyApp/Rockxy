@@ -65,23 +65,14 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.38.0** — 2026-09-03
-
-### Added
-
-- Added application-scoped HTTPS Decrypt and Tunnel rules, with a unified app-and-host rule list and observed-host picker.
+**v0.38.1** — 2026-09-05
 
 ### Fixed
 
-- Made live HTTPS connections respond safely to decryption policy changes while preserving unrelated and explicitly tunneled connections.
-- Ensured Map Local rules persist across app relaunches.
-- Improved Java VM Automatic Setup by preserving existing `JAVA_TOOL_OPTIONS`, applying explicit proxy settings, and clarifying launch and certificate requirements.
-- Refined Simplified Chinese terminology and translations across updated workflows.
-- Aligned HTTPS actions, Help, Developer Setup, keyboard shortcuts, and local integrations with application-aware decryption.
-
-### Changed
-
-- Strengthened live request and response breakpoint editing with safer lifecycle handling and clearer status feedback.
+- Preserved the same Rockxy root certificate across app relaunches, preventing unexpected certificate replacement and repeated HTTPS inspection setup.
+- Made certificate installation, trust checks, and removal safer by targeting exact certificates, preserving unrelated roots, and preventing overlapping privileged changes.
+- Improved recovery for outdated helpers and unreadable certificate states with clearer recheck, reinstall, and trust guidance.
+- Clarified JetBrains IDE proxy setup and surfaced failed HTTPS CONNECT tunnels for easier diagnosis.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->

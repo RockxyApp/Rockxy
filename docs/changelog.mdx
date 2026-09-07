@@ -6,6 +6,16 @@ rss: true
 
 # Changelog
 
+<Update label="September 2026" description="v0.38.1">
+  ### Fixed
+
+  - Preserved the same Rockxy root certificate across app relaunches, preventing unexpected certificate replacement and repeated HTTPS inspection setup.
+  - Made certificate installation, trust checks, and removal safer by targeting exact certificates, preserving unrelated roots, and preventing overlapping privileged changes.
+  - Improved recovery for outdated helpers and unreadable certificate states with clearer recheck, reinstall, and trust guidance.
+  - Clarified JetBrains IDE proxy setup and surfaced failed HTTPS CONNECT tunnels for easier diagnosis.
+
+</Update>
+
 <Update label="September 2026" description="v0.38.0">
   ### Added
 
