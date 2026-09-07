@@ -1474,12 +1474,11 @@ struct RockxyMenuCommands: Commands {
     private func showAboutPanel() {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
-        let homepage = ProjectLinks.repositoryURL
         let credits = NSMutableAttributedString(
             string: String(localized: "The Rockxy Community source edition is licensed under AGPL-3.0-or-later.\n", bundle: RockxyLocalization.bundle)
         )
 
-        if let homepage {
+        if let homepage = ProjectLinks.repositoryURL {
             let linkText = String(localized: "View the public source and license on GitHub", bundle: RockxyLocalization.bundle)
             let link = NSMutableAttributedString(string: linkText)
             link.addAttribute(.link, value: homepage, range: NSRange(location: 0, length: link.length))
