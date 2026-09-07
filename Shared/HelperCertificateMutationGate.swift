@@ -93,3 +93,95 @@ final class HelperPrivilegedMutationGate: @unchecked Sendable {
     private let lock = NSLock()
     private var heldTicketID: UUID?
 }
+
+// MARK: - HelperPrivilegedMutationRetrier
+
+/// Retries an internal recovery mutation only while the shared privileged gate is busy or the
+/// recovery operation reports a transient failure. Requests with the same key coalesce, keeping
+/// watchdog callbacks from creating overlapping retry chains.
+final class HelperPrivilegedMutationRetrier: @unchecked Sendable {
+    // MARK: Lifecycle
+
+    init(
+        gate: HelperPrivilegedMutationGate,
+        maximumAttempts: Int = 10,
+        retryDelay: TimeInterval = 0.5,
+        scheduler: @escaping Scheduler = { delay, operation in
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + delay,
+                execute: operation
+            )
+        }
+    ) {
+        self.gate = gate
+        self.maximumAttempts = max(1, maximumAttempts)
+        self.retryDelay = max(0, retryDelay)
+        self.scheduler = scheduler
+    }
+
+    // MARK: Internal
+
+    typealias Scheduler = @Sendable (TimeInterval, @escaping @Sendable () -> Void) -> Void
+
+    func run(
+        key: String,
+        operation: @escaping @Sendable () -> Bool,
+        onExhausted: @escaping @Sendable () -> Void = {}
+    ) {
+        lock.lock()
+        let inserted = activeKeys.insert(key).inserted
+        lock.unlock()
+        guard inserted else {
+            return
+        }
+
+        attempt(
+            key: key,
+            remainingAttempts: maximumAttempts,
+            operation: operation,
+            onExhausted: onExhausted
+        )
+    }
+
+    // MARK: Private
+
+    private let gate: HelperPrivilegedMutationGate
+    private let maximumAttempts: Int
+    private let retryDelay: TimeInterval
+    private let scheduler: Scheduler
+    private let lock = NSLock()
+    private var activeKeys: Set<String> = []
+
+    private func attempt(
+        key: String,
+        remainingAttempts: Int,
+        operation: @escaping @Sendable () -> Bool,
+        onExhausted: @escaping @Sendable () -> Void
+    ) {
+        if gate.withExclusiveAccess(operation) == true {
+            finish(key: key)
+            return
+        }
+
+        guard remainingAttempts > 1 else {
+            finish(key: key)
+            onExhausted()
+            return
+        }
+
+        scheduler(retryDelay) { [weak self] in
+            self?.attempt(
+                key: key,
+                remainingAttempts: remainingAttempts - 1,
+                operation: operation,
+                onExhausted: onExhausted
+            )
+        }
+    }
+
+    private func finish(key: String) {
+        lock.lock()
+        activeKeys.remove(key)
+        lock.unlock()
+    }
+}

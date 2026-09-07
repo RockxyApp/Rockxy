@@ -46,15 +46,17 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         }
 
         guard let result = Self.mutationGate.withExclusiveAccess({
-            Result { try ProxyConfigurator.overrideProxy(port: port) }
+            Result {
+                try ProxyConfigurator.overrideProxy(port: port)
+                lastProxyChangeTime = Date()
+                startOwnerWatchdog(for: ownerPID)
+            }
         }) else {
             reply(false, HelperPrivilegedMutationGate.busyMessage)
             return
         }
         switch result {
         case .success:
-            lastProxyChangeTime = Date()
-            startOwnerWatchdog(for: ownerPID)
             reply(true, nil)
         case let .failure(error):
             Self.logger.error("Failed to override proxy: \(error.localizedDescription)")
@@ -67,14 +69,16 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         Self.logger.info("restoreSystemProxy called")
 
         guard let result = Self.mutationGate.withExclusiveAccess({
-            Result { try ProxyConfigurator.restoreProxyOrThrow() }
+            Result {
+                try ProxyConfigurator.restoreProxyOrThrow()
+                stopOwnerWatchdog()
+            }
         }) else {
             reply(false, HelperPrivilegedMutationGate.busyMessage)
             return
         }
         switch result {
         case .success:
-            stopOwnerWatchdog()
             reply(true, nil)
         case let .failure(error):
             Self.logger.error("Failed to restore proxy: \(error.localizedDescription)")
@@ -100,11 +104,12 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         IdleExitMonitor.resetIdleTimer()
         Self.logger.info("prepareForUninstall called")
 
-        guard let _: Void = Self.mutationGate.withExclusiveAccess({
+        let preparation: Void? = Self.mutationGate.withExclusiveAccess {
             stopOwnerWatchdog()
             ProxyConfigurator.restoreProxy()
             CrashRecovery.clearBackup()
-        }) else {
+        }
+        guard preparation != nil else {
             reply(false)
             return
         }
@@ -156,8 +161,10 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
     func handleConnectionInvalidated(processID: Int32) {
         let action: InvalidationAction
+        let owner = currentOwnerSnapshot()
 
-        if let ownerPID {
+        if let owner {
+            let ownerPID = owner.processIdentifier
             let ownerAlive = isProcessAlive(ownerPID)
             action = Self.invalidationAction(
                 ownerPID: ownerPID,
@@ -173,11 +180,14 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             Self.logger.debug("Ignoring XPC invalidation for pid \(processID)")
         case let .restore(ownerPID):
             Self.logger.warning("XPC owner connection \(ownerPID) vanished — restoring proxy override automatically")
-            stopOwnerWatchdog()
-            ProxyConfigurator.restoreProxy()
+            requestAutomaticProxyRestore(
+                for: ownerPID,
+                ownershipToken: owner?.token,
+                reason: "owner connection invalidation"
+            )
         case let .watchdog(ownerPID):
             Self.logger.info("Owner pid \(ownerPID) still alive after XPC invalidation — deferring to watchdog")
-            scheduleOwnerDisconnectRecheck(for: ownerPID)
+            scheduleOwnerDisconnectRecheck(for: ownerPID, ownershipToken: owner?.token)
         }
     }
 
@@ -424,10 +434,13 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     /// concurrently, so without it an install's verification could read a concurrent removal's
     /// result — or delete the certificate the install had just added.
     private static let mutationGate = HelperPrivilegedMutationGate.shared
+    private static let automaticRestoreRetrier = HelperPrivilegedMutationRetrier(gate: mutationGate)
 
     private var lastProxyChangeTime: Date?
+    private let ownerStateLock = NSLock()
     private var ownerWatchdog: DispatchSourceTimer?
     private var ownerPID: Int32?
+    private var ownerWatchdogToken: UUID?
 
     private static func invalidationAction(
         ownerPID: Int32?,
@@ -448,35 +461,49 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     private func startOwnerWatchdog(for pid: Int32) {
         stopOwnerWatchdog()
 
-        ownerPID = pid
-
+        let ownershipToken = UUID()
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
         timer.schedule(deadline: .now() + Self.ownerWatchdogInterval, repeating: Self.ownerWatchdogInterval)
+
+        ownerStateLock.lock()
+        ownerPID = pid
+        ownerWatchdogToken = ownershipToken
+        ownerWatchdog = timer
+        ownerStateLock.unlock()
         timer.setEventHandler { [weak self] in
             guard let self else {
                 return
             }
-            guard let ownerPID = self.ownerPID else {
+            guard let owner = self.currentOwnerSnapshot(),
+                  owner.token == ownershipToken
+            else {
                 return
             }
+            let ownerPID = owner.processIdentifier
 
             if self.isProcessAlive(ownerPID) {
                 return
             }
 
             Self.logger.warning("Owner app process \(ownerPID) is gone — restoring proxy override automatically")
-            self.stopOwnerWatchdog()
-            ProxyConfigurator.restoreProxy()
+            self.requestAutomaticProxyRestore(
+                for: ownerPID,
+                ownershipToken: ownershipToken,
+                reason: "owner watchdog"
+            )
         }
-        ownerWatchdog = timer
         timer.resume()
         Self.logger.info("Started owner watchdog for app PID \(pid)")
     }
 
     private func stopOwnerWatchdog() {
-        ownerWatchdog?.cancel()
+        ownerStateLock.lock()
+        let watchdog = ownerWatchdog
         ownerWatchdog = nil
         ownerPID = nil
+        ownerWatchdogToken = nil
+        ownerStateLock.unlock()
+        watchdog?.cancel()
     }
 
     private func isProcessAlive(_ pid: Int32) -> Bool {
@@ -486,13 +513,17 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         return errno == EPERM
     }
 
-    private func scheduleOwnerDisconnectRecheck(for pid: Int32) {
+    private func scheduleOwnerDisconnectRecheck(for pid: Int32, ownershipToken: UUID?) {
         let delay = Self.connectionInvalidationGraceInterval
+        guard let ownershipToken else {
+            return
+        }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else {
                 return
             }
-            guard let currentOwnerPID = self.ownerPID, currentOwnerPID == pid else {
+            guard self.ownerMatches(processIdentifier: pid, token: ownershipToken)
+            else {
                 return
             }
             guard !self.isProcessAlive(pid) else {
@@ -500,8 +531,64 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             }
 
             Self.logger.warning("Owner pid \(pid) disappeared after XPC invalidation grace period — restoring proxy")
-            self.stopOwnerWatchdog()
-            ProxyConfigurator.restoreProxy()
+            self.requestAutomaticProxyRestore(
+                for: pid,
+                ownershipToken: ownershipToken,
+                reason: "owner disconnect recheck"
+            )
         }
+    }
+
+    private func requestAutomaticProxyRestore(
+        for expectedOwnerPID: Int32,
+        ownershipToken: UUID?,
+        reason: String
+    ) {
+        guard let ownershipToken else {
+            return
+        }
+        let retryKey = ownershipToken.uuidString
+        Self.automaticRestoreRetrier.run(
+            key: retryKey,
+            operation: { [weak self] in
+                guard let self,
+                      self.ownerMatches(processIdentifier: expectedOwnerPID, token: ownershipToken)
+                else {
+                    return true
+                }
+
+                do {
+                    try ProxyConfigurator.restoreProxyOrThrow()
+                    self.stopOwnerWatchdog()
+                    Self.logger.info("Automatic proxy restoration completed after \(reason)")
+                    return true
+                } catch {
+                    Self.logger.error(
+                        "Automatic proxy restoration after \(reason) failed and will retry: \(error.localizedDescription)"
+                    )
+                    return false
+                }
+            },
+            onExhausted: {
+                Self.logger.error(
+                    "Automatic proxy restoration after \(reason) exhausted bounded retries; preserving backup for recovery"
+                )
+            }
+        )
+    }
+
+    private func currentOwnerSnapshot() -> (processIdentifier: Int32, token: UUID)? {
+        ownerStateLock.lock()
+        defer { ownerStateLock.unlock() }
+        guard let ownerPID, let ownerWatchdogToken else {
+            return nil
+        }
+        return (ownerPID, ownerWatchdogToken)
+    }
+
+    private func ownerMatches(processIdentifier: Int32, token: UUID) -> Bool {
+        ownerStateLock.lock()
+        defer { ownerStateLock.unlock() }
+        return ownerPID == processIdentifier && ownerWatchdogToken == token
     }
 }
