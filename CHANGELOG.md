@@ -38,6 +38,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
 - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
+## [0.38.2] - 2026-09-08
+
+### Added
+
+- Added **Choose & Open Developer App** to Automatic Setup, so Rockxy can launch a fully quit macOS developer tool with scoped proxy and certificate settings without changing shell profiles.
+
+### Fixed
+
+- Restored recognized application proxy settings after prepared apps exit or Rockxy relaunches, while preserving newer user choices and unrelated settings.
+- Prevented interrupted recovery from overwriting newer capture sessions or manually changed system proxy settings.
+- Preserved each macOS network service's own proxy configuration during stop and recovery.
+- Improved helper, certificate, and TLS fallback behavior to reduce stuck capture states and restore application traffic more reliably.
+
+### Changed
+
+- Compatible helpers now refresh safely after app updates while preserving macOS approval; explicit action is required only for genuinely incompatible helpers.
+
 ## [0.38.1] - 2026-09-05
 
 ### Fixed
