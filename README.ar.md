@@ -65,14 +65,22 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.38.1** — 2026-09-05
+**v0.38.2** — 2026-09-08
+
+### Added
+
+- Added **Choose & Open Developer App** to Automatic Setup, so Rockxy can launch a fully quit macOS developer tool with scoped proxy and certificate settings without changing shell profiles.
 
 ### Fixed
 
-- Preserved the same Rockxy root certificate across app relaunches, preventing unexpected certificate replacement and repeated HTTPS inspection setup.
-- Made certificate installation, trust checks, and removal safer by targeting exact certificates, preserving unrelated roots, and preventing overlapping privileged changes.
-- Improved recovery for outdated helpers and unreadable certificate states with clearer recheck, reinstall, and trust guidance.
-- Clarified JetBrains IDE proxy setup and surfaced failed HTTPS CONNECT tunnels for easier diagnosis.
+- Restored recognized application proxy settings after prepared apps exit or Rockxy relaunches, while preserving newer user choices and unrelated settings.
+- Prevented interrupted recovery from overwriting newer capture sessions or manually changed system proxy settings.
+- Preserved each macOS network service's own proxy configuration during stop and recovery.
+- Improved helper, certificate, and TLS fallback behavior to reduce stuck capture states and restore application traffic more reliably.
+
+### Changed
+
+- Compatible helpers now refresh safely after app updates while preserving macOS approval; explicit action is required only for genuinely incompatible helpers.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
