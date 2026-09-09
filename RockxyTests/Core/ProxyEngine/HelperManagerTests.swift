@@ -24,18 +24,28 @@ struct HelperManagerTests {
         #expect(HelperManager.HelperStatus(.incompatible) == .installedIncompatible)
     }
 
-    @Test("only an older known helper is considered for approval-preserving refresh")
-    func automaticRefreshPolicyTargetsOnlyVersionMismatches() {
-        #expect(HelperManager.shouldAutomaticallyRefreshAfterAppUpdate(.installedOutdated))
+    @Test("only a reachable, known helper is ever reconciled automatically")
+    func automaticReconciliationSkipsEveryUnusableState() {
+        // The reconciliation itself is exercised in HelperUpdateReconciliationTests; this pins
+        // that none of the states a user has to act on is treated as ordinary drift.
         for status in [
             HelperManager.HelperStatus.notInstalled,
             .requiresApproval,
-            .installedCompatible,
             .installedIncompatible,
             .unreachable,
             .signingMismatch,
         ] {
-            #expect(!HelperManager.shouldAutomaticallyRefreshAfterAppUpdate(status))
+            let plan = HelperManager.updatePlan(
+                status: status,
+                installedInfo: HelperInfo(binaryVersion: "0.7.1", buildNumber: 9, protocolVersion: 4),
+                installedIdentity: nil,
+                expectedProtocolVersion: 5,
+                bundledBuildNumber: 10,
+                candidateDigest: String(repeating: "a", count: 64),
+                marker: nil
+            )
+            #expect(plan != .approvalPreservingRefresh)
+            #expect(plan != .legacyManualMigration)
         }
     }
 

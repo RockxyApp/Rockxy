@@ -55,23 +55,15 @@ enum SigningDiagnostics {
         func helperCertificateChain() -> [Data]?
     }
 
-    nonisolated static func helperExecutableCandidates(
-        bundledHelperURL: URL = Bundle.main.bundleURL
-            .appendingPathComponent(HelperManager.bundledHelperBinaryRelativePath, isDirectory: false),
-        legacyInstalledHelperURL: URL = URL(
-            fileURLWithPath: "/Library/PrivilegedHelperTools/\(RockxyIdentity.current.helperBundleIdentifier)"
-        )
-    ) -> [URL] {
-        if bundledHelperURL == legacyInstalledHelperURL {
-            return [legacyInstalledHelperURL]
-        }
-
-        return [legacyInstalledHelperURL, bundledHelperURL]
-    }
-
     // MARK: - Live Environment
 
     struct LiveEnvironment: Environment {
+        // MARK: Lifecycle
+
+        init(helperExecutableURL: URL? = nil) {
+            explicitHelperExecutableURL = helperExecutableURL
+        }
+
         // MARK: Internal
 
         func validateAppSignature() -> AppSignatureValidation {
@@ -142,8 +134,15 @@ enum SigningDiagnostics {
 
         // MARK: Private
 
+        private let explicitHelperExecutableURL: URL?
+
         private var resolvedHelperExecutableURL: URL? {
-            helperExecutableCandidates.first { candidateURL in
+            if let explicitHelperExecutableURL {
+                return FileManager.default.isExecutableFile(atPath: explicitHelperExecutableURL.path)
+                    ? explicitHelperExecutableURL
+                    : nil
+            }
+            return helperExecutableCandidates.first { candidateURL in
                 FileManager.default.isExecutableFile(atPath: candidateURL.path)
             }
         }
@@ -173,6 +172,9 @@ enum SigningDiagnostics {
             {
                 return nil
             }
+            guard SecStaticCodeCheckValidity(sc, SecCSFlags([]), nil) == errSecSuccess else {
+                return nil
+            }
             return extractCertificateDERs(from: sc)
         }
 
@@ -198,6 +200,22 @@ enum SigningDiagnostics {
             }
             return SecCertificateCopySubjectSummary(cert) as String?
         }
+    }
+
+    nonisolated static func helperExecutableCandidates(
+        bundledHelperURL: URL = Bundle.main.bundleURL
+            .appendingPathComponent(HelperManager.bundledHelperBinaryRelativePath, isDirectory: false),
+        legacyInstalledHelperURL: URL = URL(
+            fileURLWithPath: "/Library/PrivilegedHelperTools/\(RockxyIdentity.current.helperBundleIdentifier)"
+        )
+    )
+        -> [URL]
+    {
+        if bundledHelperURL == legacyInstalledHelperURL {
+            return [legacyInstalledHelperURL]
+        }
+
+        return [legacyInstalledHelperURL, bundledHelperURL]
     }
 
     // MARK: - Classification
@@ -248,8 +266,8 @@ enum SigningDiagnostics {
     // MARK: - Convenience
 
     /// Run diagnostics using the live Security framework environment.
-    static func diagnose() -> Result {
-        let result = classify(LiveEnvironment())
+    static func diagnose(helperExecutableURL: URL? = nil) -> Result {
+        let result = classify(LiveEnvironment(helperExecutableURL: helperExecutableURL))
         switch result {
         case .healthy:
             logger.debug("Signing diagnostics: healthy")

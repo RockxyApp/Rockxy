@@ -112,6 +112,7 @@ final class HelperManager {
         case unreadableBundledLaunchdPlist(path: String)
         case invalidBundledLaunchdPlist(HelperPlistValidationError)
         case invalidBundledHelperMetadata(HelperMetadataValidationError)
+        case invalidBundledHelperSignature
 
         // MARK: Internal
 
@@ -137,6 +138,7 @@ final class HelperManager {
     private(set) var lastErrorMessage: String?
     private(set) var isBusy: Bool = false
     private(set) var registrationStatus: String = "Unknown"
+    private(set) var automaticRefreshRecoveryPending = false
 
     private(set) var status: HelperStatus = .notInstalled {
         didSet {
@@ -424,6 +426,20 @@ final class HelperManager {
         return nil
     }
 
+    /// Mutation seams for `HelperManager` extensions in other files. The properties themselves
+    /// stay read-only to everything else, so no view or service can drive helper state directly.
+    func setBusy(_ value: Bool) {
+        isBusy = value
+    }
+
+    func setLastErrorMessage(_ value: String?) {
+        lastErrorMessage = value
+    }
+
+    func setAutomaticRefreshRecoveryPending(_ value: Bool) {
+        automaticRefreshRecoveryPending = value
+    }
+
     /// Register the helper daemon via SMAppService.
     ///
     /// On macOS 13+, this uses `SMAppService.daemon(plistName:).register()` which
@@ -493,42 +509,6 @@ final class HelperManager {
             )
         }
         await performCheckStatus()
-    }
-
-    /// Update the helper by uninstalling the old version and installing the new one.
-    /// After unregistering, BTM trust is cleared so re-registration may require
-    /// user approval in System Settings > Login Items.
-    func update() async throws {
-        HelperConnection.shared.invalidateSigningCache()
-        let previousStatus = status
-        let previousReachable = isReachable
-        let previousInfo = installedInfo
-        let previousSigningIssue = signingIssue
-        lastErrorMessage = nil
-        isBusy = true
-        defer {
-            isBusy = false
-            postStatusChangeIfNeeded(
-                previousStatus: previousStatus,
-                previousReachable: previousReachable,
-                previousInfo: previousInfo,
-                previousSigningIssue: previousSigningIssue
-            )
-        }
-
-        Self.logger.info("Updating helper tool")
-        do {
-            try await ensureHelperMutationCanProceed()
-            try await performUninstall()
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            try await performInstall()
-            if status != .requiresApproval {
-                await performCheckStatus()
-            }
-        } catch {
-            lastErrorMessage = error.localizedDescription
-            throw error
-        }
     }
 
     /// Retry establishing connection with the helper.
@@ -730,6 +710,190 @@ final class HelperManager {
     }
     #endif
 
+    /// Emits the helper-state change notification when anything observable moved.
+    /// Internal so `HelperManager` extensions in other files can own the same busy wrapper.
+    func postStatusChangeIfNeeded(
+        previousStatus: HelperStatus,
+        previousReachable: Bool,
+        previousInfo: HelperInfo?,
+        previousSigningIssue: SigningIssue?
+    ) {
+        let changed = Self.helperStateDidChange(
+            previousStatus: previousStatus, currentStatus: status,
+            previousReachable: previousReachable, currentReachable: isReachable,
+            previousInfo: previousInfo, currentInfo: installedInfo,
+            previousSigningIssue: previousSigningIssue, currentSigningIssue: signingIssue
+        )
+        if changed {
+            NotificationCenter.default.post(name: .helperStatusChanged, object: nil)
+        }
+    }
+
+    /// Core install logic without busy/error wrapper.
+    func performInstall() async throws {
+        Self.logger.info("Installing helper tool")
+        do {
+            try Self.validateBundledHelperInstallResources()
+        } catch let error as HelperInstallPreflightError {
+            Self.logger
+                .error(
+                    "Bundled helper install preflight failed: \(Self.helperPreflightFailureReason(error), privacy: .private)"
+                )
+            status = .notInstalled
+            installedInfo = nil
+            isReachable = false
+            registrationStatus = "Package Incomplete"
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+        let service = SMAppService.daemon(plistName: Self.plistName)
+
+        switch Self.installDisposition(for: service.status) {
+        case .requiresApproval:
+            try await handleApprovalRequired(
+                service: service,
+                reason: "SMAppService requires Login Items approval for an Xcode-run app bundle",
+                message: Self.helperApprovalMessage
+            )
+            return
+        case .alreadyEnabled:
+            Self.logger.info("Helper tool is already registered")
+            registrationStatus = "Enabled"
+            await verifyEnabledHelperOrRepair(service: service)
+            return
+        case .register:
+            break
+        }
+
+        do {
+            try service.register()
+        } catch {
+            if Self.requiresApproval(error: error, serviceStatus: service.status) {
+                try await handleApprovalRequired(
+                    service: service,
+                    reason: "SMAppService registration was denied for an Xcode-run app bundle",
+                    message: Self.approvalMessage(error: error, serviceStatus: service.status)
+                )
+                return
+            }
+
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+
+        let currentStatus = service.status
+        if currentStatus == .requiresApproval {
+            try await handleApprovalRequired(
+                service: service,
+                reason: "SMAppService registration transitioned to requires approval for an Xcode-run app bundle",
+                message: Self.helperApprovalMessage
+            )
+        } else if currentStatus == .enabled {
+            Self.logger.info("Helper tool installed and enabled")
+            registrationStatus = "Enabled"
+            lastErrorMessage = nil
+            await verifyEnabledHelperOrRepair(service: service)
+        } else {
+            Self.logger.warning(
+                "Unexpected SMAppService status after register: \(String(describing: currentStatus))"
+            )
+            status = .notInstalled
+        }
+    }
+
+    /// Core uninstall logic without busy/error wrapper.
+    func performUninstall() async throws {
+        Self.logger.info("Uninstalling helper tool")
+
+        do {
+            try await HelperConnection.shared.uninstallHelper()
+        } catch {
+            Self.logger.warning("Failed to notify helper of uninstall: \(error.localizedDescription)")
+        }
+
+        do {
+            let service = SMAppService.daemon(plistName: Self.plistName)
+            try await service.unregister()
+
+            status = .notInstalled
+            installedInfo = nil
+            isReachable = false
+            registrationStatus = "Not Registered"
+            Self.logger.info("Helper tool uninstalled")
+        } catch {
+            lastErrorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
+    /// Core status check logic without busy/error wrapper.
+    func performCheckStatus() async {
+        let service = SMAppService.daemon(plistName: Self.plistName)
+        let smStatus = service.status
+
+        switch smStatus {
+        case .enabled:
+            registrationStatus = "Enabled"
+        case .requiresApproval:
+            registrationStatus = "Awaiting Approval"
+        case .notRegistered:
+            registrationStatus = "Not Registered"
+        case .notFound:
+            registrationStatus = "Not Found"
+        @unknown default:
+            registrationStatus = "Unknown"
+        }
+
+        switch smStatus {
+        case .enabled:
+            await checkEnabledHelper(service: service)
+        case .requiresApproval:
+            if await checkLegacyLaunchdHelperIfAvailable() {
+                break
+            }
+            status = .requiresApproval
+        case .notRegistered,
+             .notFound:
+            if await checkLegacyLaunchdHelperIfAvailable() {
+                break
+            }
+            status = .notInstalled
+            installedInfo = nil
+            isReachable = false
+        @unknown default:
+            Self.logger.warning("Unknown SMAppService status: \(String(describing: smStatus))")
+            status = .notInstalled
+            installedInfo = nil
+            isReachable = false
+        }
+
+        Self.logger.info("Helper status: \(String(describing: self.status))")
+    }
+
+    /// Prevent destructive helper repair when the running process no longer matches
+    /// the app bundle on disk. The helper's caller validation is expected to reject
+    /// that process, so only reopening Rockxy can recover it safely.
+    func ensureHelperMutationCanProceed() async throws {
+        HelperConnection.shared.invalidateSigningCache()
+        let result = await HelperConnection.shared.signingCache.evaluate()
+        switch result {
+        case let .runningCodeChanged(detail):
+            Self.logger.warning("Helper mutation blocked because running code changed: \(detail)")
+            setSigningMismatchState(.applicationMustReopen)
+            throw HelperOperationError.applicationMustReopen
+        case let .appSignatureInvalid(detail):
+            Self.logger.error("Helper mutation blocked because app signature is invalid: \(detail)")
+            setSigningMismatchState(.appSignatureInvalid(detail: detail))
+            throw HelperOperationError.appSignatureInvalid
+        case .healthy,
+             .signingIdentityMismatch,
+             .helperBinaryNotFound,
+             .certificateChainUnavailable,
+             .diagnosticError:
+            break
+        }
+    }
+
     // MARK: Private
 
     private static let logger = Logger(
@@ -859,6 +1023,8 @@ final class HelperManager {
             case let .unexpectedAllowedCallerIdentifiers(allowedCallerIdentifiers):
                 "Bundled helper metadata has unexpected RockxyAllowedCallerIdentifiers \(allowedCallerIdentifiers.joined(separator: ", "))"
             }
+        case .invalidBundledHelperSignature:
+            "Bundled helper code signature is invalid or does not match the running app"
         }
     }
 
@@ -876,95 +1042,6 @@ final class HelperManager {
     nonisolated private static func stringValue(forKey key: String, in info: [String: Any]) -> String {
         (info[key] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private func postStatusChangeIfNeeded(
-        previousStatus: HelperStatus,
-        previousReachable: Bool,
-        previousInfo: HelperInfo?,
-        previousSigningIssue: SigningIssue?
-    ) {
-        let changed = Self.helperStateDidChange(
-            previousStatus: previousStatus, currentStatus: status,
-            previousReachable: previousReachable, currentReachable: isReachable,
-            previousInfo: previousInfo, currentInfo: installedInfo,
-            previousSigningIssue: previousSigningIssue, currentSigningIssue: signingIssue
-        )
-        if changed {
-            NotificationCenter.default.post(name: .helperStatusChanged, object: nil)
-        }
-    }
-
-    /// Core install logic without busy/error wrapper.
-    private func performInstall() async throws {
-        Self.logger.info("Installing helper tool")
-        do {
-            try Self.validateBundledHelperInstallResources()
-        } catch let error as HelperInstallPreflightError {
-            Self.logger
-                .error(
-                    "Bundled helper install preflight failed: \(Self.helperPreflightFailureReason(error), privacy: .private)"
-                )
-            status = .notInstalled
-            installedInfo = nil
-            isReachable = false
-            registrationStatus = "Package Incomplete"
-            lastErrorMessage = error.localizedDescription
-            throw error
-        }
-        let service = SMAppService.daemon(plistName: Self.plistName)
-
-        switch Self.installDisposition(for: service.status) {
-        case .requiresApproval:
-            try await handleApprovalRequired(
-                service: service,
-                reason: "SMAppService requires Login Items approval for an Xcode-run app bundle",
-                message: Self.helperApprovalMessage
-            )
-            return
-        case .alreadyEnabled:
-            Self.logger.info("Helper tool is already registered")
-            registrationStatus = "Enabled"
-            await verifyEnabledHelperOrRepair(service: service)
-            return
-        case .register:
-            break
-        }
-
-        do {
-            try service.register()
-        } catch {
-            if Self.requiresApproval(error: error, serviceStatus: service.status) {
-                try await handleApprovalRequired(
-                    service: service,
-                    reason: "SMAppService registration was denied for an Xcode-run app bundle",
-                    message: Self.approvalMessage(error: error, serviceStatus: service.status)
-                )
-                return
-            }
-
-            lastErrorMessage = error.localizedDescription
-            throw error
-        }
-
-        let currentStatus = service.status
-        if currentStatus == .requiresApproval {
-            try await handleApprovalRequired(
-                service: service,
-                reason: "SMAppService registration transitioned to requires approval for an Xcode-run app bundle",
-                message: Self.helperApprovalMessage
-            )
-        } else if currentStatus == .enabled {
-            Self.logger.info("Helper tool installed and enabled")
-            registrationStatus = "Enabled"
-            lastErrorMessage = nil
-            await verifyEnabledHelperOrRepair(service: service)
-        } else {
-            Self.logger.warning(
-                "Unexpected SMAppService status after register: \(String(describing: currentStatus))"
-            )
-            status = .notInstalled
-        }
     }
 
     /// Resolve every approval transition through the same policy. DerivedData builds
@@ -1059,75 +1136,6 @@ final class HelperManager {
             setUnreachableState(reason: error.localizedDescription)
             throw error
         }
-    }
-
-    /// Core uninstall logic without busy/error wrapper.
-    private func performUninstall() async throws {
-        Self.logger.info("Uninstalling helper tool")
-
-        do {
-            try await HelperConnection.shared.uninstallHelper()
-        } catch {
-            Self.logger.warning("Failed to notify helper of uninstall: \(error.localizedDescription)")
-        }
-
-        do {
-            let service = SMAppService.daemon(plistName: Self.plistName)
-            try await service.unregister()
-
-            status = .notInstalled
-            installedInfo = nil
-            isReachable = false
-            registrationStatus = "Not Registered"
-            Self.logger.info("Helper tool uninstalled")
-        } catch {
-            lastErrorMessage = error.localizedDescription
-            throw error
-        }
-    }
-
-    /// Core status check logic without busy/error wrapper.
-    private func performCheckStatus() async {
-        let service = SMAppService.daemon(plistName: Self.plistName)
-        let smStatus = service.status
-
-        switch smStatus {
-        case .enabled:
-            registrationStatus = "Enabled"
-        case .requiresApproval:
-            registrationStatus = "Awaiting Approval"
-        case .notRegistered:
-            registrationStatus = "Not Registered"
-        case .notFound:
-            registrationStatus = "Not Found"
-        @unknown default:
-            registrationStatus = "Unknown"
-        }
-
-        switch smStatus {
-        case .enabled:
-            await checkEnabledHelper(service: service)
-        case .requiresApproval:
-            if await checkLegacyLaunchdHelperIfAvailable() {
-                break
-            }
-            status = .requiresApproval
-        case .notRegistered,
-             .notFound:
-            if await checkLegacyLaunchdHelperIfAvailable() {
-                break
-            }
-            status = .notInstalled
-            installedInfo = nil
-            isReachable = false
-        @unknown default:
-            Self.logger.warning("Unknown SMAppService status: \(String(describing: smStatus))")
-            status = .notInstalled
-            installedInfo = nil
-            isReachable = false
-        }
-
-        Self.logger.info("Helper status: \(String(describing: self.status))")
     }
 
     /// Xcode fallback installs the same helper identity through a traditional LaunchDaemon.
@@ -1248,30 +1256,6 @@ final class HelperManager {
             )
         }
         status = .signingMismatch
-    }
-
-    /// Prevent destructive helper repair when the running process no longer matches
-    /// the app bundle on disk. The helper's caller validation is expected to reject
-    /// that process, so only reopening Rockxy can recover it safely.
-    private func ensureHelperMutationCanProceed() async throws {
-        HelperConnection.shared.invalidateSigningCache()
-        let result = await HelperConnection.shared.signingCache.evaluate()
-        switch result {
-        case let .runningCodeChanged(detail):
-            Self.logger.warning("Helper mutation blocked because running code changed: \(detail)")
-            setSigningMismatchState(.applicationMustReopen)
-            throw HelperOperationError.applicationMustReopen
-        case let .appSignatureInvalid(detail):
-            Self.logger.error("Helper mutation blocked because app signature is invalid: \(detail)")
-            setSigningMismatchState(.appSignatureInvalid(detail: detail))
-            throw HelperOperationError.appSignatureInvalid
-        case .healthy,
-             .signingIdentityMismatch,
-             .helperBinaryNotFound,
-             .certificateChainUnavailable,
-             .diagnosticError:
-            break
-        }
     }
 
     /// Evaluate helper compatibility through the shared protocol-first policy.

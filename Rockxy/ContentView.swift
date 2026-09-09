@@ -160,6 +160,9 @@ struct ContentView: View {
             // Share the app-level recovery barrier so startup cannot restore an old proxy after
             // this view has already enabled a new capture session.
             await SystemProxyStartupRecovery.task.value
+            // Reconcile the helper with this app bundle before any automatic capture starts, so
+            // an update cannot swap the helper out from under a session this view just enabled.
+            await HelperUpdateStartupReconciliation.task.value
             coordinator.refreshProxyOverrideStatus()
             coordinator.startProxyOnLaunchIfNeeded()
             nearbyTransferReceiver.start(coordinator: coordinator)

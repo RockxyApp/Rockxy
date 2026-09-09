@@ -50,6 +50,9 @@ enum HelperCompatibilityPolicy {
     /// snapshot and manages PAC, auto discovery, SOCKS, and bypass conflicts.
     static let safeProxyRoutingProtocolVersion = 4
 
+    /// The protocol version that introduced the executable-identity probe.
+    static let executableIdentityProtocolVersion = 5
+
     /// Classifies an installed helper without ever reading a capability out of the build
     /// number.
     ///
@@ -67,8 +70,8 @@ enum HelperCompatibilityPolicy {
         -> HelperCompatibilityDecision
     {
         guard knownProtocolVersions.contains(installedProtocolVersion),
-              knownProtocolVersions.contains(expectedProtocolVersion)
-        else {
+              knownProtocolVersions.contains(expectedProtocolVersion) else
+        {
             // A missing or unreadable protocol version describes nothing.
             return .incompatible
         }
@@ -118,19 +121,53 @@ enum HelperCompatibilityPolicy {
     }
 
     static func supportsSafeProxyRouting(protocolVersion: Int) -> Bool {
-        protocolVersion == safeProxyRoutingProtocolVersion
+        safeProxyRoutingProtocolVersions.contains(protocolVersion)
+    }
+
+    /// Whether the helper on the other end of a live connection can describe the executable it is
+    /// actually running.
+    ///
+    /// Fail-closed to the exact protocol that introduced the selector, for the same reason as the
+    /// certificate gates: an unknown or newer protocol may have changed what the reply means, and
+    /// a convergence check that misread its evidence would report an update as applied when it
+    /// was not. A build number never implies this selector either.
+    static func supportsExecutableIdentity(protocolVersion: Int) -> Bool {
+        protocolVersion == executableIdentityProtocolVersion
+    }
+
+    /// Whether this protocol predates `prepareForExecutableRefresh` and therefore has no way to be
+    /// replaced in place.
+    ///
+    /// These are the only helpers whose update may unregister and re-register the service, and the
+    /// set is closed on purpose: an unknown or newer protocol is not "legacy", it is unreasoned
+    /// about, and destroying its registration would ask the user to approve a downgrade.
+    static func requiresLegacyDestructiveMigration(protocolVersion: Int) -> Bool {
+        legacyMigrationProtocolVersions.contains(protocolVersion)
     }
 
     // MARK: Private
 
+    private struct ProtocolPair: Hashable {
+        let installed: Int
+        let expected: Int
+    }
+
     /// Every helper protocol whose contract this app can reason about.
-    private static let knownProtocolVersions: Set<Int> = [1, 2, 3, 4]
+    private static let knownProtocolVersions: Set<Int> = [1, 2, 3, 4, 5]
 
     /// Older protocol versions whose already-implemented operations stay safe to call.
-    private static let backwardCompatibleProtocolVersions: Set<Int> = [1, 2, 3]
+    private static let backwardCompatibleProtocolVersions: Set<Int> = [1, 2, 3, 4]
 
-    /// Protocol 3 adds a selector without changing the protocol-2 certificate contracts.
-    private static let certificateMutationProtocolVersions: Set<Int> = [2, 3, 4]
+    /// Protocol 3 adds a selector without changing the protocol-2 certificate contracts, and
+    /// protocol 5 adds the identity probe the same way.
+    private static let certificateMutationProtocolVersions: Set<Int> = [2, 3, 4, 5]
+
+    /// Protocol 5 leaves protocol 4's proxy ownership contract untouched, so both may be asked
+    /// for PAC-safe routing and reclaim. Anything older stays individually gated out.
+    private static let safeProxyRoutingProtocolVersions: Set<Int> = [4, 5]
+
+    /// Known protocols older than `executableRefreshProtocolVersion`.
+    private static let legacyMigrationProtocolVersions: Set<Int> = [1, 2]
 
     /// Protocol 3 adds only an approval-preserving maintenance operation. A protocol-2 helper
     /// remains fully operational for that transition. Protocol 4 strengthens proxy ownership,
@@ -138,9 +175,4 @@ enum HelperCompatibilityPolicy {
     private static let maintenanceOnlyUpgradePairs: Set<ProtocolPair> = [
         ProtocolPair(installed: 2, expected: 3),
     ]
-
-    private struct ProtocolPair: Hashable {
-        let installed: Int
-        let expected: Int
-    }
 }

@@ -39,8 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                         guard !application.isTerminated,
                               application.processIdentifier > 0,
                               let bundleIdentifier = application.bundleIdentifier,
-                              let bundleURL = application.bundleURL
-                        else {
+                              let bundleURL = application.bundleURL else
+                        {
                             return nil
                         }
                         return (
@@ -88,11 +88,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                     Self.logger.error("Failed to initialize root CA: \(error.localizedDescription)")
                 }
             }
-            if RockxyIdentity.isRunningTests {
-                await HelperManager.shared.checkStatus()
-            } else {
-                await HelperManager.shared.refreshAfterAppUpdateIfNeeded()
-            }
+            // The shared barrier the capture UI also waits on, so startup capture can never run
+            // against a helper that is about to be replaced by the one in this app bundle.
+            await HelperUpdateStartupReconciliation.task.value
             await PluginManager.shared.ensureLoadedOnce()
             guard !RockxyIdentity.isRunningTests else {
                 return
@@ -192,16 +190,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
 
     private static let logger = Logger(subsystem: identity.logSubsystem, category: "AppDelegate")
 
+    private var skipNextQuitConfirmation = false
+
+    private var terminationSignalMonitor: TerminationSignalMonitor?
+
     nonisolated private static func developerApplicationIdentityKey(
         bundleIdentifier: String,
         bundleURL: URL
-    ) -> String {
+    )
+        -> String
+    {
         let normalizedIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPath = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
         return "\(normalizedIdentifier)|\(normalizedPath)"
     }
-
-    private var skipNextQuitConfirmation = false
-
-    private var terminationSignalMonitor: TerminationSignalMonitor?
 }

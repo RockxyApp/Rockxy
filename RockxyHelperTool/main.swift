@@ -363,8 +363,8 @@ private enum DirectProxyWatchdog {
               let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
               let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
               let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
-              let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service])
-        else {
+              let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
+        {
             return nil
         }
 
@@ -599,6 +599,11 @@ if DirectProxyWatchdog.run(arguments: ProcessInfo.processInfo.arguments) {
     Foundation.exit(0)
 }
 
+// Capture the daemon binary before an app update can replace its on-disk path. The identity probe
+// must describe the bytes that launched this process, not whichever bytes happen to occupy that
+// path when a later XPC request arrives.
+HelperService.prepareExecutableIdentityForLaunch()
+
 logger.info("RockxyHelperTool starting up")
 
 // Check for stale proxy settings from a previous crash. A session whose owner is still alive
@@ -615,7 +620,9 @@ case let .preserved(owner):
     }
 case .restoreIncomplete:
     HelperService.scheduleBackupRecovery(reason: "helper startup")
-case .noBackup, .cleared, .restored:
+case .noBackup,
+     .cleared,
+     .restored:
     break
 }
 
