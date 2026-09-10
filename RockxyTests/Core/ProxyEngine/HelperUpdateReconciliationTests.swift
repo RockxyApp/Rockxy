@@ -142,6 +142,182 @@ private final class ScriptedHelper {
     private var snapshots: [HelperExecutableRefreshOrchestrator.Snapshot]
 }
 
+// MARK: - ScriptedStartupRecovery
+
+/// A scripted launch reconciliation for the startup recovery orchestrator: it hands back one
+/// prepared attempt per pass and records every wait and reconnect instead of taking them, so the
+/// whole multi-minute migration window runs instantly and in order.
+///
+/// There is deliberately no unregister, register or approval seam here — the orchestrator has
+/// nowhere to call one.
+@MainActor
+private final class ScriptedStartupRecovery {
+    // MARK: Lifecycle
+
+    init(attempts: [HelperUpdateStartupRecoveryOrchestrator.Attempt]) {
+        self.attempts = attempts
+    }
+
+    // MARK: Internal
+
+    private(set) var reconcileCount = 0
+    private(set) var transportResetCount = 0
+    private(set) var waits: [Duration] = []
+    /// Ordered record of what the orchestrator did, so "reconnect before every retry" is observed
+    /// rather than inferred from a count.
+    private(set) var events: [String] = []
+
+    var orchestrator: HelperUpdateStartupRecoveryOrchestrator {
+        HelperUpdateStartupRecoveryOrchestrator(
+            reconcile: { [weak self] in
+                guard let self else {
+                    return HelperUpdateStartupRecoveryOrchestrator.Attempt(
+                        outcome: .blocked(.unreachable),
+                        registrationIsEnabled: false
+                    )
+                }
+                reconcileCount += 1
+                events.append("reconcile")
+                guard !attempts.isEmpty else {
+                    return HelperUpdateStartupRecoveryOrchestrator.Attempt(
+                        outcome: .blocked(.unreachable),
+                        registrationIsEnabled: true
+                    )
+                }
+                if attempts.count == 1 {
+                    return attempts[0]
+                }
+                return attempts.removeFirst()
+            },
+            resetTransport: { [weak self] in
+                self?.transportResetCount += 1
+                self?.events.append("reset")
+            },
+            wait: { [weak self] duration in self?.waits.append(duration) }
+        )
+    }
+
+    // MARK: Private
+
+    private var attempts: [HelperUpdateStartupRecoveryOrchestrator.Attempt]
+}
+
+// MARK: - HelperUpdateStartupRecoveryTests
+
+/// The other half of issue #319: a helper installed *before* the caller-validation launch snapshot
+/// keeps validating callers against whatever now sits at its own path, so once Sparkle swaps the
+/// bundle it refuses the relaunched app. That helper cannot be fixed over XPC — it exits on its own
+/// after the five-minute idle timeout — so the app waits for launchd rather than falling back to
+/// direct capture or offering a destructive reinstall.
+@MainActor
+struct HelperUpdateStartupRecoveryTests {
+    @Test("an enabled registration that will not answer is waited out until launchd serves this bundle")
+    func unreachableEnabledRegistrationIsRetriedUntilConvergence() async {
+        let recovery = ScriptedStartupRecovery(attempts: [
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: true),
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: true),
+            .init(outcome: .refreshed, registrationIsEnabled: true),
+        ])
+
+        let outcome = await recovery.orchestrator.run()
+
+        #expect(outcome == .settled(.refreshed))
+        #expect(recovery.reconcileCount == 3)
+        // Every retry ran over a connection this orchestrator forced open again, before it probed.
+        #expect(recovery.events == ["reconcile", "reset", "reconcile", "reset", "reconcile"])
+        #expect(recovery.transportResetCount == 2)
+    }
+
+    @Test("recovery is bounded and leaves the registration exactly as it found it")
+    func recoveryExhaustionIsBounded() async {
+        let recovery = ScriptedStartupRecovery(attempts: [
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: true),
+        ])
+        let orchestrator = recovery.orchestrator
+
+        let outcome = await orchestrator.run()
+
+        #expect(outcome == .recoveryExhausted(.blocked(.unreachable)))
+        // One pass per configured step, plus the first immediate one. Nothing waits forever.
+        #expect(recovery.reconcileCount == orchestrator.retryDelays.count + 1)
+        #expect(recovery.waits == orchestrator.retryDelays)
+        #expect(recovery.transportResetCount == orchestrator.retryDelays.count)
+    }
+
+    @Test("the recovery window outlasts the helper's five-minute idle exit timeout")
+    func recoveryWindowOutlastsIdleExit() {
+        let orchestrator = HelperUpdateStartupRecoveryOrchestrator(
+            reconcile: { .init(outcome: .upToDate, registrationIsEnabled: true) },
+            resetTransport: {},
+            wait: { _ in }
+        )
+
+        let window = orchestrator.retryDelays.reduce(Duration.zero, +)
+
+        // `IdleExitMonitor` exits the old daemon after exactly five minutes of no accepted XPC.
+        #expect(window > .seconds(5 * 60))
+        // Sparse, not a poll loop: a rejected connection never resets that timer, so hammering it
+        // would add noise without bringing the exit forward.
+        #expect(orchestrator.retryDelays.allSatisfy { $0 >= .seconds(5) })
+    }
+
+    @Test("approval, absence, signing, package, protocol and legacy results never wait")
+    func terminalOutcomesAreReturnedImmediately() async {
+        let terminal: [HelperManager.ReconciliationOutcome] = [
+            .blocked(.requiresApproval),
+            .blocked(.notInstalled),
+            .blocked(.signingMismatch),
+            .blocked(.embeddedPackageInvalid),
+            .blocked(.incompatibleProtocol),
+            .legacyMigrationRequired,
+            .upToDate,
+            .refreshed,
+            .refreshFailed(.verificationIncomplete),
+        ]
+
+        for outcome in terminal {
+            let recovery = ScriptedStartupRecovery(attempts: [
+                .init(outcome: outcome, registrationIsEnabled: true),
+            ])
+            let result = await recovery.orchestrator.run()
+
+            #expect(result == .settled(outcome))
+            #expect(recovery.reconcileCount == 1)
+            #expect(recovery.waits.isEmpty)
+            #expect(recovery.transportResetCount == 0)
+        }
+    }
+
+    @Test("a registration that is no longer enabled ends the wait instead of extending it")
+    func disabledRegistrationEndsTheWait() async {
+        let recovery = ScriptedStartupRecovery(attempts: [
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: false),
+        ])
+
+        let outcome = await recovery.orchestrator.run()
+
+        #expect(outcome == .settled(.blocked(.unreachable)))
+        #expect(recovery.reconcileCount == 1)
+        #expect(recovery.waits.isEmpty)
+    }
+
+    @Test("only an enabled, unreachable registration is worth waiting for")
+    func onlyEnabledUnreachableIsWaitedOn() {
+        #expect(HelperUpdateStartupRecoveryOrchestrator.shouldWaitForLaunchd(
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: true)
+        ))
+        #expect(!HelperUpdateStartupRecoveryOrchestrator.shouldWaitForLaunchd(
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: false)
+        ))
+        #expect(!HelperUpdateStartupRecoveryOrchestrator.shouldWaitForLaunchd(
+            .init(outcome: .blocked(.requiresApproval), registrationIsEnabled: true)
+        ))
+        #expect(!HelperUpdateStartupRecoveryOrchestrator.shouldWaitForLaunchd(
+            .init(outcome: .legacyMigrationRequired, registrationIsEnabled: true)
+        ))
+    }
+}
+
 // MARK: - HelperUpdatePlanTests
 
 struct HelperUpdatePlanTests {

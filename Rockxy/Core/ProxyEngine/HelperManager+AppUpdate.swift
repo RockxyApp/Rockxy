@@ -1,5 +1,6 @@
 import Foundation
 import os
+import ServiceManagement
 
 // Reconciles an already approved helper with the helper executable embedded in the app bundle
 // that is running right now, without ever unregistering the approved service.
@@ -304,6 +305,99 @@ struct HelperExecutableRefreshOrchestrator {
     }
 }
 
+// MARK: - HelperUpdateStartupRecoveryOrchestrator
+
+/// Waits out the one migration in which the previously installed helper cannot be talked to at all.
+///
+/// A helper built before the caller-validation launch snapshot resolves its own signature lazily,
+/// from whatever now sits at its executable path. Once Sparkle replaces the app bundle, that
+/// daemon — still running, still holding the user's approval — refuses the relaunched app, and the
+/// app sees an `SMAppService` registration that is `.enabled` with nothing answering behind it.
+/// Nothing the app can say fixes that: the old process exits on its own after `IdleExitMonitor`'s
+/// five-minute idle timeout, and the next connection makes launchd start the executable from the
+/// updated bundle.
+///
+/// So this waits, over a window comfortably longer than that timeout, and does nothing else. It
+/// cannot unregister, re-register, or touch approval, and it only ever retries the one outcome
+/// that describes a live registration whose transport has not converged. Every other result — an
+/// approval prompt, an absent service, a signing mismatch, an unusable embedded package, a
+/// protocol this build must not replace — is returned on the spot, because waiting cannot change
+/// any of them and the user is owed the truthful state now.
+@MainActor
+struct HelperUpdateStartupRecoveryOrchestrator {
+    /// One reconciliation pass, paired with the registration state it was taken against.
+    struct Attempt: Equatable {
+        var outcome: HelperManager.ReconciliationOutcome
+        /// Whether `SMAppService` still reports the daemon as `.enabled`. A registration that is
+        /// no longer enabled is a user-visible state change, not a transport that has yet to
+        /// converge, so it ends the wait immediately.
+        var registrationIsEnabled: Bool
+    }
+
+    enum Outcome: Equatable {
+        /// Reconciliation reached a result the app may act on.
+        case settled(HelperManager.ReconciliationOutcome)
+        /// The window elapsed with the registration still enabled and still unreachable. The
+        /// registration is exactly as it was found.
+        case recoveryExhausted(HelperManager.ReconciliationOutcome)
+    }
+
+    /// Sparse by design. Each entry costs one XPC probe against a daemon that is refusing
+    /// connections, and a rejected connection deliberately does not reset the old helper's idle
+    /// timer — so polling harder would only add noise without bringing its exit forward. The
+    /// ladder sums to seven minutes, which clears the five-minute idle timeout with room for the
+    /// time the old helper had already been idle before this app was relaunched.
+    var retryDelays: [Duration] = [
+        .seconds(5),
+        .seconds(10),
+        .seconds(15),
+        .seconds(30),
+        .seconds(30),
+        .seconds(45),
+        .seconds(45),
+        .seconds(60),
+        .seconds(60),
+        .seconds(60),
+        .seconds(60),
+    ]
+
+    var reconcile: () async -> Attempt
+    var resetTransport: () async -> Void
+    var wait: (Duration) async -> Void
+    var log: (String) -> Void = { _ in }
+
+    /// The single outcome worth waiting on: an enabled registration whose helper cannot be
+    /// reached. `.unreachable` is exactly how `performCheckStatus` records an enabled service that
+    /// failed its XPC probe for a non-signing reason, which is what a refusing old daemon looks
+    /// like from here.
+    static func shouldWaitForLaunchd(_ attempt: Attempt) -> Bool {
+        attempt.registrationIsEnabled && attempt.outcome == .blocked(.unreachable)
+    }
+
+    func run() async -> Outcome {
+        var attempt = await reconcile()
+        guard Self.shouldWaitForLaunchd(attempt) else {
+            return .settled(attempt.outcome)
+        }
+
+        for (index, delay) in retryDelays.enumerated() {
+            log(
+                "Helper is registered but not answering; waiting for launchd to serve this bundle (attempt \(index + 1) of \(retryDelays.count))"
+            )
+            await wait(delay)
+            // Never reuse the connection that was just refused. Each retry has to be a fresh
+            // handshake, or a cached, already-invalidated proxy answers for the new process too.
+            await resetTransport()
+            attempt = await reconcile()
+            guard Self.shouldWaitForLaunchd(attempt) else {
+                return .settled(attempt.outcome)
+            }
+        }
+
+        return .recoveryExhausted(attempt.outcome)
+    }
+}
+
 // MARK: - HelperManager app update reconciliation
 
 extension HelperManager {
@@ -573,7 +667,37 @@ extension HelperManager {
             )
             return
         }
-        _ = await reconcileEmbeddedHelper(reason: "app launch")
+
+        let orchestrator = HelperUpdateStartupRecoveryOrchestrator(
+            reconcile: { [weak self] in
+                guard let self else {
+                    return HelperUpdateStartupRecoveryOrchestrator.Attempt(
+                        outcome: .blocked(.unreachable),
+                        registrationIsEnabled: false
+                    )
+                }
+                let outcome = await reconcileEmbeddedHelper(reason: "app launch")
+                return HelperUpdateStartupRecoveryOrchestrator.Attempt(
+                    outcome: outcome,
+                    registrationIsEnabled: Self.registrationIsEnabled()
+                )
+            },
+            resetTransport: {
+                HelperConnection.shared.resetConnection()
+                HelperConnection.shared.invalidateSigningCache()
+            },
+            wait: { try? await Task.sleep(for: $0) },
+            log: { Self.appUpdateLogger.info("\($0, privacy: .public)") }
+        )
+
+        if case let .recoveryExhausted(outcome) = await orchestrator.run() {
+            // The registration is untouched and `reconcileEmbeddedHelper` has already published
+            // the automatic-recovery-failed state. Returning lets the startup barrier resolve, so
+            // capture takes the existing fallback rather than waiting on this forever.
+            Self.appUpdateLogger.warning(
+                "Helper stayed unreachable for the whole automatic recovery window: \(String(describing: outcome)). The approved registration is unchanged."
+            )
+        }
     }
 
     /// Reconciles the installed helper with the helper embedded in this app bundle.
@@ -661,6 +785,12 @@ extension HelperManager {
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "HelperAppUpdate"
     )
+
+    /// Whether macOS still reports the approved daemon as registered and enabled. Read-only:
+    /// nothing on the recovery path may register, unregister, or approve anything.
+    private static func registrationIsEnabled() -> Bool {
+        SMAppService.daemon(plistName: RockxyIdentity.current.helperPlistName).status == .enabled
+    }
 
     private static func updateFailure(for outcome: ReconciliationOutcome) -> HelperOperationError {
         switch outcome {

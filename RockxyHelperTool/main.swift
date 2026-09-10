@@ -604,6 +604,16 @@ if DirectProxyWatchdog.run(arguments: ProcessInfo.processInfo.arguments) {
 // path when a later XPC request arrives.
 HelperService.prepareExecutableIdentityForLaunch()
 
+// Snapshot this daemon's own signing identity for the same reason, and before the listener can
+// take a single connection. Caller validation compares each caller against the helper's own
+// signature; resolving that signature lazily would read whatever the updated app bundle put at
+// this path, and the already-approved helper would then reject the app that installed it.
+if !CallerValidation.captureLaunchSigningProfile() {
+    logger.error(
+        "SECURITY: this helper's own signing identity could not be captured — every XPC caller will be refused"
+    )
+}
+
 logger.info("RockxyHelperTool starting up")
 
 // Check for stale proxy settings from a previous crash. A session whose owner is still alive
