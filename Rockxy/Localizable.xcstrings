@@ -194,22 +194,22 @@
         }
       }
     },
-    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. The macOS Root CA is trusted, so the affected client may use a separate trust store, certificate pinning, or custom TLS requirements. Restart or configure that client before retrying interception.": {
+    "Rockxy could not decrypt multiple HTTPS hosts for one or more clients. The macOS Root CA is trusted, so an affected client may use a separate trust store, certificate pinning, or TLS requirements Rockxy cannot intercept. Connectivity continues through a client-scoped tunnel. Restart or configure that client before retrying interception.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。macOS Root CA 已受信任，因此受影响的客户端可能使用独立的信任存储、证书固定或自定义 TLS 要求。请重新启动或配置该客户端后再重试解密。"
+            "value": "Rockxy 无法解密一个或多个客户端访问的多个 HTTPS 主机。macOS Root CA 已受信任，因此受影响的客户端可能使用独立的信任存储、证书固定，或 Rockxy 无法拦截的 TLS 要求。连接将继续通过该客户端专用的隧道传输。请重新启动或配置该客户端后再重试解密。"
           }
         }
       }
     },
-    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.": {
+    "Rockxy could not decrypt multiple HTTPS hosts for one or more clients. Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。请检查“钥匙串访问”中的 Rockxy Root CA 以及客户端专用信任存储，然后重新启动受影响的客户端。"
+            "value": "Rockxy 无法解密一个或多个客户端访问的多个 HTTPS 主机。请检查“钥匙串访问”中的 Rockxy Root CA 以及客户端专用信任存储，然后重新启动受影响的客户端。"
           }
         }
       }

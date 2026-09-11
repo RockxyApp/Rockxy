@@ -105,7 +105,7 @@ struct ReadinessWarning: Equatable {
 
 // MARK: - TLSRejectionEvidence
 
-/// Aggregates certificate rejection evidence per originating application.
+/// Aggregates certificate rejection and TLS compatibility evidence per originating application.
 ///
 /// Identified clients are isolated from each other so one application's pinning failures cannot
 /// become another application's warning. Unattributed local failures are tracked separately and
@@ -897,15 +897,15 @@ final class ReadinessCoordinator {
         let detail = if isSystemTrustValidated {
             String(
                 localized: """
-                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
-                The macOS Root CA is trusted, so the affected client may use a separate trust store, certificate pinning, or custom TLS requirements. \
-                Restart or configure that client before retrying interception.
+                Rockxy could not decrypt multiple HTTPS hosts for one or more clients. \
+                The macOS Root CA is trusted, so an affected client may use a separate trust store, certificate pinning, or TLS requirements Rockxy cannot intercept. \
+                Connectivity continues through a client-scoped tunnel. Restart or configure that client before retrying interception.
                 """, bundle: RockxyLocalization.bundle
             )
         } else {
             String(
                 localized: """
-                One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
+                Rockxy could not decrypt multiple HTTPS hosts for one or more clients. \
                 Check the Rockxy Root CA in Keychain Access and any client-specific trust store, then restart the affected client.
                 """, bundle: RockxyLocalization.bundle
             )

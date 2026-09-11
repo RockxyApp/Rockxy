@@ -124,8 +124,10 @@ extension MainContentCoordinator {
 
         httpsInterceptionRetryGeneration &+= 1
         let retryGeneration = httpsInterceptionRetryGeneration
+        let readiness = self.readiness
         isRetryingHTTPSInterception = true
         httpsInterceptionRetryTask = Task { [weak self] in
+            await readiness.refreshCertificateTrustValidation()
             guard let self else {
                 return
             }
@@ -135,8 +137,6 @@ extension MainContentCoordinator {
                     self.httpsInterceptionRetryTask = nil
                 }
             }
-
-            await readiness.refreshCertificateTrustValidation()
             guard !Task.isCancelled,
                   httpsInterceptionRetryGeneration == retryGeneration,
                   isProxyRunning,

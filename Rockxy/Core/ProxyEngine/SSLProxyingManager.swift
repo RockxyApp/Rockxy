@@ -392,10 +392,35 @@ final class SSLProxyingManager {
         persistPassthroughHosts()
     }
 
+    /// Gives an identified client a brief raw-tunnel retry after an unclassified TLS failure.
+    /// Unlike certificate rejection and known compatibility fallbacks, this state is memory-only
+    /// so a transient network error cannot silently disable decryption across app launches.
+    nonisolated func markHostForTransientPassthrough(
+        _ host: String,
+        clientIdentifier: String
+    ) {
+        let scope = AutoPassthroughScope(host: host, clientIdentifier: clientIdentifier)
+        let now = Date()
+        passthroughLock.lock()
+        transientPassthroughHosts = transientPassthroughHosts.filter {
+            now.timeIntervalSince($0.value) <= Self.transientPassthroughTTLSeconds
+        }
+        if transientPassthroughHosts[scope] == nil,
+           transientPassthroughHosts.count >= Self.maximumAutoPassthroughEntries,
+           let oldestScope = transientPassthroughHosts.min(by: { $0.value < $1.value })?.key
+        {
+            transientPassthroughHosts.removeValue(forKey: oldestScope)
+        }
+        transientPassthroughHosts[scope] = now
+        passthroughLock.unlock()
+        Self.logger.info("Temporary scoped passthrough enabled for \(host) after an unclassified TLS failure")
+    }
+
     nonisolated func clearAutoPassthrough() {
         passthroughLock.lock()
-        let hadEntries = !autoPassthroughHosts.isEmpty
+        let hadEntries = !autoPassthroughHosts.isEmpty || !transientPassthroughHosts.isEmpty
         autoPassthroughHosts.removeAll()
+        transientPassthroughHosts.removeAll()
         passthroughLock.unlock()
         persistPassthroughHosts()
         Self.logger.info("Cleared all auto-passthrough hosts")
@@ -409,6 +434,21 @@ final class SSLProxyingManager {
         // Notify again after the fallback state is actually gone so any live raw tunnel whose
         // host is now interceptable is reset before the browser reuses it.
         NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
+    }
+
+    /// Waits for every fallback-state snapshot queued before this call to reach disk.
+    /// Capture-time writes remain asynchronous; app termination uses this barrier so a
+    /// recently cleared fallback cannot reappear on the next launch.
+    @discardableResult
+    nonisolated func flushPassthroughPersistence(timeout: DispatchTimeInterval = .seconds(2)) -> Bool {
+        let drained = DispatchSemaphore(value: 0)
+        passthroughLock.lock()
+        enqueuePassthroughSnapshotLocked()
+        Self.passthroughPersistenceQueue.async {
+            drained.signal()
+        }
+        passthroughLock.unlock()
+        return drained.wait(timeout: .now() + timeout) == .success
     }
 
     /// Retries every protected host for the selected client scopes while preserving fallback
@@ -428,21 +468,30 @@ final class SSLProxyingManager {
         let matchingScopes = autoPassthroughHosts.keys.filter { scope in
             scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
         }
+        let transientMatchingScopes = transientPassthroughHosts.keys.filter { scope in
+            scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
+        }
         for scope in matchingScopes {
             autoPassthroughHosts.removeValue(forKey: scope)
         }
+        for scope in transientMatchingScopes {
+            transientPassthroughHosts.removeValue(forKey: scope)
+        }
         passthroughLock.unlock()
 
-        guard !matchingScopes.isEmpty else {
+        let removedCount = matchingScopes.count + transientMatchingScopes.count
+        guard removedCount > 0 else {
             return 0
         }
 
-        persistPassthroughHosts()
+        if !matchingScopes.isEmpty {
+            persistPassthroughHosts()
+        }
         Self.logger.info(
-            "Cleared \(matchingScopes.count) scoped auto-passthrough host(s) for explicit HTTPS retry"
+            "Cleared \(removedCount) scoped auto-passthrough host(s) for explicit HTTPS retry"
         )
         NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
-        return matchingScopes.count
+        return removedCount
     }
 
     /// Clears the protection fallback for one host so its next connection can retry TLS interception.
@@ -458,16 +507,24 @@ final class SSLProxyingManager {
         let matchingScopes = autoPassthroughHosts.keys.filter {
             $0.host.caseInsensitiveCompare(normalizedHost) == .orderedSame
         }
+        let transientMatchingScopes = transientPassthroughHosts.keys.filter {
+            $0.host.caseInsensitiveCompare(normalizedHost) == .orderedSame
+        }
         for scope in matchingScopes {
             autoPassthroughHosts.removeValue(forKey: scope)
         }
+        for scope in transientMatchingScopes {
+            transientPassthroughHosts.removeValue(forKey: scope)
+        }
         passthroughLock.unlock()
 
-        guard !matchingScopes.isEmpty else {
+        guard !matchingScopes.isEmpty || !transientMatchingScopes.isEmpty else {
             return false
         }
 
-        persistPassthroughHosts()
+        if !matchingScopes.isEmpty {
+            persistPassthroughHosts()
+        }
         // Clearing the auto-passthrough fallback can make this host interceptable again while a
         // raw `.autoPassthrough` tunnel is still live (the inspector retry path may not touch any
         // rule, so `save()` never fires). Post the policy-change notification so the live-tunnel
@@ -495,14 +552,20 @@ final class SSLProxyingManager {
         )
         passthroughLock.lock()
         defer { passthroughLock.unlock() }
-        guard let timestamp = autoPassthroughHosts[scope] else {
-            return false
-        }
-        if Date().timeIntervalSince(timestamp) > Self.passthroughTTLSeconds {
+        let now = Date()
+        if let timestamp = autoPassthroughHosts[scope] {
+            if now.timeIntervalSince(timestamp) <= Self.passthroughTTLSeconds {
+                return true
+            }
             autoPassthroughHosts.removeValue(forKey: scope)
-            return false
         }
-        return true
+        if let timestamp = transientPassthroughHosts[scope] {
+            if now.timeIntervalSince(timestamp) <= Self.transientPassthroughTTLSeconds {
+                return true
+            }
+            transientPassthroughHosts.removeValue(forKey: scope)
+        }
+        return false
     }
 
     func load() {
@@ -632,6 +695,7 @@ final class SSLProxyingManager {
         category: "SSLProxyingManager"
     )
     nonisolated private static let passthroughTTLSeconds: TimeInterval = 86_400
+    nonisolated private static let transientPassthroughTTLSeconds: TimeInterval = 60
     nonisolated private static let maximumAutoPassthroughEntries = 2_048
     nonisolated private static let passthroughPersistenceQueue = DispatchQueue(
         label: "\(RockxyIdentity.current.logSubsystem).ssl-passthrough-persistence",
@@ -682,6 +746,7 @@ final class SSLProxyingManager {
 
     private let passthroughLock = NSLock()
     nonisolated(unsafe) private var autoPassthroughHosts: [AutoPassthroughScope: Date] = [:]
+    nonisolated(unsafe) private var transientPassthroughHosts: [AutoPassthroughScope: Date] = [:]
     nonisolated(unsafe) private var _forceGlobalPassthrough = false
     nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
 
@@ -847,17 +912,26 @@ final class SSLProxyingManager {
         let scopesToRemove = autoPassthroughHosts.keys.filter { scope in
             scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
         }
+        let transientScopesToRemove = transientPassthroughHosts.keys.filter { scope in
+            scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
+        }
         for scope in scopesToRemove {
             autoPassthroughHosts.removeValue(forKey: scope)
         }
+        for scope in transientScopesToRemove {
+            transientPassthroughHosts.removeValue(forKey: scope)
+        }
         passthroughLock.unlock()
 
-        guard !scopesToRemove.isEmpty else {
+        let removedCount = scopesToRemove.count + transientScopesToRemove.count
+        guard removedCount > 0 else {
             return
         }
-        persistPassthroughHosts()
+        if !scopesToRemove.isEmpty {
+            persistPassthroughHosts()
+        }
         Self.logger.info(
-            "Cleared \(scopesToRemove.count) auto-passthrough host(s) after application Decrypt scope change"
+            "Cleared \(removedCount) auto-passthrough host(s) after application Decrypt scope change"
         )
     }
 
@@ -868,17 +942,27 @@ final class SSLProxyingManager {
 
         passthroughLock.lock()
         let removedCount: Int
+        let removedPersistentCount: Int
 
         if rules.contains(where: { $0.domain == "*" }) {
-            removedCount = autoPassthroughHosts.count
+            removedPersistentCount = autoPassthroughHosts.count
+            removedCount = removedPersistentCount + transientPassthroughHosts.count
             autoPassthroughHosts.removeAll()
+            transientPassthroughHosts.removeAll()
         } else {
             let scopesToRemove = autoPassthroughHosts.keys.filter { scope in
                 rules.contains { $0.matches(scope.host) }
             }
-            removedCount = scopesToRemove.count
+            let transientScopesToRemove = transientPassthroughHosts.keys.filter { scope in
+                rules.contains { $0.matches(scope.host) }
+            }
+            removedPersistentCount = scopesToRemove.count
+            removedCount = removedPersistentCount + transientScopesToRemove.count
             for scope in scopesToRemove {
                 autoPassthroughHosts.removeValue(forKey: scope)
+            }
+            for scope in transientScopesToRemove {
+                transientPassthroughHosts.removeValue(forKey: scope)
             }
         }
 
@@ -888,7 +972,9 @@ final class SSLProxyingManager {
             return
         }
 
-        persistPassthroughHosts()
+        if removedPersistentCount > 0 {
+            persistPassthroughHosts()
+        }
         Self.logger.info("Cleared \(removedCount) auto-passthrough host(s) after SSL intercept scope change")
     }
 
@@ -927,8 +1013,15 @@ final class SSLProxyingManager {
     }
 
     nonisolated private func persistPassthroughHosts() {
-        let url = resolvedPassthroughStorageURL
         passthroughLock.lock()
+        enqueuePassthroughSnapshotLocked()
+        passthroughLock.unlock()
+    }
+
+    /// Must be called while `passthroughLock` is held so the snapshot and its queue position
+    /// describe one state transition. File I/O runs later on the serial utility queue.
+    nonisolated private func enqueuePassthroughSnapshotLocked() {
+        let url = resolvedPassthroughStorageURL
         let snapshot = AutoPassthroughStorage(
             schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
             records: autoPassthroughHosts.map {
@@ -947,7 +1040,6 @@ final class SSLProxyingManager {
                 Self.logger.error("Failed to persist auto-passthrough hosts: \(error.localizedDescription)")
             }
         }
-        passthroughLock.unlock()
     }
 }
 

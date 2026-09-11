@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOEmbedded
+import NIOSSL
 @testable import Rockxy
 import Testing
 
@@ -212,8 +213,8 @@ struct TLSInterceptHandlerTests {
         #expect(notificationCount.count == 1)
     }
 
-    @Test("ambiguous TLS errors recover through one-connection passthrough")
-    func ambiguousTLSErrorRecoversWithoutPersistentBypass() throws {
+    @Test("ambiguous TLS errors prime temporary scoped passthrough for the next connection")
+    func ambiguousTLSErrorPrimesTemporaryBypass() throws {
         let host = "ambiguous-\(UUID().uuidString).example"
         let clientIdentifier = "client-\(UUID().uuidString)"
         let manager = makeSSLProxyingManager()
@@ -237,6 +238,37 @@ struct TLSInterceptHandlerTests {
         channel.embeddedEventLoop.run()
 
         #expect(recoveryCount.count == 1)
+        #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        #expect(recorded.transaction?.isTLSFailure == true)
+        _ = try? channel.finish()
+    }
+
+    @Test("client-abandoned TLS handshakes never prime passthrough")
+    func abandonedHandshakeDoesNotPrimeBypass() throws {
+        let host = "abandoned-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let recorded = RecordedTransactionBox()
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            recentFailureTracker: RecentFailureTracker(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireErrorCaught(
+            NIOSSLError.handshakeFailed(.sslError([.eofDuringHandshake]))
+        )
+        channel.embeddedEventLoop.run()
+
+        #expect(!channel.isActive)
         #expect(!manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
         #expect(recorded.transaction?.isTLSFailure == true)
         _ = try? channel.finish()
@@ -276,7 +308,7 @@ struct TLSInterceptHandlerTests {
         }
     }
 
-    @Test("known TLS compatibility failures persist scoped passthrough without trust evidence")
+    @Test("known TLS compatibility failures persist scoped passthrough with retry evidence")
     func tlsCompatibilityFailureUsesScopedPassthrough() throws {
         for failure in [
             "certificate_required",
@@ -317,156 +349,19 @@ struct TLSInterceptHandlerTests {
 
             #expect(recoveryCount.count == 1)
             #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
-            #expect(notificationCount.count == 0)
+            #expect(notificationCount.count == 1)
             NotificationCenter.default.removeObserver(observer)
             _ = try? channel.finish()
         }
     }
 
-    @Test("certificate rejection executes the production recovery tunnel path")
-    func certificateRejectionExecutesProductionRecoveryPath() throws {
+    @Test("certificate rejection closes the consumed handshake and primes scoped passthrough")
+    func certificateRejectionPrimesNextConnectionPassthrough() throws {
         let host = "production-recovery-\(UUID().uuidString).example"
         let clientIdentifier = "client-\(UUID().uuidString)"
         let manager = makeSSLProxyingManager()
-        let limiter = ConnectionLimiter(maxPerDestination: 1)
         let recorded = RecordedTransactionBox()
-        let loop = EmbeddedEventLoop()
-        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
-        let serverChannel = EmbeddedChannel(handlers: [], loop: loop)
-        let address = try SocketAddress(ipAddress: "127.0.0.1", port: 443)
-        try clientChannel.connect(to: address).wait()
-        try serverChannel.connect(to: address).wait()
-        let registry = LiveTunnelRegistry { _, _ in false }
-        let handler = PostHandshakeHandler(
-            host: host,
-            port: 443,
-            ruleEngine: RuleEngine(),
-            scriptPluginManager: nil,
-            connectionLimiter: limiter,
-            sslProxyingManager: manager,
-            clientIdentifier: clientIdentifier,
-            liveTunnelRegistry: registry,
-            recentFailureTracker: RecentFailureTracker(),
-            recoveryTunnelConnector: { eventLoop, _, _, _ in
-                eventLoop.makeSucceededFuture(serverChannel)
-            },
-            onTransactionComplete: { recorded.record($0) }
-        )
-        try clientChannel.pipeline.syncOperations.addHandler(handler)
-
-        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
-        loop.run()
-
-        #expect(recorded.transaction?.response?.statusCode == 200)
-        #expect(recorded.transaction?.response?.statusMessage == "Tunneled — Client Rejected Certificate")
-        #expect(recorded.transaction?.state == .completed)
-        #expect(recorded.transaction?.sslCapture == .tunneled)
-        #expect(recorded.transaction?.isTLSFailure == false)
-        #expect(registry.trackedTunnelCount() == 1)
-        let acquiredWhileTunnelWasOpen = limiter.acquire(host: host, port: 443)
-        #expect(!acquiredWhileTunnelWasOpen)
-        if acquiredWhileTunnelWasOpen {
-            limiter.release(host: host, port: 443)
-        }
-
-        serverChannel.close(promise: nil)
-        loop.run()
-        #expect(registry.trackedTunnelCount() == 0)
-        #expect(limiter.acquire(host: host, port: 443))
-        limiter.release(host: host, port: 443)
-
-        _ = try? clientChannel.finish()
-        _ = try? serverChannel.finish()
-    }
-
-    @Test("production recovery reports upstream connection failure and releases its limiter slot")
-    func productionRecoveryHandlesUpstreamFailure() throws {
-        let host = "recovery-failure-\(UUID().uuidString).example"
-        let limiter = ConnectionLimiter(maxPerDestination: 1)
-        let recorded = RecordedTransactionBox()
-        let loop = EmbeddedEventLoop()
-        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
-        try clientChannel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
-        let handler = PostHandshakeHandler(
-            host: host,
-            port: 443,
-            ruleEngine: RuleEngine(),
-            scriptPluginManager: nil,
-            connectionLimiter: limiter,
-            sslProxyingManager: makeSSLProxyingManager(),
-            clientIdentifier: "client-\(UUID().uuidString)",
-            recentFailureTracker: RecentFailureTracker(),
-            recoveryTunnelConnector: { eventLoop, _, _, _ in
-                eventLoop.makeFailedFuture(SyntheticTLSError(description: "upstream unavailable"))
-            },
-            onTransactionComplete: { recorded.record($0) }
-        )
-        try clientChannel.pipeline.syncOperations.addHandler(handler)
-
-        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
-        loop.run()
-
-        #expect(recorded.transaction?.response?.statusCode == 502)
-        #expect(recorded.transaction?.response?.statusMessage == "Upstream Connection Failed")
-        #expect(recorded.transaction?.state == .failed)
-        #expect(recorded.transaction?.isTLSFailure == false)
-        #expect(limiter.acquire(host: host, port: 443))
-        limiter.release(host: host, port: 443)
-
-        _ = try? clientChannel.finish()
-    }
-
-    @Test("production recovery reports a visible limit refusal without opening upstream")
-    func productionRecoveryHandlesConnectionLimit() throws {
-        let host = "recovery-limited-\(UUID().uuidString).example"
-        let limiter = ConnectionLimiter(maxPerDestination: 1)
-        #expect(limiter.acquire(host: host, port: 443))
-        let connectorCount = EventCountBox()
-        let recorded = RecordedTransactionBox()
-        let loop = EmbeddedEventLoop()
-        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
-        try clientChannel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
-        let handler = PostHandshakeHandler(
-            host: host,
-            port: 443,
-            ruleEngine: RuleEngine(),
-            scriptPluginManager: nil,
-            connectionLimiter: limiter,
-            sslProxyingManager: makeSSLProxyingManager(),
-            clientIdentifier: "client-\(UUID().uuidString)",
-            recentFailureTracker: RecentFailureTracker(),
-            recoveryTunnelConnector: { eventLoop, _, _, _ in
-                connectorCount.record()
-                return eventLoop.makeFailedFuture(SyntheticTLSError(description: "must not connect"))
-            },
-            onTransactionComplete: { recorded.record($0) }
-        )
-        try clientChannel.pipeline.syncOperations.addHandler(handler)
-
-        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
-        loop.run()
-
-        #expect(connectorCount.count == 0)
-        #expect(recorded.transaction?.response?.statusCode == 503)
-        #expect(recorded.transaction?.response?.statusMessage == "Connection Limit Reached")
-        #expect(recorded.transaction?.state == .failed)
-        #expect(recorded.transaction?.isTLSFailure == false)
-        limiter.release(host: host, port: 443)
-
-        _ = try? clientChannel.finish()
-    }
-
-    @Test("certificate-rejection fallback registers its live tunnel for retry invalidation")
-    func certificateRejectionFallbackRegistersLiveTunnel() throws {
-        let host = "registered-\(UUID().uuidString).example"
-        let clientIdentifier = "client-\(UUID().uuidString)"
-        let manager = makeSSLProxyingManager()
-        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
-        manager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
         let clientChannel = EmbeddedChannel()
-        let registry = LiveTunnelRegistry { host, _ in
-            !manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier)
-        }
         let handler = PostHandshakeHandler(
             host: host,
             port: 443,
@@ -475,24 +370,147 @@ struct TLSInterceptHandlerTests {
             connectionLimiter: ConnectionLimiter(),
             sslProxyingManager: manager,
             clientIdentifier: clientIdentifier,
-            liveTunnelRegistry: registry,
+            recentFailureTracker: RecentFailureTracker(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+        clientChannel.embeddedEventLoop.run()
+
+        #expect(!clientChannel.isActive)
+        #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        #expect(recorded.transaction?.response?.statusCode == 0)
+        #expect(recorded.transaction?.state == .failed)
+        #expect(recorded.transaction?.isTLSFailure == true)
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("ambiguous handshake failures also prime scoped passthrough for the next connection")
+    func ambiguousFailurePrimesNextConnectionPassthrough() throws {
+        let host = "ambiguous-recovery-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let clientChannel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
             recentFailureTracker: RecentFailureTracker(),
             onTransactionComplete: { _ in }
         )
-        handler.registerRecoveryTunnel(
-            channel: clientChannel,
-            reason: .certificateRejection,
-            decisionGeneration: registry.currentGeneration()
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "handshake timed out"))
+        clientChannel.embeddedEventLoop.run()
+
+        #expect(!clientChannel.isActive)
+        #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("scoped passthrough forwards an untouched real ClientHello and registers its tunnel")
+    func scopedPassthroughForwardsRealClientHello() throws {
+        let host = "registered-\(UUID().uuidString).example"
+        let identity = ClientApplicationIdentity.bundle(
+            identifier: "client-\(UUID().uuidString)",
+            displayName: "TLS Test Client"
         )
+        let manager = makeSSLProxyingManager()
+        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        manager.markHostForPassthrough(host, clientIdentifier: identity.identifier)
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let serverChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let connectorPromise = loop.makePromise(of: Channel.self)
+        let registry = LiveTunnelRegistry { host, _ in
+            !manager.isAutoPassthrough(host, clientIdentifier: identity.identifier)
+        }
+        let handler = TLSInterceptHandler(
+            host: host,
+            port: 443,
+            certificateManager: .shared,
+            ruleEngine: RuleEngine(),
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            bypassProxyManager: makeBypassProxyManager(),
+            clientApplicationIdentity: identity,
+            liveTunnelRegistry: registry,
+            rawTunnelConnector: { _, _, _, _ in connectorPromise.futureResult },
+            onTransactionComplete: { _ in }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        let clientHello = try makeRealClientHello(host: host)
+        try clientChannel.writeInbound(clientHello)
+        connectorPromise.succeed(serverChannel)
+        loop.run()
 
         #expect(registry.trackedTunnelCount() == 1)
+        var forwarded = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
+        var expected = clientHello
+        #expect(forwarded.readBytes(length: forwarded.readableBytes) == expected.readBytes(length: expected.readableBytes))
 
-        #expect(manager.retryInterception(clientIdentifiers: [clientIdentifier]) == 1)
+        #expect(manager.retryInterception(clientIdentifiers: [identity.identifier]) == 1)
         registry.invalidateTunnelsNowRequiringInterception()
-        clientChannel.embeddedEventLoop.run()
+        loop.run()
         #expect(!clientChannel.isActive)
 
         _ = try? clientChannel.finish()
+        _ = try? serverChannel.finish()
+    }
+
+    @Test("non-TLS raw fallback preserves all bytes received while upstream connects")
+    func protocolDetectorRawFallbackPreservesPendingBytes() throws {
+        let host = "raw-pending-\(UUID().uuidString).example"
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let serverChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let connectorPromise = loop.makePromise(of: Channel.self)
+        let recorded = RecordedTransactionBox()
+        let sslContext = try NIOSSLContext(configuration: .makeClientConfiguration())
+        let sslHandler = NIOSSLServerHandler(context: sslContext)
+        let postHandshake = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: makeSSLProxyingManager(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        let detector = ProtocolDetectorHandler(
+            sslHandler: sslHandler,
+            host: host,
+            port: 443,
+            postHandshake: postHandshake,
+            connectionLimiter: ConnectionLimiter(),
+            rawTunnelConnector: { _, _, _, _ in connectorPromise.futureResult }
+        )
+        try clientChannel.pipeline.syncOperations.addHandlers(detector, sslHandler, postHandshake)
+
+        var first = clientChannel.allocator.buffer(capacity: 4)
+        first.writeBytes([0x47, 0x45, 0x54, 0x20])
+        var second = clientChannel.allocator.buffer(capacity: 3)
+        second.writeBytes([0x2f, 0x0d, 0x0a])
+        try clientChannel.writeInbound(first)
+        try clientChannel.writeInbound(second)
+
+        connectorPromise.succeed(serverChannel)
+        loop.run()
+
+        var forwardedFirst = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
+        var forwardedSecond = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
+        #expect(forwardedFirst.readBytes(length: forwardedFirst.readableBytes) == [0x47, 0x45, 0x54, 0x20])
+        #expect(forwardedSecond.readBytes(length: forwardedSecond.readableBytes) == [0x2f, 0x0d, 0x0a])
+        #expect(recorded.transaction?.sslCapture == .tunneled)
+
+        _ = try? clientChannel.finish()
+        _ = try? serverChannel.finish()
     }
 
     @Test("unattributed TLS rejection notifications are bounded per host")
@@ -873,6 +891,19 @@ struct TLSInterceptHandlerTests {
 
     private func makeBypassProxyManager() -> BypassProxyManager {
         BypassProxyManager(storageURL: makeTempURL(prefix: "rockxy-tls-bypass-test"))
+    }
+
+    private func makeRealClientHello(host: String) throws -> ByteBuffer {
+        var configuration = TLSConfiguration.makeClientConfiguration()
+        configuration.certificateVerification = .none
+        let context = try NIOSSLContext(configuration: configuration)
+        let tlsHandler = try NIOSSLClientHandler(context: context, serverHostname: host)
+        let channel = EmbeddedChannel(handler: tlsHandler)
+        try channel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
+        channel.embeddedEventLoop.run()
+        let clientHello = try #require(try channel.readOutbound(as: ByteBuffer.self))
+        _ = try? channel.finish()
+        return clientHello
     }
 
     private func makeTempURL(prefix: String) -> URL {

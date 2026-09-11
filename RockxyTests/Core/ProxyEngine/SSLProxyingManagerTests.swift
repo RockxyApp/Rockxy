@@ -330,6 +330,55 @@ struct SSLProxyingManagerTests {
         #expect(manager2.excludeRules[0].domain == "excluded.com")
     }
 
+    @Test("termination flush persists the latest scoped fallback snapshot")
+    func passthroughTerminationFlushPersistsLatestSnapshot() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-flush-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-flush-passthrough")
+        let host = "flush.example"
+        let clientIdentifier = "app.flush"
+        let manager = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+
+        manager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
+        #expect(manager.flushPassthroughPersistence())
+        let loaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(loaded.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+
+        #expect(manager.retryInterception(clientIdentifiers: [clientIdentifier]) == 1)
+        #expect(manager.flushPassthroughPersistence())
+        let reloaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!reloaded.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+    }
+
+    @Test("transient TLS fallback is client-scoped and never survives relaunch")
+    func transientPassthroughIsMemoryOnly() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-transient-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-transient-passthrough")
+        let manager = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+
+        manager.markHostForTransientPassthrough("transient.example", clientIdentifier: "app.one")
+
+        #expect(manager.isAutoPassthrough("transient.example", clientIdentifier: "app.one"))
+        #expect(!manager.isAutoPassthrough("transient.example", clientIdentifier: "app.two"))
+        #expect(manager.flushPassthroughPersistence())
+        let reloaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!reloaded.isAutoPassthrough("transient.example", clientIdentifier: "app.one"))
+    }
+
     @Test("missing active settings recover from an earlier app namespace")
     func namespaceMigrationRecoversHTTPSSettings() {
         let legacyURL = makeTempURL(prefix: "rockxy-ssl-earlier-namespace")
