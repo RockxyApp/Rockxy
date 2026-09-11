@@ -6,6 +6,15 @@ rss: true
 
 # Changelog
 
+<Update label="September 2026" description="v0.38.3">
+  ### Fixed
+
+  - Preserved existing macOS helper approval across compatible Rockxy updates, avoiding another approval prompt after the app is replaced.
+  - Retained trusted helper connections across app bundle updates and safely waited for older helper processes to finish before using the refreshed helper.
+  - Kept unrelated startup services responsive during helper recovery and added bounded retries for temporary connection interruptions.
+
+</Update>
+
 <Update label="September 2026" description="v0.38.2">
   ### Added
 
