@@ -28418,12 +28418,12 @@
         }
       }
     },
-    "Rockxy could not identify one or more local clients after TLS interception failed on multiple HTTPS hosts. Their traffic remains tunneled. Restart the affected client, then review its trust store and HTTPS Decryption rules.": {
+    "Rockxy could not identify one or more local clients after TLS interception failed on multiple HTTPS hosts. Rockxy temporarily tunnels each affected host so traffic can recover. Restart the affected client, then review its trust store and HTTPS Decryption rules.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rockxy 在多个 HTTPS 主机上的 TLS 拦截失败后，无法识别一个或多个本地客户端。其流量将保持隧道传输。请重新启动受影响的客户端，然后检查其信任存储和 HTTPS 解密规则。"
+            "value": "Rockxy 在多个 HTTPS 主机上的 TLS 拦截失败后，无法识别一个或多个本地客户端。Rockxy 会暂时通过隧道传输每个受影响主机的流量，以恢复连接。请重新启动受影响的客户端，然后检查其信任存储和 HTTPS 解密规则。"
           }
         }
       }

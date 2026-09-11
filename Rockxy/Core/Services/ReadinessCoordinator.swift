@@ -168,15 +168,14 @@ struct TLSRejectionEvidence: Equatable {
     @discardableResult
     mutating func recordSuccessfulHandshake(host: String, clientIdentifier: String?) -> Bool {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedHost.isEmpty,
-              let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier)
-        else {
+        guard !normalizedHost.isEmpty else {
             return false
         }
 
-        // A host that later succeeds after identity resolution no longer contributes to the
-        // unattributed warning bucket.
         var changed = unattributedRejectedHosts.remove(normalizedHost) != nil
+        guard let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+            return changed
+        }
 
         // One completed interception proves the active CA works for this client in the current
         // epoch, so all earlier host failures from that client are compatibility-specific.
@@ -928,7 +927,7 @@ final class ReadinessCoordinator {
             message: String(
                 localized: """
                 Rockxy could not identify one or more local clients after TLS interception failed on multiple HTTPS hosts. \
-                Their traffic remains tunneled. Restart the affected client, then review its trust store and HTTPS Decryption rules.
+                Rockxy temporarily tunnels each affected host so traffic can recover. Restart the affected client, then review its trust store and HTTPS Decryption rules.
                 """,
                 bundle: RockxyLocalization.bundle
             ),

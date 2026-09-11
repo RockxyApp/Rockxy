@@ -312,10 +312,17 @@ struct ReadinessCoordinatorTests {
         #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
     }
 
-    @Test("an unattributed success cannot suppress a later identified client")
-    func unattributedTLSSuccessIsIgnored() {
+    @Test("an unattributed success clears its host without suppressing a later identified client")
+    func unattributedTLSSuccessClearsOnlyItsHost() {
         var evidence = TLSRejectionEvidence()
-        evidence.recordSuccessfulHandshake(host: "one.example", clientIdentifier: nil)
+        evidence.recordRejection(host: "one.example", clientIdentifier: nil)
+
+        let evidenceChanged = evidence.recordSuccessfulHandshake(
+            host: "ONE.EXAMPLE",
+            clientIdentifier: nil
+        )
+        #expect(evidenceChanged)
+        #expect(evidence.unattributedRejectedHosts.isEmpty)
 
         evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
         #expect(evidence.rejectedHostsByClient["app.one"] == ["two.example"])

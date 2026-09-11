@@ -163,12 +163,35 @@ struct TLSInterceptHandlerTests {
         ))
     }
 
+    @Test("per-host retry re-arms rejection evidence for every client scope")
+    func hostRetryRearmsRejectionEvidence() {
+        let host = "retry-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: host,
+            clientIdentifier: clientIdentifier
+        ))
+        #expect(!PostHandshakeHandler.shouldReportCertificateRejection(
+            host: host,
+            clientIdentifier: clientIdentifier
+        ))
+        manager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
+
+        #expect(manager.retryInterception(for: host))
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: host,
+            clientIdentifier: clientIdentifier
+        ))
+    }
+
     @Test("duplicate certificate errors still execute the real recovery control flow")
     func duplicateCertificateErrorsStillRecover() throws {
         let host = "duplicate-\(UUID().uuidString).example"
         let clientIdentifier = "client-\(UUID().uuidString)"
         let tracker = RecentFailureTracker()
-        let recoveryCount = EventCountBox()
+        let transactionCount = EventCountBox()
         let notificationCount = EventCountBox()
         let observer = NotificationCenter.default.addObserver(
             forName: .tlsMitmRejected,
@@ -197,8 +220,7 @@ struct TLSInterceptHandlerTests {
                 sslProxyingManager: manager,
                 clientIdentifier: clientIdentifier,
                 recentFailureTracker: tracker,
-                handshakeFailureRecovery: { recoveryCount.record() },
-                onTransactionComplete: { _ in }
+                onTransactionComplete: { _ in transactionCount.record() }
             )
             try channel.pipeline.syncOperations.addHandler(handler)
 
@@ -209,7 +231,7 @@ struct TLSInterceptHandlerTests {
             _ = try? channel.finish()
         }
 
-        #expect(recoveryCount.count == 2)
+        #expect(transactionCount.count == 2)
         #expect(notificationCount.count == 1)
     }
 
@@ -218,7 +240,6 @@ struct TLSInterceptHandlerTests {
         let host = "ambiguous-\(UUID().uuidString).example"
         let clientIdentifier = "client-\(UUID().uuidString)"
         let manager = makeSSLProxyingManager()
-        let recoveryCount = EventCountBox()
         let recorded = RecordedTransactionBox()
         let channel = EmbeddedChannel()
         let handler = PostHandshakeHandler(
@@ -229,7 +250,6 @@ struct TLSInterceptHandlerTests {
             connectionLimiter: ConnectionLimiter(),
             sslProxyingManager: manager,
             clientIdentifier: clientIdentifier,
-            handshakeFailureRecovery: { recoveryCount.record() },
             onTransactionComplete: { recorded.record($0) }
         )
         try channel.pipeline.syncOperations.addHandler(handler)
@@ -237,7 +257,6 @@ struct TLSInterceptHandlerTests {
         channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "handshake timed out"))
         channel.embeddedEventLoop.run()
 
-        #expect(recoveryCount.count == 1)
         #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
         #expect(recorded.transaction?.isTLSFailure == true)
         _ = try? channel.finish()
@@ -270,6 +289,60 @@ struct TLSInterceptHandlerTests {
 
         #expect(!channel.isActive)
         #expect(!manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        #expect(recorded.transaction == nil)
+        _ = try? channel.finish()
+    }
+
+    @Test("unresolved local certificate rejection gets a short-lived host fallback")
+    func unresolvedCertificateRejectionGetsTransientFallback() throws {
+        let host = "unresolved-rejection-\(UUID().uuidString).example"
+        let manager = makeSSLProxyingManager()
+        let recorded = RecordedTransactionBox()
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            recentFailureTracker: RecentFailureTracker(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+        channel.embeddedEventLoop.run()
+
+        #expect(manager.isAutoPassthrough(host, clientIdentifier: nil))
+        #expect(recorded.transaction?.isTLSFailure == true)
+        _ = try? channel.finish()
+    }
+
+    @Test("connection reset during TLS handshake retains recovery evidence")
+    func connectionResetIsNotTreatedAsAbandonedHandshake() throws {
+        let host = "reset-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let recorded = RecordedTransactionBox()
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            recentFailureTracker: RecentFailureTracker(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "connection reset by peer"))
+        channel.embeddedEventLoop.run()
+
+        #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
         #expect(recorded.transaction?.isTLSFailure == true)
         _ = try? channel.finish()
     }
@@ -283,7 +356,7 @@ struct TLSInterceptHandlerTests {
             let host = "strict-\(alert)-\(UUID().uuidString).example"
             let clientIdentifier = "client-\(UUID().uuidString)"
             let manager = makeSSLProxyingManager()
-            let recoveryCount = EventCountBox()
+            let transactionCount = EventCountBox()
             let channel = EmbeddedChannel()
             let handler = PostHandshakeHandler(
                 host: host,
@@ -294,15 +367,14 @@ struct TLSInterceptHandlerTests {
                 sslProxyingManager: manager,
                 clientIdentifier: clientIdentifier,
                 recentFailureTracker: RecentFailureTracker(),
-                handshakeFailureRecovery: { recoveryCount.record() },
-                onTransactionComplete: { _ in }
+                onTransactionComplete: { _ in transactionCount.record() }
             )
             try channel.pipeline.syncOperations.addHandler(handler)
 
             channel.pipeline.fireErrorCaught(SyntheticTLSError(description: alert))
             channel.embeddedEventLoop.run()
 
-            #expect(recoveryCount.count == 1)
+            #expect(transactionCount.count == 1)
             #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
             _ = try? channel.finish()
         }
@@ -318,7 +390,7 @@ struct TLSInterceptHandlerTests {
             let host = "compatibility-\(UUID().uuidString).example"
             let clientIdentifier = "client-\(UUID().uuidString)"
             let manager = makeSSLProxyingManager()
-            let recoveryCount = EventCountBox()
+            let transactionCount = EventCountBox()
             let notificationCount = EventCountBox()
             let observer = NotificationCenter.default.addObserver(
                 forName: .tlsMitmRejected,
@@ -339,15 +411,14 @@ struct TLSInterceptHandlerTests {
                 sslProxyingManager: manager,
                 clientIdentifier: clientIdentifier,
                 recentFailureTracker: RecentFailureTracker(),
-                handshakeFailureRecovery: { recoveryCount.record() },
-                onTransactionComplete: { _ in }
+                onTransactionComplete: { _ in transactionCount.record() }
             )
             try channel.pipeline.syncOperations.addHandler(handler)
 
             channel.pipeline.fireErrorCaught(SyntheticTLSError(description: failure))
             channel.embeddedEventLoop.run()
 
-            #expect(recoveryCount.count == 1)
+            #expect(transactionCount.count == 1)
             #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
             #expect(notificationCount.count == 1)
             NotificationCenter.default.removeObserver(observer)
@@ -413,8 +484,8 @@ struct TLSInterceptHandlerTests {
         _ = try? clientChannel.finish()
     }
 
-    @Test("scoped passthrough forwards an untouched real ClientHello and registers its tunnel")
-    func scopedPassthroughForwardsRealClientHello() throws {
+    @Test("scoped passthrough preserves a fragmented real ClientHello and registers its tunnel")
+    func scopedPassthroughForwardsFragmentedRealClientHello() throws {
         let host = "registered-\(UUID().uuidString).example"
         let identity = ClientApplicationIdentity.bundle(
             identifier: "client-\(UUID().uuidString)",
@@ -446,14 +517,25 @@ struct TLSInterceptHandlerTests {
         try clientChannel.pipeline.syncOperations.addHandler(handler)
 
         let clientHello = try makeRealClientHello(host: host)
-        try clientChannel.writeInbound(clientHello)
+        let expectedBytes = try #require(
+            clientHello.getBytes(at: clientHello.readerIndex, length: clientHello.readableBytes)
+        )
+        let splitIndex = expectedBytes.count / 2
+        var firstFragment = clientChannel.allocator.buffer(capacity: splitIndex)
+        firstFragment.writeBytes(expectedBytes[..<splitIndex])
+        var secondFragment = clientChannel.allocator.buffer(capacity: expectedBytes.count - splitIndex)
+        secondFragment.writeBytes(expectedBytes[splitIndex...])
+        try clientChannel.writeInbound(firstFragment)
+        try clientChannel.writeInbound(secondFragment)
         connectorPromise.succeed(serverChannel)
         loop.run()
 
         #expect(registry.trackedTunnelCount() == 1)
-        var forwarded = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
-        var expected = clientHello
-        #expect(forwarded.readBytes(length: forwarded.readableBytes) == expected.readBytes(length: expected.readableBytes))
+        var forwardedFirst = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
+        var forwardedSecond = try #require(try serverChannel.readOutbound(as: ByteBuffer.self))
+        let forwardedBytes = (forwardedFirst.readBytes(length: forwardedFirst.readableBytes) ?? [])
+            + (forwardedSecond.readBytes(length: forwardedSecond.readableBytes) ?? [])
+        #expect(forwardedBytes == expectedBytes)
 
         #expect(manager.retryInterception(clientIdentifiers: [identity.identifier]) == 1)
         registry.invalidateTunnelsNowRequiringInterception()
@@ -511,6 +593,175 @@ struct TLSInterceptHandlerTests {
 
         _ = try? clientChannel.finish()
         _ = try? serverChannel.finish()
+    }
+
+    @Test("scoped passthrough reports oversized buffered data once")
+    func scopedPassthroughRejectsOversizedBufferedDataOnce() throws {
+        let host = "oversized-scoped-\(UUID().uuidString).example"
+        let identity = ClientApplicationIdentity.bundle(
+            identifier: "client-\(UUID().uuidString)",
+            displayName: "Oversized Test Client"
+        )
+        let manager = makeSSLProxyingManager()
+        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        manager.markHostForPassthrough(host, clientIdentifier: identity.identifier)
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let connectorPromise = loop.makePromise(of: Channel.self)
+        let recorded = RecordedTransactionBox()
+        let transactionCount = EventCountBox()
+        let handler = TLSInterceptHandler(
+            host: host,
+            port: 443,
+            certificateManager: .shared,
+            ruleEngine: RuleEngine(),
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            bypassProxyManager: makeBypassProxyManager(),
+            clientApplicationIdentity: identity,
+            rawTunnelConnector: { _, _, _, _ in connectorPromise.futureResult },
+            onTransactionComplete: {
+                recorded.record($0)
+                transactionCount.record()
+            }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        var oversized = clientChannel.allocator.buffer(
+            capacity: TLSInterceptHandler.maximumBufferedTunnelBytes + 1
+        )
+        oversized.writeBytes(
+            repeatElement(UInt8(0x16), count: TLSInterceptHandler.maximumBufferedTunnelBytes + 1)
+        )
+        try clientChannel.writeInbound(oversized)
+        loop.run()
+
+        #expect(!clientChannel.isActive)
+        #expect(recorded.transaction?.response?.statusCode == 413)
+        #expect(recorded.transaction?.response?.statusMessage == "Tunnel Preface Too Large")
+        #expect(transactionCount.count == 1)
+
+        connectorPromise.fail(SyntheticTLSError(description: "late connector failure"))
+        loop.run()
+        #expect(transactionCount.count == 1)
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("protocol detector reports oversized pending raw data once")
+    func protocolDetectorRejectsOversizedPendingDataOnce() throws {
+        let host = "oversized-detector-\(UUID().uuidString).example"
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let connectorPromise = loop.makePromise(of: Channel.self)
+        let recorded = RecordedTransactionBox()
+        let transactionCount = EventCountBox()
+        let sslContext = try NIOSSLContext(configuration: .makeClientConfiguration())
+        let sslHandler = NIOSSLServerHandler(context: sslContext)
+        let postHandshake = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: makeSSLProxyingManager(),
+            onTransactionComplete: {
+                recorded.record($0)
+                transactionCount.record()
+            }
+        )
+        let detector = ProtocolDetectorHandler(
+            sslHandler: sslHandler,
+            host: host,
+            port: 443,
+            postHandshake: postHandshake,
+            connectionLimiter: ConnectionLimiter(),
+            rawTunnelConnector: { _, _, _, _ in connectorPromise.futureResult }
+        )
+        try clientChannel.pipeline.syncOperations.addHandlers(detector, sslHandler, postHandshake)
+
+        var first = clientChannel.allocator.buffer(capacity: 1)
+        first.writeInteger(UInt8(0x47))
+        try clientChannel.writeInbound(first)
+        var oversized = clientChannel.allocator.buffer(
+            capacity: TLSInterceptHandler.maximumBufferedTunnelBytes
+        )
+        oversized.writeBytes(
+            repeatElement(UInt8(0x45), count: TLSInterceptHandler.maximumBufferedTunnelBytes)
+        )
+        try clientChannel.writeInbound(oversized)
+        loop.run()
+
+        #expect(!clientChannel.isActive)
+        #expect(recorded.transaction?.response?.statusCode == 413)
+        #expect(recorded.transaction?.response?.statusMessage == "Tunnel Preface Too Large")
+        #expect(transactionCount.count == 1)
+
+        connectorPromise.fail(SyntheticTLSError(description: "late connector failure"))
+        loop.run()
+        #expect(transactionCount.count == 1)
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("empty detector reads wait for protocol bytes")
+    func emptyDetectorReadDoesNotCloseTunnel() throws {
+        let sslContext = try NIOSSLContext(configuration: .makeClientConfiguration())
+        let sslHandler = NIOSSLServerHandler(context: sslContext)
+        let postHandshake = PostHandshakeHandler(
+            host: "empty-read.example",
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: makeSSLProxyingManager(),
+            onTransactionComplete: { _ in }
+        )
+        let detector = ProtocolDetectorHandler(
+            sslHandler: sslHandler,
+            host: "empty-read.example",
+            port: 443,
+            postHandshake: postHandshake,
+            connectionLimiter: ConnectionLimiter()
+        )
+        let channel = EmbeddedChannel(handler: detector)
+        try channel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
+
+        try channel.writeInbound(channel.allocator.buffer(capacity: 0))
+
+        #expect(channel.isActive)
+        #expect((try? channel.pipeline.syncOperations.handler(type: ProtocolDetectorHandler.self)) != nil)
+        _ = try? channel.finish()
+    }
+
+    @Test("protocol detector errors produce a visible failed CONNECT")
+    func protocolDetectorErrorProducesFailedTunnel() throws {
+        let recorded = RecordedTransactionBox()
+        let sslContext = try NIOSSLContext(configuration: .makeClientConfiguration())
+        let sslHandler = NIOSSLServerHandler(context: sslContext)
+        let postHandshake = PostHandshakeHandler(
+            host: "detector-error.example",
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: makeSSLProxyingManager(),
+            onTransactionComplete: { recorded.record($0) }
+        )
+        let detector = ProtocolDetectorHandler(
+            sslHandler: sslHandler,
+            host: "detector-error.example",
+            port: 443,
+            postHandshake: postHandshake,
+            connectionLimiter: ConnectionLimiter()
+        )
+        let channel = EmbeddedChannel(handler: detector)
+
+        channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "detector failed"))
+        channel.embeddedEventLoop.run()
+
+        #expect(!channel.isActive)
+        #expect(recorded.transaction?.response?.statusCode == 500)
+        #expect(recorded.transaction?.response?.statusMessage == "Protocol Detection Failed")
+        _ = try? channel.finish()
     }
 
     @Test("unattributed TLS rejection notifications are bounded per host")
@@ -852,6 +1103,31 @@ struct TLSInterceptHandlerTests {
         #expect(recorded.transaction?.state == .failed)
         // Not a TLS handshake failure, so the row stays visible in the request list.
         #expect(recorded.transaction?.isTLSFailure == false)
+    }
+
+    @Test("post-handshake fallback reports only its first terminal outcome")
+    func postHandshakeRecordsOnlyFirstTunnelOutcome() {
+        let recorded = RecordedTransactionBox()
+        let transactionCount = EventCountBox()
+        let handler = PostHandshakeHandler(
+            host: "api.example.com",
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: .shared,
+            onTransactionComplete: {
+                recorded.record($0)
+                transactionCount.record()
+            }
+        )
+
+        handler.recordTunnelFailure(statusCode: 413, statusMessage: "Tunnel Preface Too Large")
+        handler.recordTunnelFailure(statusCode: 502, statusMessage: "Upstream Connection Failed")
+        handler.recordSuccessfulTunnel()
+
+        #expect(transactionCount.count == 1)
+        #expect(recorded.transaction?.response?.statusCode == 413)
     }
 
     @Test("rejected raw tunnel reports a visible failed CONNECT instead of closing silently")

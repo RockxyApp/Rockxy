@@ -2,6 +2,27 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+private final class MutableDateBox: @unchecked Sendable {
+    init(_ value: Date) {
+        self.value = value
+    }
+
+    func now() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.lock()
+        value = value.addingTimeInterval(interval)
+        lock.unlock()
+    }
+
+    private var value: Date
+    private let lock = NSLock()
+}
+
 // MARK: - SSLProxyingManagerTests
 
 @MainActor
@@ -358,25 +379,65 @@ struct SSLProxyingManagerTests {
         #expect(!reloaded.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
     }
 
-    @Test("transient TLS fallback is client-scoped and never survives relaunch")
-    func transientPassthroughIsMemoryOnly() {
-        let settingsURL = makeTempURL(prefix: "rockxy-ssl-transient-settings")
-        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-transient-passthrough")
+    @Test("rejection bursts persist only the latest scoped fallback state")
+    func passthroughRejectionBurstPersistsLatestState() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-burst-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-burst-passthrough")
         let manager = SSLProxyingManager(
             storageURL: settingsURL,
             passthroughStorageURL: passthroughURL
         )
+        let retainedHosts = (0..<32).map { "retained-\($0).example" }
+        let retriedHosts = (0..<32).map { "retried-\($0).example" }
+
+        for host in retainedHosts + retriedHosts {
+            manager.markHostForPassthrough(host, clientIdentifier: "app.burst")
+        }
+        for host in retriedHosts {
+            #expect(manager.retryInterception(for: host))
+        }
+
+        #expect(manager.flushPassthroughPersistence())
+        let reloaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        for host in retainedHosts {
+            #expect(reloaded.isAutoPassthrough(host, clientIdentifier: "app.burst"))
+        }
+        for host in retriedHosts {
+            #expect(!reloaded.isAutoPassthrough(host, clientIdentifier: "app.burst"))
+        }
+    }
+
+    @Test("transient TLS fallback expires, stays scoped, and never survives relaunch")
+    func transientPassthroughIsMemoryOnly() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-transient-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-transient-passthrough")
+        let clock = MutableDateBox(Date(timeIntervalSince1970: 1_000))
+        let manager = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL,
+            passthroughNowProvider: clock.now
+        )
 
         manager.markHostForTransientPassthrough("transient.example", clientIdentifier: "app.one")
+        manager.markHostForTransientPassthrough("unresolved.example", clientIdentifier: nil)
 
         #expect(manager.isAutoPassthrough("transient.example", clientIdentifier: "app.one"))
         #expect(!manager.isAutoPassthrough("transient.example", clientIdentifier: "app.two"))
+        #expect(manager.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
+        #expect(!manager.isAutoPassthrough("unresolved.example", clientIdentifier: "app.one"))
+        clock.advance(by: 61)
+        #expect(!manager.isAutoPassthrough("transient.example", clientIdentifier: "app.one"))
+        #expect(!manager.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
         #expect(manager.flushPassthroughPersistence())
         let reloaded = SSLProxyingManager(
             storageURL: settingsURL,
             passthroughStorageURL: passthroughURL
         )
         #expect(!reloaded.isAutoPassthrough("transient.example", clientIdentifier: "app.one"))
+        #expect(!reloaded.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
     }
 
     @Test("missing active settings recover from an earlier app namespace")

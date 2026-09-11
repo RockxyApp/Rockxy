@@ -767,6 +767,21 @@ extension HTTPProxyHandler {
             proxyHandlerLogger.error(
                 "Failed to set up TLS handler for \(host): \(String(describing: error))"
             )
+            self.onTransactionComplete(
+                TLSInterceptHandler.makeTunnelTransaction(
+                    host: host,
+                    port: port,
+                    statusCode: 500,
+                    statusMessage: "TLS Handler Setup Failed",
+                    state: .failed,
+                    sourcePort: self.clientSourcePort,
+                    captureContext: requestData.captureContext,
+                    clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
+                        application: nil,
+                        connectionDescriptor: self.clientConnectionDescriptor
+                    )
+                )
+            )
             context.close(promise: nil)
         }
     }

@@ -16,6 +16,7 @@ final class SSLProxyingManager {
         customStorageURL = nil
         customPassthroughStorageURL = nil
         migrationStorageURLs = Self.defaultMigrationStorageURLs
+        passthroughNowProvider = Date.init
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
@@ -25,11 +26,13 @@ final class SSLProxyingManager {
     init(
         storageURL: URL,
         passthroughStorageURL: URL? = nil,
-        migrationStorageURLs: [URL] = []
+        migrationStorageURLs: [URL] = [],
+        passthroughNowProvider: @escaping @Sendable () -> Date = Date.init
     ) {
         customStorageURL = storageURL
         customPassthroughStorageURL = passthroughStorageURL
         self.migrationStorageURLs = migrationStorageURLs
+        self.passthroughNowProvider = passthroughNowProvider
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
@@ -375,7 +378,7 @@ final class SSLProxyingManager {
             host: host,
             clientIdentifier: clientIdentifier
         )
-        let now = Date()
+        let now = passthroughNowProvider()
         passthroughLock.lock()
         autoPassthroughHosts = autoPassthroughHosts.filter {
             now.timeIntervalSince($0.value) <= Self.passthroughTTLSeconds
@@ -392,15 +395,16 @@ final class SSLProxyingManager {
         persistPassthroughHosts()
     }
 
-    /// Gives an identified client a brief raw-tunnel retry after an unclassified TLS failure.
+    /// Gives a client a brief raw-tunnel retry after an unclassified TLS failure. A nil identity
+    /// is scoped to unresolved clients for this host and remains memory-only.
     /// Unlike certificate rejection and known compatibility fallbacks, this state is memory-only
     /// so a transient network error cannot silently disable decryption across app launches.
     nonisolated func markHostForTransientPassthrough(
         _ host: String,
-        clientIdentifier: String
+        clientIdentifier: String?
     ) {
         let scope = AutoPassthroughScope(host: host, clientIdentifier: clientIdentifier)
-        let now = Date()
+        let now = passthroughNowProvider()
         passthroughLock.lock()
         transientPassthroughHosts = transientPassthroughHosts.filter {
             now.timeIntervalSince($0.value) <= Self.transientPassthroughTTLSeconds
@@ -525,6 +529,7 @@ final class SSLProxyingManager {
         if !matchingScopes.isEmpty {
             persistPassthroughHosts()
         }
+        RecentFailureTracker.certificateRejections.reset(host: normalizedHost)
         // Clearing the auto-passthrough fallback can make this host interceptable again while a
         // raw `.autoPassthrough` tunnel is still live (the inspector retry path may not touch any
         // rule, so `save()` never fires). Post the policy-change notification so the live-tunnel
@@ -552,7 +557,7 @@ final class SSLProxyingManager {
         )
         passthroughLock.lock()
         defer { passthroughLock.unlock() }
-        let now = Date()
+        let now = passthroughNowProvider()
         if let timestamp = autoPassthroughHosts[scope] {
             if now.timeIntervalSince(timestamp) <= Self.passthroughTTLSeconds {
                 return true
@@ -736,6 +741,7 @@ final class SSLProxyingManager {
     private let customStorageURL: URL?
     private let customPassthroughStorageURL: URL?
     private let migrationStorageURLs: [URL]
+    private let passthroughNowProvider: @Sendable () -> Date
 
     private let lock = NSLock()
     nonisolated(unsafe) private var cachedEnabledIncludeRules: [SSLProxyingRule]
@@ -749,6 +755,8 @@ final class SSLProxyingManager {
     nonisolated(unsafe) private var transientPassthroughHosts: [AutoPassthroughScope: Date] = [:]
     nonisolated(unsafe) private var _forceGlobalPassthrough = false
     nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
+    nonisolated(unsafe) private var passthroughPersistenceDirty = false
+    nonisolated(unsafe) private var passthroughPersistenceScheduled = false
 
     private var resolvedStorageURL: URL {
         customStorageURL ?? Self.defaultStorageURL
@@ -990,7 +998,7 @@ final class SSLProxyingManager {
                 Self.logger.info("Discarding legacy global auto-passthrough state")
                 return
             }
-            let now = Date()
+            let now = passthroughNowProvider()
             let validRecords = decoded.records
                 .filter {
                     $0.scope.clientIdentifier != nil
@@ -1018,19 +1026,39 @@ final class SSLProxyingManager {
         passthroughLock.unlock()
     }
 
-    /// Must be called while `passthroughLock` is held so the snapshot and its queue position
-    /// describe one state transition. File I/O runs later on the serial utility queue.
+    /// Must be called while `passthroughLock` is held so a mutation marks the latest state dirty
+    /// before the coalesced writer is scheduled on the serial utility queue.
     nonisolated private func enqueuePassthroughSnapshotLocked() {
-        let url = resolvedPassthroughStorageURL
-        let snapshot = AutoPassthroughStorage(
-            schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
-            records: autoPassthroughHosts.map {
-                AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
+        passthroughPersistenceDirty = true
+        guard !passthroughPersistenceScheduled else {
+            return
+        }
+        passthroughPersistenceScheduled = true
+        Self.passthroughPersistenceQueue.async { [self] in
+            drainPassthroughPersistence()
+        }
+    }
+
+    /// Coalesces rejection bursts while preserving ordered, latest-state persistence. The serial
+    /// queue keeps writing until no mutation arrived during the preceding atomic write.
+    nonisolated private func drainPassthroughPersistence() {
+        while true {
+            passthroughLock.lock()
+            guard passthroughPersistenceDirty else {
+                passthroughPersistenceScheduled = false
+                passthroughLock.unlock()
+                return
             }
-        )
-        // Enqueue while holding the state lock so concurrent NIO event loops cannot write an
-        // older snapshot after a newer one. The actual file I/O still runs off the event loop.
-        Self.passthroughPersistenceQueue.async {
+            passthroughPersistenceDirty = false
+            let url = resolvedPassthroughStorageURL
+            let snapshot = AutoPassthroughStorage(
+                schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
+                records: autoPassthroughHosts.map {
+                    AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
+                }
+            )
+            passthroughLock.unlock()
+
             do {
                 let dir = url.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
