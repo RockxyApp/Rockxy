@@ -194,12 +194,12 @@
         }
       }
     },
-    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. The macOS Root CA is trusted, so the affected client may use a separate trust store or certificate pinning. Restart or configure that client before retrying interception.": {
+    "One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. The macOS Root CA is trusted, so the affected client may use a separate trust store, certificate pinning, or custom TLS requirements. Restart or configure that client before retrying interception.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。macOS Root CA 已受信任，因此受影响的客户端可能使用独立的信任存储或证书固定。请重新启动或配置该客户端后再重试解密。"
+            "value": "一个或多个客户端在多个 HTTPS 主机上拒绝了 Rockxy 证书。macOS Root CA 已受信任，因此受影响的客户端可能使用独立的信任存储、证书固定或自定义 TLS 要求。请重新启动或配置该客户端后再重试解密。"
           }
         }
       }
@@ -15793,6 +15793,16 @@
         }
       }
     },
+    "HTTPS retry is ready. Repeat the request or reconnect the affected client.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS 重试已就绪。请重新发送请求或重新连接受影响的客户端。"
+          }
+        }
+      }
+    },
     "HTTPS interception is unavailable because the Rockxy Root CA has not been generated yet. HTTP traffic and logs are still captured.": {
       "localizations": {
         "zh-Hans": {
@@ -20966,6 +20976,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有 HTTPS 解密规则"
+          }
+        }
+      }
+    },
+    "No HTTPS interception recovery is pending.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前没有待处理的 HTTPS 拦截恢复。"
           }
         }
       }
@@ -28394,6 +28414,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法验证根 CA 的信任状态，因此 HTTPS 拦截已暂停。HTTP 流量和日志仍会被捕获。"
+          }
+        }
+      }
+    },
+    "Rockxy could not identify one or more local clients after TLS interception failed on multiple HTTPS hosts. Their traffic remains tunneled. Restart the affected client, then review its trust store and HTTPS Decryption rules.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 在多个 HTTPS 主机上的 TLS 拦截失败后，无法识别一个或多个本地客户端。其流量将保持隧道传输。请重新启动受影响的客户端，然后检查其信任存储和 HTTPS 解密规则。"
           }
         }
       }

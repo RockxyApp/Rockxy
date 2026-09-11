@@ -252,20 +252,28 @@ struct ReadinessCoordinatorTests {
         }
         #expect(evidence.hasMultiHostClientFailure)
 
-        evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
+        evidence.recordSuccessfulHandshake(host: "one.example", clientIdentifier: "app.one")
 
         #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
         #expect(evidence.rejectedHostsByClient["app.two"]?.count == 3)
         #expect(evidence.hasMultiHostClientFailure)
     }
 
-    @Test("an application that accepted the current CA cannot later trigger a global trust warning")
-    func tlsSuccessSuppressesLaterPinnedHostFailuresForMatchingApplication() {
+    @Test("a client that accepts the current CA cannot trigger a broad warning from pinned hosts")
+    func tlsSuccessSuppressesLaterPinnedHostFailures() {
         var evidence = TLSRejectionEvidence()
-        let firstSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
-        let duplicateSuccessChangedEvidence = evidence.recordSuccessfulHandshake(clientIdentifier: "app.one")
-        #expect(firstSuccessChangedEvidence)
-        #expect(!duplicateSuccessChangedEvidence)
+        evidence.recordRejection(host: "recovered.example", clientIdentifier: "app.one")
+        let firstSuccess = evidence.recordSuccessfulHandshake(
+            host: "recovered.example",
+            clientIdentifier: "app.one"
+        )
+        let duplicateSuccess = evidence.recordSuccessfulHandshake(
+            host: "recovered.example",
+            clientIdentifier: "app.one"
+        )
+        #expect(firstSuccess)
+        #expect(!duplicateSuccess)
 
         for host in ["pinned-one.example", "pinned-two.example", "pinned-three.example"] {
             evidence.recordRejection(host: host, clientIdentifier: "app.one")
@@ -276,8 +284,8 @@ struct ReadinessCoordinatorTests {
         #expect(!evidence.hasMultiHostClientFailure)
     }
 
-    @Test("unattributed TLS rejections never become a global trust warning")
-    func unattributedTLSRejectionsAreIgnored() {
+    @Test("unattributed TLS rejections produce separate bounded evidence")
+    func unattributedTLSRejectionsAreBounded() {
         var evidence = TLSRejectionEvidence()
         for host in ["one.example", "two.example", "three.example", "four.example", "five.example"] {
             evidence.recordRejection(host: host, clientIdentifier: nil)
@@ -285,32 +293,79 @@ struct ReadinessCoordinatorTests {
 
         #expect(!evidence.hasMultiHostClientFailure)
         #expect(evidence.rejectedHostsByClient.isEmpty)
+        #expect(evidence.hasUnattributedMultiHostFailure)
+        #expect(evidence.unattributedRejectedHosts.count == TLSRejectionEvidence.warningThreshold)
+    }
+
+    @Test("a later identified success clears the matching unattributed host")
+    func identifiedSuccessClearsMatchingUnattributedEvidence() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: nil)
+        }
+        #expect(evidence.hasUnattributedMultiHostFailure)
+
+        evidence.recordSuccessfulHandshake(host: "TWO.EXAMPLE", clientIdentifier: "app.one")
+
+        #expect(evidence.unattributedRejectedHosts == ["one.example", "three.example"])
+        #expect(!evidence.hasUnattributedMultiHostFailure)
+        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
     }
 
     @Test("an unattributed success cannot suppress a later identified client")
     func unattributedTLSSuccessIsIgnored() {
         var evidence = TLSRejectionEvidence()
-        evidence.recordSuccessfulHandshake(clientIdentifier: nil)
+        evidence.recordSuccessfulHandshake(host: "one.example", clientIdentifier: nil)
 
         evidence.recordRejection(host: "two.example", clientIdentifier: "app.one")
         #expect(evidence.rejectedHostsByClient["app.one"] == ["two.example"])
     }
 
-    @Test("the bounded acceptance cache always retains the most recently successful client")
-    func tlsAcceptanceCacheRetainsNewestClient() {
+    @Test("TLS rejection client evidence remains bounded")
+    func tlsRejectionClientEvidenceRemainsBounded() {
         var evidence = TLSRejectionEvidence()
         for index in 0 ..< TLSRejectionEvidence.maximumTrackedClients {
-            evidence.recordSuccessfulHandshake(clientIdentifier: "app.\(index)")
+            evidence.recordRejection(host: "one.example", clientIdentifier: "app.\(index)")
         }
 
-        evidence.recordSuccessfulHandshake(clientIdentifier: "app.newest")
-        for host in ["one.example", "two.example", "three.example"] {
-            evidence.recordRejection(host: host, clientIdentifier: "app.newest")
+        let overflowInserted = evidence.recordRejection(host: "one.example", clientIdentifier: "app.overflow")
+
+        #expect(!overflowInserted)
+        #expect(evidence.rejectedHostsByClient.count == TLSRejectionEvidence.maximumTrackedClients)
+        #expect(evidence.rejectedHostsByClient["app.overflow"] == nil)
+    }
+
+    @Test("the current-CA acceptance cache remains bounded and retains the newest client")
+    func tlsAcceptanceCacheRemainsBounded() {
+        var evidence = TLSRejectionEvidence()
+        for index in 0 ..< TLSRejectionEvidence.maximumTrackedClients {
+            evidence.recordSuccessfulHandshake(host: "ok.example", clientIdentifier: "app.\(index)")
         }
+
+        evidence.recordSuccessfulHandshake(host: "ok.example", clientIdentifier: "app.newest")
 
         #expect(evidence.clientsAcceptingCurrentCA.count == TLSRejectionEvidence.maximumTrackedClients)
         #expect(evidence.clientsAcceptingCurrentCA.contains("app.newest"))
-        #expect(evidence.rejectedHostsByClient["app.newest"] == nil)
+        #expect(!evidence.clientsAcceptingCurrentCA.contains("app.0"))
+    }
+
+    @Test("retry targets and clears only clients that reached the multi-host threshold")
+    func tlsRetryTargetsAreClientScoped() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "APP.ONE")
+            evidence.recordRejection(host: host, clientIdentifier: "app.two")
+        }
+        evidence.recordRejection(host: "single.example", clientIdentifier: "app.three")
+
+        #expect(evidence.clientIdentifiersNeedingRetry == ["app.one", "app.two"])
+
+        evidence.clearRejections(clientIdentifiers: ["App.One"])
+
+        #expect(evidence.clientIdentifiersNeedingRetry == ["app.two"])
+        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
+        #expect(evidence.rejectedHostsByClient["app.two"]?.count == 3)
+        #expect(evidence.rejectedHostsByClient["app.three"] == ["single.example"])
     }
 
     @Test("clearTLSRejections removes TLS rejection warning source")
@@ -610,6 +665,15 @@ struct ReadinessWarningTests {
         #expect(warning.action == .retryHTTPSInterception)
         #expect(warning.isDismissible)
         #expect(warning.message.contains("Root CA is trusted"))
+    }
+
+    @Test("unattributed TLS warning does not clear another client's recovery state")
+    func unattributedTLSWarningOpensConfiguration() {
+        let warning = ReadinessCoordinator.unattributedTLSRejectionWarning()
+
+        #expect(warning.action == .openHTTPSDecryption)
+        #expect(warning.isDismissible)
+        #expect(warning.message.contains("could not identify"))
     }
 
     @Test("cert-trusted state produces no cert warning")

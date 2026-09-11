@@ -224,6 +224,22 @@ struct SSLProxyingManagerTests {
         #expect(!manager.retryInterception(for: "missing.example.com"))
     }
 
+    @Test("warning retry clears every failed host for selected clients only")
+    func retryInterceptionClearsSelectedClients() {
+        let manager = makeManager()
+        manager.markHostForPassthrough("one.example", clientIdentifier: "app.one")
+        manager.markHostForPassthrough("two.example", clientIdentifier: "APP.ONE")
+        manager.markHostForPassthrough("one.example", clientIdentifier: "app.two")
+        manager.markHostForPassthrough("unattributed.example", clientIdentifier: nil)
+
+        #expect(manager.retryInterception(clientIdentifiers: [" App.One "]) == 2)
+        #expect(!manager.isAutoPassthrough("one.example", clientIdentifier: "app.one"))
+        #expect(!manager.isAutoPassthrough("two.example", clientIdentifier: "app.one"))
+        #expect(manager.isAutoPassthrough("one.example", clientIdentifier: "app.two"))
+        #expect(manager.isAutoPassthrough("unattributed.example", clientIdentifier: nil))
+        #expect(manager.retryInterception(clientIdentifiers: []) == 0)
+    }
+
     @Test("certificate rejection passthrough is scoped to the originating application")
     func autoPassthroughIsApplicationScoped() {
         let manager = makeManager()
@@ -312,6 +328,77 @@ struct SSLProxyingManagerTests {
         #expect(manager2.bypassDomains == "custom.bypass.com")
         #expect(manager2.includeRules[0].domain == "persisted.com")
         #expect(manager2.excludeRules[0].domain == "excluded.com")
+    }
+
+    @Test("missing active settings recover from an earlier app namespace")
+    func namespaceMigrationRecoversHTTPSSettings() {
+        let legacyURL = makeTempURL(prefix: "rockxy-ssl-earlier-namespace")
+        let activeURL = makeTempURL(prefix: "rockxy-ssl-active-namespace")
+        let legacyManager = SSLProxyingManager(
+            storageURL: legacyURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-earlier-passthrough")
+        )
+        legacyManager.addRule(SSLProxyingRule(domain: "recovered.example", listType: .include))
+        legacyManager.setBypassDomains("custom-bypass.example")
+
+        let migratedManager = SSLProxyingManager(
+            storageURL: activeURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-active-passthrough"),
+            migrationStorageURLs: [legacyURL]
+        )
+
+        #expect(migratedManager.rules.map(\.domain) == ["recovered.example"])
+        #expect(migratedManager.bypassDomains == "custom-bypass.example")
+        #expect(FileManager.default.fileExists(atPath: activeURL.path))
+    }
+
+    @Test("existing active settings are never replaced by another namespace")
+    func namespaceMigrationPreservesExistingSettings() {
+        let legacyURL = makeTempURL(prefix: "rockxy-ssl-earlier-existing")
+        let activeURL = makeTempURL(prefix: "rockxy-ssl-active-existing")
+        let legacyManager = SSLProxyingManager(
+            storageURL: legacyURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-earlier-existing-passthrough")
+        )
+        legacyManager.addRule(SSLProxyingRule(domain: "legacy.example"))
+        let activeManager = SSLProxyingManager(
+            storageURL: activeURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-active-existing-passthrough")
+        )
+        activeManager.addRule(SSLProxyingRule(domain: "active.example"))
+
+        let loadedManager = SSLProxyingManager(
+            storageURL: activeURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-loaded-existing-passthrough"),
+            migrationStorageURLs: [legacyURL]
+        )
+
+        #expect(loadedManager.rules.map(\.domain) == ["active.example"])
+    }
+
+    @Test("corrupt active settings recover from a valid earlier namespace")
+    func namespaceMigrationRecoversCorruptActiveSettings() throws {
+        let legacyURL = makeTempURL(prefix: "rockxy-ssl-earlier-corrupt")
+        let activeURL = makeTempURL(prefix: "rockxy-ssl-active-corrupt")
+        let legacyManager = SSLProxyingManager(
+            storageURL: legacyURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-earlier-corrupt-passthrough")
+        )
+        legacyManager.addRule(SSLProxyingRule(domain: "recovered-from-corruption.example"))
+        try Data("truncated".utf8).write(to: activeURL)
+
+        let migratedManager = SSLProxyingManager(
+            storageURL: activeURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-active-corrupt-passthrough"),
+            migrationStorageURLs: [legacyURL]
+        )
+
+        #expect(migratedManager.rules.map(\.domain) == ["recovered-from-corruption.example"])
+        let reloadedManager = SSLProxyingManager(
+            storageURL: activeURL,
+            passthroughStorageURL: makeTempURL(prefix: "rockxy-ssl-reloaded-corrupt-passthrough")
+        )
+        #expect(reloadedManager.rules.map(\.domain) == ["recovered-from-corruption.example"])
     }
 
     @Test("load migrates legacy v1 format")

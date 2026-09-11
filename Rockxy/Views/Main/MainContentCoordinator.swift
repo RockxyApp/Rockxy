@@ -176,6 +176,7 @@ final class MainContentCoordinator {
         projectHydrationTask?.cancel()
         captureHealthTask?.cancel()
         proxyConfigurationRefreshTask?.cancel()
+        httpsInterceptionRetryTask?.cancel()
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker
         Task {
@@ -258,6 +259,7 @@ final class MainContentCoordinator {
     var isProxyRunning = false
     var isProxyStarting = false
     var isProxyStopping = false
+    var isRetryingHTTPSInterception = false
     var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
     var isRecording = true
     var sessionGeneration: UInt = 0
@@ -270,6 +272,8 @@ final class MainContentCoordinator {
     var isSystemProxyConfigured = false
     @ObservationIgnored var captureHealthTask: Task<Void, Never>?
     @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var httpsInterceptionRetryTask: Task<Void, Never>?
+    @ObservationIgnored var httpsInterceptionRetryGeneration: UInt = 0
 
     /// The listener configuration the running proxy actually started with.
     /// Non-nil only while the proxy is running; captured from the same settings
@@ -407,7 +411,12 @@ final class MainContentCoordinator {
         case .reinstallAndTrust: .reinstallAndTrust
         case nil: nil
         }
-        return SystemProxyWarning(message: warning.message, action: action, isDismissible: warning.isDismissible)
+        return SystemProxyWarning(
+            message: warning.message,
+            action: action,
+            isDismissible: warning.isDismissible,
+            isActionInProgress: action == .retryHTTPSInterception && isRetryingHTTPSInterception
+        )
     }
 
     var proxyDisplayState: ProxyDisplayState {
@@ -751,7 +760,7 @@ final class MainContentCoordinator {
 // MARK: - SystemProxyWarning
 
 struct SystemProxyWarning {
-    enum Action {
+    enum Action: Equatable {
         case retry
         case retryStop
         case retryDisableSystemRouting
@@ -794,6 +803,7 @@ struct SystemProxyWarning {
     let message: String
     let action: Action?
     let isDismissible: Bool
+    let isActionInProgress: Bool
 }
 
 // MARK: - AppInfo

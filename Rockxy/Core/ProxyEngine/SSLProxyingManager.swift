@@ -15,15 +15,21 @@ final class SSLProxyingManager {
     private init() {
         customStorageURL = nil
         customPassthroughStorageURL = nil
+        migrationStorageURLs = Self.defaultMigrationStorageURLs
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
     }
 
     /// Test-only initializer with injectable storage path.
-    init(storageURL: URL, passthroughStorageURL: URL? = nil) {
+    init(
+        storageURL: URL,
+        passthroughStorageURL: URL? = nil,
+        migrationStorageURLs: [URL] = []
+    ) {
         customStorageURL = storageURL
         customPassthroughStorageURL = passthroughStorageURL
+        self.migrationStorageURLs = migrationStorageURLs
         cachedEnabledIncludeRules = []
         cachedEnabledExcludeRules = []
         load()
@@ -369,8 +375,18 @@ final class SSLProxyingManager {
             host: host,
             clientIdentifier: clientIdentifier
         )
+        let now = Date()
         passthroughLock.lock()
-        autoPassthroughHosts[scope] = Date()
+        autoPassthroughHosts = autoPassthroughHosts.filter {
+            now.timeIntervalSince($0.value) <= Self.passthroughTTLSeconds
+        }
+        if autoPassthroughHosts[scope] == nil,
+           autoPassthroughHosts.count >= Self.maximumAutoPassthroughEntries,
+           let oldestScope = autoPassthroughHosts.min(by: { $0.value < $1.value })?.key
+        {
+            autoPassthroughHosts.removeValue(forKey: oldestScope)
+        }
+        autoPassthroughHosts[scope] = now
         passthroughLock.unlock()
         Self.logger.info("Scoped auto-passthrough enabled for \(host) after TLS failure")
         persistPassthroughHosts()
@@ -393,6 +409,40 @@ final class SSLProxyingManager {
         // Notify again after the fallback state is actually gone so any live raw tunnel whose
         // host is now interceptable is reset before the browser reuses it.
         NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
+    }
+
+    /// Retries every protected host for the selected client scopes while preserving fallback
+    /// state for unrelated applications and remote devices. Returns the number of host/client
+    /// entries removed.
+    @discardableResult
+    nonisolated func retryInterception(clientIdentifiers: Set<String>) -> Int {
+        let normalizedIdentifiers = Set(clientIdentifiers.compactMap { identifier -> String? in
+            let normalized = identifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized.isEmpty ? nil : normalized
+        })
+        guard !normalizedIdentifiers.isEmpty else {
+            return 0
+        }
+
+        passthroughLock.lock()
+        let matchingScopes = autoPassthroughHosts.keys.filter { scope in
+            scope.clientIdentifier.map(normalizedIdentifiers.contains) == true
+        }
+        for scope in matchingScopes {
+            autoPassthroughHosts.removeValue(forKey: scope)
+        }
+        passthroughLock.unlock()
+
+        guard !matchingScopes.isEmpty else {
+            return 0
+        }
+
+        persistPassthroughHosts()
+        Self.logger.info(
+            "Cleared \(matchingScopes.count) scoped auto-passthrough host(s) for explicit HTTPS retry"
+        )
+        NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
+        return matchingScopes.count
     }
 
     /// Clears the protection fallback for one host so its next connection can retry TLS interception.
@@ -457,9 +507,8 @@ final class SSLProxyingManager {
 
     func load() {
         let url = resolvedStorageURL
-        if FileManager.default.fileExists(atPath: url.path) {
+        if let (data, sourceURL) = settingsDataToLoad(primaryURL: url) {
             do {
-                let data = try Data(contentsOf: url)
                 if let storage = try? JSONDecoder().decode(SSLProxyingStorage.self, from: data),
                    storage.schemaVersion >= 2
                 {
@@ -470,6 +519,10 @@ final class SSLProxyingManager {
                     rebuildCache()
                     Self.logger
                         .info("Loaded v\(storage.schemaVersion) SSL proxying settings (\(self.rules.count) rules)")
+                    if sourceURL != url {
+                        Self.logger.info("Recovered HTTPS decryption settings from an earlier Rockxy namespace")
+                        save()
+                    }
                 } else {
                     let legacyRules = try JSONDecoder().decode([SSLProxyingRule].self, from: data)
                     isEnabled = true
@@ -574,8 +627,33 @@ final class SSLProxyingManager {
 
     // MARK: Private
 
-    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SSLProxyingManager")
-    private static let passthroughTTLSeconds: TimeInterval = 86_400
+    nonisolated private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "SSLProxyingManager"
+    )
+    nonisolated private static let passthroughTTLSeconds: TimeInterval = 86_400
+    nonisolated private static let maximumAutoPassthroughEntries = 2_048
+    nonisolated private static let passthroughPersistenceQueue = DispatchQueue(
+        label: "\(RockxyIdentity.current.logSubsystem).ssl-passthrough-persistence",
+        qos: .utility
+    )
+
+    nonisolated private static var defaultMigrationStorageURLs: [URL] {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let activeDirectory = RockxyIdentity.current.appSupportDirectoryName
+        let legacyDirectories = [
+            "com.amunx.Rockxy",
+            RockxyIdentity.current.familyNamespace,
+            "\(RockxyIdentity.current.familyNamespace).community",
+        ]
+        return Array(Set(legacyDirectories))
+            .filter { $0 != activeDirectory }
+            .map {
+                appSupport
+                    .appendingPathComponent($0, isDirectory: true)
+                    .appendingPathComponent("ssl-proxying-rules.json")
+            }
+    }
 
     private static var defaultStorageURL: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -593,6 +671,7 @@ final class SSLProxyingManager {
 
     private let customStorageURL: URL?
     private let customPassthroughStorageURL: URL?
+    private let migrationStorageURLs: [URL]
 
     private let lock = NSLock()
     nonisolated(unsafe) private var cachedEnabledIncludeRules: [SSLProxyingRule]
@@ -608,6 +687,40 @@ final class SSLProxyingManager {
 
     private var resolvedStorageURL: URL {
         customStorageURL ?? Self.defaultStorageURL
+    }
+
+    private func settingsDataToLoad(primaryURL: URL) -> (Data, URL)? {
+        if let data = try? Data(contentsOf: primaryURL) {
+            if Self.isValidSettingsData(data) {
+                return (data, primaryURL)
+            }
+            Self.logger.error("Active HTTPS decryption settings are unreadable; checking earlier Rockxy namespaces")
+        }
+
+        let candidates = migrationStorageURLs
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .sorted { lhs, rhs in
+                let leftDate = try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                let rightDate = try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+                if leftDate == rightDate {
+                    return lhs.path < rhs.path
+                }
+                return (leftDate ?? .distantPast) > (rightDate ?? .distantPast)
+            }
+        for candidate in candidates {
+            guard let data = try? Data(contentsOf: candidate) else {
+                continue
+            }
+            if Self.isValidSettingsData(data) {
+                return (data, candidate)
+            }
+        }
+        return nil
+    }
+
+    private static func isValidSettingsData(_ data: Data) -> Bool {
+        (try? JSONDecoder().decode(SSLProxyingStorage.self, from: data)) != nil
+            || (try? JSONDecoder().decode([SSLProxyingRule].self, from: data)) != nil
     }
 
     nonisolated private var resolvedPassthroughStorageURL: URL {
@@ -792,16 +905,19 @@ final class SSLProxyingManager {
                 return
             }
             let now = Date()
-            var loaded = 0
+            let validRecords = decoded.records
+                .filter {
+                    $0.scope.clientIdentifier != nil
+                        && now.timeIntervalSince($0.timestamp) <= Self.passthroughTTLSeconds
+                }
+                .sorted { $0.timestamp > $1.timestamp }
+                .prefix(Self.maximumAutoPassthroughEntries)
             passthroughLock.lock()
-            for record in decoded.records where
-                record.scope.clientIdentifier != nil
-                && now.timeIntervalSince(record.timestamp) <= Self.passthroughTTLSeconds
-            {
+            for record in validRecords {
                 autoPassthroughHosts[record.scope] = record.timestamp
-                loaded += 1
             }
             passthroughLock.unlock()
+            let loaded = validRecords.count
             if loaded > 0 {
                 Self.logger.info("Loaded \(loaded) persisted auto-passthrough hosts")
             }
@@ -819,22 +935,25 @@ final class SSLProxyingManager {
                 AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
             }
         )
-        passthroughLock.unlock()
-
-        do {
-            let dir = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: url, options: .atomic)
-        } catch {
-            Self.logger.error("Failed to persist auto-passthrough hosts: \(error.localizedDescription)")
+        // Enqueue while holding the state lock so concurrent NIO event loops cannot write an
+        // older snapshot after a newer one. The actual file I/O still runs off the event loop.
+        Self.passthroughPersistenceQueue.async {
+            do {
+                let dir = url.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                let data = try JSONEncoder().encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                Self.logger.error("Failed to persist auto-passthrough hosts: \(error.localizedDescription)")
+            }
         }
+        passthroughLock.unlock()
     }
 }
 
 // MARK: - AutoPassthroughStorage
 
-private struct AutoPassthroughScope: Codable, Hashable {
+private struct AutoPassthroughScope: Codable, Hashable, Sendable {
     let host: String
     let clientIdentifier: String?
 
@@ -846,12 +965,12 @@ private struct AutoPassthroughScope: Codable, Hashable {
     }
 }
 
-private struct AutoPassthroughRecord: Codable {
+private struct AutoPassthroughRecord: Codable, Sendable {
     let scope: AutoPassthroughScope
     let timestamp: Date
 }
 
-private struct AutoPassthroughStorage: Codable {
+private struct AutoPassthroughStorage: Codable, Sendable {
     static let currentSchemaVersion = 3
 
     let schemaVersion: Int

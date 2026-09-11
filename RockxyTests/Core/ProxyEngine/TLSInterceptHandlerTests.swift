@@ -47,9 +47,30 @@ private final class RecordedTransactionBox: @unchecked Sendable {
     private let lock = NSLock()
 }
 
+// MARK: - EventCountBox
+
+private final class EventCountBox: @unchecked Sendable {
+    private(set) var count = 0
+
+    func record() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    private let lock = NSLock()
+}
+
+// MARK: - SyntheticTLSError
+
+private struct SyntheticTLSError: Error, CustomStringConvertible {
+    let description: String
+}
+
 // MARK: - TLSInterceptHandlerTests
 
 @MainActor
+@Suite(.serialized)
 struct TLSInterceptHandlerTests {
     // MARK: Internal
 
@@ -89,8 +110,393 @@ struct TLSInterceptHandlerTests {
         #expect(!duplicateShouldReport)
     }
 
-    @Test("unattributed TLS rejections remain reportable without entering suppression")
-    func unattributedRejectionsRemainReportable() {
+    @Test("TLS rejection suppression is isolated by both host and client")
+    func rejectionSuppressionUsesHostAndClientScope() {
+        let tracker = RecentFailureTracker()
+
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "one.example",
+            clientIdentifier: "app.one",
+            tracker: tracker
+        ))
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "two.example",
+            clientIdentifier: "app.one",
+            tracker: tracker
+        ))
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "one.example",
+            clientIdentifier: "app.two",
+            tracker: tracker
+        ))
+    }
+
+    @Test("explicit retry re-arms only the selected client's rejection evidence")
+    func scopedRetryRearmsSelectedClient() {
+        let tracker = RecentFailureTracker()
+
+        for clientIdentifier in ["app.one", "app.two"] {
+            #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+                host: "api.example.com",
+                clientIdentifier: clientIdentifier,
+                tracker: tracker
+            ))
+            #expect(!PostHandshakeHandler.shouldReportCertificateRejection(
+                host: "api.example.com",
+                clientIdentifier: clientIdentifier,
+                tracker: tracker
+            ))
+        }
+
+        tracker.reset(clientIdentifiers: ["APP.ONE"])
+
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "api.example.com",
+            clientIdentifier: "app.one",
+            tracker: tracker
+        ))
+        #expect(!PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "api.example.com",
+            clientIdentifier: "app.two",
+            tracker: tracker
+        ))
+    }
+
+    @Test("duplicate certificate errors still execute the real recovery control flow")
+    func duplicateCertificateErrorsStillRecover() throws {
+        let host = "duplicate-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let tracker = RecentFailureTracker()
+        let recoveryCount = EventCountBox()
+        let notificationCount = EventCountBox()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .tlsMitmRejected,
+            object: nil,
+            queue: nil
+        ) { notification in
+            guard notification.userInfo?[TLSMITMNotificationUserInfoKey.host] as? String == host,
+                  notification.userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
+                    == clientIdentifier
+            else {
+                return
+            }
+            notificationCount.record()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        for _ in 0 ..< 2 {
+            let manager = makeSSLProxyingManager()
+            let channel = EmbeddedChannel()
+            let handler = PostHandshakeHandler(
+                host: host,
+                port: 443,
+                ruleEngine: RuleEngine(),
+                scriptPluginManager: nil,
+                connectionLimiter: ConnectionLimiter(),
+                sslProxyingManager: manager,
+                clientIdentifier: clientIdentifier,
+                recentFailureTracker: tracker,
+                handshakeFailureRecovery: { recoveryCount.record() },
+                onTransactionComplete: { _ in }
+            )
+            try channel.pipeline.syncOperations.addHandler(handler)
+
+            channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+            channel.embeddedEventLoop.run()
+
+            #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+            _ = try? channel.finish()
+        }
+
+        #expect(recoveryCount.count == 2)
+        #expect(notificationCount.count == 1)
+    }
+
+    @Test("ambiguous TLS errors recover through one-connection passthrough")
+    func ambiguousTLSErrorRecoversWithoutPersistentBypass() throws {
+        let host = "ambiguous-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let recoveryCount = EventCountBox()
+        let recorded = RecordedTransactionBox()
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            handshakeFailureRecovery: { recoveryCount.record() },
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireErrorCaught(SyntheticTLSError(description: "handshake timed out"))
+        channel.embeddedEventLoop.run()
+
+        #expect(recoveryCount.count == 1)
+        #expect(!manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        #expect(recorded.transaction?.isTLSFailure == true)
+        _ = try? channel.finish()
+    }
+
+    @Test("strict client certificate alerts use scoped recovery")
+    func strictCertificateAlertsUseScopedRecovery() throws {
+        for alert in [
+            "unsupported_certificate",
+            "bad_certificate_hash_value",
+        ] {
+            let host = "strict-\(alert)-\(UUID().uuidString).example"
+            let clientIdentifier = "client-\(UUID().uuidString)"
+            let manager = makeSSLProxyingManager()
+            let recoveryCount = EventCountBox()
+            let channel = EmbeddedChannel()
+            let handler = PostHandshakeHandler(
+                host: host,
+                port: 443,
+                ruleEngine: RuleEngine(),
+                scriptPluginManager: nil,
+                connectionLimiter: ConnectionLimiter(),
+                sslProxyingManager: manager,
+                clientIdentifier: clientIdentifier,
+                recentFailureTracker: RecentFailureTracker(),
+                handshakeFailureRecovery: { recoveryCount.record() },
+                onTransactionComplete: { _ in }
+            )
+            try channel.pipeline.syncOperations.addHandler(handler)
+
+            channel.pipeline.fireErrorCaught(SyntheticTLSError(description: alert))
+            channel.embeddedEventLoop.run()
+
+            #expect(recoveryCount.count == 1)
+            #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+            _ = try? channel.finish()
+        }
+    }
+
+    @Test("known TLS compatibility failures persist scoped passthrough without trust evidence")
+    func tlsCompatibilityFailureUsesScopedPassthrough() throws {
+        for failure in [
+            "certificate_required",
+            "sslv3_alert_handshake_failure",
+            "no_application_protocol",
+        ] {
+            let host = "compatibility-\(UUID().uuidString).example"
+            let clientIdentifier = "client-\(UUID().uuidString)"
+            let manager = makeSSLProxyingManager()
+            let recoveryCount = EventCountBox()
+            let notificationCount = EventCountBox()
+            let observer = NotificationCenter.default.addObserver(
+                forName: .tlsMitmRejected,
+                object: nil,
+                queue: nil
+            ) { notification in
+                if notification.userInfo?[TLSMITMNotificationUserInfoKey.host] as? String == host {
+                    notificationCount.record()
+                }
+            }
+            let channel = EmbeddedChannel()
+            let handler = PostHandshakeHandler(
+                host: host,
+                port: 443,
+                ruleEngine: RuleEngine(),
+                scriptPluginManager: nil,
+                connectionLimiter: ConnectionLimiter(),
+                sslProxyingManager: manager,
+                clientIdentifier: clientIdentifier,
+                recentFailureTracker: RecentFailureTracker(),
+                handshakeFailureRecovery: { recoveryCount.record() },
+                onTransactionComplete: { _ in }
+            )
+            try channel.pipeline.syncOperations.addHandler(handler)
+
+            channel.pipeline.fireErrorCaught(SyntheticTLSError(description: failure))
+            channel.embeddedEventLoop.run()
+
+            #expect(recoveryCount.count == 1)
+            #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+            #expect(notificationCount.count == 0)
+            NotificationCenter.default.removeObserver(observer)
+            _ = try? channel.finish()
+        }
+    }
+
+    @Test("certificate rejection executes the production recovery tunnel path")
+    func certificateRejectionExecutesProductionRecoveryPath() throws {
+        let host = "production-recovery-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let limiter = ConnectionLimiter(maxPerDestination: 1)
+        let recorded = RecordedTransactionBox()
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let serverChannel = EmbeddedChannel(handlers: [], loop: loop)
+        let address = try SocketAddress(ipAddress: "127.0.0.1", port: 443)
+        try clientChannel.connect(to: address).wait()
+        try serverChannel.connect(to: address).wait()
+        let registry = LiveTunnelRegistry { _, _ in false }
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: limiter,
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            liveTunnelRegistry: registry,
+            recentFailureTracker: RecentFailureTracker(),
+            recoveryTunnelConnector: { eventLoop, _, _, _ in
+                eventLoop.makeSucceededFuture(serverChannel)
+            },
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+        loop.run()
+
+        #expect(recorded.transaction?.response?.statusCode == 200)
+        #expect(recorded.transaction?.response?.statusMessage == "Tunneled — Client Rejected Certificate")
+        #expect(recorded.transaction?.state == .completed)
+        #expect(recorded.transaction?.sslCapture == .tunneled)
+        #expect(recorded.transaction?.isTLSFailure == false)
+        #expect(registry.trackedTunnelCount() == 1)
+        let acquiredWhileTunnelWasOpen = limiter.acquire(host: host, port: 443)
+        #expect(!acquiredWhileTunnelWasOpen)
+        if acquiredWhileTunnelWasOpen {
+            limiter.release(host: host, port: 443)
+        }
+
+        serverChannel.close(promise: nil)
+        loop.run()
+        #expect(registry.trackedTunnelCount() == 0)
+        #expect(limiter.acquire(host: host, port: 443))
+        limiter.release(host: host, port: 443)
+
+        _ = try? clientChannel.finish()
+        _ = try? serverChannel.finish()
+    }
+
+    @Test("production recovery reports upstream connection failure and releases its limiter slot")
+    func productionRecoveryHandlesUpstreamFailure() throws {
+        let host = "recovery-failure-\(UUID().uuidString).example"
+        let limiter = ConnectionLimiter(maxPerDestination: 1)
+        let recorded = RecordedTransactionBox()
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        try clientChannel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: limiter,
+            sslProxyingManager: makeSSLProxyingManager(),
+            clientIdentifier: "client-\(UUID().uuidString)",
+            recentFailureTracker: RecentFailureTracker(),
+            recoveryTunnelConnector: { eventLoop, _, _, _ in
+                eventLoop.makeFailedFuture(SyntheticTLSError(description: "upstream unavailable"))
+            },
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+        loop.run()
+
+        #expect(recorded.transaction?.response?.statusCode == 502)
+        #expect(recorded.transaction?.response?.statusMessage == "Upstream Connection Failed")
+        #expect(recorded.transaction?.state == .failed)
+        #expect(recorded.transaction?.isTLSFailure == false)
+        #expect(limiter.acquire(host: host, port: 443))
+        limiter.release(host: host, port: 443)
+
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("production recovery reports a visible limit refusal without opening upstream")
+    func productionRecoveryHandlesConnectionLimit() throws {
+        let host = "recovery-limited-\(UUID().uuidString).example"
+        let limiter = ConnectionLimiter(maxPerDestination: 1)
+        #expect(limiter.acquire(host: host, port: 443))
+        let connectorCount = EventCountBox()
+        let recorded = RecordedTransactionBox()
+        let loop = EmbeddedEventLoop()
+        let clientChannel = EmbeddedChannel(handlers: [], loop: loop)
+        try clientChannel.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 443)).wait()
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: limiter,
+            sslProxyingManager: makeSSLProxyingManager(),
+            clientIdentifier: "client-\(UUID().uuidString)",
+            recentFailureTracker: RecentFailureTracker(),
+            recoveryTunnelConnector: { eventLoop, _, _, _ in
+                connectorCount.record()
+                return eventLoop.makeFailedFuture(SyntheticTLSError(description: "must not connect"))
+            },
+            onTransactionComplete: { recorded.record($0) }
+        )
+        try clientChannel.pipeline.syncOperations.addHandler(handler)
+
+        clientChannel.pipeline.fireErrorCaught(SyntheticTLSError(description: "tls alert unknown_ca"))
+        loop.run()
+
+        #expect(connectorCount.count == 0)
+        #expect(recorded.transaction?.response?.statusCode == 503)
+        #expect(recorded.transaction?.response?.statusMessage == "Connection Limit Reached")
+        #expect(recorded.transaction?.state == .failed)
+        #expect(recorded.transaction?.isTLSFailure == false)
+        limiter.release(host: host, port: 443)
+
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("certificate-rejection fallback registers its live tunnel for retry invalidation")
+    func certificateRejectionFallbackRegistersLiveTunnel() throws {
+        let host = "registered-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        manager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+        manager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
+        let clientChannel = EmbeddedChannel()
+        let registry = LiveTunnelRegistry { host, _ in
+            !manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier)
+        }
+        let handler = PostHandshakeHandler(
+            host: host,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            liveTunnelRegistry: registry,
+            recentFailureTracker: RecentFailureTracker(),
+            onTransactionComplete: { _ in }
+        )
+        handler.registerRecoveryTunnel(
+            channel: clientChannel,
+            reason: .certificateRejection,
+            decisionGeneration: registry.currentGeneration()
+        )
+
+        #expect(registry.trackedTunnelCount() == 1)
+
+        #expect(manager.retryInterception(clientIdentifiers: [clientIdentifier]) == 1)
+        registry.invalidateTunnelsNowRequiringInterception()
+        clientChannel.embeddedEventLoop.run()
+        #expect(!clientChannel.isActive)
+
+        _ = try? clientChannel.finish()
+    }
+
+    @Test("unattributed TLS rejection notifications are bounded per host")
+    func unattributedRejectionsAreRateLimited() {
         let tracker = RecentFailureTracker()
 
         #expect(PostHandshakeHandler.shouldReportCertificateRejection(
@@ -98,7 +504,12 @@ struct TLSInterceptHandlerTests {
             clientIdentifier: nil,
             tracker: tracker
         ))
-        #expect(tracker.trackedEntryCount == 0)
+        #expect(!PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "API.EXAMPLE.COM",
+            clientIdentifier: nil,
+            tracker: tracker
+        ))
+        #expect(tracker.trackedEntryCount == 1)
     }
 
     @Test("remote clients receive a stable privacy-preserving TLS recovery scope")

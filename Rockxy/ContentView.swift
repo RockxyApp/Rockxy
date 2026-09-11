@@ -76,6 +76,7 @@ struct ContentView: View {
                         SystemProxyWarningBanner(
                             message: warning.message,
                             primaryActionTitle: warning.action?.title,
+                            isActionInProgress: warning.isActionInProgress,
                             onPrimaryAction: {
                                 handleSystemProxyWarningAction(warning.action)
                             },

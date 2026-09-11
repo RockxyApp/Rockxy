@@ -104,13 +104,77 @@ extension MainContentCoordinator {
     /// auto-passthrough posts the policy-change notification that closes matching live raw
     /// tunnels, so the client's next CONNECT can attempt interception immediately.
     func retryHTTPSInterception() {
-        Task {
-            await readiness.refreshCertificateTrustValidation()
-            guard readiness.canInterceptHTTPS else {
+        guard isProxyRunning,
+              !isProxyStopping,
+              !isRetryingHTTPSInterception
+        else {
+            return
+        }
+        let clientIdentifiers = readiness.tlsRetryClientIdentifiers
+        guard !clientIdentifiers.isEmpty else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: String(
+                    localized: "No HTTPS interception recovery is pending.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            return
+        }
+
+        httpsInterceptionRetryGeneration &+= 1
+        let retryGeneration = httpsInterceptionRetryGeneration
+        isRetryingHTTPSInterception = true
+        httpsInterceptionRetryTask = Task { [weak self] in
+            guard let self else {
                 return
             }
-            SSLProxyingManager.shared.clearAutoPassthrough()
-            readiness.clearTLSRejections()
+            defer {
+                if self.httpsInterceptionRetryGeneration == retryGeneration {
+                    self.isRetryingHTTPSInterception = false
+                    self.httpsInterceptionRetryTask = nil
+                }
+            }
+
+            await readiness.refreshCertificateTrustValidation()
+            guard !Task.isCancelled,
+                  httpsInterceptionRetryGeneration == retryGeneration,
+                  isProxyRunning,
+                  !isProxyStopping,
+                  readiness.isCaptureActive
+            else {
+                return
+            }
+            guard readiness.canInterceptHTTPS else {
+                activeToast = ToastMessage(
+                    style: .error,
+                    text: ReadinessCoordinator.certNotTrustedWarning(
+                        certReadiness: readiness.certReadiness,
+                        isCaptureActive: true
+                    )?.message ?? String(
+                        localized: "Rockxy cannot verify the Root CA trust status, so HTTPS interception is paused. HTTP traffic and logs are still captured.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                )
+                return
+            }
+
+            // Keep the retry scoped to the clients represented by this warning. Clearing the
+            // suppression cache before invalidating their tunnels ensures a persistent rejection
+            // can produce fresh evidence instead of disappearing behind the previous 30-second
+            // duplicate window.
+            readiness.clearTLSRejections(clientIdentifiers: clientIdentifiers)
+            RecentFailureTracker.certificateRejections.reset(clientIdentifiers: clientIdentifiers)
+            let clearedHostCount = SSLProxyingManager.shared.retryInterception(
+                clientIdentifiers: clientIdentifiers
+            )
+            activeToast = ToastMessage(
+                style: clearedHostCount > 0 ? .success : .warning,
+                text: String(
+                    localized: "HTTPS retry is ready. Repeat the request or reconnect the affected client.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
         }
     }
 
@@ -121,6 +185,7 @@ extension MainContentCoordinator {
         proxyError = nil
         isProxyStarting = true
         readiness.clearProxyRestoreFailure()
+        RecentFailureTracker.certificateRejections.reset()
 
         Task {
             defer {
@@ -252,6 +317,10 @@ extension MainContentCoordinator {
         captureHealthTask = nil
         proxyConfigurationRefreshTask?.cancel()
         proxyConfigurationRefreshTask = nil
+        httpsInterceptionRetryGeneration &+= 1
+        httpsInterceptionRetryTask?.cancel()
+        httpsInterceptionRetryTask = nil
+        isRetryingHTTPSInterception = false
         let serverToStop = proxyServer
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker

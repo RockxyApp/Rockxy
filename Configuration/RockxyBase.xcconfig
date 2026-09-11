@@ -18,8 +18,3 @@ ROCKXY_LOG_SUBSYSTEM = $(ROCKXY_APP_NAMESPACE)
 ROCKXY_DEFAULTS_PREFIX = $(ROCKXY_APP_NAMESPACE)
 ROCKXY_NOTIFICATION_PREFIX = $(ROCKXY_APP_NAMESPACE)
 ROCKXY_APP_SUPPORT_DIRECTORY_NAME = $(ROCKXY_APP_NAMESPACE)
-
-// Helper trust allowlist — space-separated bundle identifiers of trusted callers.
-// Drives both AssociatedBundleIdentifiers in the generated launchd plist
-// and SecRequirement in ConnectionValidator.swift.
-ROCKXY_ALLOWED_CALLER_IDENTIFIERS = $(ROCKXY_APP_BUNDLE_ID)

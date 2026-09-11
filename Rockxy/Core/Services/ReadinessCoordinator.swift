@@ -107,19 +107,30 @@ struct ReadinessWarning: Equatable {
 
 /// Aggregates certificate rejection evidence per originating application.
 ///
-/// A global set of hosts conflates unrelated clients and turns certificate pinning into a false
-/// root-trust warning. A successful intercepted handshake proves that the same client accepts the
-/// active Rockxy CA, so pinning failures from that client cannot later become a global CA warning.
+/// Identified clients are isolated from each other so one application's pinning failures cannot
+/// become another application's warning. Unattributed local failures are tracked separately and
+/// never receive a retry action that would clear another client's persisted recovery state.
 struct TLSRejectionEvidence: Equatable {
     static let warningThreshold = 3
     static let maximumTrackedClients = 128
 
     private(set) var rejectedHostsByClient: [String: Set<String>] = [:]
+    private(set) var unattributedRejectedHosts: Set<String> = []
     private(set) var clientsAcceptingCurrentCA: Set<String> = []
     private var acceptingClientOrder: [String] = []
 
     var hasMultiHostClientFailure: Bool {
         rejectedHostsByClient.contains { $0.value.count >= Self.warningThreshold }
+    }
+
+    var clientIdentifiersNeedingRetry: Set<String> {
+        Set(rejectedHostsByClient.compactMap { clientIdentifier, hosts in
+            hosts.count >= Self.warningThreshold ? clientIdentifier : nil
+        })
+    }
+
+    var hasUnattributedMultiHostFailure: Bool {
+        unattributedRejectedHosts.count >= Self.warningThreshold
     }
 
     @discardableResult
@@ -129,10 +140,15 @@ struct TLSRejectionEvidence: Equatable {
             return false
         }
         guard let clientIdentifier = normalizedClientIdentifier(clientIdentifier) else {
-            // A missing identity cannot prove that failures on different hosts came from the
-            // same client, so it must never create a machine-wide trust warning.
-            return false
+            guard unattributedRejectedHosts.count < Self.warningThreshold else {
+                return false
+            }
+            return unattributedRejectedHosts.insert(normalizedHost).inserted
         }
+        // A successful intercepted handshake from this client during the current capture/CA
+        // epoch proves that macOS trust is not failing globally for that client. Later failures
+        // are host-specific pinning or TLS-shape limitations and already recover as raw tunnels;
+        // they must not resurrect the broad setup warning from issue #345.
         guard !clientsAcceptingCurrentCA.contains(clientIdentifier) else {
             return false
         }
@@ -150,28 +166,50 @@ struct TLSRejectionEvidence: Equatable {
     }
 
     @discardableResult
-    mutating func recordSuccessfulHandshake(clientIdentifier: String?) -> Bool {
-        guard let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier) else {
+    mutating func recordSuccessfulHandshake(host: String, clientIdentifier: String?) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty,
+              let normalizedIdentifier = normalizedClientIdentifier(clientIdentifier)
+        else {
             return false
         }
-        let removedRejections = rejectedHostsByClient.removeValue(forKey: normalizedIdentifier) != nil
-        let wasAlreadyAccepted = clientsAcceptingCurrentCA.contains(normalizedIdentifier)
+
+        // A host that later succeeds after identity resolution no longer contributes to the
+        // unattributed warning bucket.
+        var changed = unattributedRejectedHosts.remove(normalizedHost) != nil
+
+        // One completed interception proves the active CA works for this client in the current
+        // epoch, so all earlier host failures from that client are compatibility-specific.
+        if rejectedHostsByClient.removeValue(forKey: normalizedIdentifier) != nil {
+            changed = true
+        }
+
         acceptingClientOrder.removeAll { $0 == normalizedIdentifier }
-        if clientsAcceptingCurrentCA.insert(normalizedIdentifier).inserted,
-           clientsAcceptingCurrentCA.count > Self.maximumTrackedClients,
+        if clientsAcceptingCurrentCA.insert(normalizedIdentifier).inserted {
+            changed = true
+        }
+        acceptingClientOrder.append(normalizedIdentifier)
+        if clientsAcceptingCurrentCA.count > Self.maximumTrackedClients,
            let evicted = acceptingClientOrder.first
         {
             clientsAcceptingCurrentCA.remove(evicted)
             acceptingClientOrder.removeFirst()
         }
-        acceptingClientOrder.append(normalizedIdentifier)
-        return removedRejections || !wasAlreadyAccepted
+        return changed
     }
 
     mutating func reset() {
         rejectedHostsByClient.removeAll()
+        unattributedRejectedHosts.removeAll()
         clientsAcceptingCurrentCA.removeAll()
         acceptingClientOrder.removeAll()
+    }
+
+    mutating func clearRejections(clientIdentifiers: Set<String>) {
+        let normalizedIdentifiers = Set(clientIdentifiers.compactMap(normalizedClientIdentifier))
+        for clientIdentifier in normalizedIdentifiers {
+            rejectedHostsByClient.removeValue(forKey: clientIdentifier)
+        }
     }
 
     private func normalizedClientIdentifier(_ clientIdentifier: String?) -> String? {
@@ -212,6 +250,10 @@ final class ReadinessCoordinator {
     private(set) var captureHealth: CaptureHealthState = .idle
     private(set) var httpsDecryptionConfigured = false
     private(set) var activeWarning: ReadinessWarning?
+
+    var tlsRetryClientIdentifiers: Set<String> {
+        tlsRejectionEvidence.clientIdentifiersNeedingRetry
+    }
     private(set) var isCaptureActive: Bool = false
     private(set) var lastCertSnapshot: RootCAStatusSnapshot?
 
@@ -340,6 +382,7 @@ final class ReadinessCoordinator {
             ) { [weak self] _ in
                 Task { @MainActor in
                     self?.tlsRejectionEvidence.reset()
+                    RecentFailureTracker.certificateRejections.reset()
                     await self?.refreshCertState()
                     self?.recomputeWarning()
                 }
@@ -405,10 +448,14 @@ final class ReadinessCoordinator {
             NotificationCenter.default.addObserver(
                 forName: .tlsMitmAccepted, object: nil, queue: .main
             ) { [weak self] notification in
+                guard let host = notification.userInfo?[TLSMITMNotificationUserInfoKey.host] as? String else {
+                    return
+                }
                 let clientIdentifier = notification
                     .userInfo?[TLSMITMNotificationUserInfoKey.clientIdentifier] as? String
                 MainActor.assumeIsolated {
                     let evidenceChanged = self?.tlsRejectionEvidence.recordSuccessfulHandshake(
+                        host: host,
                         clientIdentifier: clientIdentifier
                     ) ?? false
                     if evidenceChanged {
@@ -497,6 +544,7 @@ final class ReadinessCoordinator {
         refreshHTTPSDecryptionState()
         if !active {
             tlsRejectionEvidence.reset()
+            RecentFailureTracker.certificateRejections.reset()
             vpnInterface = nil
             proxyEnableFailed = false
             proxyEnableErrorMessage = nil
@@ -560,6 +608,14 @@ final class ReadinessCoordinator {
     /// Clears TLS rejection state after the user explicitly retries interception.
     func clearTLSRejections() {
         tlsRejectionEvidence.reset()
+        RecentFailureTracker.certificateRejections.reset()
+        recomputeWarning()
+    }
+
+    /// Clears only the evidence represented by the retry action. New failures from those
+    /// clients can accumulate immediately; unrelated client warnings remain intact.
+    func clearTLSRejections(clientIdentifiers: Set<String>) {
+        tlsRejectionEvidence.clearRejections(clientIdentifiers: clientIdentifiers)
         recomputeWarning()
     }
 
@@ -782,6 +838,10 @@ final class ReadinessCoordinator {
             return tlsRejectionWarning()
         }
 
+        if tlsRejectionEvidence.hasUnattributedMultiHostFailure {
+            return Self.unattributedTLSRejectionWarning()
+        }
+
         // Priority 8: VPN detected
         if let iface = vpnInterface {
             return ReadinessWarning(
@@ -838,7 +898,7 @@ final class ReadinessCoordinator {
             String(
                 localized: """
                 One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
-                The macOS Root CA is trusted, so the affected client may use a separate trust store or certificate pinning. \
+                The macOS Root CA is trusted, so the affected client may use a separate trust store, certificate pinning, or custom TLS requirements. \
                 Restart or configure that client before retrying interception.
                 """, bundle: RockxyLocalization.bundle
             )
@@ -860,6 +920,20 @@ final class ReadinessCoordinator {
     private func tlsRejectionWarning() -> ReadinessWarning {
         Self.tlsRejectionWarning(
             isSystemTrustValidated: lastCertSnapshot?.isSystemTrustValidated == true
+        )
+    }
+
+    nonisolated static func unattributedTLSRejectionWarning() -> ReadinessWarning {
+        ReadinessWarning(
+            message: String(
+                localized: """
+                Rockxy could not identify one or more local clients after TLS interception failed on multiple HTTPS hosts. \
+                Their traffic remains tunneled. Restart the affected client, then review its trust store and HTTPS Decryption rules.
+                """,
+                bundle: RockxyLocalization.bundle
+            ),
+            action: .openHTTPSDecryption,
+            isDismissible: true
         )
     }
 }
