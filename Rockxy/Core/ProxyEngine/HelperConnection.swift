@@ -19,6 +19,8 @@ enum HelperConnectionError: LocalizedError {
     case bypassDomainsFailed(String)
     case executableRefreshUnsupported
     case executableRefreshDeferred
+    case executableIdentityUnsupported
+    case executableIdentityUnreadable
     case applicationMustReopen
     case appSignatureInvalid(String)
     case signingIdentityMismatch(app: String, helper: String)
@@ -51,6 +53,10 @@ enum HelperConnectionError: LocalizedError {
             "The installed helper does not support approval-preserving executable refresh"
         case .executableRefreshDeferred:
             "The helper is busy with proxy or certificate work; executable refresh was deferred"
+        case .executableIdentityUnsupported:
+            "The installed helper cannot describe the executable it is running"
+        case .executableIdentityUnreadable:
+            "The helper answered with an executable identity Rockxy cannot compare"
         case .applicationMustReopen:
             "Rockxy was updated or replaced while it was open. Quit and reopen Rockxy, then check the helper again."
         case .appSignatureInvalid:
@@ -720,43 +726,6 @@ final class HelperConnection {
         signingCache.invalidate()
     }
 
-    private func helperInfo(using proxy: any RockxyHelperProtocol) async throws -> HelperInfo {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HelperInfo, Error>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-            proxy.getHelperInfo { version, build, protocolVersion in
-                let alreadyResumed = resumed.withLock { value -> Bool in
-                    if value {
-                        return true
-                    }
-                    value = true
-                    return false
-                }
-                guard !alreadyResumed else {
-                    return
-                }
-                continuation.resume(returning: HelperInfo(
-                    binaryVersion: version,
-                    buildNumber: build,
-                    protocolVersion: protocolVersion
-                ))
-            }
-
-            Task {
-                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
-                let alreadyResumed = resumed.withLock { value -> Bool in
-                    if value {
-                        return true
-                    }
-                    value = true
-                    return false
-                }
-                if !alreadyResumed {
-                    continuation.resume(throwing: HelperConnectionError.xpcTimeout)
-                }
-            }
-        }
-    }
-
     /// Set the system proxy bypass domain list via the helper tool.
     func setBypassDomains(_ domains: [String]) async throws {
         let proxy = try await getProxy()
@@ -1069,6 +1038,32 @@ final class HelperConnection {
         connection = nil
     }
 
+    /// Ask a protocol-5 helper which executable the live process is actually running.
+    ///
+    /// The capability probe and the identity read share one proxy, so the helper that answered
+    /// "I speak protocol 5" is the helper that describes itself. A cached
+    /// `HelperManager.installedInfo` cannot stand in: during a refresh it may describe the
+    /// process that has since exited, which is precisely the confusion this probe exists to
+    /// resolve.
+    ///
+    /// A malformed answer is rejected rather than normalized. Accepting an empty digest would let
+    /// "the helper could not read its own executable" compare equal to whatever the app expected.
+    func executableIdentity() async throws -> HelperExecutableIdentity {
+        let proxy = try await getProxy()
+        let info = try await helperInfo(using: proxy)
+        guard HelperCompatibilityPolicy.supportsExecutableIdentity(
+            protocolVersion: info.protocolVersion
+        ) else {
+            throw HelperConnectionError.executableIdentityUnsupported
+        }
+
+        let identity = try await requestExecutableIdentity(using: proxy)
+        guard identity.isWellFormed else {
+            throw HelperConnectionError.executableIdentityUnreadable
+        }
+        return identity
+    }
+
     // MARK: Private
 
     private static let logger = Logger(
@@ -1079,6 +1074,88 @@ final class HelperConnection {
     private static let machServiceName = RockxyIdentity.current.helperMachServiceName
 
     private var connection: NSXPCConnection?
+
+    private func requestExecutableIdentity(
+        using proxy: any RockxyHelperProtocol
+    )
+        async throws -> HelperExecutableIdentity
+    {
+        try await withCheckedThrowingContinuation { continuation in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+
+            proxy.getExecutableIdentity { digest, launchIdentity, pid, path, build, protocolVersion in
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                guard !alreadyResumed else {
+                    return
+                }
+                continuation.resume(returning: HelperExecutableIdentity(
+                    executableDigest: digest,
+                    launchIdentity: launchIdentity,
+                    processIdentifier: pid,
+                    executablePath: path,
+                    buildNumber: build,
+                    protocolVersion: protocolVersion
+                ))
+            }
+
+            Task {
+                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                if !alreadyResumed {
+                    continuation.resume(throwing: HelperConnectionError.xpcTimeout)
+                }
+            }
+        }
+    }
+
+    private func helperInfo(using proxy: any RockxyHelperProtocol) async throws -> HelperInfo {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HelperInfo, Error>) in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            proxy.getHelperInfo { version, build, protocolVersion in
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                guard !alreadyResumed else {
+                    return
+                }
+                continuation.resume(returning: HelperInfo(
+                    binaryVersion: version,
+                    buildNumber: build,
+                    protocolVersion: protocolVersion
+                ))
+            }
+
+            Task {
+                try? await Task.sleep(nanoseconds: 3 * 1_000_000_000)
+                let alreadyResumed = resumed.withLock { value -> Bool in
+                    if value {
+                        return true
+                    }
+                    value = true
+                    return false
+                }
+                if !alreadyResumed {
+                    continuation.resume(throwing: HelperConnectionError.xpcTimeout)
+                }
+            }
+        }
+    }
 
     /// A connection created for one certificate mutation and torn down when that call returns.
     ///

@@ -117,8 +117,7 @@ struct AdvancedSettingsTab: View {
                                     showUninstallConfirmation = true
                                 }
                                 .disabled(helperManager.isBusy)
-                            case .installedOutdated,
-                                 .installedIncompatible:
+                            case .installedOutdated:
                                 Button(String(localized: "Update Helper", bundle: RockxyLocalization.bundle)) {
                                     updateHelper()
                                 }
@@ -127,15 +126,30 @@ struct AdvancedSettingsTab: View {
                                     showUninstallConfirmation = true
                                 }
                                 .disabled(helperManager.isBusy)
+                            case .installedIncompatible:
+                                Button(String(localized: "Check Again", bundle: RockxyLocalization.bundle)) {
+                                    Task { await helperManager.checkStatus() }
+                                }
+                                .disabled(helperManager.isBusy)
                             case .unreachable:
-                                Button(String(localized: "Retry Connection", bundle: RockxyLocalization.bundle)) {
-                                    Task { await helperManager.retryConnection() }
+                                if helperManager.automaticRefreshRecoveryPending {
+                                    Button(String(
+                                        localized: "Retry Automatic Update",
+                                        bundle: RockxyLocalization.bundle
+                                    )) {
+                                        Task { await helperManager.reconcileEmbeddedHelperOnLaunch() }
+                                    }
+                                    .disabled(helperManager.isBusy)
+                                } else {
+                                    Button(String(localized: "Retry Connection", bundle: RockxyLocalization.bundle)) {
+                                        Task { await helperManager.retryConnection() }
+                                    }
+                                    .disabled(helperManager.isBusy)
+                                    Button(String(localized: "Reinstall", bundle: RockxyLocalization.bundle)) {
+                                        reinstallHelper()
+                                    }
+                                    .disabled(helperManager.isBusy)
                                 }
-                                .disabled(helperManager.isBusy)
-                                Button(String(localized: "Reinstall", bundle: RockxyLocalization.bundle)) {
-                                    reinstallHelper()
-                                }
-                                .disabled(helperManager.isBusy)
                                 Button(String(localized: "Uninstall", bundle: RockxyLocalization.bundle)) {
                                     showUninstallConfirmation = true
                                 }
@@ -162,7 +176,9 @@ struct AdvancedSettingsTab: View {
                                 }
                             }
 
-                            if helperManager.signingIssue != .applicationMustReopen {
+                            if helperManager.signingIssue != .applicationMustReopen,
+                               !helperManager.automaticRefreshRecoveryPending
+                            {
                                 Button(role: .destructive) {
                                     HelperRecoveryPresenter.presentForceReset()
                                 } label: {
@@ -282,9 +298,10 @@ struct AdvancedSettingsTab: View {
             String(localized: "Requires Approval", bundle: RockxyLocalization.bundle)
         case .installedCompatible:
             String(localized: "Installed", bundle: RockxyLocalization.bundle)
-        case .installedOutdated,
-             .installedIncompatible:
+        case .installedOutdated:
             String(localized: "Update Available", bundle: RockxyLocalization.bundle)
+        case .installedIncompatible:
+            String(localized: "Incompatible Version", bundle: RockxyLocalization.bundle)
         case .unreachable:
             String(localized: "Unreachable", bundle: RockxyLocalization.bundle)
         case .signingMismatch:

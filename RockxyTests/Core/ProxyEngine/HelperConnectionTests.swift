@@ -88,6 +88,8 @@ struct HelperConnectionErrorTests {
             .bypassDomainsFailed("test"),
             .executableRefreshUnsupported,
             .executableRefreshDeferred,
+            .executableIdentityUnsupported,
+            .executableIdentityUnreadable,
             .applicationMustReopen,
             .appSignatureInvalid("test"),
             .signingIdentityMismatch(app: "test", helper: "test"),

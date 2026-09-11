@@ -5,7 +5,7 @@
     <key>Label</key>
     <string>com.amunx.rockxy.helper</string>
     <key>BundleProgram</key>
-    <string>Contents/MacOS/RockxyHelperTool</string>
+    <string>Contents/Library/HelperTools/RockxyHelperTool</string>
     <key>MachServices</key>
     <dict>
         <key>com.amunx.rockxy.helper</key>

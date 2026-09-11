@@ -4,6 +4,14 @@ extension HelperManager {
     enum HelperOperationError: LocalizedError, Equatable {
         case applicationMustReopen
         case appSignatureInvalid
+        /// The update ran the approval-preserving path and could not prove it converged. Kept
+        /// distinct from an approval prompt: nothing is being asked of the user here, and the
+        /// registration they already approved is untouched.
+        case automaticHelperRefreshFailed
+        /// macOS is still waiting for the user to approve the helper in Login Items.
+        case helperApprovalRequired
+        case helperPackageIncomplete
+        case helperUpdateUnavailable
 
         // MARK: Internal
 
@@ -15,6 +23,33 @@ extension HelperManager {
                 String(
                     localized: "Rockxy could not verify this app copy. Install a fresh copy of Rockxy, then check the helper again.",
                     bundle: RockxyLocalization.bundle
+                )
+            case .automaticHelperRefreshFailed:
+                String(
+                    localized: """
+                    Rockxy could not finish updating the helper tool automatically. \
+                    Your existing helper approval was kept, and Rockxy will try again the next time it opens.
+                    """, bundle: RockxyLocalization.bundle
+                )
+            case .helperApprovalRequired:
+                String(
+                    localized: "Approve the helper tool in System Settings > Login Items to finish installation.",
+                    bundle: RockxyLocalization.bundle
+                )
+            case .helperPackageIncomplete:
+                String(
+                    localized: """
+                    This Rockxy app package is incomplete, so the helper tool cannot be updated. \
+                    Reinstall the latest Rockxy release. If you installed Rockxy from Homebrew, \
+                    reinstall it after the fixed release is published.
+                    """, bundle: RockxyLocalization.bundle
+                )
+            case .helperUpdateUnavailable:
+                String(
+                    localized: """
+                    Rockxy cannot update this helper tool. Check the helper again, and reinstall it \
+                    only if it stays unreachable.
+                    """, bundle: RockxyLocalization.bundle
                 )
             }
         }
@@ -61,9 +96,12 @@ extension HelperManager {
         switch status {
         case .installedCompatible:
             nil
-        case .installedOutdated,
-             .installedIncompatible:
+        case .installedOutdated:
             String(localized: "Update", bundle: RockxyLocalization.bundle)
+        case .installedIncompatible:
+            // This is an unknown, future, or otherwise unreasoned-about protocol. Never offer an
+            // update action that could be read as permission to downgrade it.
+            nil
         case .notInstalled:
             String(localized: "Install", bundle: RockxyLocalization.bundle)
         case .requiresApproval:
