@@ -259,6 +259,24 @@ struct HelperUpdateStartupRecoveryTests {
         // Sparse, not a poll loop: a rejected connection never resets that timer, so hammering it
         // would add noise without bringing the exit forward.
         #expect(orchestrator.retryDelays.allSatisfy { $0 >= .seconds(5) })
+        #expect(orchestrator.retryDelays == HelperUpdateStartupRecoveryOrchestrator.launchRetryDelays)
+    }
+
+    @Test("an explicit retry is short, bounded, and preserves the registration on exhaustion")
+    func interactiveRecoveryIsShortAndBounded() async {
+        let recovery = ScriptedStartupRecovery(attempts: [
+            .init(outcome: .blocked(.unreachable), registrationIsEnabled: true),
+        ])
+        var orchestrator = recovery.orchestrator
+        orchestrator.retryDelays = HelperUpdateStartupRecoveryOrchestrator.interactiveRetryDelays
+
+        let outcome = await orchestrator.run()
+        let window = orchestrator.retryDelays.reduce(Duration.zero, +)
+
+        #expect(outcome == .recoveryExhausted(.blocked(.unreachable)))
+        #expect(window < .seconds(30))
+        #expect(recovery.waits == HelperUpdateStartupRecoveryOrchestrator.interactiveRetryDelays)
+        #expect(recovery.transportResetCount == orchestrator.retryDelays.count)
     }
 
     @Test("approval, absence, signing, package, protocol and legacy results never wait")
@@ -509,6 +527,9 @@ struct HelperUpdatePlanTests {
         )))
         #expect(!HelperManager.embeddedHelperSigningAllowsRefresh(.certificateChainUnavailable))
         #expect(!HelperManager.embeddedHelperSigningAllowsRefresh(.appSignatureInvalid(detail: "invalid")))
+        #expect(!HelperManager.embeddedHelperSigningAllowsRefresh(.runningCodeChanged(detail: "replaced")))
+        #expect(!HelperManager.embeddedHelperSigningAllowsRefresh(.helperBinaryNotFound))
+        #expect(!HelperManager.embeddedHelperSigningAllowsRefresh(.diagnosticError(detail: "error")))
     }
 }
 

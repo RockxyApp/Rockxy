@@ -309,7 +309,7 @@ final class WelcomeViewModel {
         defer { activeAction = nil }
 
         if helperAutomaticRefreshRecoveryPending {
-            await HelperManager.shared.reconcileEmbeddedHelperOnLaunch()
+            await HelperManager.shared.retryAutomaticHelperRefresh()
         } else {
             await HelperManager.shared.retryConnection()
         }

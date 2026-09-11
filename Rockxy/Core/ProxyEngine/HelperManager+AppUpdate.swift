@@ -347,7 +347,7 @@ struct HelperUpdateStartupRecoveryOrchestrator {
     /// timer — so polling harder would only add noise without bringing its exit forward. The
     /// ladder sums to seven minutes, which clears the five-minute idle timeout with room for the
     /// time the old helper had already been idle before this app was relaunched.
-    var retryDelays: [Duration] = [
+    static let launchRetryDelays: [Duration] = [
         .seconds(5),
         .seconds(10),
         .seconds(15),
@@ -361,6 +361,16 @@ struct HelperUpdateStartupRecoveryOrchestrator {
         .seconds(60),
     ]
 
+    /// An explicit retry follows a completed launch recovery window, so it needs only enough time
+    /// for a fresh launchd/XPC handshake. Keeping this separate prevents a button press from
+    /// holding the UI busy for another seven minutes.
+    static let interactiveRetryDelays: [Duration] = [
+        .seconds(2),
+        .seconds(5),
+        .seconds(8),
+    ]
+
+    var retryDelays: [Duration] = HelperUpdateStartupRecoveryOrchestrator.launchRetryDelays
     var reconcile: () async -> Attempt
     var resetTransport: () async -> Void
     var wait: (Duration) async -> Void
@@ -642,6 +652,28 @@ extension HelperManager {
 
     /// Launch-time reconciliation, owning the busy and notification wrapper.
     func reconcileEmbeddedHelperOnLaunch() async {
+        await reconcileEmbeddedHelperWithRecovery(
+            retryDelays: HelperUpdateStartupRecoveryOrchestrator.launchRetryDelays,
+            reason: "app launch"
+        )
+    }
+
+    /// Retry a failed automatic refresh without repeating the seven-minute launch recovery window.
+    func retryAutomaticHelperRefresh() async {
+        // The startup pass may have left a refused XPC proxy cached. The recovery orchestrator
+        // resets between attempts; an explicit retry also needs a fresh first attempt.
+        HelperConnection.shared.resetConnection()
+        HelperConnection.shared.invalidateSigningCache()
+        await reconcileEmbeddedHelperWithRecovery(
+            retryDelays: HelperUpdateStartupRecoveryOrchestrator.interactiveRetryDelays,
+            reason: "user retry"
+        )
+    }
+
+    private func reconcileEmbeddedHelperWithRecovery(
+        retryDelays: [Duration],
+        reason: String
+    ) async {
         let previousStatus = status
         let previousReachable = isReachable
         let previousInfo = installedInfo
@@ -668,7 +700,7 @@ extension HelperManager {
             return
         }
 
-        let orchestrator = HelperUpdateStartupRecoveryOrchestrator(
+        var orchestrator = HelperUpdateStartupRecoveryOrchestrator(
             reconcile: { [weak self] in
                 guard let self else {
                     return HelperUpdateStartupRecoveryOrchestrator.Attempt(
@@ -676,7 +708,7 @@ extension HelperManager {
                         registrationIsEnabled: false
                     )
                 }
-                let outcome = await reconcileEmbeddedHelper(reason: "app launch")
+                let outcome = await reconcileEmbeddedHelper(reason: reason)
                 return HelperUpdateStartupRecoveryOrchestrator.Attempt(
                     outcome: outcome,
                     registrationIsEnabled: Self.registrationIsEnabled()
@@ -689,6 +721,7 @@ extension HelperManager {
             wait: { try? await Task.sleep(for: $0) },
             log: { Self.appUpdateLogger.info("\($0, privacy: .public)") }
         )
+        orchestrator.retryDelays = retryDelays
 
         if case let .recoveryExhausted(outcome) = await orchestrator.run() {
             // The registration is untouched and `reconcileEmbeddedHelper` has already published

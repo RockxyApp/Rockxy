@@ -88,14 +88,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                     Self.logger.error("Failed to initialize root CA: \(error.localizedDescription)")
                 }
             }
-            // The shared barrier the capture UI also waits on, so startup capture can never run
-            // against a helper that is about to be replaced by the one in this app bundle.
-            await HelperUpdateStartupReconciliation.task.value
+            // Start the shared barrier now, but do not hold independent app services behind the
+            // legacy helper's bounded launchd recovery window. The capture UI awaits this same
+            // task before it can restore an automatic capture session.
+            let helperReconciliation = HelperUpdateStartupReconciliation.task
             await PluginManager.shared.ensureLoadedOnce()
-            guard !RockxyIdentity.isRunningTests else {
-                return
+            if !RockxyIdentity.isRunningTests {
+                await MCPServerCoordinator.shared.startIfEnabled()
             }
-            await MCPServerCoordinator.shared.startIfEnabled()
+            await helperReconciliation.value
         }
     }
 
