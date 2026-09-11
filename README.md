@@ -82,22 +82,13 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.38.2** — 2026-09-08
-
-### Added
-
-- Added **Choose & Open Developer App** to Automatic Setup, so Rockxy can launch a fully quit macOS developer tool with scoped proxy and certificate settings without changing shell profiles.
+**v0.38.3** — 2026-09-11
 
 ### Fixed
 
-- Restored recognized application proxy settings after prepared apps exit or Rockxy relaunches, while preserving newer user choices and unrelated settings.
-- Prevented interrupted recovery from overwriting newer capture sessions or manually changed system proxy settings.
-- Preserved each macOS network service's own proxy configuration during stop and recovery.
-- Improved helper, certificate, and TLS fallback behavior to reduce stuck capture states and restore application traffic more reliably.
-
-### Changed
-
-- Compatible helpers now refresh safely after app updates while preserving macOS approval; explicit action is required only for genuinely incompatible helpers.
+- Preserved existing macOS helper approval across compatible Rockxy updates, avoiding another approval prompt after the app is replaced.
+- Retained trusted helper connections across app bundle updates and safely waited for older helper processes to finish before using the refreshed helper.
+- Kept unrelated startup services responsive during helper recovery and added bounded retries for temporary connection interruptions.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
