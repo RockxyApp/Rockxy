@@ -401,6 +401,7 @@ final class MainContentCoordinator {
         case .retryCaptureCheck: .retryCaptureCheck
         case .restoreSystemRouting: .restoreSystemRouting
         case .openHTTPSDecryption: .openHTTPSDecryption
+        case .retryHTTPSInterception: .retryHTTPSInterception
         case .openGeneralSettings: .openGeneralSettings
         case .openAdvancedProxySettings: .openAdvancedProxySettings
         case .reinstallAndTrust: .reinstallAndTrust
@@ -757,6 +758,7 @@ struct SystemProxyWarning {
         case restoreSystemRouting
         case retryCaptureCheck
         case openHTTPSDecryption
+        case retryHTTPSInterception
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -777,6 +779,8 @@ struct SystemProxyWarning {
                 String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
             case .openHTTPSDecryption:
                 String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
+            case .retryHTTPSInterception:
+                String(localized: "Retry", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:

@@ -100,6 +100,20 @@ final class CaptureProbeTracker: @unchecked Sendable {
 extension MainContentCoordinator {
     // MARK: - Proxy Lifecycle
 
+    /// Revalidates the active Root CA before removing protected TLS fallbacks. Clearing
+    /// auto-passthrough posts the policy-change notification that closes matching live raw
+    /// tunnels, so the client's next CONNECT can attempt interception immediately.
+    func retryHTTPSInterception() {
+        Task {
+            await readiness.refreshCertificateTrustValidation()
+            guard readiness.canInterceptHTTPS else {
+                return
+            }
+            SSLProxyingManager.shared.clearAutoPassthrough()
+            readiness.clearTLSRejections()
+        }
+    }
+
     func startProxy() {
         guard canStartProxy else {
             return

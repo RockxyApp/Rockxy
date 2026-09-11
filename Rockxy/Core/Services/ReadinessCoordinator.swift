@@ -65,6 +65,7 @@ struct ReadinessWarning: Equatable {
         case retryCaptureCheck
         case restoreSystemRouting
         case openHTTPSDecryption
+        case retryHTTPSInterception
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -85,6 +86,8 @@ struct ReadinessWarning: Equatable {
                 String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
             case .openHTTPSDecryption:
                 String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
+            case .retryHTTPSInterception:
+                String(localized: "Retry", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:
@@ -554,7 +557,7 @@ final class ReadinessCoordinator {
         activeWarning = nil
     }
 
-    /// Clears TLS rejection state. Called when proxy restarts or session clears.
+    /// Clears TLS rejection state after the user explicitly retries interception.
     func clearTLSRejections() {
         tlsRejectionEvidence.reset()
         recomputeWarning()
@@ -830,8 +833,8 @@ final class ReadinessCoordinator {
     /// TLS rejection warning based only on multiple-host evidence from one identified client.
     /// Unattributed connections are intentionally excluded because they cannot prove that the
     /// failures share one trust store.
-    private func tlsRejectionWarning() -> ReadinessWarning? {
-        let detail = if lastCertSnapshot?.isSystemTrustValidated == true {
+    nonisolated static func tlsRejectionWarning(isSystemTrustValidated: Bool) -> ReadinessWarning {
+        let detail = if isSystemTrustValidated {
             String(
                 localized: """
                 One or more clients rejected the Rockxy certificate for multiple HTTPS hosts. \
@@ -849,8 +852,14 @@ final class ReadinessCoordinator {
         }
         return ReadinessWarning(
             message: detail,
-            action: .openGeneralSettings,
+            action: .retryHTTPSInterception,
             isDismissible: true
+        )
+    }
+
+    private func tlsRejectionWarning() -> ReadinessWarning {
+        Self.tlsRejectionWarning(
+            isSystemTrustValidated: lastCertSnapshot?.isSystemTrustValidated == true
         )
     }
 }

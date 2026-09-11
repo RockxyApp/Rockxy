@@ -336,6 +336,8 @@ struct ContentView: View {
             coordinator.runCaptureHealthCheck()
         case .openHTTPSDecryption:
             openWindow(id: "sslProxyingList")
+        case .retryHTTPSInterception:
+            coordinator.retryHTTPSInterception()
         case .openGeneralSettings:
             RockxySettingsTab.select(.general)
             openWindow(id: "settings")

@@ -70,6 +70,37 @@ struct TLSInterceptHandlerTests {
         #expect(!userInfo.values.contains(where: { $0.contains("/Users/example") }))
     }
 
+    @Test("duplicate TLS rejections suppress only repeated evidence")
+    func duplicateRejectionsSuppressOnlyRepeatedEvidence() {
+        let tracker = RecentFailureTracker()
+
+        let firstShouldReport = PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "api.example.com",
+            clientIdentifier: "app.one",
+            tracker: tracker
+        )
+        let duplicateShouldReport = PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "api.example.com",
+            clientIdentifier: "app.one",
+            tracker: tracker
+        )
+
+        #expect(firstShouldReport)
+        #expect(!duplicateShouldReport)
+    }
+
+    @Test("unattributed TLS rejections remain reportable without entering suppression")
+    func unattributedRejectionsRemainReportable() {
+        let tracker = RecentFailureTracker()
+
+        #expect(PostHandshakeHandler.shouldReportCertificateRejection(
+            host: "api.example.com",
+            clientIdentifier: nil,
+            tracker: tracker
+        ))
+        #expect(tracker.trackedEntryCount == 0)
+    }
+
     @Test("remote clients receive a stable privacy-preserving TLS recovery scope")
     func remoteClientScopeIsStableAndPrivate() {
         let first = ProxyConnectionDescriptor(

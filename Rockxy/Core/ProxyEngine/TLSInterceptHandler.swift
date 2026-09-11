@@ -856,28 +856,27 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                     "TLS rejection for \(self.host) has no resolved client identity; using one-connection passthrough only"
                 )
             }
-            let failInfo = Self.recentTLSFailures.recordIdentifiedFailure(
+            let shouldReportRejection = Self.shouldReportCertificateRejection(
                 host: host,
                 clientIdentifier: clientIdentifier
             )
-            if let failInfo, failInfo.count > 1 {
+            if !shouldReportRejection {
                 tlsLogger.debug(
-                    "Suppressing duplicate TLS rejection for \(self.host) and the same client scope (count: \(failInfo.count))"
+                    "Suppressing duplicate TLS rejection notification for \(self.host) and the same client scope"
                 )
-                context.close(promise: nil)
-                return
+            } else {
+                tlsLogger.warning(
+                    "TLS cert rejected by client for \(self.host): \(String(describing: error))"
+                )
+                NotificationCenter.default.post(
+                    name: .tlsMitmRejected,
+                    object: nil,
+                    userInfo: Self.rejectionNotificationUserInfo(
+                        host: host,
+                        clientIdentifier: clientIdentifier
+                    )
+                )
             }
-            tlsLogger.warning(
-                "TLS cert rejected by client for \(self.host): \(String(describing: error))"
-            )
-            NotificationCenter.default.post(
-                name: .tlsMitmRejected,
-                object: nil,
-                userInfo: Self.rejectionNotificationUserInfo(
-                    host: host,
-                    clientIdentifier: clientIdentifier
-                )
-            )
         } else {
             tlsLogger.warning(
                 "TLS error for \(self.host): \(String(describing: error)) — ambiguous, skipping passthrough"
@@ -998,6 +997,23 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             userInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier
         }
         return userInfo
+    }
+
+    /// Returns whether this rejection should produce user-facing evidence. Duplicate failures
+    /// still continue through transaction capture and raw-tunnel recovery; only their repeated
+    /// notification is suppressed.
+    nonisolated static func shouldReportCertificateRejection(
+        host: String,
+        clientIdentifier: String?,
+        tracker: RecentFailureTracker = recentTLSFailures
+    ) -> Bool {
+        guard let failure = tracker.recordIdentifiedFailure(
+            host: host,
+            clientIdentifier: clientIdentifier
+        ) else {
+            return true
+        }
+        return failure.count == 1
     }
 
     nonisolated private func tunnelElapsedDuration() -> TimeInterval {

@@ -319,7 +319,7 @@ struct ReadinessCoordinatorTests {
         let coordinator = ReadinessCoordinator.shared
         coordinator.setCaptureActive(true)
         coordinator.clearTLSRejections()
-        #expect(coordinator.activeWarning?.action != .openGeneralSettings)
+        #expect(coordinator.activeWarning?.action != .retryHTTPSInterception)
         coordinator.setCaptureActive(false)
     }
 
@@ -583,9 +583,10 @@ struct ReadinessCoordinatorTests {
 // MARK: - ReadinessWarningTests
 
 struct ReadinessWarningTests {
-    @Test("action titles are non-empty including reinstallAndTrust")
+    @Test("action titles are non-empty including TLS retry and reinstallAndTrust")
     func actionTitlesNonEmpty() {
         #expect(!ReadinessWarning.Action.retry.title.isEmpty)
+        #expect(!ReadinessWarning.Action.retryHTTPSInterception.title.isEmpty)
         #expect(!ReadinessWarning.Action.openGeneralSettings.title.isEmpty)
         #expect(!ReadinessWarning.Action.openAdvancedProxySettings.title.isEmpty)
         #expect(!ReadinessWarning.Action.reinstallAndTrust.title.isEmpty)
@@ -600,6 +601,15 @@ struct ReadinessWarningTests {
         #expect(warning != nil)
         #expect(warning?.action == .reinstallAndTrust)
         #expect(warning?.isDismissible == false)
+    }
+
+    @Test("TLS rejection warning retries interception instead of reinstalling the certificate")
+    func tlsRejectionWarningOffersInterceptionRetry() {
+        let warning = ReadinessCoordinator.tlsRejectionWarning(isSystemTrustValidated: true)
+
+        #expect(warning.action == .retryHTTPSInterception)
+        #expect(warning.isDismissible)
+        #expect(warning.message.contains("Root CA is trusted"))
     }
 
     @Test("cert-trusted state produces no cert warning")
