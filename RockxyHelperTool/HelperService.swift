@@ -44,7 +44,9 @@ final class HelperService: NSObject, RockxyHelperProtocol {
                         )
                     }
                     return true
-                case .noBackup, .cleared, .restored:
+                case .noBackup,
+                     .cleared,
+                     .restored:
                     return true
                 case .restoreIncomplete:
                     logger.warning("Proxy backup recovery after \(reason) remains incomplete and will retry")
@@ -67,6 +69,67 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             logger.error("Could not serialize helper startup recovery: \(error.localizedDescription)")
             return .restoreIncomplete
         }
+    }
+
+    /// Re-arms the owner watchdog for a session that survived a helper relaunch.
+    /// Without this, an override preserved at startup would have no observer left, so the owner
+    /// dying later would strand the user's proxy settings with nothing to restore them.
+    ///
+    /// The start signature comes from the backup recovery already authenticated, so the re-armed
+    /// watchdog watches the same process identity rather than whatever later inherits the PID.
+    static func resumeOwnerWatchdog(for pid: Int32, startSignature: String, userID: uid_t?) {
+        guard pid > 0, !startSignature.isEmpty else {
+            return
+        }
+        // Backups written before the user identity field existed still carry an exact PID and
+        // start signature. Keep their recovery observer alive as well; the session lock is global,
+        // so its compatibility parameter does not weaken which backup the watchdog may restore.
+        let lockIdentity = userID ?? 0
+        if userID == nil {
+            logger.warning("Re-arming owner watchdog for a legacy proxy backup without a recorded user identity")
+        }
+        logger.info("Re-arming owner watchdog for preserved session pid \(pid)")
+        startOwnerWatchdog(for: pid, startSignature: startSignature, userID: lockIdentity)
+    }
+
+    static func handleConnectionInvalidated(processID: Int32) {
+        let action: InvalidationAction
+        let owner = currentOwnerSnapshot()
+
+        if let owner {
+            let ownerPID = owner.processIdentifier
+            let ownerAlive = ownerSessionIsLive(owner)
+            action = invalidationAction(
+                ownerPID: ownerPID,
+                invalidatedPID: processID,
+                ownerAlive: ownerAlive
+            )
+        } else {
+            action = .ignore
+        }
+
+        switch action {
+        case .ignore:
+            logger.debug("Ignoring XPC invalidation for pid \(processID)")
+        case let .restore(ownerPID):
+            logger.warning("XPC owner connection \(ownerPID) vanished — restoring proxy override automatically")
+            requestAutomaticProxyRestore(
+                for: ownerPID,
+                ownershipToken: owner?.token,
+                reason: "owner connection invalidation"
+            )
+        case let .watchdog(ownerPID):
+            logger.info("Owner pid \(ownerPID) still alive after XPC invalidation — deferring to watchdog")
+            scheduleOwnerDisconnectRecheck(for: ownerPID, ownershipToken: owner?.token)
+        }
+    }
+
+    /// Freeze the executable identity while the bytes that launched this process are still the
+    /// bytes present at its path. An app update may replace that path while this daemon remains
+    /// alive; computing the digest lazily on the first later XPC probe would then hash the new
+    /// file and misidentify the old, already-running process as the candidate.
+    static func prepareExecutableIdentityForLaunch() {
+        _ = runningExecutableIdentity
     }
 
     func overrideSystemProxy(port: Int, ownerPID: Int32, withReply reply: @escaping (Bool, String?) -> Void) {
@@ -132,7 +195,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
                             ownerStartSignature: startSignature,
                             ownerUID: boundUserID
                         )
-                    } catch ProxyConfiguratorError.overrideRollbackIncomplete(let services) {
+                    } catch let ProxyConfiguratorError.overrideRollbackIncomplete(services) {
                         // A partial rollback gets the same live watchdog as a successful override.
                         Self.lastProxyChangeTime = Date()
                         Self.startOwnerWatchdog(
@@ -224,10 +287,31 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
     func getHelperInfo(withReply reply: @escaping (String, Int, Int) -> Void) {
         IdleExitMonitor.resetIdleTimer()
-        let version = Self.version
-        let build = Int(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
-        let protocolVersion = Int(Bundle.main.infoDictionary?["RockxyHelperProtocolVersion"] as? String ?? "0") ?? 0
-        reply(version, build, protocolVersion)
+        reply(Self.version, Self.buildNumber, Self.protocolVersion)
+    }
+
+    /// Answers with the identity of the executable this process is actually running.
+    ///
+    /// Everything reported here is fixed for the lifetime of the process and computed once at
+    /// first use, so repeated polling during an update cannot re-read a file that changed
+    /// underneath a still-running binary, and cannot turn a poll loop into repeated hashing.
+    ///
+    /// This is a read. It is deliberately not gated behind the privileged mutation gate:
+    /// answering "unknown" because a certificate operation happened to be running would be a
+    /// wrong answer rather than a busy one, and the caller would read it as drift.
+    func getExecutableIdentity(
+        withReply reply: @escaping (String, String, Int32, String, Int, Int) -> Void
+    ) {
+        IdleExitMonitor.resetIdleTimer()
+        let identity = Self.runningExecutableIdentity
+        reply(
+            identity.executableDigest,
+            identity.launchIdentity,
+            identity.processIdentifier,
+            identity.executablePath,
+            identity.buildNumber,
+            identity.protocolVersion
+        )
     }
 
     func prepareForUninstall(withReply reply: @escaping (Bool) -> Void) {
@@ -301,59 +385,6 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         }
     }
 
-    /// Re-arms the owner watchdog for a session that survived a helper relaunch.
-    /// Without this, an override preserved at startup would have no observer left, so the owner
-    /// dying later would strand the user's proxy settings with nothing to restore them.
-    ///
-    /// The start signature comes from the backup recovery already authenticated, so the re-armed
-    /// watchdog watches the same process identity rather than whatever later inherits the PID.
-    static func resumeOwnerWatchdog(for pid: Int32, startSignature: String, userID: uid_t?) {
-        guard pid > 0, !startSignature.isEmpty else {
-            return
-        }
-        // Backups written before the user identity field existed still carry an exact PID and
-        // start signature. Keep their recovery observer alive as well; the session lock is global,
-        // so its compatibility parameter does not weaken which backup the watchdog may restore.
-        let lockIdentity = userID ?? 0
-        if userID == nil {
-            logger.warning("Re-arming owner watchdog for a legacy proxy backup without a recorded user identity")
-        }
-        logger.info("Re-arming owner watchdog for preserved session pid \(pid)")
-        startOwnerWatchdog(for: pid, startSignature: startSignature, userID: lockIdentity)
-    }
-
-    static func handleConnectionInvalidated(processID: Int32) {
-        let action: InvalidationAction
-        let owner = currentOwnerSnapshot()
-
-        if let owner {
-            let ownerPID = owner.processIdentifier
-            let ownerAlive = ownerSessionIsLive(owner)
-            action = invalidationAction(
-                ownerPID: ownerPID,
-                invalidatedPID: processID,
-                ownerAlive: ownerAlive
-            )
-        } else {
-            action = .ignore
-        }
-
-        switch action {
-        case .ignore:
-            logger.debug("Ignoring XPC invalidation for pid \(processID)")
-        case let .restore(ownerPID):
-            logger.warning("XPC owner connection \(ownerPID) vanished — restoring proxy override automatically")
-            requestAutomaticProxyRestore(
-                for: ownerPID,
-                ownershipToken: owner?.token,
-                reason: "owner connection invalidation"
-            )
-        case let .watchdog(ownerPID):
-            logger.info("Owner pid \(ownerPID) still alive after XPC invalidation — deferring to watchdog")
-            scheduleOwnerDisconnectRecheck(for: ownerPID, ownershipToken: owner?.token)
-        }
-    }
-
     // MARK: - Bypass Domain Management
 
     func setBypassDomains(_ domains: [String], withReply reply: @escaping (Bool, String?) -> Void) {
@@ -376,8 +407,8 @@ final class HelperService: NSObject, RockxyHelperProtocol {
                           recordedOwnerPID: backup.ownerPID,
                           recordedOwnerStartSignature: backup.ownerStartSignature,
                           hasBackedUpServices: !backup.services.isEmpty
-                      )
-                else {
+                      ) else
+                {
                     throw ProxyConfiguratorError.noOwnedProxySession
                 }
                 try ProxyConfigurator.setBypassDomains(
@@ -609,6 +640,40 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         category: "HelperService"
     )
     private static let version: String = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    private static let buildNumber: Int = .init(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0") ?? 0
+    private static let protocolVersion: Int = .init(
+        Bundle.main.infoDictionary?["RockxyHelperProtocolVersion"] as? String ?? "0"
+    ) ?? 0
+
+    /// A UUID minted once per helper launch. Two answers carrying it came from the same process,
+    /// which is what lets the app tell a helper that genuinely restarted from the old one still
+    /// holding the Mach service.
+    private static let launchIdentity = UUID().uuidString
+
+    /// The running executable's identity, computed once and reused for every probe.
+    ///
+    /// A digest that could not be read is reported as an empty string rather than as some
+    /// plausible-looking value: the app treats a malformed digest as "cannot be compared", which
+    /// keeps the update pending instead of declaring a convergence that was never observed.
+    private static let runningExecutableIdentity: HelperExecutableIdentity = {
+        let executablePath = HelperExecutableLocation.currentProcessExecutablePath()
+        let digest: String
+        do {
+            digest = try HelperExecutableDigest.sha256Hex(atPath: executablePath)
+        } catch {
+            logger.error("Could not digest the running helper executable: \(error.localizedDescription)")
+            digest = ""
+        }
+        return HelperExecutableIdentity(
+            executableDigest: digest,
+            launchIdentity: launchIdentity,
+            processIdentifier: ProcessInfo.processInfo.processIdentifier,
+            executablePath: executablePath,
+            buildNumber: buildNumber,
+            protocolVersion: protocolVersion
+        )
+    }()
+
     private static let validPortRange = 1_024 ... 65_535
     private static let rateLimitInterval: TimeInterval = 2.0
     private static let ownerWatchdogInterval: TimeInterval = 2.0
@@ -687,8 +752,8 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         ownerStateLock.unlock()
         timer.setEventHandler {
             guard let owner = currentOwnerSnapshot(),
-                  owner.token == ownershipToken
-            else {
+                  owner.token == ownershipToken else
+            {
                 return
             }
             let ownerPID = owner.processIdentifier
@@ -738,8 +803,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             return
         }
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) {
-            guard let owner = matchedOwnerSession(processIdentifier: pid, token: ownershipToken)
-            else {
+            guard let owner = matchedOwnerSession(processIdentifier: pid, token: ownershipToken) else {
                 return
             }
             guard !ownerSessionIsLive(owner) else {
@@ -770,8 +834,7 @@ final class HelperService: NSObject, RockxyHelperProtocol {
                 guard let owner = matchedOwnerSession(
                     processIdentifier: expectedOwnerPID,
                     token: ownershipToken
-                )
-                else {
+                ) else {
                     return true
                 }
 
@@ -808,8 +871,8 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         defer { ownerStateLock.unlock() }
         guard let ownerSession,
               ownerSession.processIdentifier == processIdentifier,
-              ownerSession.token == token
-        else {
+              ownerSession.token == token else
+        {
             return nil
         }
         return ownerSession

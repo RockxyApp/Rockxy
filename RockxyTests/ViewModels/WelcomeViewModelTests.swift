@@ -64,7 +64,7 @@ struct WelcomeViewModelTests {
             (.requiresApproval, nil, String(localized: "Open Settings", bundle: RockxyLocalization.bundle)),
             (.installedCompatible, nil, nil),
             (.installedOutdated, nil, String(localized: "Update", bundle: RockxyLocalization.bundle)),
-            (.installedIncompatible, nil, String(localized: "Update", bundle: RockxyLocalization.bundle)),
+            (.installedIncompatible, nil, nil),
             (.unreachable, nil, String(localized: "Retry", bundle: RockxyLocalization.bundle)),
             (
                 .signingMismatch,
@@ -148,6 +148,53 @@ struct WelcomeViewModelTests {
         let error = NSError(domain: NSOSStatusErrorDomain, code: -1)
 
         #expect(WelcomeViewModel.resolveHelperFailureRecovery(for: error) == .repairAndReinstall)
+    }
+
+    @Test("a recoverable modern helper update never routes to Install or Reinstall")
+    @MainActor
+    func recoverableModernUpdateDoesNotOfferReinstall() {
+        // Issue #319: the approval-preserving refresh leaves the registration and the user's
+        // Background Items approval untouched, so a failure must not be presented as something a
+        // reinstall fixes — that is precisely the prompt this work removes.
+        for error in [
+            HelperManager.HelperOperationError.automaticHelperRefreshFailed,
+            .helperApprovalRequired,
+            .helperUpdateUnavailable,
+        ] {
+            #expect(WelcomeViewModel.resolveHelperFailureRecovery(for: error) == .retryLater)
+        }
+        #expect(
+            WelcomeViewModel.resolveHelperFailureRecovery(for: HelperManager.HelperOperationError
+                .helperPackageIncomplete) == .rebuildApp
+        )
+
+        let viewModel = WelcomeViewModel()
+        viewModel.helperStatus = .installedOutdated
+        // Update, never Install or Reinstall, and no destructive repair route.
+        #expect(viewModel.helperActionLabel == String(localized: "Update", bundle: RockxyLocalization.bundle))
+        #expect(!viewModel.shouldOfferHelperRepair)
+        #expect(viewModel.helperStatusDetail?.contains("Update it from this version of Rockxy") == true)
+
+        viewModel.applyHelperState(
+            status: .unreachable,
+            signingIssue: nil,
+            automaticRefreshRecoveryPending: true
+        )
+        #expect(!viewModel.shouldOfferHelperRepair)
+    }
+
+    @Test("only a genuine approval state keeps the manual Login Items route")
+    @MainActor
+    func approvalCopyStaysScopedToRequiresApproval() {
+        let viewModel = WelcomeViewModel()
+        viewModel.helperStatus = .requiresApproval
+
+        #expect(viewModel.helperActionLabel == String(localized: "Open Settings", bundle: RockxyLocalization.bundle))
+        #expect(viewModel.shouldOfferHelperRepair)
+        #expect(viewModel.helperStatusDetail?.contains("Login Items") == true)
+
+        viewModel.helperStatus = .installedOutdated
+        #expect(viewModel.helperStatusDetail?.contains("Login Items") != true)
     }
 
     // MARK: - Action guard and defaults

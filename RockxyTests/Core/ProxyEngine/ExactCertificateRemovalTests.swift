@@ -359,6 +359,13 @@ private final class FakeHelperProxy: NSObject, RockxyHelperProtocol, @unchecked 
         reply(false)
     }
 
+    func getExecutableIdentity(
+        withReply reply: @escaping (String, String, Int32, String, Int, Int) -> Void
+    ) {
+        Self.recordUnexpected("getExecutableIdentity")
+        reply("", "", 0, "", 0, 0)
+    }
+
     func installRootCertificate(_: Data, withReply reply: @escaping (Bool, String?) -> Void) {
         Self.recordUnexpected("installRootCertificate")
         reply(false, "unexpected")

@@ -27822,6 +27822,16 @@
         }
       }
     },
+    "Retry Automatic Update": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重试自动更新"
+          }
+        }
+      }
+    },
     "Retry Connection": {
       "localizations": {
         "zh-Hans": {
@@ -28368,6 +28378,16 @@
         }
       }
     },
+    "Rockxy cannot update this helper tool. Check the helper again, and reinstall it only if it stays unreachable.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法更新此辅助工具。请再次检查辅助工具，只有在它持续无法访问时才重新安装。"
+          }
+        }
+      }
+    },
     "Rockxy cannot verify the Root CA trust status, so HTTPS interception is paused. HTTP traffic and logs are still captured.": {
       "localizations": {
         "zh-Hans": {
@@ -28444,6 +28464,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 找不到根 CA 私钥。"
+          }
+        }
+      }
+    },
+    "Rockxy could not finish updating the helper tool automatically. Your existing helper approval was kept, and Rockxy will try again the next time it opens.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法自动完成辅助工具更新。现有的辅助工具批准状态已保留，Rockxy 将在下次打开时重试。"
           }
         }
       }
@@ -36494,6 +36524,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 Rockxy App 包不完整，因此无法安装辅助工具。请重新安装最新的 Rockxy 版本。如果你通过 Homebrew 安装了 Rockxy，请在修复版本发布后重新安装。"
+          }
+        }
+      }
+    },
+    "This Rockxy app package is incomplete, so the helper tool cannot be updated. Reinstall the latest Rockxy release. If you installed Rockxy from Homebrew, reinstall it after the fixed release is published.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Rockxy App 包不完整，因此无法更新辅助工具。请重新安装最新的 Rockxy 版本。如果你通过 Homebrew 安装了 Rockxy，请在修复版本发布后重新安装。"
           }
         }
       }

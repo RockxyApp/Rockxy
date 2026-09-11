@@ -27,6 +27,23 @@ protocol RockxyHelperProtocol {
     /// unregistered.
     func prepareForExecutableRefresh(withReply reply: @escaping (Bool) -> Void)
 
+    /// Report which executable this helper process is actually running.
+    ///
+    /// Added in protocol version 5, additively: every earlier selector keeps its contract. The
+    /// reply carries the SHA-256 of the running executable, a UUID minted once per helper launch,
+    /// the helper's PID, its canonicalized executable path, and the build and protocol numbers
+    /// read from the same process — so an app that just asked for an executable refresh can tell
+    /// a genuinely restarted helper from the old process answering again with fresh-looking
+    /// metadata.
+    ///
+    /// This is evidence, not authority. It is read *after* the existing signing and
+    /// `SMAppService` gates and never widens what the caller may ask for. A caller must confirm
+    /// through `HelperCompatibilityPolicy.supportsExecutableIdentity` that the *connected* helper
+    /// speaks protocol 5 before sending this.
+    func getExecutableIdentity(
+        withReply reply: @escaping (String, String, Int32, String, Int, Int) -> Void
+    )
+
     /// Install the supplied root CA certificate in the system keychain and trust it for SSL.
     ///
     /// Kept for compatibility with app builds that dispatch it; the current app does not. Adding

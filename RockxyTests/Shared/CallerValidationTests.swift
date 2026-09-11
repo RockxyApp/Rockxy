@@ -3,6 +3,8 @@ import Foundation
 import Security
 import Testing
 
+// MARK: - CallerValidationTests
+
 /// Tests for the shared caller-validation primitives used by `ConnectionValidator`.
 /// These exercise the real validation logic (team/certificate comparison, bundle
 /// identity requirement checking) that the helper's `isValidCaller` delegates to.
@@ -141,7 +143,9 @@ struct CallerValidationTests {
 
     @Test("Configured allowlist contains expected Rockxy identifiers")
     func allowlistContainsExpectedIdentifiers() {
-        guard !TestIdentity.isRunningUnderRawXCTestTool else { return }
+        guard !TestIdentity.isRunningUnderRawXCTestTool else {
+            return
+        }
         let ids = RockxyIdentity.current.allowedCallerIdentifiers
         for expected in TestIdentity.expectedAllowedCallerIdentifiers {
             #expect(ids.contains(expected))
@@ -265,6 +269,146 @@ struct CallerValidationTests {
         // PID 0 is the kernel — will fail certificate extraction
         let rejected = CallerValidation.validateCaller(pid: 0, allowedIdentifiers: allowed)
         #expect(!rejected)
+    }
+
+    // MARK: - Launch Signing Snapshot (issue #319)
+
+    // The self side of layer 1 is frozen at launch. A helper resolves its own signature from its
+    // executable path, and an app update replaces the bytes at that path while the daemon started
+    // from the old ones keeps running — so a later self-lookup describes a file this process never
+    // ran, and the approved helper refuses the app that installed it.
+
+    @Test("The launch signing profile is captured once and answers identically afterwards")
+    func launchProfileIsCapturedOnceAndStable() {
+        guard supportsLiveCallerValidationHost() else {
+            return
+        }
+
+        #expect(CallerValidation.captureLaunchSigningProfile())
+        let first = CallerValidation.launchSigningProfile
+        let second = CallerValidation.launchSigningProfile
+        #expect(first != nil)
+        #expect(first == second)
+    }
+
+    @Test("A captured launch profile authorizes a caller with no live self-lookup available")
+    func capturedProfileNeedsNoLiveSelfLookup() {
+        // Only the snapshot is consulted for the helper side, so the decision is unchanged when
+        // the executable at this process's path can no longer be resolved or validated.
+        let captured = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy.helper",
+            teamIdentifier: "9YNS969KZE",
+            certificateDERs: [Data([1, 2, 3])],
+            executablePath: "/Applications/Rockxy.app/Contents/Library/HelperTools/RockxyHelperTool"
+        )
+        let caller = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: "9YNS969KZE",
+            certificateDERs: [Data([4, 5, 6])],
+            executablePath: "/Applications/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+
+        #expect(CallerValidation.signingAuthoritiesMatch(helper: captured, caller: caller))
+        // Fail closed: an absent snapshot is never read as "no objection".
+        #expect(!CallerValidation.signingAuthoritiesMatch(helper: nil, caller: caller))
+        #expect(!CallerValidation.signingAuthoritiesMatch(helper: captured, caller: nil))
+    }
+
+    @Test("A different team or certificate chain is still rejected against the snapshot")
+    func snapshotStillRejectsForeignSigners() {
+        let captured = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy.helper",
+            teamIdentifier: "9YNS969KZE",
+            certificateDERs: [Data([1, 2, 3])],
+            executablePath: "/Applications/Rockxy.app/Contents/Library/HelperTools/RockxyHelperTool"
+        )
+        // A different team means a different leaf certificate, so neither layer-1 test can pass.
+        let foreignTeam = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: "ABCDE12345",
+            certificateDERs: [Data([7, 8, 9])],
+            executablePath: "/Applications/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+        #expect(!CallerValidation.signingAuthoritiesMatch(helper: captured, caller: foreignTeam))
+
+        // With no readable team on either side, the certificate chain has to match exactly.
+        let teamlessHelper = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy.helper",
+            teamIdentifier: nil,
+            certificateDERs: [Data([1, 2, 3])],
+            executablePath: "/Applications/Rockxy.app/Contents/Library/HelperTools/RockxyHelperTool"
+        )
+        let sameChain = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: nil,
+            certificateDERs: [Data([1, 2, 3])],
+            executablePath: "/Applications/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+        let otherChain = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: nil,
+            certificateDERs: [Data([9, 9, 9])],
+            executablePath: "/Applications/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+        #expect(CallerValidation.signingAuthoritiesMatch(helper: teamlessHelper, caller: sameChain))
+        #expect(!CallerValidation.signingAuthoritiesMatch(helper: teamlessHelper, caller: otherChain))
+    }
+
+    @Test("Ad-hoc pairing through the snapshot stays confined to Xcode build products")
+    func snapshotAdHocPairingStaysLocal() {
+        let adHocHelper = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy.helper",
+            teamIdentifier: nil,
+            certificateDERs: [],
+            executablePath: "/Users/test/Library/Developer/Xcode/DerivedData/Rockxy-abc/Build/Products/Debug/Rockxy.app/Contents/Library/HelperTools/RockxyHelperTool"
+        )
+        let derivedDataCaller = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: nil,
+            certificateDERs: [],
+            executablePath: "/Users/test/Library/Developer/Xcode/DerivedData/Rockxy-abc/Build/Products/Debug/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+        let installedCaller = CallerValidation.CodeSigningProfile(
+            identifier: "com.amunx.rockxy",
+            teamIdentifier: nil,
+            certificateDERs: [],
+            executablePath: "/Applications/Rockxy.app/Contents/MacOS/Rockxy"
+        )
+
+        #expect(CallerValidation.signingAuthoritiesMatch(helper: adHocHelper, caller: derivedDataCaller))
+        #expect(!CallerValidation.signingAuthoritiesMatch(helper: adHocHelper, caller: installedCaller))
+    }
+
+    @Test("The live launch snapshot authorizes this process's own live profile")
+    func liveSnapshotAuthorizesLiveProfile() {
+        guard supportsLiveCallerValidationHost() else {
+            return
+        }
+
+        let pid = ProcessInfo.processInfo.processIdentifier
+        guard let snapshot = CallerValidation.launchSigningProfile,
+              let live = CallerValidation.signingProfile(forPID: pid) else
+        {
+            Issue.record("Could not read the launch snapshot or the live caller profile")
+            return
+        }
+        #expect(CallerValidation.signingAuthoritiesMatch(helper: snapshot, caller: live))
+    }
+
+    @Test("The snapshot never substitutes for the caller's identifier check")
+    func snapshotDoesNotBypassIdentifierCheck() {
+        guard supportsLiveCallerValidationHost() else {
+            return
+        }
+
+        let pid = ProcessInfo.processInfo.processIdentifier
+        #expect(CallerValidation.launchSigningProfile != nil)
+        // Same signer, wrong bundle identifier: layer 2 still refuses it.
+        #expect(!CallerValidation.validateCaller(pid: pid, allowedIdentifiers: ["com.evil.app"]))
+        #expect(CallerValidation.validateCaller(
+            pid: pid,
+            allowedIdentifiers: RockxyIdentity.current.allowedCallerIdentifiers
+        ))
     }
 }
 

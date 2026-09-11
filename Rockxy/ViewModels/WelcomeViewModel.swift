@@ -28,6 +28,10 @@ final class WelcomeViewModel {
         case repairAndReinstall
         case rebuildApp
         case reopenApp
+        /// The helper is still installed and still approved; the operation simply did not
+        /// converge. Offering a reinstall here is what turns a recoverable app update into a
+        /// second Login Items approval prompt.
+        case retryLater
     }
 
     /// What the two certificate steps should show for one readiness answer.
@@ -52,6 +56,7 @@ final class WelcomeViewModel {
     private(set) var certStatusUnavailableMessage: String?
     var helperStatus: HelperManager.HelperStatus = .notInstalled
     var helperSigningIssue: HelperManager.SigningIssue?
+    var helperAutomaticRefreshRecoveryPending = false
     var systemProxyEnabled = false
 
     private(set) var activeAction: ActiveAction?
@@ -101,9 +106,9 @@ final class WelcomeViewModel {
     }
 
     var shouldOfferHelperRepair: Bool {
-        helperStatus == .unreachable
+        !helperAutomaticRefreshRecoveryPending && (helperStatus == .unreachable
             || helperStatus == .requiresApproval
-            || helperFailureRecovery == .repairAndReinstall
+            || helperFailureRecovery == .repairAndReinstall)
     }
 
     var shouldShowHelperDiagnostics: Bool {
@@ -200,8 +205,21 @@ final class WelcomeViewModel {
     }
 
     static func resolveHelperFailureRecovery(for error: Error) -> HelperFailureRecovery {
-        if error as? HelperManager.HelperOperationError == .applicationMustReopen {
-            return .reopenApp
+        if let operationError = error as? HelperManager.HelperOperationError {
+            switch operationError {
+            case .applicationMustReopen:
+                return .reopenApp
+            case .helperPackageIncomplete:
+                return .rebuildApp
+            case .automaticHelperRefreshFailed,
+                 .helperApprovalRequired,
+                 .helperUpdateUnavailable:
+                // The approved registration was never touched, so the recovery is to try again —
+                // not to delete a working helper and ask the user to approve a new one.
+                return .retryLater
+            case .appSignatureInvalid:
+                return .repairAndReinstall
+            }
         }
         if error is HelperManager.HelperInstallPreflightError {
             return .rebuildApp
@@ -263,10 +281,12 @@ final class WelcomeViewModel {
 
     func applyHelperState(
         status: HelperManager.HelperStatus,
-        signingIssue: HelperManager.SigningIssue?
+        signingIssue: HelperManager.SigningIssue?,
+        automaticRefreshRecoveryPending: Bool = false
     ) {
         helperStatus = status
         helperSigningIssue = signingIssue
+        helperAutomaticRefreshRecoveryPending = automaticRefreshRecoveryPending
     }
 
     /// Applies one resolved certificate step state. Kept separate from `apply(readiness:)` so a
@@ -288,7 +308,11 @@ final class WelcomeViewModel {
         }
         defer { activeAction = nil }
 
-        await HelperManager.shared.retryConnection()
+        if helperAutomaticRefreshRecoveryPending {
+            await HelperManager.shared.retryAutomaticHelperRefresh()
+        } else {
+            await HelperManager.shared.retryConnection()
+        }
         await refreshStatus()
 
         guard helperStatus == .unreachable else {
@@ -297,7 +321,7 @@ final class WelcomeViewModel {
         }
         errorMessage = HelperManager.shared.lastErrorMessage
             ?? String(localized: "Rockxy still cannot reach the installed helper.", bundle: RockxyLocalization.bundle)
-        helperFailureRecovery = .repairAndReinstall
+        helperFailureRecovery = helperAutomaticRefreshRecoveryPending ? .retryLater : .repairAndReinstall
     }
 
     func repairAndReinstallHelper() async {
@@ -351,9 +375,24 @@ final class WelcomeViewModel {
         }
     }
 
+    func recordFailure(_ error: Error, area: ErrorArea) {
+        errorMessage = error.localizedDescription
+        errorArea = area
+        if area == .certificate, case CertificateManagerError.trustStateUnavailable = error {
+            certificateErrorWasUnavailable = true
+        } else {
+            certificateErrorWasUnavailable = false
+        }
+        if area == .helper {
+            helperFailureRecovery = Self.resolveHelperFailureRecovery(for: error)
+        }
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "WelcomeViewModel")
+
+    private var certificateErrorWasUnavailable = false
 
     private func begin(_ action: ActiveAction, errorArea: ErrorArea) -> Bool {
         guard Self.canBeginAction(current: activeAction, isCheckingSystem: isCheckingSystem) else {
@@ -389,7 +428,7 @@ final class WelcomeViewModel {
                         localized: "Rockxy still cannot reach the installed helper.",
                         bundle: RockxyLocalization.bundle
                     )
-                helperFailureRecovery = .repairAndReinstall
+                helperFailureRecovery = helperAutomaticRefreshRecoveryPending ? .retryLater : .repairAndReinstall
             } else {
                 self.errorArea = nil
             }
@@ -400,27 +439,16 @@ final class WelcomeViewModel {
         }
     }
 
-    func recordFailure(_ error: Error, area: ErrorArea) {
-        errorMessage = error.localizedDescription
-        errorArea = area
-        if area == .certificate, case CertificateManagerError.trustStateUnavailable = error {
-            certificateErrorWasUnavailable = true
-        } else {
-            certificateErrorWasUnavailable = false
-        }
-        if area == .helper {
-            helperFailureRecovery = Self.resolveHelperFailureRecovery(for: error)
-        }
-    }
-
     private func apply(readiness: ReadinessCoordinator) {
         applyCertificateState(Self.certificateStepState(
             certReadiness: readiness.certReadiness,
             snapshot: readiness.lastCertSnapshot
         ))
-        applyHelperState(status: readiness.helperReadiness, signingIssue: readiness.helperSigningIssue)
+        applyHelperState(
+            status: readiness.helperReadiness,
+            signingIssue: readiness.helperSigningIssue,
+            automaticRefreshRecoveryPending: HelperManager.shared.automaticRefreshRecoveryPending
+        )
         systemProxyEnabled = readiness.proxyMode != .unavailable
     }
-
-    private var certificateErrorWasUnavailable = false
 }
