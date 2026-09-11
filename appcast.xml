@@ -6,33 +6,24 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.38.2 (build 57)</title>
-      <pubDate>Tue, 08 Sep 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-09-08T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.38.3 (build 58)</title>
+      <pubDate>Fri, 11 Sep 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-09-11T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.38.2/Rockxy-0.38.2-57.dmg"
-        sparkle:version="57"
-        sparkle:shortVersionString="0.38.2"
-        sparkle:edSignature="cDid1iCL6pCSWGf7+YHcVoWH2qmdHWY0+Hnzi9JzWPlEM+tGNLr7M74ZKGjn/kvIvqOECy+/STed1gv77K2eAQ=="
-        length="39389765"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.38.3/Rockxy-0.38.3-58.dmg"
+        sparkle:version="58"
+        sparkle:shortVersionString="0.38.3"
+        sparkle:edSignature="RtSQEZpiBsXKDbEaLyGTEi2f91IyqD1nDdwk12rk6e85wEQO3nq2bANNOt9wpgKCJ9CXteBt5Um8nEUcPHQ0Dg=="
+        length="39461745"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.38.2</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.38.3</sparkle:releaseNotesLink>
       <description><![CDATA[
-<h3>Added</h3>
-<ul>
-  <li>Added <strong>Choose &amp; Open Developer App</strong> to Automatic Setup, so Rockxy can launch a fully quit macOS developer tool with scoped proxy and certificate settings without changing shell profiles.</li>
-</ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Restored recognized application proxy settings after prepared apps exit or Rockxy relaunches, while preserving newer user choices and unrelated settings.</li>
-  <li>Prevented interrupted recovery from overwriting newer capture sessions or manually changed system proxy settings.</li>
-  <li>Preserved each macOS network service&#x27;s own proxy configuration during stop and recovery.</li>
-  <li>Improved helper, certificate, and TLS fallback behavior to reduce stuck capture states and restore application traffic more reliably.</li>
-</ul>
-<h3>Changed</h3>
-<ul>
-  <li>Compatible helpers now refresh safely after app updates while preserving macOS approval; explicit action is required only for genuinely incompatible helpers.</li>
+  <li>Preserved existing macOS helper approval across compatible Rockxy updates, avoiding another approval prompt after the app is replaced.</li>
+  <li>Retained trusted helper connections across app bundle updates and safely waited for older helper processes to finish before using the refreshed helper.</li>
+  <li>Kept unrelated startup services responsive during helper recovery and added bounded retries for temporary connection interruptions.</li>
 </ul>
       ]]></description>
     </item>

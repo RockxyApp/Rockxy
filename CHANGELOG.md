@@ -38,6 +38,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
 - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
+## [0.38.3] - 2026-09-11
+
+### Fixed
+
+- Preserved existing macOS helper approval across compatible Rockxy updates, avoiding another approval prompt after the app is replaced.
+- Retained trusted helper connections across app bundle updates and safely waited for older helper processes to finish before using the refreshed helper.
+- Kept unrelated startup services responsive during helper recovery and added bounded retries for temporary connection interruptions.
+
 ## [0.38.2] - 2026-09-08
 
 ### Added
