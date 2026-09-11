@@ -137,7 +137,7 @@ struct AdvancedSettingsTab: View {
                                         localized: "Retry Automatic Update",
                                         bundle: RockxyLocalization.bundle
                                     )) {
-                                        Task { await helperManager.reconcileEmbeddedHelperOnLaunch() }
+                                        Task { await helperManager.retryAutomaticHelperRefresh() }
                                     }
                                     .disabled(helperManager.isBusy)
                                 } else {
