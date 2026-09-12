@@ -31,6 +31,18 @@ private final class ContinuationGate: @unchecked Sendable {
 // MARK: - TrafficCaptureTests
 
 struct TrafficCaptureTests {
+    @Test("recording gate snapshots Pause and Resume synchronously")
+    func recordingGateTransitions() {
+        let gate = CaptureRecordingGate()
+        #expect(gate.allowsCapture())
+
+        gate.update(isRecording: false)
+        #expect(!gate.allowsCapture())
+
+        gate.update(isRecording: true)
+        #expect(gate.allowsCapture())
+    }
+
     @Test("InMemorySessionBuffer append and retrieve by id")
     func appendAndRetrieve() async {
         let buffer = InMemorySessionBuffer(maxCapacity: 100)

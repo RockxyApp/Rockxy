@@ -66,6 +66,35 @@ struct RootCAInstallDispatchRuleTests {
 struct RootCANonDestructiveInstallTests {
     // MARK: Internal
 
+    @Test("explicit repair rotates a legacy Chromium-incompatible root exactly once")
+    func explicitRepairRotatesLegacyRoot() async throws {
+        let overrides = try await installSharedTestOverrides()
+        defer { overrides.cleanup() }
+
+        let legacySerial = Certificate.SerialNumber(bytes: [0x80] + Array(repeating: 0, count: 19))
+        let legacy = try RootCAGenerator.generate(serialNumber: legacySerial)
+        try CertificateStore.saveRootCAPrivateKey(legacy.privateKey)
+        try CertificateStore.saveRootCACertificate(legacy.certificate)
+
+        let manager = CertificateManager.makeForTesting()
+        await manager.setStatusReadOverrideForTests {
+            StatusReadResultForTests(isInstalledInKeychain: true, hasAdminTrustSettings: true)
+        }
+        let recorder = InstallCallRecorder()
+        await manager.setAppInstallOverrideForTests { der in recorder.recordApp(der) }
+
+        await #expect(throws: CertificateManagerError.trustValidationFailed) {
+            try await manager.installAndTrust()
+        }
+
+        let replacement = try #require(await manager.getRootCACertificate())
+        #expect(RootCAGenerator.requiresClientCompatibilityRepair(replacement) == false)
+        #expect(replacement.serialNumber != legacy.certificate.serialNumber)
+        #expect(recorder.appPayloads.count == 1)
+        let replacementDER = try #require(await manager.getRootCADER())
+        #expect(recorder.appPayloads.first == replacementDER)
+    }
+
     @Test("the install runs app-side, sends no helper RPC, and deletes no other certificate")
     func installAlwaysRunsAppSide() async throws {
         let overrides = try await installSharedTestOverrides()

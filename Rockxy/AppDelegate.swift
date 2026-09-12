@@ -16,10 +16,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         defaults.register(defaults: [
             Self.identity.defaultsKey("showAlertOnQuit"): true
         ])
+        let fallbackManager = SSLProxyingManager.shared
+        let terminationLogger = Self.logger
         terminationSignalMonitor = TerminationSignalMonitor { signum in
             SystemProxyManager.shared.performEmergencyTerminationCleanup(
                 reason: "termination signal \(signum)"
             )
+            if !fallbackManager.flushPassthroughPersistence() {
+                terminationLogger.error("Termination signal: timed out flushing HTTPS fallback state")
+            }
         }
         Self.logger.info("Rockxy launched")
         Task {
@@ -162,6 +167,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             }
             await RockxyWorkspaceWindowManager.shared.flushProjectStateForTermination()
             await MCPServerCoordinator.shared.stop()
+            let fallbackManager = SSLProxyingManager.shared
+            let didFlushHTTPSFallbackState = await Task.detached(priority: .utility) {
+                fallbackManager.flushPassthroughPersistence()
+            }.value
+            if !didFlushHTTPSFallbackState {
+                Self.logger.error("Quit: timed out flushing HTTPS fallback state")
+            }
             MCPHandshakeStore.delete()
             NSApplication.shared.reply(toApplicationShouldTerminate: true)
         }
@@ -178,6 +190,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         SystemProxyManager.shared.performEmergencyTerminationCleanup(
             reason: "applicationWillTerminate"
         )
+        if !SSLProxyingManager.shared.flushPassthroughPersistence() {
+            Self.logger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
+        }
         MCPHandshakeStore.delete()
     }
 

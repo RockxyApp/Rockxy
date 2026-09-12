@@ -6,6 +6,7 @@ import Testing
 
 // MARK: - HelperManagerTests
 
+@Suite(.serialized, .sharedPolicyState)
 struct HelperManagerTests {
     @Test("install disposition preserves approval-required state")
     @MainActor

@@ -6,7 +6,7 @@ enum BreakpointEditorContextBuilder {
 
     static func fromTransaction(_ transaction: HTTPTransaction) -> BreakpointEditorContext {
         let host = transaction.request.host
-        let patternHost = wildcardHost(host)
+        let patternHost = wildcardAuthority(for: transaction.request, host: host)
         let normalizedPath = normalizePath(transaction.request.path)
         let method = transaction.request.method.uppercased()
 
@@ -60,5 +60,41 @@ enum BreakpointEditorContextBuilder {
             return host
         }
         return "[\(host)]"
+    }
+
+    private static func wildcardAuthority(for request: HTTPRequestData, host: String) -> String {
+        let patternHost = wildcardHost(host)
+        guard let port = request.url.port ?? explicitHostHeaderPort(in: request.headers, matching: host) else {
+            return patternHost
+        }
+        return "\(patternHost):\(port)"
+    }
+
+    /// Some captured absolute-form HTTP requests are normalized before they reach the UI model,
+    /// leaving the non-default authority port only in the Host header. Use that port only when
+    /// the header's parsed host still matches the URL host; an unrelated or malformed Host value
+    /// must never broaden the suggested rule.
+    private static func explicitHostHeaderPort(in headers: [HTTPHeader], matching urlHost: String) -> Int? {
+        guard let authority = headers.first(where: {
+            $0.name.caseInsensitiveCompare("Host") == .orderedSame
+        })?.value.trimmingCharacters(in: .whitespacesAndNewlines),
+            authorityHasExplicitPort(authority),
+            let parsed = try? HostPortParser.parse(authority),
+            parsed.host.caseInsensitiveCompare(urlHost) == .orderedSame else
+        {
+            return nil
+        }
+        return parsed.port
+    }
+
+    private static func authorityHasExplicitPort(_ authority: String) -> Bool {
+        if authority.hasPrefix("[") {
+            guard let closingBracket = authority.firstIndex(of: "]") else {
+                return false
+            }
+            let suffix = authority[authority.index(after: closingBracket)...]
+            return suffix.hasPrefix(":") && suffix.count > 1
+        }
+        return authority.count(where: { $0 == ":" }) == 1
     }
 }

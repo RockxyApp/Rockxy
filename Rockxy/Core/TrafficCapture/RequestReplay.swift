@@ -16,21 +16,31 @@ enum RequestReplay {
             kCFNetworkProxiesHTTPEnable as String: false,
             kCFNetworkProxiesHTTPSEnable as String: false,
         ]
+        // A fast replay must depend only on the captured request. Persisting or automatically
+        // attaching cookies from an earlier replay makes repeated sends change behind the user's
+        // back and can leak one replay's session state into another host flow.
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
         return URLSession(configuration: config)
     }()
 
     static func replay(_ request: HTTPRequestData) async throws -> HTTPResponseData {
         logger.info("Replaying request: \(request.method) \(request.url.absoluteString)")
 
-        var urlRequest = URLRequest(url: request.url)
-        urlRequest.httpMethod = request.method
-        for header in request.headers {
-            urlRequest.setValue(header.value, forHTTPHeaderField: header.name)
-        }
-        urlRequest.httpBody = request.body
+        let urlRequest = makeURLRequest(from: request)
 
-        let (data, response) = try await proxyBypassSession.data(for: urlRequest)
-        guard let httpResponse = response as? HTTPURLResponse else {
+        let responses = BoundedComposeRequestOperation.responses(
+            for: urlRequest,
+            configuration: proxyBypassSession.configuration,
+            followsRedirects: false,
+            maximumBytes: ProxyLimits.maxResponseBodySize
+        )
+        let data: Data
+        let httpResponse: HTTPURLResponse
+        if let response = try await responses.first(where: { _ in true }) {
+            (data, httpResponse) = response
+        } else {
             throw ReplayError.invalidResponse
         }
 
@@ -48,6 +58,16 @@ enum RequestReplay {
             body: data,
             contentType: ContentType.detect(from: httpResponse.value(forHTTPHeaderField: "Content-Type"))
         )
+    }
+
+    static func makeURLRequest(from request: HTTPRequestData) -> URLRequest {
+        var urlRequest = URLRequest(url: request.url)
+        urlRequest.httpMethod = request.method
+        for header in request.headers {
+            urlRequest.addValue(header.value, forHTTPHeaderField: header.name)
+        }
+        urlRequest.httpBody = request.body
+        return urlRequest
     }
 
     // MARK: Private

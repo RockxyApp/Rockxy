@@ -136,6 +136,33 @@ struct RockxyIdentityTests {
         }
     }
 
+    @Test("Every product identity inherits the same shared-helper caller allowlist")
+    func productConfigsShareHelperCallerAllowlist() throws {
+        let projectRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let base = try String(
+            contentsOf: projectRoot.appendingPathComponent("Configuration/Base.xcconfig"),
+            encoding: .utf8
+        )
+        let community = try String(
+            contentsOf: projectRoot.appendingPathComponent("Configuration/CommunityBase.xcconfig"),
+            encoding: .utf8
+        )
+        let product = try String(
+            contentsOf: projectRoot.appendingPathComponent("Configuration/RockxyBase.xcconfig"),
+            encoding: .utf8
+        )
+
+        #expect(base.contains(
+            "ROCKXY_ALLOWED_CALLER_IDENTIFIERS = $(ROCKXY_FAMILY_NAMESPACE) "
+                + "$(ROCKXY_FAMILY_NAMESPACE).community"
+        ))
+        #expect(!community.contains("ROCKXY_ALLOWED_CALLER_IDENTIFIERS ="))
+        #expect(!product.contains("ROCKXY_ALLOWED_CALLER_IDENTIFIERS ="))
+    }
+
     @Test("Live appBundleIdentifier is non-empty")
     func liveAppBundleIdentifier() {
         guard !TestIdentity.isRunningUnderRawXCTestTool else { return }

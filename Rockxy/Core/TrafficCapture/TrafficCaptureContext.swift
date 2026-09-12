@@ -45,3 +45,38 @@ final class TrafficCaptureContextStore: @unchecked Sendable {
     private let lock = NSLock()
     private var currentContext: TrafficCaptureContext?
 }
+
+// MARK: - CaptureRecordingGate
+
+/// Synchronous recording-state snapshot used at capture intake boundaries.
+///
+/// UI delivery is intentionally batched. Sampling `isRecording` only when a batch reaches the
+/// main actor makes Pause/Resume nondeterministic: a transaction completed before Pause can be
+/// dropped, while one completed during Pause can appear after Resume. This lock-backed gate lets
+/// proxy and log callbacks decide once, at intake time, before their asynchronous hops.
+final class CaptureRecordingGate: @unchecked Sendable {
+    // MARK: Lifecycle
+
+    init(isRecording: Bool = true) {
+        self.isRecording = isRecording
+    }
+
+    // MARK: Internal
+
+    func update(isRecording: Bool) {
+        lock.lock()
+        self.isRecording = isRecording
+        lock.unlock()
+    }
+
+    func allowsCapture() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isRecording
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var isRecording: Bool
+}

@@ -602,9 +602,8 @@ private struct MainWindowContent: View {
                 get: { lifecycleState.showWelcome },
                 set: { lifecycleState.showWelcome = $0 }
             )) {
-                WelcomeView(isFirstLaunch: true, onComplete: {
-                    lifecycleState.showWelcome = false
-                })
+                WelcomeView(isFirstLaunch: true, onComplete: { lifecycleState.showWelcome = false },
+                            onEnableSystemProxy: { try await coordinator.enableSystemProxyFromWelcome() })
             }
             .sheet(isPresented: Binding(
                 get: { lifecycleState.showKeyboardShortcuts },
@@ -623,6 +622,7 @@ private struct MainWindowContent: View {
                     let certInstalled = await CertificateManager.shared.isRootCAInstalled()
                     let certTrusted = await CertificateManager.shared.isRootCATrusted()
                     let helperOK = HelperManager.shared.status == .installedCompatible
+                        && !HelperManager.shared.automaticRefreshRecoveryPending
                     let proxyOK = await SystemProxyManager.shared.isSystemProxyEnabledAsync()
                     if certInstalled, certTrusted, helperOK, proxyOK {
                         onboardingCompletedOnce = true

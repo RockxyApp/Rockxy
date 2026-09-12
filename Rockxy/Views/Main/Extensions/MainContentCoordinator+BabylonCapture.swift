@@ -31,6 +31,9 @@ extension MainContentCoordinator {
     }
 
     func receiveBabylonTransaction(_ transaction: HTTPTransaction) async {
+        guard captureRecordingGate.allowsCapture() else {
+            return
+        }
         guard await ensureProjectCatalogReadyForDataIntake() else {
             Self.logger.error("Dropped Babylon traffic because the Project catalog is unavailable")
             return

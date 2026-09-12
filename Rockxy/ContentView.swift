@@ -76,6 +76,7 @@ struct ContentView: View {
                         SystemProxyWarningBanner(
                             message: warning.message,
                             primaryActionTitle: warning.action?.title,
+                            isActionInProgress: warning.isActionInProgress,
                             onPrimaryAction: {
                                 handleSystemProxyWarningAction(warning.action)
                             },
@@ -336,6 +337,8 @@ struct ContentView: View {
             coordinator.runCaptureHealthCheck()
         case .openHTTPSDecryption:
             openWindow(id: "sslProxyingList")
+        case .retryHTTPSInterception:
+            coordinator.retryHTTPSInterception()
         case .openGeneralSettings:
             RockxySettingsTab.select(.general)
             openWindow(id: "settings")

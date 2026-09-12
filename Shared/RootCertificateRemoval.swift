@@ -140,8 +140,9 @@ enum RootCertificateRemover {
 
     static let maximumCertificateByteCount = 10_000
 
-    /// The subject common name every Rockxy root CA carries (`RootCAGenerator`).
+    /// The legacy subject common name and prefix every Rockxy root CA carries.
     static let expectedCommonName = "Rockxy Root CA"
+    static let keySpecificCommonNamePrefix = "\(expectedCommonName) "
 
     /// Validates that the supplied bytes describe a certificate this helper owns.
     ///
@@ -166,7 +167,7 @@ enum RootCertificateRemover {
         guard commonNameStatus == errSecSuccess, let commonName = copiedCommonName as String? else {
             throw RootCertificateRemovalError.unexpectedCommonName(nil)
         }
-        guard commonName == expectedCommonName else {
+        guard ownsCommonName(commonName) else {
             throw RootCertificateRemovalError.unexpectedCommonName(commonName)
         }
 
@@ -184,6 +185,22 @@ enum RootCertificateRemover {
         }
 
         return Target(derData: derData, serialNumber: serialNumber, fingerprint: fingerprint(of: derData))
+    }
+
+    /// New roots append exactly twelve uppercase hexadecimal characters derived from their
+    /// public key. Keep accepting the legacy exact name while rejecting arbitrary lookalikes
+    /// that merely begin with the Rockxy prefix.
+    private static func ownsCommonName(_ commonName: String) -> Bool {
+        guard commonName != expectedCommonName else {
+            return true
+        }
+        guard commonName.hasPrefix(keySpecificCommonNamePrefix) else {
+            return false
+        }
+        let suffix = commonName.dropFirst(keySpecificCommonNamePrefix.count)
+        return suffix.count == 12 && suffix.allSatisfy { character in
+            "0123456789ABCDEF".contains(character)
+        }
     }
 
     /// Removes exactly the certificate described by `derData`, plus its admin trust settings.

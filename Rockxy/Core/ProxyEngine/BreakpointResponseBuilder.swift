@@ -44,12 +44,12 @@ enum BreakpointResponseBuilder {
             if let originalBody {
                 headers.replaceOrAdd(name: "Content-Length", value: "\(originalBody.count)")
             } else {
-                headers.remove(name: "Content-Length")
+                headers.replaceOrAdd(name: "Content-Length", value: "0")
             }
         } else if modifiedData.body.isEmpty {
             body = nil
-            headers.remove(name: "Content-Length")
             headers.remove(name: "Transfer-Encoding")
+            headers.replaceOrAdd(name: "Content-Length", value: "0")
         } else {
             let bodyData = Data(modifiedData.body.utf8)
             body = bodyData

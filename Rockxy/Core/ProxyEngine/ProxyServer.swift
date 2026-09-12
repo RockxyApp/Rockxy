@@ -460,13 +460,17 @@ actor ProxyServer {
         // Any SSL-proxying mutation (inspector, settings, import, global enable) routes through
         // save()/forceGlobalPassthrough and posts this notification. Reset live raw tunnels the
         // new policy would now intercept so the client's next request is decrypted. The registry
-        // itself is Sendable and thread-safe; the closure captures only it, not self.
+        // itself is Sendable and thread-safe. Dispatch invalidation away from the posting thread:
+        // automatic TLS recovery can post from a NIO event loop, which must not synchronously
+        // sweep and close unrelated live tunnels.
         sslPolicyObserver = NotificationCenter.default.addObserver(
             forName: .sslProxyingStateDidChange,
             object: nil,
             queue: nil
         ) { _ in
-            tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            Self.tunnelInvalidationQueue.async {
+                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            }
         }
 
         // Bypass-list mutations also feed `initialTunnelMode`: removing a bypass entry can turn a
@@ -477,7 +481,9 @@ actor ProxyServer {
             object: nil,
             queue: nil
         ) { _ in
-            tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            Self.tunnelInvalidationQueue.async {
+                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            }
         }
 
         let bootstrap = ServerBootstrap(group: group)
@@ -592,6 +598,10 @@ actor ProxyServer {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyServer")
+    nonisolated private static let tunnelInvalidationQueue = DispatchQueue(
+        label: "\(RockxyIdentity.current.logSubsystem).live-tunnel-invalidation",
+        qos: .utility
+    )
 
     private let configuration: ProxyConfiguration
     private let certificateManager: CertificateManager

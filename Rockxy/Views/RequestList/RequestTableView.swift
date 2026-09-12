@@ -1749,15 +1749,20 @@ extension RequestTableView {
         }
 
         private func buildRepeatGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
-            menu.addItem(menuItem(
+            let canReplay = MainContentCoordinator.canReplay(transaction)
+            let repeatItem = menuItem(
                 String(localized: "Repeat", bundle: RockxyLocalization.bundle), action: #selector(handleRepeat(_:)),
                 symbol: "arrow.clockwise", transaction: transaction
-            ))
-            menu.addItem(menuItem(
+            )
+            repeatItem.isEnabled = canReplay
+            menu.addItem(repeatItem)
+            let editAndRepeatItem = menuItem(
                 String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleEditAndRepeat(_:)),
                 transaction: transaction
-            ))
+            )
+            editAndRepeatItem.isEnabled = canReplay
+            menu.addItem(editAndRepeatItem)
         }
 
         private func buildPinGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
