@@ -363,16 +363,22 @@ final class SSLProxyingManager: @unchecked Sendable {
     /// Called from PostHandshakeHandler when a client rejects our intercepted certificate.
     nonisolated func markHostForPassthrough(
         _ host: String,
-        application: ClientApplicationIdentity? = nil
+        application: ClientApplicationIdentity? = nil,
+        reason: PersistentTLSPassthroughReason = .certificateRejection
     ) {
-        markHostForPassthrough(host, clientIdentifier: application?.identifier)
+        markHostForPassthrough(
+            host,
+            clientIdentifier: application?.identifier,
+            reason: reason
+        )
     }
 
     /// Client-scoped variant used when the caller is a remote device rather than a local app.
     /// The identifier is already privacy-preserving and stable only for the capture boundary.
     nonisolated func markHostForPassthrough(
         _ host: String,
-        clientIdentifier: String?
+        clientIdentifier: String?,
+        reason: PersistentTLSPassthroughReason = .certificateRejection
     ) {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedHost.isEmpty else { return }
@@ -385,13 +391,21 @@ final class SSLProxyingManager: @unchecked Sendable {
         autoPassthroughHosts = autoPassthroughHosts.filter {
             Self.isFresh($0.value, at: now, ttl: Self.passthroughTTLSeconds)
         }
+        certificateRejectionScopes.formIntersection(autoPassthroughHosts.keys)
         if autoPassthroughHosts[scope] == nil,
            autoPassthroughHosts.count >= Self.maximumAutoPassthroughEntries,
            let oldestScope = autoPassthroughHosts.min(by: { $0.value < $1.value })?.key
         {
             autoPassthroughHosts.removeValue(forKey: oldestScope)
+            certificateRejectionScopes.remove(oldestScope)
         }
         autoPassthroughHosts[scope] = now
+        switch reason {
+        case .certificateRejection:
+            certificateRejectionScopes.insert(scope)
+        case .compatibility:
+            certificateRejectionScopes.remove(scope)
+        }
         passthroughLock.unlock()
         Self.logger.info("Scoped auto-passthrough enabled for \(host) after TLS failure")
         persistPassthroughHosts()
@@ -428,6 +442,7 @@ final class SSLProxyingManager: @unchecked Sendable {
         passthroughLock.lock()
         let hadEntries = !autoPassthroughHosts.isEmpty || !transientPassthroughHosts.isEmpty
         autoPassthroughHosts.removeAll()
+        certificateRejectionScopes.removeAll()
         transientPassthroughHosts.removeAll()
         passthroughLock.unlock()
         persistPassthroughHosts()
@@ -466,6 +481,7 @@ final class SSLProxyingManager: @unchecked Sendable {
         let hadEntries = !autoPassthroughHosts.isEmpty || !transientPassthroughHosts.isEmpty
         if trustRecovered || identityChanged {
             autoPassthroughHosts.removeAll()
+            certificateRejectionScopes.removeAll()
             transientPassthroughHosts.removeAll()
         }
         if metadataChanged || ((trustRecovered || identityChanged) && hadEntries) {
@@ -515,6 +531,7 @@ final class SSLProxyingManager: @unchecked Sendable {
         }
         for scope in matchingScopes {
             autoPassthroughHosts.removeValue(forKey: scope)
+            certificateRejectionScopes.remove(scope)
         }
         for scope in transientMatchingScopes {
             transientPassthroughHosts.removeValue(forKey: scope)
@@ -554,6 +571,7 @@ final class SSLProxyingManager: @unchecked Sendable {
         }
         for scope in matchingScopes {
             autoPassthroughHosts.removeValue(forKey: scope)
+            certificateRejectionScopes.remove(scope)
         }
         for scope in transientMatchingScopes {
             transientPassthroughHosts.removeValue(forKey: scope)
@@ -602,6 +620,7 @@ final class SSLProxyingManager: @unchecked Sendable {
                 return true
             }
             autoPassthroughHosts.removeValue(forKey: scope)
+            certificateRejectionScopes.remove(scope)
         }
         if let timestamp = transientPassthroughHosts[scope] {
             if Self.isFresh(timestamp, at: now, ttl: Self.transientPassthroughTTLSeconds) {
@@ -610,6 +629,40 @@ final class SSLProxyingManager: @unchecked Sendable {
             transientPassthroughHosts.removeValue(forKey: scope)
         }
         return false
+    }
+
+    /// Returns fresh certificate-rejection fallbacks grouped by the client that rejected them.
+    /// Readiness uses this at capture start so a relaunch cannot turn protected raw tunnels into
+    /// an apparently healthy HTTPS state with no Retry action. Compatibility fallbacks are
+    /// intentionally excluded because they do not prove client trust rejection.
+    nonisolated func certificateRejectionHostsByClient() -> [String: Set<String>] {
+        let now = passthroughNowProvider()
+        var removedExpiredEntry = false
+        var result: [String: Set<String>] = [:]
+
+        passthroughLock.lock()
+        let expiredScopes = autoPassthroughHosts.compactMap { scope, timestamp in
+            Self.isFresh(timestamp, at: now, ttl: Self.passthroughTTLSeconds) ? nil : scope
+        }
+        for scope in expiredScopes {
+            autoPassthroughHosts.removeValue(forKey: scope)
+            certificateRejectionScopes.remove(scope)
+        }
+        removedExpiredEntry = !expiredScopes.isEmpty
+        for (scope, timestamp) in autoPassthroughHosts {
+            guard Self.isFresh(timestamp, at: now, ttl: Self.passthroughTTLSeconds) else { continue }
+            guard certificateRejectionScopes.contains(scope),
+                  let clientIdentifier = scope.clientIdentifier else {
+                continue
+            }
+            result[clientIdentifier, default: []].insert(scope.host)
+        }
+        passthroughLock.unlock()
+
+        if removedExpiredEntry {
+            persistPassthroughHosts()
+        }
+        return result
     }
 
     func load() {
@@ -790,6 +843,7 @@ final class SSLProxyingManager: @unchecked Sendable {
 
     private let passthroughLock = NSLock()
     nonisolated(unsafe) private var autoPassthroughHosts: [AutoPassthroughScope: Date] = [:]
+    nonisolated(unsafe) private var certificateRejectionScopes: Set<AutoPassthroughScope> = []
     nonisolated(unsafe) private var transientPassthroughHosts: [AutoPassthroughScope: Date] = [:]
     nonisolated(unsafe) private var _forceGlobalPassthrough = false
     nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
@@ -970,6 +1024,7 @@ final class SSLProxyingManager: @unchecked Sendable {
         }
         for scope in scopesToRemove {
             autoPassthroughHosts.removeValue(forKey: scope)
+            certificateRejectionScopes.remove(scope)
         }
         for scope in transientScopesToRemove {
             transientPassthroughHosts.removeValue(forKey: scope)
@@ -1001,6 +1056,7 @@ final class SSLProxyingManager: @unchecked Sendable {
             removedPersistentCount = autoPassthroughHosts.count
             removedCount = removedPersistentCount + transientPassthroughHosts.count
             autoPassthroughHosts.removeAll()
+            certificateRejectionScopes.removeAll()
             transientPassthroughHosts.removeAll()
         } else {
             let scopesToRemove = autoPassthroughHosts.keys.filter { scope in
@@ -1013,6 +1069,7 @@ final class SSLProxyingManager: @unchecked Sendable {
             removedCount = removedPersistentCount + transientScopesToRemove.count
             for scope in scopesToRemove {
                 autoPassthroughHosts.removeValue(forKey: scope)
+                certificateRejectionScopes.remove(scope)
             }
             for scope in transientScopesToRemove {
                 transientPassthroughHosts.removeValue(forKey: scope)
@@ -1039,28 +1096,39 @@ final class SSLProxyingManager: @unchecked Sendable {
         do {
             let data = try Data(contentsOf: url)
             let decoded = try JSONDecoder().decode(AutoPassthroughStorage.self, from: data)
-            guard decoded.schemaVersion == AutoPassthroughStorage.currentSchemaVersion else {
+            guard AutoPassthroughStorage.supportedSchemaVersions.contains(decoded.schemaVersion) else {
                 Self.logger.info("Discarding legacy global auto-passthrough state")
                 return
             }
             let now = passthroughNowProvider()
             lastObservedSystemTrustValidated = decoded.lastObservedSystemTrustValidated
             lastObservedCertificateFingerprint = decoded.lastObservedCertificateFingerprint
+            let requiresCertificateRejectionMigration =
+                decoded.schemaVersion < AutoPassthroughStorage.currentSchemaVersion
             let validRecords = decoded.records
                 .filter {
                     $0.scope.clientIdentifier != nil
                         && Self.isFresh($0.timestamp, at: now, ttl: Self.passthroughTTLSeconds)
+                        && (!requiresCertificateRejectionMigration
+                            || ($0.reason ?? .certificateRejection) == .compatibility)
                 }
                 .sorted { $0.timestamp > $1.timestamp }
                 .prefix(Self.maximumAutoPassthroughEntries)
             passthroughLock.lock()
             for record in validRecords {
                 autoPassthroughHosts[record.scope] = record.timestamp
+                if record.reason ?? .certificateRejection == .certificateRejection {
+                    certificateRejectionScopes.insert(record.scope)
+                }
             }
             passthroughLock.unlock()
             let loaded = validRecords.count
             if loaded > 0 {
                 Self.logger.info("Loaded \(loaded) persisted auto-passthrough hosts")
+            }
+            if requiresCertificateRejectionMigration {
+                Self.logger.info("Discarded stale certificate-rejection fallbacks from an earlier recovery policy")
+                persistPassthroughHosts()
             }
         } catch {
             Self.logger.error("Failed to load auto-passthrough hosts: \(error.localizedDescription)")
@@ -1101,7 +1169,13 @@ final class SSLProxyingManager: @unchecked Sendable {
             let snapshot = AutoPassthroughStorage(
                 schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
                 records: autoPassthroughHosts.map {
-                    AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
+                    AutoPassthroughRecord(
+                        scope: $0.key,
+                        timestamp: $0.value,
+                        reason: certificateRejectionScopes.contains($0.key)
+                            ? .certificateRejection
+                            : .compatibility
+                    )
                 },
                 lastObservedSystemTrustValidated: lastObservedSystemTrustValidated,
                 lastObservedCertificateFingerprint: lastObservedCertificateFingerprint
@@ -1138,15 +1212,22 @@ private struct AutoPassthroughScope: Codable, Hashable, Sendable {
 private struct AutoPassthroughRecord: Codable, Sendable {
     let scope: AutoPassthroughScope
     let timestamp: Date
+    let reason: PersistentTLSPassthroughReason?
 }
 
 private struct AutoPassthroughStorage: Codable, Sendable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 5
+    static let supportedSchemaVersions: Set<Int> = [3, 4, currentSchemaVersion]
 
     let schemaVersion: Int
     let records: [AutoPassthroughRecord]
     let lastObservedSystemTrustValidated: Bool?
     let lastObservedCertificateFingerprint: String?
+}
+
+nonisolated enum PersistentTLSPassthroughReason: String, Codable, Sendable {
+    case certificateRejection
+    case compatibility
 }
 
 // MARK: - SSLProxyingStorage

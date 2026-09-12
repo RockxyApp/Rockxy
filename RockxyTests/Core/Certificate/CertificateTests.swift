@@ -39,6 +39,34 @@ struct RootCAGeneratorTests {
         let second = try RootCAGenerator.generate()
         #expect(first.privateKey.rawRepresentation != second.privateKey.rawRepresentation)
     }
+
+    @Test("generated roots use RFC 5280 serial lengths and key-specific subjects")
+    func generatedRootsAvoidChromiumTrustAmbiguity() throws {
+        let first = try RootCAGenerator.generate().certificate
+        let second = try RootCAGenerator.generate().certificate
+
+        #expect(first.serialNumber.bytes.count <= CertificateSerialNumberGenerator.maximumEncodedByteCount)
+        #expect(second.serialNumber.bytes.count <= CertificateSerialNumberGenerator.maximumEncodedByteCount)
+        #expect(!RootCAGenerator.requiresClientCompatibilityRepair(first))
+        #expect(first.subject != second.subject)
+        #expect(first.subject.description.contains("Rockxy Root CA "))
+    }
+
+    @Test("legacy sign-prefixed 20-byte serial requires compatibility repair")
+    func legacySerialRequiresCompatibilityRepair() {
+        let legacySerial = Certificate.SerialNumber(bytes: [0x80] + Array(repeating: 0, count: 19))
+
+        #expect(legacySerial.bytes.count == 20)
+        #expect(RootCAGenerator.requiresClientCompatibilityRepair(serialNumber: legacySerial))
+    }
+
+    @Test("serial generator always leaves room for a positive sign octet")
+    func serialGeneratorIsAlwaysRFC5280Bounded() {
+        for _ in 0 ..< 512 {
+            let serial = CertificateSerialNumberGenerator.generate()
+            #expect(serial.bytes.count <= CertificateSerialNumberGenerator.maximumEncodedByteCount)
+        }
+    }
 }
 
 // MARK: - HostCertGeneratorTests
@@ -64,6 +92,18 @@ struct HostCertGeneratorTests {
             issuerKey: ca.privateKey
         )
         #expect(hostResult.privateKey.rawRepresentation != ca.privateKey.rawRepresentation)
+    }
+
+    @Test("host certificate serial stays within the RFC 5280 limit")
+    func hostCertificateSerialIsRFC5280Bounded() throws {
+        let ca = try RootCAGenerator.generate()
+        let hostResult = try HostCertGenerator.generate(
+            host: "serial.example.com",
+            issuer: ca.certificate,
+            issuerKey: ca.privateKey
+        )
+
+        #expect(hostResult.certificate.serialNumber.bytes.count <= CertificateSerialNumberGenerator.maximumEncodedByteCount)
     }
 
     @Test("host cert includes SubjectKeyIdentifier extension")

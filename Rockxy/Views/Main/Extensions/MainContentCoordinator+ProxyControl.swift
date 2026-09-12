@@ -222,7 +222,7 @@ extension MainContentCoordinator {
                 SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS
                 if !readiness.canInterceptHTTPS {
                     Self.logger.warning(
-                        "Root CA is not trusted (real SecTrust validation) — all HTTPS passes through"
+                        "Root CA failed SSL trust or client compatibility validation — all HTTPS passes through"
                     )
                 } else {
                     if await certificateManager.rootCAFreshlyInstalled {

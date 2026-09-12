@@ -243,8 +243,8 @@ struct ReadinessCoordinatorTests {
         #expect(evidence.rejectedHostsByClient["app.one"]?.count == 3)
     }
 
-    @Test("successful interception clears only that application's rejection evidence")
-    func tlsSuccessClearsMatchingApplicationEvidence() {
+    @Test("successful interception clears only the matching host and application evidence")
+    func tlsSuccessClearsOnlyMatchingHostEvidence() {
         var evidence = TLSRejectionEvidence()
         for host in ["one.example", "two.example", "three.example"] {
             evidence.recordRejection(host: host, clientIdentifier: "app.one")
@@ -254,14 +254,13 @@ struct ReadinessCoordinatorTests {
 
         evidence.recordSuccessfulHandshake(host: "one.example", clientIdentifier: "app.one")
 
-        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
-        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
+        #expect(evidence.rejectedHostsByClient["app.one"] == ["two.example", "three.example"])
         #expect(evidence.rejectedHostsByClient["app.two"]?.count == 3)
         #expect(evidence.hasMultiHostClientFailure)
     }
 
-    @Test("a client that accepts the current CA cannot trigger a broad warning from pinned hosts")
-    func tlsSuccessSuppressesLaterPinnedHostFailures() {
+    @Test("one accepted host does not suppress later pinned-host failures from the same application")
+    func tlsSuccessDoesNotSuppressLaterPinnedHostFailures() {
         var evidence = TLSRejectionEvidence()
         evidence.recordRejection(host: "recovered.example", clientIdentifier: "app.one")
         let firstSuccess = evidence.recordSuccessfulHandshake(
@@ -279,21 +278,20 @@ struct ReadinessCoordinatorTests {
             evidence.recordRejection(host: host, clientIdentifier: "app.one")
         }
 
-        #expect(evidence.rejectedHostsByClient["app.one"] == nil)
-        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
-        #expect(!evidence.hasMultiHostClientFailure)
+        #expect(evidence.rejectedHostsByClient["app.one"]?.count == 3)
+        #expect(evidence.hasMultiHostClientFailure)
     }
 
-    @Test("a new certificate epoch rearms rejection evidence for clients that accepted the old epoch")
-    func newCertificateEpochRearmsAcceptedClients() {
+    @Test("a new certificate epoch clears old rejection evidence before collecting fresh failures")
+    func newCertificateEpochResetsRejectionEvidence() {
         var evidence = TLSRejectionEvidence()
-        evidence.recordSuccessfulHandshake(host: "working.example", clientIdentifier: "app.one")
         for host in ["old-one.example", "old-two.example", "old-three.example"] {
             evidence.recordRejection(host: host, clientIdentifier: "app.one")
         }
-        #expect(!evidence.hasMultiHostClientFailure)
+        #expect(evidence.hasMultiHostClientFailure)
 
         evidence.reset()
+        #expect(!evidence.hasMultiHostClientFailure)
         for host in ["new-one.example", "new-two.example", "new-three.example"] {
             evidence.recordRejection(host: host, clientIdentifier: "app.one")
         }
@@ -326,7 +324,6 @@ struct ReadinessCoordinatorTests {
 
         #expect(evidence.unattributedRejectedHosts == ["one.example", "three.example"])
         #expect(!evidence.hasUnattributedMultiHostFailure)
-        #expect(evidence.clientsAcceptingCurrentCA.contains("app.one"))
     }
 
     @Test("an unattributed success clears its host without suppressing a later identified client")
@@ -359,20 +356,6 @@ struct ReadinessCoordinatorTests {
         #expect(evidence.rejectedHostsByClient["app.overflow"] == nil)
     }
 
-    @Test("the current-CA acceptance cache remains bounded and retains the newest client")
-    func tlsAcceptanceCacheRemainsBounded() {
-        var evidence = TLSRejectionEvidence()
-        for index in 0 ..< TLSRejectionEvidence.maximumTrackedClients {
-            evidence.recordSuccessfulHandshake(host: "ok.example", clientIdentifier: "app.\(index)")
-        }
-
-        evidence.recordSuccessfulHandshake(host: "ok.example", clientIdentifier: "app.newest")
-
-        #expect(evidence.clientsAcceptingCurrentCA.count == TLSRejectionEvidence.maximumTrackedClients)
-        #expect(evidence.clientsAcceptingCurrentCA.contains("app.newest"))
-        #expect(!evidence.clientsAcceptingCurrentCA.contains("app.0"))
-    }
-
     @Test("retry targets and clears only clients that reached the multi-host threshold")
     func tlsRetryTargetsAreClientScoped() {
         var evidence = TLSRejectionEvidence()
@@ -400,6 +383,54 @@ struct ReadinessCoordinatorTests {
         coordinator.clearTLSRejections()
         #expect(coordinator.activeWarning?.action != .retryHTTPSInterception)
         coordinator.setCaptureActive(false)
+    }
+
+    @Test("capture start restores persisted client-scoped rejection evidence")
+    @MainActor
+    func captureStartRestoresPersistedRejectionEvidence() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-restored-rejections-\(UUID().uuidString)", isDirectory: true)
+        let settingsURL = directory.appendingPathComponent("settings.json")
+        let passthroughURL = directory.appendingPathComponent("passthrough.json")
+        let firstRun = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        for host in ["one.example", "two.example", "three.example"] {
+            firstRun.markHostForPassthrough(host, clientIdentifier: "app.one")
+        }
+        #expect(firstRun.flushPassthroughPersistence())
+        let relaunched = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        coordinator.setCaptureActive(true, sslProxyingManager: relaunched)
+
+        #expect(coordinator.tlsRetryClientIdentifiers == ["app.one"])
+    }
+
+    @Test("HTTPS retry warning outranks direct-mode helper guidance")
+    func tlsRetryOutranksDirectModeWarning() {
+        var evidence = TLSRejectionEvidence()
+        for host in ["one.example", "two.example", "three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+        }
+
+        let warning = ReadinessCoordinator.degradedCaptureWarning(
+            tlsRejectionEvidence: evidence,
+            isSystemTrustValidated: true,
+            proxyMode: .direct,
+            helperReadiness: .notInstalled,
+            helperSigningIssue: nil
+        )
+
+        #expect(warning?.action == .retryHTTPSInterception)
     }
 
     // MARK: - Observer Lifecycle
@@ -839,7 +870,7 @@ struct ReadinessWarningTests {
         // never generated, or for one that is in no keychain, names a decision the user never made.
         #expect(notGenerated.message.contains("has not been generated"))
         #expect(generatedNotInstalled.message.contains("not installed in the login or System keychain"))
-        #expect(installedNotTrusted.message.contains("installed but not trusted"))
+        #expect(installedNotTrusted.message.contains("SSL trust or client compatibility checks"))
 
         let messages = [
             notGenerated.message,

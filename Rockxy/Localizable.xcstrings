@@ -15833,12 +15833,12 @@
         }
       }
     },
-    "HTTPS interception is unavailable because the Rockxy Root CA is installed but not trusted for SSL. HTTP traffic and logs are still captured.": {
+    "HTTPS interception is unavailable because the installed Rockxy Root CA did not pass SSL trust or client compatibility checks. HTTP traffic and logs are still captured.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rockxy 根 CA 已安装但未被信任用于 SSL，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
+            "value": "已安装的 Rockxy 根 CA 未通过 SSL 信任或客户端兼容性检查，因此 HTTPS 拦截不可用。HTTP 流量和日志仍会被捕获。"
           }
         }
       }
@@ -34654,6 +34654,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已通过身份验证的身份可能没有权限。"
+          }
+        }
+      }
+    },
+    "The existing Root CA needs a one-time compatibility repair.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现有根 CA 需要进行一次兼容性修复。"
           }
         }
       }

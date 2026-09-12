@@ -263,6 +263,56 @@ struct TLSInterceptHandlerTests {
         _ = try? channel.finish()
     }
 
+    @Test("accepted handshake preserves other host fallbacks for the same client")
+    func acceptedHandshakePreservesOtherHostFallbacks() throws {
+        let acceptedHost = "accepted-\(UUID().uuidString).example"
+        let staleHost = "stale-\(UUID().uuidString).example"
+        let transientHost = "transient-\(UUID().uuidString).example"
+        let unrelatedHost = "unrelated-\(UUID().uuidString).example"
+        let clientIdentifier = "client-\(UUID().uuidString)"
+        let unrelatedClientIdentifier = "client-\(UUID().uuidString)"
+        let manager = makeSSLProxyingManager()
+        let tracker = RecentFailureTracker()
+        manager.markHostForPassthrough(acceptedHost, clientIdentifier: clientIdentifier)
+        manager.markHostForPassthrough(staleHost, clientIdentifier: clientIdentifier)
+        manager.markHostForPassthrough(
+            unrelatedHost,
+            clientIdentifier: unrelatedClientIdentifier
+        )
+        manager.markHostForTransientPassthrough(
+            transientHost,
+            clientIdentifier: clientIdentifier
+        )
+        _ = tracker.recordFailure(host: staleHost, clientIdentifier: clientIdentifier)
+        #expect(manager.retryInterception(for: acceptedHost))
+
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: acceptedHost,
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: manager,
+            clientIdentifier: clientIdentifier,
+            recentFailureTracker: tracker,
+            onTransactionComplete: { _ in }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireUserInboundEventTriggered(TLSUserEvent.handshakeCompleted(negotiatedProtocol: nil))
+        channel.embeddedEventLoop.run()
+
+        #expect(manager.isAutoPassthrough(staleHost, clientIdentifier: clientIdentifier))
+        #expect(manager.isAutoPassthrough(transientHost, clientIdentifier: clientIdentifier))
+        #expect(manager.isAutoPassthrough(
+            unrelatedHost,
+            clientIdentifier: unrelatedClientIdentifier
+        ))
+        #expect(tracker.trackedEntryCount == 1)
+        _ = try? channel.finish()
+    }
+
     @Test("client-abandoned TLS handshakes never prime passthrough")
     func abandonedHandshakeDoesNotPrimeBypass() throws {
         let host = "abandoned-\(UUID().uuidString).example"
@@ -421,6 +471,7 @@ struct TLSInterceptHandlerTests {
 
             #expect(transactionCount.count == 1)
             #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+            #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
             #expect(notificationCount.count == 1)
             NotificationCenter.default.removeObserver(observer)
             _ = try? channel.finish()
@@ -452,6 +503,8 @@ struct TLSInterceptHandlerTests {
 
         #expect(!clientChannel.isActive)
         #expect(manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
+        #expect(manager.retryInterception(for: host))
+        #expect(!manager.isAutoPassthrough(host, clientIdentifier: clientIdentifier))
         #expect(recorded.transaction?.response?.statusCode == 0)
         #expect(recorded.transaction?.state == .failed)
         #expect(recorded.transaction?.isTLSFailure == true)

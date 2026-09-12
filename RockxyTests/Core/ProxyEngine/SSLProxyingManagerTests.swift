@@ -494,8 +494,8 @@ struct SSLProxyingManagerTests {
         #expect(!verified.isAutoPassthrough("stale.example", clientIdentifier: "app.one"))
     }
 
-    @Test("relaunch in the same trusted CA epoch preserves pinned-client fallback")
-    func trustedRelaunchPreservesFallback() {
+    @Test("relaunch in the same trusted CA epoch preserves current pinned-client fallback")
+    func trustedRelaunchPreservesCurrentFallback() {
         let settingsURL = makeTempURL(prefix: "rockxy-ssl-pinned-settings")
         let passthroughURL = makeTempURL(prefix: "rockxy-ssl-pinned-passthrough")
         let firstRun = SSLProxyingManager(
@@ -513,6 +513,58 @@ struct SSLProxyingManagerTests {
         relaunched.reconcileCertificateState(isTrusted: true, fingerprint: "ROOT-A")
 
         #expect(relaunched.isAutoPassthrough("pinned.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("persisted certificate rejection evidence remains visible after relaunch")
+    func trustedRelaunchExposesCertificateRejectionEvidence() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-evidence-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-evidence-passthrough")
+        let firstRun = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        firstRun.reconcileCertificateState(isTrusted: true, fingerprint: "root-a")
+        for host in ["one.example", "two.example", "three.example"] {
+            firstRun.markHostForPassthrough(host, clientIdentifier: "APP.ONE")
+        }
+        firstRun.markHostForPassthrough(
+            "compatibility.example",
+            clientIdentifier: "app.one",
+            reason: .compatibility
+        )
+        #expect(firstRun.flushPassthroughPersistence())
+
+        let relaunched = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+
+        #expect(relaunched.certificateRejectionHostsByClient() == [
+            "app.one": ["one.example", "two.example", "three.example"],
+        ])
+    }
+
+    @Test("compatibility fallback remains classified across relaunch")
+    func compatibilityFallbackPersistsItsReason() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-compatibility-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-compatibility-passthrough")
+        let firstRun = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        firstRun.markHostForPassthrough(
+            "compatibility.example",
+            clientIdentifier: "app.one",
+            reason: .compatibility
+        )
+        #expect(firstRun.flushPassthroughPersistence())
+
+        let relaunched = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+
+        #expect(relaunched.isAutoPassthrough("compatibility.example", clientIdentifier: "app.one"))
     }
 
     @Test("fallback files from before trust epoch metadata remain readable")
@@ -537,6 +589,66 @@ struct SSLProxyingManagerTests {
             passthroughStorageURL: passthroughURL
         )
         #expect(reader.isAutoPassthrough("legacy.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("schema v3 certificate rejection fallbacks are discarded by the new recovery policy")
+    func schemaV3CertificateRejectionsAreDiscarded() throws {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-v3-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-v3-passthrough")
+        let writer = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        writer.markHostForPassthrough("legacy-v3.example", clientIdentifier: "app.one")
+        #expect(writer.flushPassthroughPersistence())
+
+        let data = try Data(contentsOf: passthroughURL)
+        var payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        payload["schemaVersion"] = 3
+        var records = try #require(payload["records"] as? [[String: Any]])
+        for index in records.indices {
+            records[index].removeValue(forKey: "reason")
+        }
+        payload["records"] = records
+        try JSONSerialization.data(withJSONObject: payload).write(to: passthroughURL, options: .atomic)
+
+        let reader = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!reader.isAutoPassthrough("legacy-v3.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("schema v4 migration discards certificate rejections but preserves compatibility fallbacks")
+    func schemaV4MigrationPreservesCompatibilityOnly() throws {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-v4-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-v4-passthrough")
+        let writer = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        writer.markHostForPassthrough("stale.example", clientIdentifier: "app.one")
+        writer.markHostForPassthrough(
+            "compatibility.example",
+            clientIdentifier: "app.one",
+            reason: .compatibility
+        )
+        #expect(writer.flushPassthroughPersistence())
+
+        let data = try Data(contentsOf: passthroughURL)
+        var payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        payload["schemaVersion"] = 4
+        try JSONSerialization.data(withJSONObject: payload).write(to: passthroughURL, options: .atomic)
+
+        let reader = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!reader.isAutoPassthrough("stale.example", clientIdentifier: "app.one"))
+        #expect(reader.isAutoPassthrough("compatibility.example", clientIdentifier: "app.one"))
+        #expect(reader.flushPassthroughPersistence())
+        let migrated = try JSONSerialization.jsonObject(with: Data(contentsOf: passthroughURL)) as? [String: Any]
+        #expect(migrated?["schemaVersion"] as? Int == 5)
     }
 
     @Test("blank hosts are ignored and blank client identities stay memory-only")

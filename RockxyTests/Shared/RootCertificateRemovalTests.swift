@@ -54,6 +54,17 @@ struct RootCertificateOwnershipTests {
         #expect(keychain.hasMutated == false)
     }
 
+    @Test("a malformed key-specific Rockxy common name is refused")
+    func malformedKeySpecificCommonNameIsRefused() throws {
+        let keychain = FakeSystemKeychain()
+        let lookalike = try makeSelfSignedCertificateDER(commonName: "Rockxy Root CA NOT-A-KEY-ID")
+
+        #expect(throws: RootCertificateRemovalError.unexpectedCommonName("Rockxy Root CA NOT-A-KEY-ID")) {
+            try RootCertificateRemover.removeExactCertificate(derData: lookalike, using: keychain)
+        }
+        #expect(keychain.hasMutated == false)
+    }
+
     @Test("a certificate that borrows the common name but is not self-issued is refused")
     func borrowedCommonNameIsRefused() throws {
         let keychain = FakeSystemKeychain()

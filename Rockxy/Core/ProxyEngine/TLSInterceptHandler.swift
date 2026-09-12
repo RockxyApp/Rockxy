@@ -584,22 +584,15 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         let ruleEngine = self.ruleEngine
         let callback = self.onTransactionComplete
         let scriptPluginManager = self.scriptPluginManager
-        let breakpointHit = self.onBreakpointHit
 
-        let certFuture: EventLoopFuture<CustomTLSIdentity> =
-            eventLoop.makeFutureWithTask {
+        let certFuture: EventLoopFuture<(identity: CustomTLSIdentity, provesRootCATrust: Bool)> = eventLoop
+            .makeFutureWithTask {
                 if let customIdentity = customCertificateManager.serverIdentity(for: host) {
-                    return customIdentity
+                    return (customIdentity, false)
                 }
 
                 let result = try await certManager.certificateForHost(host)
-
-                var serializer = DER.Serializer()
-                try result.certificate.serialize(into: &serializer)
-                let leafPEM = PEMDocument(type: "CERTIFICATE", derBytes: serializer.serializedBytes).pemString
-                let keyPEM = result.privateKey.pemRepresentation
-
-                return CustomTLSIdentity(certificateChainPEM: [leafPEM], privateKeyPEM: keyPEM)
+                return (try result.serverIdentity(), result.provesRootCATrust)
             }
 
         certFuture.whenComplete { result in
@@ -610,14 +603,14 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             switch result {
             case let .success(certResult):
                 self.installTLSHandlers(
-                    context: context,
-                    identity: certResult,
+                    context: context, identity: certResult.identity,
+                    provesRootCATrust: certResult.provesRootCATrust,
                     host: host,
                     port: port,
                     ruleEngine: ruleEngine,
                     scriptPluginManager: scriptPluginManager,
                     callback: callback,
-                    breakpointHit: breakpointHit
+                    breakpointHit: self.onBreakpointHit
                 )
             case let .failure(error):
                 tlsLogger.error("Certificate generation failed for \(host): \(error.localizedDescription)")
@@ -629,6 +622,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     nonisolated private func installTLSHandlers(
         context: ChannelHandlerContext,
         identity: CustomTLSIdentity,
+        provesRootCATrust: Bool,
         host: String,
         port: Int,
         ruleEngine: RuleEngine,
@@ -663,6 +657,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     application: self.clientApplicationIdentity,
                     connectionDescriptor: self.clientConnectionDescriptor
                 ),
+                provesRootCATrust: provesRootCATrust,
                 onTransactionComplete: callback,
                 onBreakpointHit: breakpointHit,
                 breakpointBridgeTracker: self.breakpointBridgeTracker
@@ -854,6 +849,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         clientSourcePort: UInt16? = nil,
         clientApplicationIdentity: ClientApplicationIdentity? = nil,
         clientIdentifier: String? = nil,
+        provesRootCATrust: Bool = true,
         recentFailureTracker: RecentFailureTracker = .certificateRejections,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
@@ -873,6 +869,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         self.clientSourcePort = clientSourcePort
         self.clientApplicationIdentity = clientApplicationIdentity
         self.clientIdentifier = clientIdentifier ?? clientApplicationIdentity?.identifier
+        self.provesRootCATrust = provesRootCATrust
         self.recentFailureTracker = recentFailureTracker
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
@@ -885,26 +882,17 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
 
     nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if let tlsEvent = event as? TLSUserEvent, case .handshakeCompleted = tlsEvent {
-            guard !handshakeResolved else {
-                return
-            }
+            guard !handshakeResolved else { return }
             handshakeResolved = true
             tlsLogger.info("TLS handshake completed for \(self.host) — adding HTTP codecs")
-            if let clientIdentifier {
-                recentFailureTracker.recordSuccess(
-                    host: host,
-                    clientIdentifier: clientIdentifier
-                )
+            if provesRootCATrust, let clientIdentifier {
+                recentFailureTracker.recordSuccess(host: host, clientIdentifier: clientIdentifier)
             }
-            var acceptanceUserInfo = [TLSMITMNotificationUserInfoKey.host: host]
-            if let clientIdentifier {
-                acceptanceUserInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier
+            if provesRootCATrust {
+                var acceptanceUserInfo = [TLSMITMNotificationUserInfoKey.host: host]
+                if let clientIdentifier { acceptanceUserInfo[TLSMITMNotificationUserInfoKey.clientIdentifier] = clientIdentifier }
+                NotificationCenter.default.post(name: .tlsMitmAccepted, object: nil, userInfo: acceptanceUserInfo)
             }
-            NotificationCenter.default.post(
-                name: .tlsMitmAccepted,
-                object: nil,
-                userInfo: acceptanceUserInfo
-            )
 
             let httpHandler = HTTPSProxyRelayHandler(
                 host: host,
@@ -956,7 +944,11 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         // preserves and forwards that connection's untouched ClientHello.
         if isCertRejection || isKnownCompatibilityFailure {
             if let clientIdentifier {
-                sslProxyingManager.markHostForPassthrough(host, clientIdentifier: clientIdentifier)
+                sslProxyingManager.markHostForPassthrough(
+                    host,
+                    clientIdentifier: clientIdentifier,
+                    reason: isCertRejection && provesRootCATrust ? .certificateRejection : .compatibility
+                )
             } else {
                 sslProxyingManager.markHostForTransientPassthrough(host, clientIdentifier: nil)
             }
@@ -972,26 +964,25 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                     "TLS interception failure for \(self.host) has no resolved client identity; using a short-lived host fallback"
                 )
             }
-            let shouldReportRejection = Self.shouldReportCertificateRejection(
-                host: host,
-                clientIdentifier: clientIdentifier,
-                tracker: recentFailureTracker
-            )
-            if !shouldReportRejection {
-                tlsLogger.debug(
-                    "Suppressing duplicate TLS rejection notification for \(self.host) and the same client scope"
+            if provesRootCATrust {
+                let shouldReportRejection = Self.shouldReportCertificateRejection(
+                    host: host,
+                    clientIdentifier: clientIdentifier,
+                    tracker: recentFailureTracker
                 )
-            } else {
-                let failureKind = isCertRejection ? "certificate rejected by client" : "client TLS incompatibility"
-                tlsLogger.warning("TLS \(failureKind) for \(self.host): \(String(describing: error))")
-                NotificationCenter.default.post(
-                    name: .tlsMitmRejected,
-                    object: nil,
-                    userInfo: Self.rejectionNotificationUserInfo(
-                        host: host,
-                        clientIdentifier: clientIdentifier
+                if shouldReportRejection {
+                    let failureKind = isCertRejection ? "certificate rejected by client" : "client TLS incompatibility"
+                    tlsLogger.warning("TLS \(failureKind) for \(self.host): \(String(describing: error))")
+                    NotificationCenter.default.post(
+                        name: .tlsMitmRejected,
+                        object: nil,
+                        userInfo: Self.rejectionNotificationUserInfo(host: host, clientIdentifier: clientIdentifier)
                     )
-                )
+                } else {
+                    tlsLogger.debug("Suppressing duplicate TLS rejection for \(self.host) and the same client scope")
+                }
+            } else {
+                tlsLogger.warning("Custom HTTPS identity failed for \(self.host); preserving fallback without Root CA evidence")
             }
         } else if isAbandonedHandshake {
             tlsLogger.debug(
@@ -1082,6 +1073,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     private let clientSourcePort: UInt16?
     private let clientApplicationIdentity: ClientApplicationIdentity?
     private let clientIdentifier: String?
+    private let provesRootCATrust: Bool
     private let recentFailureTracker: RecentFailureTracker
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
