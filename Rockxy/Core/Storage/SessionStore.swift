@@ -99,6 +99,7 @@ actor SessionStore {
             Self.txWeb3BlockIdentifier <- transaction.web3RPCInfo?.blockIdentifier,
             Self.txWeb3RequestPayloadSize <- transaction.web3RPCInfo?.requestPayloadSize,
             Self.txWeb3ResponsePayloadSize <- transaction.web3RPCInfo?.responsePayloadSize,
+            Self.txIsWebSocket <- (transaction.webSocketConnection == nil ? 0 : 1),
             Self.txIsPinned <- (transaction.isPinned ? 1 : 0),
             Self.txIsSaved <- (transaction.isSaved ? 1 : 0),
             Self.txComment <- transaction.comment,
@@ -308,6 +309,7 @@ actor SessionStore {
     private static let txWeb3BlockIdentifier = SQLite.Expression<String?>("web3_block_identifier")
     private static let txWeb3RequestPayloadSize = SQLite.Expression<Int?>("web3_request_payload_size")
     private static let txWeb3ResponsePayloadSize = SQLite.Expression<Int?>("web3_response_payload_size")
+    private static let txIsWebSocket = SQLite.Expression<Int>("is_websocket")
     private static let txIsPinned = SQLite.Expression<Int>("is_pinned")
     private static let txIsSaved = SQLite.Expression<Int>("is_saved")
     private static let txComment = SQLite.Expression<String?>("comment")
@@ -468,6 +470,9 @@ actor SessionStore {
                 "ALTER TABLE transactions ADD COLUMN web3_block_identifier TEXT",
                 "ALTER TABLE transactions ADD COLUMN web3_request_payload_size INTEGER",
                 "ALTER TABLE transactions ADD COLUMN web3_response_payload_size INTEGER",
+            ]),
+            (3, [
+                "ALTER TABLE transactions ADD COLUMN is_websocket INTEGER NOT NULL DEFAULT 0",
             ]),
         ]
 
@@ -688,7 +693,7 @@ actor SessionStore {
         transaction.clientApp = row[Self.txClientApp]
 
         let wsFrames = try loadWebSocketFrameDatas(transactionId: id)
-        if !wsFrames.isEmpty {
+        if row[Self.txIsWebSocket] != 0 || !wsFrames.isEmpty {
             transaction.webSocketConnection = WebSocketConnection(
                 upgradeRequest: request,
                 frames: wsFrames
