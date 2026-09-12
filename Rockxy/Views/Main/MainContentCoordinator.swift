@@ -175,6 +175,7 @@ final class MainContentCoordinator {
         projectTabAutosaveTask?.cancel()
         projectHydrationTask?.cancel()
         captureHealthTask?.cancel()
+        proxyStartTask?.cancel()
         proxyConfigurationRefreshTask?.cancel()
         httpsInterceptionRetryTask?.cancel()
         let probeServer = captureProbeServer
@@ -238,6 +239,7 @@ final class MainContentCoordinator {
     let logEngine = LogCaptureEngine()
     let captureProbeServer = DeveloperSetupProbeServer()
     let captureProbeTracker = CaptureProbeTracker()
+    let captureRecordingGate = CaptureRecordingGate()
 
     // MARK: - Rules
 
@@ -261,7 +263,11 @@ final class MainContentCoordinator {
     var isProxyStopping = false
     var isRetryingHTTPSInterception = false
     var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
-    var isRecording = true
+    var isRecording = true {
+        didSet {
+            captureRecordingGate.update(isRecording: isRecording)
+        }
+    }
     var sessionGeneration: UInt = 0
     var liveHistoryLimit: Int
     var isClearingSession = false
@@ -271,6 +277,7 @@ final class MainContentCoordinator {
     var proxyError: String?
     var isSystemProxyConfigured = false
     @ObservationIgnored var captureHealthTask: Task<Void, Never>?
+    @ObservationIgnored var proxyStartTask: Task<Void, Never>?
     @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored var httpsInterceptionRetryTask: Task<Void, Never>?
     @ObservationIgnored var httpsInterceptionRetryGeneration: UInt = 0

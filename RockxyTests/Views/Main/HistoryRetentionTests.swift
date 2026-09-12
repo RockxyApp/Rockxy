@@ -495,6 +495,21 @@ struct HistoryRetentionTests {
         #expect(!evictionFired)
     }
 
+    @Test("transaction admitted before Pause survives delayed batch delivery")
+    @MainActor
+    func admittedTransactionSurvivesPauseBeforeDelivery() {
+        let coordinator = MainContentCoordinator(policy: SmallHistoryPolicy())
+        let transaction = TestFixtures.makeTransaction(url: "https://pause-boundary.example/before")
+        transaction.assignCaptureContextIfMissing(coordinator.activeCaptureContext)
+
+        #expect(coordinator.captureRecordingGate.allowsCapture())
+        coordinator.isRecording = false
+        coordinator.processBatch([transaction], generation: coordinator.sessionGeneration)
+
+        #expect(coordinator.transactions.map(\.id) == [transaction.id])
+        #expect(!coordinator.captureRecordingGate.allowsCapture())
+    }
+
     @Test("clearSession resets actor-side buffer state")
     @MainActor
     func clearSessionResetsActorState() async {

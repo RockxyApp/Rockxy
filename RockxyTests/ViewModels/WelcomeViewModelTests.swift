@@ -46,6 +46,33 @@ struct WelcomeViewModelTests {
         #expect(viewModel.canGetStarted == false)
     }
 
+    @Test("helper update recovery remains incomplete until executable convergence")
+    func pendingAutomaticHelperRefreshBlocksCompletion() {
+        let viewModel = WelcomeViewModel()
+        viewModel.certInstalled = true
+        viewModel.certTrusted = true
+        viewModel.systemProxyEnabled = true
+        viewModel.applyHelperState(
+            status: .installedCompatible,
+            signingIssue: nil,
+            automaticRefreshRecoveryPending: true
+        )
+
+        #expect(!viewModel.isHelperReady)
+        #expect(viewModel.completedSteps == 3)
+        #expect(!viewModel.canGetStarted)
+        #expect(
+            viewModel.helperActionLabel
+                == String(localized: "Retry Automatic Update", bundle: RockxyLocalization.bundle)
+        )
+        #expect(viewModel.helperStatusDetail?.contains("could not finish updating") == true)
+
+        viewModel.applyHelperState(status: .installedCompatible, signingIssue: nil)
+        #expect(viewModel.isHelperReady)
+        #expect(viewModel.completedSteps == 4)
+        #expect(viewModel.canGetStarted)
+    }
+
     @Test("system proxy progress remains independent from certificate and helper state")
     func systemProxyProgressIsIndependent() {
         let viewModel = WelcomeViewModel()
@@ -53,6 +80,22 @@ struct WelcomeViewModelTests {
 
         #expect(viewModel.completedSteps == 1)
         #expect(viewModel.canGetStarted == false)
+    }
+
+    @Test("system routing is complete only when a live capture listener owns it")
+    func systemProxyCompletionRequiresCapture() {
+        #expect(!WelcomeViewModel.systemProxyStepComplete(
+            isCaptureActive: false,
+            systemRoutingReady: true
+        ))
+        #expect(!WelcomeViewModel.systemProxyStepComplete(
+            isCaptureActive: true,
+            systemRoutingReady: false
+        ))
+        #expect(WelcomeViewModel.systemProxyStepComplete(
+            isCaptureActive: true,
+            systemRoutingReady: true
+        ))
     }
 
     // MARK: - Helper action and recovery

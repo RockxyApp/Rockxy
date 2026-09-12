@@ -141,6 +141,32 @@ struct BreakpointPayloadSafetyTests {
         #expect(originForm.executionValidationMessage == nil)
     }
 
+    @Test("Edited request limits are revalidated after the pause")
+    func editedRequestLimits() {
+        var oversizedURL = BreakpointRequestData(
+            method: "POST",
+            url: "http://example.com/" + String(repeating: "a", count: ProxyLimits.maxURILength),
+            headers: [],
+            body: "ok",
+            statusCode: 200
+        )
+        #expect(oversizedURL.executionValidationMessage != nil)
+        #expect(oversizedURL.requestLimitViolationStatusCode == 414)
+
+        oversizedURL.url = "http://example.com/"
+        oversizedURL.body = "12345"
+        #expect(BreakpointRequestData.bodyExceedsLimit(
+            oversizedURL.body,
+            phase: .request,
+            requestLimit: 4
+        ))
+        #expect(BreakpointRequestData.requestLimitViolationStatusCode(
+            url: oversizedURL.url,
+            body: oversizedURL.body,
+            bodyLimit: 4
+        ) == 413)
+    }
+
     private static func projectFile(named path: String) throws -> String {
         let testFile = URL(fileURLWithPath: #filePath)
         let repoRoot = testFile

@@ -14,9 +14,13 @@ extension MainContentCoordinator {
     func startLogCapture() {
         Self.logger.info("Starting log capture")
         let contextStore = captureContextStore
+        let recordingGate = captureRecordingGate
         Task {
             await logEngine.setOnLogEntry { [weak self] entry in
                 guard let self else {
+                    return
+                }
+                guard recordingGate.allowsCapture() else {
                     return
                 }
                 let captureContext = contextStore.snapshot()
@@ -47,9 +51,6 @@ extension MainContentCoordinator {
     /// log engine delivered it, not whichever Project is active after the main-
     /// actor hop. Stale, deleted, or cleared Project generations fail closed.
     func addLogEntry(_ entry: LogEntry, captureContext: TrafficCaptureContext?) {
-        guard isRecording else {
-            return
-        }
         guard let captureContext,
               captureContext.sessionID == captureContext.projectID,
               projectStore.projects.contains(where: { $0.id == captureContext.projectID }),

@@ -49,6 +49,12 @@ struct BreakpointRequestData {
     /// the HTTP request line while preserving the captured connection authority.
     var executionValidationMessage: String? {
         if phase == .request {
+            if url.utf8.count > ProxyLimits.maxURILength {
+                return String(
+                    localized: "The edited request URL exceeds Rockxy's safety limit.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
             let normalizedMethod = method.trimmingCharacters(in: .whitespacesAndNewlines)
             if !Self.isValidHTTPToken(normalizedMethod) {
                 return String(localized: "Enter a valid HTTP method.", bundle: RockxyLocalization.bundle)
@@ -75,6 +81,13 @@ struct BreakpointRequestData {
             return String(localized: "Enter a valid HTTP status code.", bundle: RockxyLocalization.bundle)
         }
 
+        if Self.bodyExceedsLimit(body, phase: phase) {
+            return String(
+                localized: "The edited message body exceeds Rockxy's safety limit.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+
         for header in headers {
             if !Self.isValidHTTPHeaderName(header.name) {
                 return String(localized: "Header names must use valid HTTP token characters.", bundle: RockxyLocalization.bundle)
@@ -82,6 +95,28 @@ struct BreakpointRequestData {
             if !Self.isValidHTTPHeaderValue(header.value) {
                 return String(localized: "Header values cannot contain line breaks.", bundle: RockxyLocalization.bundle)
             }
+        }
+        return nil
+    }
+
+    var requestLimitViolationStatusCode: Int? {
+        guard phase == .request else {
+            return nil
+        }
+        return Self.requestLimitViolationStatusCode(url: url, body: body)
+    }
+
+    static func requestLimitViolationStatusCode(
+        url: String,
+        body: String,
+        urlLimit: Int = ProxyLimits.maxURILength,
+        bodyLimit: Int = ProxyLimits.maxRequestBodySize
+    ) -> Int? {
+        if url.utf8.count > urlLimit {
+            return 414
+        }
+        if Self.bodyExceedsLimit(body, phase: .request, requestLimit: bodyLimit) {
+            return 413
         }
         return nil
     }
@@ -120,6 +155,19 @@ struct BreakpointRequestData {
         !value.unicodeScalars.contains { scalar in
             scalar.value == 0 || scalar.value == 10 || scalar.value == 13
         }
+    }
+
+    static func bodyExceedsLimit(
+        _ body: String,
+        phase: BreakpointPhase,
+        requestLimit: Int = ProxyLimits.maxRequestBodySize,
+        responseLimit: Int = ProxyLimits.maxResponseBodySize
+    ) -> Bool {
+        let limit = switch phase {
+        case .request: requestLimit
+        case .response: responseLimit
+        }
+        return body.utf8.count > limit
     }
 
     private static func isValidHTTPToken(_ value: String) -> Bool {

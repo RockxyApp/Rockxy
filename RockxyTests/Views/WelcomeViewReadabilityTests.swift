@@ -49,16 +49,20 @@ struct WelcomeViewReadabilityTests {
         #expect(view.contains("SMAppService.openSystemSettingsLoginItems()"))
         #expect(model.contains("forceResetAndReinstall(resetBackgroundItems: false)"))
         #expect(model.contains("SystemProxyManager.shared.enableSystemProxy"))
-        #expect(model.contains("certInstalled && certTrusted && helperStatus == .installedCompatible"))
+        #expect(model.contains("certInstalled && certTrusted && isHelperReady && systemProxyEnabled"))
+        #expect(model.contains("helperStatus == .installedCompatible && !helperAutomaticRefreshRecoveryPending"))
+        #expect(view.contains("await viewModel.retryHelperConnection()"))
     }
 
     @Test("main app wiring and migration still require the original four readiness states")
     func welcomeAppWiringPreservesOriginalGate() throws {
         let app = try readProjectFile("Rockxy/RockxyApp.swift")
 
-        #expect(app.contains("WelcomeView(isFirstLaunch: true, onComplete:"))
+        #expect(app.contains("onEnableSystemProxy:"))
+        #expect(app.contains("try await coordinator.enableSystemProxyFromWelcome()"))
         #expect(app.contains("let certInstalled = await CertificateManager.shared.isRootCAInstalled()"))
         #expect(app.contains("let helperOK = HelperManager.shared.status == .installedCompatible"))
+        #expect(app.contains("&& !HelperManager.shared.automaticRefreshRecoveryPending"))
         #expect(app.contains("if certInstalled, certTrusted, helperOK, proxyOK {"))
     }
 

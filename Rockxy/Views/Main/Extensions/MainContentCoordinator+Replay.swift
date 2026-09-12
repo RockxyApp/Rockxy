@@ -17,6 +17,16 @@ extension MainContentCoordinator {
     }
 
     func performReplay(for transaction: HTTPTransaction) {
+        guard Self.canReplay(transaction) else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: String(
+                    localized: "Replay is not supported for this request type.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            return
+        }
         Task { @MainActor in
             do {
                 let response = try await RequestReplay.replay(transaction.request)
@@ -46,5 +56,10 @@ extension MainContentCoordinator {
             return
         }
         editAndReplayTransaction(transaction)
+    }
+
+    nonisolated static func canReplay(_ transaction: HTTPTransaction) -> Bool {
+        transaction.webSocketConnection == nil
+            && transaction.request.method.caseInsensitiveCompare("CONNECT") != .orderedSame
     }
 }

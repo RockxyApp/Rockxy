@@ -8054,6 +8054,26 @@
         }
       }
     },
+    "The edited message body exceeds Rockxy's safety limit.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑后的消息正文超出了 Rockxy 的安全限制。"
+          }
+        }
+      }
+    },
+    "The edited request URL exceeds Rockxy's safety limit.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑后的请求 URL 超出了 Rockxy 的安全限制。"
+          }
+        }
+      }
+    },
     "Enter a valid HTTP URL with a host.": {
       "localizations": {
         "zh-Hans": {

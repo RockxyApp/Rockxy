@@ -31,4 +31,41 @@ struct RequestReplayTests {
     func notSharedSession() {
         #expect(RequestReplay.proxyBypassSession !== URLSession.shared)
     }
+
+    @Test("replays do not persist or synthesize cookies across sends")
+    func cookiesDisabled() {
+        let config = RequestReplay.proxyBypassSession.configuration
+        #expect(config.httpShouldSetCookies == false)
+        #expect(config.httpCookieAcceptPolicy == .never)
+        #expect(config.httpCookieStorage == nil)
+    }
+
+    @Test("request builder retains repeated captured header values")
+    func repeatedHeadersRetained() throws {
+        let request = HTTPRequestData(
+            method: "GET",
+            url: try #require(URL(string: "https://api.example.com/items")),
+            httpVersion: "HTTP/1.1",
+            headers: [
+                HTTPHeader(name: "X-Trace", value: "one"),
+                HTTPHeader(name: "X-Trace", value: "two"),
+            ]
+        )
+
+        let built = RequestReplay.makeURLRequest(from: request)
+        let value = try #require(built.value(forHTTPHeaderField: "X-Trace"))
+        #expect(value.contains("one"))
+        #expect(value.contains("two"))
+    }
+
+    @Test("fast replay rejects CONNECT tunnels and WebSocket sessions")
+    func unsupportedTransportsRejected() {
+        let http = TestFixtures.makeTransaction(method: "GET")
+        let connect = TestFixtures.makeTransaction(method: "CONNECT")
+        let webSocket = TestFixtures.makeWebSocketTransaction()
+
+        #expect(MainContentCoordinator.canReplay(http))
+        #expect(!MainContentCoordinator.canReplay(connect))
+        #expect(!MainContentCoordinator.canReplay(webSocket))
+    }
 }

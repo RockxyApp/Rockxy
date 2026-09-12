@@ -187,9 +187,13 @@ extension MainContentCoordinator {
         readiness.clearProxyRestoreFailure()
         RecentFailureTracker.certificateRejections.reset()
 
-        Task {
+        proxyStartTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
             defer {
                 isProxyStarting = false
+                proxyStartTask = nil
             }
 
             guard await ensureProjectCatalogReadyForDataIntake() else {
@@ -250,6 +254,7 @@ extension MainContentCoordinator {
                 await configureProxy(port: resolvedPort, settings: settings)
 
                 try await proxyServer.start()
+                await sessionManager.startBatchTimer()
                 isProxyRunning = true
                 proxyStartedAt = Date()
                 runtimeListenerSnapshot = ProxyListenerSnapshot(
@@ -305,6 +310,53 @@ extension MainContentCoordinator {
                 proxyError = error.localizedDescription
                 activeProxyPort = settings.proxyPort
             }
+        }
+    }
+
+    /// Makes the Welcome system-routing action safe when capture is stopped. The listener is
+    /// started first, its exact resolved port is awaited, and only then may macOS routing change.
+    /// This also coalesces with an in-flight start instead of enabling a configured-but-dead port.
+    func enableSystemProxyFromWelcome() async throws {
+        if !isProxyRunning {
+            if canStartProxy {
+                startProxy()
+            }
+            if let proxyStartTask {
+                await proxyStartTask.value
+            }
+        }
+
+        guard isProxyRunning else {
+            throw NSError(
+                domain: RockxyIdentity.current.appBundleIdentifier,
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: proxyError ?? String(
+                        localized: "System routing is unavailable while the proxy server is stopped.",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                ]
+            )
+        }
+
+        guard !isSystemProxyConfigured else {
+            return
+        }
+
+        readiness.clearProxyEnableFailure()
+        readiness.setSystemRoutingExpected(true)
+        do {
+            try await SystemProxyManager.shared.enableSystemProxy(port: activeProxyPort)
+            isSystemProxyConfigured = true
+            isProxyOverridden = true
+            readiness.setSystemRoutingReady(true)
+            runCaptureHealthCheck()
+        } catch {
+            isSystemProxyConfigured = false
+            isProxyOverridden = false
+            readiness.setSystemRoutingReady(false)
+            readiness.setProxyEnableFailed(message: error.localizedDescription)
+            throw error
         }
     }
 
@@ -754,6 +806,7 @@ extension MainContentCoordinator {
         let resolvedPort = port ?? settings.proxyPort
         let manager = sessionManager
         let captureProbeTracker = captureProbeTracker
+        let captureRecordingGate = captureRecordingGate
 
         let configuration = ProxyConfiguration(
             port: resolvedPort,
@@ -785,6 +838,9 @@ extension MainContentCoordinator {
                     if captureProbeTracker.consumeIfExpected(transaction) {
                         return
                     }
+                    guard captureRecordingGate.allowsCapture() else {
+                        return
+                    }
                     await manager.addTransaction(transaction)
                 }
             },
@@ -813,8 +869,6 @@ extension MainContentCoordinator {
         liveHistoryLimit = max(1, effectiveBufferSize)
         await sessionManager.setMaxBufferSize(effectiveBufferSize)
         await sessionManager.setProxyPort(resolvedPort)
-        await sessionManager.startBatchTimer()
-
         Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
@@ -836,11 +890,6 @@ extension MainContentCoordinator {
         if generation != sessionGeneration {
             Self.logger.debug("Evaluating an older delivery batch by its Project ownership")
         }
-        guard isRecording else {
-            Self.logger.debug("Batch of \(batch.count) dropped — recording paused")
-            return
-        }
-
         let filteredBatch = Self.filterBatchThroughAllowList(batch, using: AllowListManager.shared)
         if filteredBatch.count < batch.count {
             Self.logger.debug(

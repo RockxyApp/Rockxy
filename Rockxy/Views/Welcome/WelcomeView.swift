@@ -25,6 +25,7 @@ struct WelcomeView: View {
 
     var isFirstLaunch = false
     var onComplete: (() -> Void)?
+    var onEnableSystemProxy: (@MainActor () async throws -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -138,7 +139,7 @@ struct WelcomeView: View {
                 ),
                 symbol: "wrench.and.screwdriver",
                 actionLabel: viewModel.helperActionLabel,
-                isCompleted: viewModel.helperStatus == .installedCompatible,
+                isCompleted: viewModel.isHelperReady,
                 isDisabled: false,
                 activeAction: .helper,
                 errorArea: .helper,
@@ -160,7 +161,7 @@ struct WelcomeView: View {
                 isDisabled: false,
                 activeAction: .systemProxy,
                 errorArea: .systemProxy,
-                action: { await viewModel.enableProxy() }
+                action: { await viewModel.enableProxy(using: onEnableSystemProxy) }
             ),
         ]
     }
@@ -312,7 +313,7 @@ struct WelcomeView: View {
         if let detail = viewModel.helperStatusDetail {
             Text(detail)
                 .font(toolMetrics.metadataFont())
-                .foregroundStyle(viewModel.helperStatus == .installedCompatible ? Color.green : Color.secondary)
+                .foregroundStyle(viewModel.isHelperReady ? Color.green : Color.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
 
@@ -519,7 +520,9 @@ struct WelcomeView: View {
         case .notInstalled:
             await viewModel.installHelper()
         case .installedCompatible:
-            break
+            if viewModel.helperAutomaticRefreshRecoveryPending {
+                await viewModel.retryHelperConnection()
+            }
         }
     }
 

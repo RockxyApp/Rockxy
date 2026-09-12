@@ -685,6 +685,15 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ) {
         switch decision {
         case .execute:
+            if let status = modifiedData.requestLimitViolationStatusCode {
+                self.sendErrorResponse(
+                    context: context,
+                    status: status,
+                    requestData: requestData,
+                    callback: callback
+                )
+                return
+            }
             let built = BreakpointRequestBuilder.build(
                 from: modifiedData,
                 originalHead: head,
