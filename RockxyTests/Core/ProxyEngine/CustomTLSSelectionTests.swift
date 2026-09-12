@@ -1,8 +1,8 @@
 import Crypto
 import Foundation
 import NIOSSL
-import SwiftASN1
 @testable import Rockxy
+import SwiftASN1
 import Testing
 import X509
 
@@ -17,6 +17,51 @@ struct CustomTLSSelectionTests {
         #expect(config.certificateChain.count == 1)
         #expect(config.privateKey != nil)
         #expect(config.applicationProtocols == ["http/1.1"])
+    }
+
+    @Test("generated server identity includes the exact root issuer")
+    func generatedServerIdentityIncludesIssuer() throws {
+        let root = try RootCAGenerator.generate()
+        let leaf = try HostCertGenerator.generate(
+            host: "duplicate-root.example.com",
+            issuer: root.certificate,
+            issuerKey: root.privateKey
+        )
+        let generated = GeneratedHostCertificate(
+            certificate: leaf.certificate,
+            privateKey: leaf.privateKey,
+            issuerCertificate: root.certificate
+        )
+
+        let identity = try generated.serverIdentity()
+        let config = try TLSInterceptHandler.makeServerTLSConfiguration(identity: identity)
+        let expectedLeafPEM = try certificatePEM(leaf.certificate)
+        let expectedIssuerPEM = try certificatePEM(root.certificate)
+
+        #expect(identity.certificateChainPEM.count == 2)
+        #expect(identity.certificateChainPEM[0] == expectedLeafPEM)
+        #expect(identity.certificateChainPEM[1] == expectedIssuerPEM)
+        #expect(config.certificateChain.count == 2)
+        #expect(generated.provesRootCATrust)
+    }
+
+    @Test("custom root generated identity does not claim Rockxy Root CA trust")
+    func customRootGeneratedIdentityKeepsTrustProvenance() throws {
+        let root = try RootCAGenerator.generate()
+        let leaf = try HostCertGenerator.generate(
+            host: "custom-root.example.com",
+            issuer: root.certificate,
+            issuerKey: root.privateKey
+        )
+        let generated = GeneratedHostCertificate(
+            certificate: leaf.certificate,
+            privateKey: leaf.privateKey,
+            issuerCertificate: root.certificate,
+            provesRootCATrust: false
+        )
+
+        #expect(!generated.provesRootCATrust)
+        #expect(try generated.serverIdentity().certificateChainPEM.count == 2)
     }
 
     @Test("client TLS configuration includes matching identity and keeps full verification")
@@ -53,10 +98,14 @@ struct CustomTLSSelectionTests {
     private func makeIdentity(host: String) throws -> CustomTLSIdentity {
         let root = try RootCAGenerator.generate()
         let leaf = try HostCertGenerator.generate(host: host, issuer: root.certificate, issuerKey: root.privateKey)
-        var serializer = DER.Serializer()
-        try leaf.certificate.serialize(into: &serializer)
-        let certificatePEM = PEMDocument(type: "CERTIFICATE", derBytes: serializer.serializedBytes).pemString
+        let certificatePEM = try certificatePEM(leaf.certificate)
         return CustomTLSIdentity(certificateChainPEM: [certificatePEM], privateKeyPEM: leaf.privateKey.pemRepresentation)
+    }
+
+    private func certificatePEM(_ certificate: Certificate) throws -> String {
+        var serializer = DER.Serializer()
+        try certificate.serialize(into: &serializer)
+        return PEMDocument(type: "CERTIFICATE", derBytes: serializer.serializedBytes).pemString
     }
 }
 

@@ -119,6 +119,16 @@ extension MainContentCoordinator {
     }
 
     func editAndReplayTransaction(_ transaction: HTTPTransaction) {
+        guard Self.canReplay(transaction) else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: String(
+                    localized: "Replay is not supported for this request type.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            return
+        }
         ComposeStore.shared.requestDraft(from: transaction)
         NotificationCenter.default.post(name: .openComposeWindow, object: nil)
     }

@@ -54,6 +54,49 @@ struct BreakpointResponseBuilderTests {
         #expect(result.body == Data("updated".utf8))
     }
 
+    @Test("Empty editable response uses explicit zero-length framing")
+    func emptyEditableBodyUsesZeroLengthFraming() {
+        var originalHead = HTTPResponseHead(version: .http1_1, status: .ok)
+        originalHead.headers.add(name: "Transfer-Encoding", value: "chunked")
+        let modified = BreakpointRequestData(
+            method: "GET",
+            url: "https://api.example.com/data",
+            headers: [EditableHeader(name: "Transfer-Encoding", value: "chunked")],
+            body: "",
+            statusCode: 200,
+            phase: .response
+        )
+
+        let result = BreakpointResponseBuilder.build(modifiedData: modified, originalHead: originalHead)
+
+        #expect(result.head.headers.first(name: "Content-Length") == "0")
+        #expect(!result.head.headers.contains(name: "Transfer-Encoding"))
+        #expect(result.body == nil)
+    }
+
+    @Test("Missing non-editable response body uses explicit zero-length framing")
+    func missingNonEditableBodyUsesZeroLengthFraming() {
+        let originalHead = HTTPResponseHead(version: .http1_1, status: .ok)
+        let modified = BreakpointRequestData(
+            method: "GET",
+            url: "https://api.example.com/data",
+            headers: [],
+            body: "",
+            statusCode: 200,
+            phase: .response,
+            isBodyEditable: false
+        )
+
+        let result = BreakpointResponseBuilder.build(
+            modifiedData: modified,
+            originalHead: originalHead,
+            originalBody: nil
+        )
+
+        #expect(result.head.headers.first(name: "Content-Length") == "0")
+        #expect(result.body == nil)
+    }
+
     @Test("Clearing editable response body removes stale framing headers")
     func clearingBodyRemovesFraming() {
         var originalHead = HTTPResponseHead(version: .http1_1, status: .ok)

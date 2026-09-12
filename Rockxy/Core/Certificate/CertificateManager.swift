@@ -427,6 +427,18 @@ actor CertificateManager {
         // authorization prompt so the one prompt applies to the durable identity.
         try reconcilePersistedRootIdentityBeforeTrust()
 
+        // Swift Certificates historically generated a random 20-byte value that can require
+        // an extra ASN.1 sign octet. Chromium rejects the resulting 21-octet serial as a local
+        // trust anchor. Rotate that legacy material only from the user's explicit repair/install
+        // action; launch-time status checks remain read-only and never invalidate a trusted CA.
+        if let certificate = rootCACertificate,
+           RootCAGenerator.requiresClientCompatibilityRepair(certificate)
+        {
+            Self.logger.warning("Replacing a legacy Root CA whose serial is incompatible with Chromium")
+            try generateRootCA()
+            try reconcilePersistedRootIdentityBeforeTrust()
+        }
+
         guard let certificate = rootCACertificate else {
             throw CertificateManagerError.noRootCA
         }
@@ -769,12 +781,17 @@ actor CertificateManager {
 
     // MARK: - Host Certificates
 
-    func certificateForHost(_ host: String) throws -> (certificate: Certificate, privateKey: P256.Signing.PrivateKey) {
+    func certificateForHost(_ host: String) throws -> GeneratedHostCertificate {
         if let customRoot = try CustomCertificateManager.shared.activeRootIssuerSnapshot() {
             let cacheKey = "\(customRoot.fingerprintSHA256):\(host)"
             if let cached = hostCertCache[cacheKey] {
                 touchCacheEntry(cacheKey)
-                return (cached.certificate, cached.privateKey)
+                return GeneratedHostCertificate(
+                    certificate: cached.certificate,
+                    privateKey: cached.privateKey,
+                    issuerCertificate: customRoot.certificate,
+                    provesRootCATrust: false
+                )
             }
 
             let result = try HostCertGenerator.generate(
@@ -787,12 +804,24 @@ actor CertificateManager {
                 entry: HostCertEntry(certificate: result.certificate, privateKey: result.privateKey)
             )
             Self.logger.debug("Generated certificate for host with custom root issuer: \(host)")
-            return result
+            return GeneratedHostCertificate(
+                certificate: result.certificate,
+                privateKey: result.privateKey,
+                issuerCertificate: customRoot.certificate,
+                provesRootCATrust: false
+            )
         }
 
         if let cached = hostCertCache[host] {
             touchCacheEntry(host)
-            return (cached.certificate, cached.privateKey)
+            guard let rootCert = rootCACertificate else {
+                throw CertificateManagerError.noRootCA
+            }
+            return GeneratedHostCertificate(
+                certificate: cached.certificate,
+                privateKey: cached.privateKey,
+                issuerCertificate: rootCert
+            )
         }
 
         guard let rootCert = rootCACertificate, let rootKey = rootCAPrivateKey else {
@@ -805,7 +834,11 @@ actor CertificateManager {
         insertCacheEntry(host, entry: entry)
 
         Self.logger.debug("Generated certificate for host: \(host)")
-        return result
+        return GeneratedHostCertificate(
+            certificate: result.certificate,
+            privateKey: result.privateKey,
+            issuerCertificate: rootCert
+        )
     }
 
     func clearHostCache() {
@@ -1535,6 +1568,26 @@ actor CertificateManager {
             lastValidationErrorMessage = nil
         }
 
+        // macOS SecTrust accepts some legacy roots that Chromium correctly rejects because
+        // their encoded serial exceeds RFC 5280's 20-octet limit. Do not show a green readiness
+        // state that only proves the platform verifier; the install action performs a one-time
+        // non-destructive rotation before requesting trust for the replacement.
+        if let certificate = rootCACertificate,
+           RootCAGenerator.requiresClientCompatibilityRepair(certificate)
+        {
+            lastTrustValidationResult = nil
+            lastValidationErrorMessage = String(
+                localized: "The existing Root CA needs a one-time compatibility repair.",
+                bundle: RockxyLocalization.bundle
+            )
+            return TrustResolution(
+                isInstalledInKeychain: status.installed,
+                trustSettingsPresent: status.trustPresent,
+                isSystemTrustValidated: false,
+                readFailure: nil
+            )
+        }
+
         let systemTrusted: Bool
         switch Self.trustEvaluationDecision(
             trustPresent: status.trustPresent,
@@ -1648,6 +1701,41 @@ actor CertificateManager {
         }
         cacheAccessOrder.removeFirst()
         hostCertCache.removeValue(forKey: oldest)
+    }
+}
+
+// MARK: - GeneratedHostCertificate
+
+/// The leaf identity and the exact issuer that signed it. TLS interception sends both so a
+/// client never has to guess between multiple historical Rockxy roots with the same subject.
+nonisolated struct GeneratedHostCertificate {
+    let certificate: Certificate
+    let privateKey: P256.Signing.PrivateKey
+    let issuerCertificate: Certificate
+    let provesRootCATrust: Bool
+
+    init(
+        certificate: Certificate,
+        privateKey: P256.Signing.PrivateKey,
+        issuerCertificate: Certificate,
+        provesRootCATrust: Bool = true
+    ) {
+        self.certificate = certificate
+        self.privateKey = privateKey
+        self.issuerCertificate = issuerCertificate
+        self.provesRootCATrust = provesRootCATrust
+    }
+
+    /// Serves the exact issuer after the leaf so clients cannot choose a stale Rockxy root that
+    /// happens to share the same subject name. TLS permits the independently trusted root to be
+    /// omitted, but including it makes the intended chain unambiguous during CA rotation/recovery.
+    func serverIdentity() throws -> CustomTLSIdentity {
+        let chain = try [certificate, issuerCertificate].map { certificate in
+            var serializer = DER.Serializer()
+            try certificate.serialize(into: &serializer)
+            return PEMDocument(type: "CERTIFICATE", derBytes: serializer.serializedBytes).pemString
+        }
+        return CustomTLSIdentity(certificateChainPEM: chain, privateKeyPEM: privateKey.pemRepresentation)
     }
 }
 

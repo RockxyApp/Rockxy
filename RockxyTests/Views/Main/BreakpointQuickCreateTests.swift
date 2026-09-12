@@ -41,6 +41,56 @@ struct BreakpointQuickCreateTests {
         #expect(context.includeSubpaths == false)
     }
 
+    @Test("Transaction quick-create preserves a non-default local development port from the Host header")
+    @MainActor
+    func transactionBuilderPreservesPort() throws {
+        let transaction = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "http://localhost/api/users",
+            statusCode: 201
+        )
+        transaction.request.headers.append(HTTPHeader(name: "Host", value: "localhost:8080"))
+
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
+        let rule = BreakpointRuleForm.makeRule(
+            original: nil,
+            ruleName: "Local API",
+            rawPattern: context.defaultPattern,
+            httpMethod: context.httpMethod,
+            matchType: context.defaultMatchType,
+            phaseRequest: true,
+            phaseResponse: true,
+            includeSubpaths: context.includeSubpaths
+        )
+
+        #expect(context.defaultPattern == "*://localhost:8080/api/users")
+        #expect(try rule.matchCondition.matches(
+            method: "POST",
+            url: #require(URL(string: "http://localhost:8080/api/users")),
+            headers: []
+        ))
+        #expect(try !rule.matchCondition.matches(
+            method: "POST",
+            url: #require(URL(string: "http://localhost:9090/api/users")),
+            headers: []
+        ))
+    }
+
+    @Test("Transaction quick-create ignores a Host header for a different authority")
+    @MainActor
+    func transactionBuilderRejectsMismatchedHostHeaderPort() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "GET",
+            url: "http://localhost/api/users",
+            statusCode: 200
+        )
+        transaction.request.headers.append(HTTPHeader(name: "Host", value: "attacker.example:8080"))
+
+        let context = BreakpointEditorContextBuilder.fromTransaction(transaction)
+
+        #expect(context.defaultPattern == "*://localhost/api/users")
+    }
+
     @Test("Domain context builder omits method and scopes to the whole domain")
     func domainBuilder() {
         let context = BreakpointEditorContextBuilder.fromDomain("cdn.example.com")

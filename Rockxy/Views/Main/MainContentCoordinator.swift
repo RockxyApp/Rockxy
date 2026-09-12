@@ -175,7 +175,9 @@ final class MainContentCoordinator {
         projectTabAutosaveTask?.cancel()
         projectHydrationTask?.cancel()
         captureHealthTask?.cancel()
+        proxyStartTask?.cancel()
         proxyConfigurationRefreshTask?.cancel()
+        httpsInterceptionRetryTask?.cancel()
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker
         Task {
@@ -237,6 +239,7 @@ final class MainContentCoordinator {
     let logEngine = LogCaptureEngine()
     let captureProbeServer = DeveloperSetupProbeServer()
     let captureProbeTracker = CaptureProbeTracker()
+    let captureRecordingGate = CaptureRecordingGate()
 
     // MARK: - Rules
 
@@ -258,8 +261,13 @@ final class MainContentCoordinator {
     var isProxyRunning = false
     var isProxyStarting = false
     var isProxyStopping = false
+    var isRetryingHTTPSInterception = false
     var activeProxyPort = AppSettingsManager.shared.settings.proxyPort
-    var isRecording = true
+    var isRecording = true {
+        didSet {
+            captureRecordingGate.update(isRecording: isRecording)
+        }
+    }
     var sessionGeneration: UInt = 0
     var liveHistoryLimit: Int
     var isClearingSession = false
@@ -269,7 +277,10 @@ final class MainContentCoordinator {
     var proxyError: String?
     var isSystemProxyConfigured = false
     @ObservationIgnored var captureHealthTask: Task<Void, Never>?
+    @ObservationIgnored var proxyStartTask: Task<Void, Never>?
     @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var httpsInterceptionRetryTask: Task<Void, Never>?
+    @ObservationIgnored var httpsInterceptionRetryGeneration: UInt = 0
 
     /// The listener configuration the running proxy actually started with.
     /// Non-nil only while the proxy is running; captured from the same settings
@@ -401,12 +412,18 @@ final class MainContentCoordinator {
         case .retryCaptureCheck: .retryCaptureCheck
         case .restoreSystemRouting: .restoreSystemRouting
         case .openHTTPSDecryption: .openHTTPSDecryption
+        case .retryHTTPSInterception: .retryHTTPSInterception
         case .openGeneralSettings: .openGeneralSettings
         case .openAdvancedProxySettings: .openAdvancedProxySettings
         case .reinstallAndTrust: .reinstallAndTrust
         case nil: nil
         }
-        return SystemProxyWarning(message: warning.message, action: action, isDismissible: warning.isDismissible)
+        return SystemProxyWarning(
+            message: warning.message,
+            action: action,
+            isDismissible: warning.isDismissible,
+            isActionInProgress: action == .retryHTTPSInterception && isRetryingHTTPSInterception
+        )
     }
 
     var proxyDisplayState: ProxyDisplayState {
@@ -750,13 +767,14 @@ final class MainContentCoordinator {
 // MARK: - SystemProxyWarning
 
 struct SystemProxyWarning {
-    enum Action {
+    enum Action: Equatable {
         case retry
         case retryStop
         case retryDisableSystemRouting
         case restoreSystemRouting
         case retryCaptureCheck
         case openHTTPSDecryption
+        case retryHTTPSInterception
         case openGeneralSettings
         case openAdvancedProxySettings
         case reinstallAndTrust
@@ -777,6 +795,8 @@ struct SystemProxyWarning {
                 String(localized: "Run Capture Check", bundle: RockxyLocalization.bundle)
             case .openHTTPSDecryption:
                 String(localized: "Open HTTPS Decryption", bundle: RockxyLocalization.bundle)
+            case .retryHTTPSInterception:
+                String(localized: "Retry", bundle: RockxyLocalization.bundle)
             case .openGeneralSettings:
                 String(localized: "Open Certificate Settings", bundle: RockxyLocalization.bundle)
             case .openAdvancedProxySettings:
@@ -790,6 +810,7 @@ struct SystemProxyWarning {
     let message: String
     let action: Action?
     let isDismissible: Bool
+    let isActionInProgress: Bool
 }
 
 // MARK: - AppInfo

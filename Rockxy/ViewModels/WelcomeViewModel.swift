@@ -81,7 +81,7 @@ final class WelcomeViewModel {
         if certTrusted {
             count += 1
         }
-        if helperStatus == .installedCompatible {
+        if isHelperReady {
             count += 1
         }
         if systemProxyEnabled {
@@ -94,12 +94,19 @@ final class WelcomeViewModel {
         4
     }
 
+    var isHelperReady: Bool {
+        helperStatus == .installedCompatible && !helperAutomaticRefreshRecoveryPending
+    }
+
     var canGetStarted: Bool {
-        certInstalled && certTrusted && helperStatus == .installedCompatible && systemProxyEnabled
+        certInstalled && certTrusted && isHelperReady && systemProxyEnabled
     }
 
     var helperActionLabel: String? {
-        HelperManager.helperActionLabel(
+        if helperAutomaticRefreshRecoveryPending {
+            return String(localized: "Retry Automatic Update", bundle: RockxyLocalization.bundle)
+        }
+        return HelperManager.helperActionLabel(
             status: helperStatus,
             signingIssue: helperSigningIssue
         )
@@ -131,7 +138,15 @@ final class WelcomeViewModel {
                 bundle: RockxyLocalization.bundle
             )
         case .installedCompatible:
-            String(localized: "Installed, compatible, and reachable.", bundle: RockxyLocalization.bundle)
+            if helperAutomaticRefreshRecoveryPending {
+                String(
+                    // swiftlint:disable:next line_length
+                    localized: "Rockxy could not finish updating the helper tool automatically. Your existing helper approval was kept, and Rockxy will try again the next time it opens.",
+                    bundle: RockxyLocalization.bundle
+                )
+            } else {
+                String(localized: "Installed, compatible, and reachable.", bundle: RockxyLocalization.bundle)
+            }
         case .installedOutdated:
             String(
                 localized: "An older helper is installed. Update it from this version of Rockxy.",
@@ -202,6 +217,13 @@ final class WelcomeViewModel {
             isTrusted: certReadiness == .trusted,
             unavailableMessage: nil
         )
+    }
+
+    nonisolated static func systemProxyStepComplete(
+        isCaptureActive: Bool,
+        systemRoutingReady: Bool
+    ) -> Bool {
+        isCaptureActive && systemRoutingReady
     }
 
     static func resolveHelperFailureRecovery(for error: Error) -> HelperFailureRecovery {
@@ -368,10 +390,14 @@ final class WelcomeViewModel {
         }
     }
 
-    func enableProxy() async {
+    func enableProxy(using operation: (@MainActor () async throws -> Void)? = nil) async {
         await perform(.systemProxy, errorArea: .systemProxy) {
-            let settings = AppSettingsStorage.load()
-            try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+            if let operation {
+                try await operation()
+            } else {
+                let settings = AppSettingsStorage.load()
+                try await SystemProxyManager.shared.enableSystemProxy(port: settings.proxyPort)
+            }
         }
     }
 
@@ -449,6 +475,9 @@ final class WelcomeViewModel {
             signingIssue: readiness.helperSigningIssue,
             automaticRefreshRecoveryPending: HelperManager.shared.automaticRefreshRecoveryPending
         )
-        systemProxyEnabled = readiness.proxyMode != .unavailable
+        systemProxyEnabled = Self.systemProxyStepComplete(
+            isCaptureActive: readiness.isCaptureActive,
+            systemRoutingReady: readiness.systemRoutingReady
+        )
     }
 }

@@ -792,6 +792,69 @@ struct LiveTunnelRegistryTests {
         _ = try? channel.finish()
     }
 
+    @Test("explicit retry resets stale tunnel without churning a later pinned tunnel")
+    func acceptedHandshakeRecoveryDoesNotChurnPinnedTunnel() throws {
+        let sslManager = makeSSLProxyingManager()
+        let bypassManager = makeBypassProxyManager()
+        let application = ClientApplicationIdentity.bundle(
+            identifier: "com.example.PinnedClient",
+            displayName: "Pinned Client"
+        )
+        sslManager.setEnabled(true)
+        sslManager.setBypassDomains("")
+        sslManager.addRule(SSLProxyingRule(domain: "*", listType: .include))
+
+        let registry = makeRegistry(sslManager: sslManager, bypassManager: bypassManager)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sslProxyingStateDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            registry.invalidateTunnelsNowRequiringInterception()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let staleHost = "stale.example.com"
+        sslManager.markHostForPassthrough(staleHost, application: application)
+        let staleChannel = EmbeddedChannel()
+        let staleFlag = CloseFlag()
+        staleFlag.observe(staleChannel)
+        registry.registerRawTunnel(
+            channel: staleChannel,
+            host: staleHost,
+            application: application,
+            reason: .autoPassthrough,
+            decisionGeneration: registry.currentGeneration()
+        )
+
+        #expect(sslManager.retryInterception(clientIdentifiers: [application.identifier]) == 1)
+        drain(staleChannel)
+        #expect(staleFlag.closed)
+
+        // If the same client then rejects a genuinely pinned host, ordinary accepted handshakes
+        // must not clear that newly established protection or reset its raw tunnel.
+        let pinnedHost = "pinned.example.com"
+        sslManager.markHostForPassthrough(pinnedHost, application: application)
+        let pinnedChannel = EmbeddedChannel()
+        let pinnedFlag = CloseFlag()
+        pinnedFlag.observe(pinnedChannel)
+        registry.registerRawTunnel(
+            channel: pinnedChannel,
+            host: pinnedHost,
+            application: application,
+            reason: .autoPassthrough,
+            decisionGeneration: registry.currentGeneration()
+        )
+
+        drain(pinnedChannel)
+        #expect(!pinnedFlag.closed)
+        #expect(sslManager.isAutoPassthrough(pinnedHost, application: application))
+        #expect(registry.trackedTunnelCount() == 1)
+
+        _ = try? staleChannel.finish()
+        _ = try? pinnedChannel.finish()
+    }
+
     @Test("clearing all auto-passthrough hosts closes newly interceptable live raw tunnels")
     func clearAllAutoPassthroughClosesTunnelViaNotification() throws {
         let sslManager = makeSSLProxyingManager()

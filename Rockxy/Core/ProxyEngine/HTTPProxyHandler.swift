@@ -685,6 +685,15 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ) {
         switch decision {
         case .execute:
+            if let status = modifiedData.requestLimitViolationStatusCode {
+                self.sendErrorResponse(
+                    context: context,
+                    status: status,
+                    requestData: requestData,
+                    callback: callback
+                )
+                return
+            }
             let built = BreakpointRequestBuilder.build(
                 from: modifiedData,
                 originalHead: head,
@@ -766,6 +775,21 @@ extension HTTPProxyHandler {
         }.whenFailure { error in
             proxyHandlerLogger.error(
                 "Failed to set up TLS handler for \(host): \(String(describing: error))"
+            )
+            self.onTransactionComplete(
+                TLSInterceptHandler.makeTunnelTransaction(
+                    host: host,
+                    port: port,
+                    statusCode: 500,
+                    statusMessage: "TLS Handler Setup Failed",
+                    state: .failed,
+                    sourcePort: self.clientSourcePort,
+                    captureContext: requestData.captureContext,
+                    clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
+                        application: nil,
+                        connectionDescriptor: self.clientConnectionDescriptor
+                    )
+                )
             )
             context.close(promise: nil)
         }

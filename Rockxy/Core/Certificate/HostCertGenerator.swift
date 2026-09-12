@@ -65,7 +65,7 @@ nonisolated enum HostCertGenerator {
 
         let certificate = try Certificate(
             version: .v3,
-            serialNumber: Certificate.SerialNumber(),
+            serialNumber: CertificateSerialNumberGenerator.generate(),
             publicKey: .init(hostKey.publicKey),
             notValidBefore: twoDaysAgo,
             notValidAfter: oneYearLater,

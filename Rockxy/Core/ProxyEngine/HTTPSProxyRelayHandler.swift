@@ -1103,6 +1103,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     ) {
         switch decision {
         case .execute:
+            if let status = modifiedData.requestLimitViolationStatusCode {
+                self.sendErrorResponse(
+                    context: context,
+                    status: status,
+                    requestData: requestData,
+                    callback: callback
+                )
+                return
+            }
             let built = BreakpointRequestBuilder.build(
                 from: modifiedData,
                 originalHead: head,
@@ -1115,7 +1124,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, @unchecked Sendable {
                 context: context,
                 head: built.head,
                 requestData: built.requestData,
-                graphQLInfo: graphQLInfo,
+                graphQLInfo: GraphQLDetector.detect(request: built.requestData),
                 startTime: startTime,
                 callback: callback
             )

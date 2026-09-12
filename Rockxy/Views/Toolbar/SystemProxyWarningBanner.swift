@@ -9,6 +9,7 @@ import SwiftUI
 struct SystemProxyWarningBanner: View {
     let message: String
     var primaryActionTitle: String?
+    var isActionInProgress = false
     var onPrimaryAction: (() -> Void)?
     var onDismiss: (() -> Void)?
 
@@ -25,10 +26,19 @@ struct SystemProxyWarningBanner: View {
             Spacer()
 
             if let primaryActionTitle, let onPrimaryAction {
-                Button(primaryActionTitle, action: onPrimaryAction)
+                Button(action: onPrimaryAction) {
+                    if isActionInProgress {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(primaryActionTitle)
+                    }
+                }
                     .font(.system(size: metrics.chromeBadgeFontSize))
                     .rockxyGlassButtonStyle()
                     .controlSize(.small)
+                    .disabled(isActionInProgress)
+                    .accessibilityLabel(primaryActionTitle)
             }
 
             if let onDismiss {

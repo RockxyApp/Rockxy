@@ -100,6 +100,84 @@ final class CaptureProbeTracker: @unchecked Sendable {
 extension MainContentCoordinator {
     // MARK: - Proxy Lifecycle
 
+    /// Revalidates the active Root CA before removing protected TLS fallbacks. Clearing
+    /// auto-passthrough posts the policy-change notification that closes matching live raw
+    /// tunnels, so the client's next CONNECT can attempt interception immediately.
+    func retryHTTPSInterception() {
+        guard isProxyRunning,
+              !isProxyStopping,
+              !isRetryingHTTPSInterception
+        else {
+            return
+        }
+        let clientIdentifiers = readiness.tlsRetryClientIdentifiers
+        guard !clientIdentifiers.isEmpty else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: String(
+                    localized: "No HTTPS interception recovery is pending.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            return
+        }
+
+        httpsInterceptionRetryGeneration &+= 1
+        let retryGeneration = httpsInterceptionRetryGeneration
+        let readiness = self.readiness
+        isRetryingHTTPSInterception = true
+        httpsInterceptionRetryTask = Task { [weak self] in
+            await readiness.refreshCertificateTrustValidation()
+            guard let self else {
+                return
+            }
+            defer {
+                if self.httpsInterceptionRetryGeneration == retryGeneration {
+                    self.isRetryingHTTPSInterception = false
+                    self.httpsInterceptionRetryTask = nil
+                }
+            }
+            guard !Task.isCancelled,
+                  httpsInterceptionRetryGeneration == retryGeneration,
+                  isProxyRunning,
+                  !isProxyStopping,
+                  readiness.isCaptureActive
+            else {
+                return
+            }
+            guard readiness.canInterceptHTTPS else {
+                activeToast = ToastMessage(
+                    style: .error,
+                    text: ReadinessCoordinator.certNotTrustedWarning(
+                        certReadiness: readiness.certReadiness,
+                        isCaptureActive: true
+                    )?.message ?? String(
+                        localized: "Rockxy cannot verify the Root CA trust status, so HTTPS interception is paused. HTTP traffic and logs are still captured.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                )
+                return
+            }
+
+            // Keep the retry scoped to the clients represented by this warning. Clearing the
+            // suppression cache before invalidating their tunnels ensures a persistent rejection
+            // can produce fresh evidence instead of disappearing behind the previous 30-second
+            // duplicate window.
+            readiness.clearTLSRejections(clientIdentifiers: clientIdentifiers)
+            RecentFailureTracker.certificateRejections.reset(clientIdentifiers: clientIdentifiers)
+            SSLProxyingManager.shared.retryInterception(
+                clientIdentifiers: clientIdentifiers
+            )
+            activeToast = ToastMessage(
+                style: .success,
+                text: String(
+                    localized: "HTTPS retry is ready. Repeat the request or reconnect the affected client.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+        }
+    }
+
     func startProxy() {
         guard canStartProxy else {
             return
@@ -107,10 +185,15 @@ extension MainContentCoordinator {
         proxyError = nil
         isProxyStarting = true
         readiness.clearProxyRestoreFailure()
+        RecentFailureTracker.certificateRejections.reset()
 
-        Task {
+        proxyStartTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
             defer {
                 isProxyStarting = false
+                proxyStartTask = nil
             }
 
             guard await ensureProjectCatalogReadyForDataIntake() else {
@@ -139,7 +222,7 @@ extension MainContentCoordinator {
                 SSLProxyingManager.shared.forceGlobalPassthrough = !readiness.canInterceptHTTPS
                 if !readiness.canInterceptHTTPS {
                     Self.logger.warning(
-                        "Root CA is not trusted (real SecTrust validation) — all HTTPS passes through"
+                        "Root CA failed SSL trust or client compatibility validation — all HTTPS passes through"
                     )
                 } else {
                     if await certificateManager.rootCAFreshlyInstalled {
@@ -171,6 +254,7 @@ extension MainContentCoordinator {
                 await configureProxy(port: resolvedPort, settings: settings)
 
                 try await proxyServer.start()
+                await sessionManager.startBatchTimer()
                 isProxyRunning = true
                 proxyStartedAt = Date()
                 runtimeListenerSnapshot = ProxyListenerSnapshot(
@@ -229,6 +313,53 @@ extension MainContentCoordinator {
         }
     }
 
+    /// Makes the Welcome system-routing action safe when capture is stopped. The listener is
+    /// started first, its exact resolved port is awaited, and only then may macOS routing change.
+    /// This also coalesces with an in-flight start instead of enabling a configured-but-dead port.
+    func enableSystemProxyFromWelcome() async throws {
+        if !isProxyRunning {
+            if canStartProxy {
+                startProxy()
+            }
+            if let proxyStartTask {
+                await proxyStartTask.value
+            }
+        }
+
+        guard isProxyRunning else {
+            throw NSError(
+                domain: RockxyIdentity.current.appBundleIdentifier,
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: proxyError ?? String(
+                        localized: "System routing is unavailable while the proxy server is stopped.",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                ]
+            )
+        }
+
+        guard !isSystemProxyConfigured else {
+            return
+        }
+
+        readiness.clearProxyEnableFailure()
+        readiness.setSystemRoutingExpected(true)
+        do {
+            try await SystemProxyManager.shared.enableSystemProxy(port: activeProxyPort)
+            isSystemProxyConfigured = true
+            isProxyOverridden = true
+            readiness.setSystemRoutingReady(true)
+            runCaptureHealthCheck()
+        } catch {
+            isSystemProxyConfigured = false
+            isProxyOverridden = false
+            readiness.setSystemRoutingReady(false)
+            readiness.setProxyEnableFailed(message: error.localizedDescription)
+            throw error
+        }
+    }
+
     func stopProxy() {
         guard isProxyRunning, !isProxyStopping else {
             return
@@ -238,6 +369,10 @@ extension MainContentCoordinator {
         captureHealthTask = nil
         proxyConfigurationRefreshTask?.cancel()
         proxyConfigurationRefreshTask = nil
+        httpsInterceptionRetryGeneration &+= 1
+        httpsInterceptionRetryTask?.cancel()
+        httpsInterceptionRetryTask = nil
+        isRetryingHTTPSInterception = false
         let serverToStop = proxyServer
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker
@@ -671,6 +806,7 @@ extension MainContentCoordinator {
         let resolvedPort = port ?? settings.proxyPort
         let manager = sessionManager
         let captureProbeTracker = captureProbeTracker
+        let captureRecordingGate = captureRecordingGate
 
         let configuration = ProxyConfiguration(
             port: resolvedPort,
@@ -702,6 +838,9 @@ extension MainContentCoordinator {
                     if captureProbeTracker.consumeIfExpected(transaction) {
                         return
                     }
+                    guard captureRecordingGate.allowsCapture() else {
+                        return
+                    }
                     await manager.addTransaction(transaction)
                 }
             },
@@ -730,8 +869,6 @@ extension MainContentCoordinator {
         liveHistoryLimit = max(1, effectiveBufferSize)
         await sessionManager.setMaxBufferSize(effectiveBufferSize)
         await sessionManager.setProxyPort(resolvedPort)
-        await sessionManager.startBatchTimer()
-
         Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
@@ -753,11 +890,6 @@ extension MainContentCoordinator {
         if generation != sessionGeneration {
             Self.logger.debug("Evaluating an older delivery batch by its Project ownership")
         }
-        guard isRecording else {
-            Self.logger.debug("Batch of \(batch.count) dropped — recording paused")
-            return
-        }
-
         let filteredBatch = Self.filterBatchThroughAllowList(batch, using: AllowListManager.shared)
         if filteredBatch.count < batch.count {
             Self.logger.debug(
