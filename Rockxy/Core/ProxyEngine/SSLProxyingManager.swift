@@ -9,7 +9,7 @@ import os
 /// The `shouldIntercept(_:)` method is `nonisolated` and thread-safe so it can be
 /// called directly from NIO event loops without hopping to the main actor.
 @MainActor @Observable
-final class SSLProxyingManager {
+final class SSLProxyingManager: @unchecked Sendable {
     // MARK: Lifecycle
 
     private init() {
@@ -374,14 +374,16 @@ final class SSLProxyingManager {
         _ host: String,
         clientIdentifier: String?
     ) {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else { return }
         let scope = AutoPassthroughScope(
-            host: host,
+            host: normalizedHost,
             clientIdentifier: clientIdentifier
         )
         let now = passthroughNowProvider()
         passthroughLock.lock()
         autoPassthroughHosts = autoPassthroughHosts.filter {
-            now.timeIntervalSince($0.value) <= Self.passthroughTTLSeconds
+            Self.isFresh($0.value, at: now, ttl: Self.passthroughTTLSeconds)
         }
         if autoPassthroughHosts[scope] == nil,
            autoPassthroughHosts.count >= Self.maximumAutoPassthroughEntries,
@@ -403,11 +405,13 @@ final class SSLProxyingManager {
         _ host: String,
         clientIdentifier: String?
     ) {
-        let scope = AutoPassthroughScope(host: host, clientIdentifier: clientIdentifier)
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedHost.isEmpty else { return }
+        let scope = AutoPassthroughScope(host: normalizedHost, clientIdentifier: clientIdentifier)
         let now = passthroughNowProvider()
         passthroughLock.lock()
         transientPassthroughHosts = transientPassthroughHosts.filter {
-            now.timeIntervalSince($0.value) <= Self.transientPassthroughTTLSeconds
+            Self.isFresh($0.value, at: now, ttl: Self.transientPassthroughTTLSeconds)
         }
         if transientPassthroughHosts[scope] == nil,
            transientPassthroughHosts.count >= Self.maximumAutoPassthroughEntries,
@@ -437,6 +441,40 @@ final class SSLProxyingManager {
         // fallbacks. The first state notification therefore still sees the hosts as passthrough.
         // Notify again after the fallback state is actually gone so any live raw tunnel whose
         // host is now interceptable is reset before the browser reuses it.
+        NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
+    }
+
+    /// Records the last readable Root CA trust epoch alongside persisted fallback entries.
+    /// A trust recovery or CA identity rotation invalidates fallbacks created for the previous
+    /// epoch, including when that transition spans an app relaunch.
+    nonisolated func reconcileCertificateState(isTrusted: Bool?, fingerprint: String?) {
+        guard let isTrusted else { return }
+        let normalizedFingerprint = fingerprint?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let currentFingerprint = normalizedFingerprint?.isEmpty == false ? normalizedFingerprint : nil
+
+        passthroughLock.lock()
+        let trustRecovered = lastObservedSystemTrustValidated == false && isTrusted
+        let identityChanged = lastObservedCertificateFingerprint.flatMap { previous in
+            currentFingerprint.map { previous != $0 }
+        } ?? false
+        let metadataChanged = lastObservedSystemTrustValidated != isTrusted
+            || lastObservedCertificateFingerprint != currentFingerprint
+        lastObservedSystemTrustValidated = isTrusted
+        lastObservedCertificateFingerprint = currentFingerprint
+        let hadEntries = !autoPassthroughHosts.isEmpty || !transientPassthroughHosts.isEmpty
+        if trustRecovered || identityChanged {
+            autoPassthroughHosts.removeAll()
+            transientPassthroughHosts.removeAll()
+        }
+        if metadataChanged || ((trustRecovered || identityChanged) && hadEntries) {
+            enqueuePassthroughSnapshotLocked()
+        }
+        passthroughLock.unlock()
+
+        guard (trustRecovered || identityChanged) && hadEntries else { return }
+        Self.logger.info("Cleared HTTPS fallbacks after Root CA trust or identity changed")
         NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)
     }
 
@@ -551,6 +589,7 @@ final class SSLProxyingManager {
         _ host: String,
         clientIdentifier: String?
     ) -> Bool {
+        guard !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         let scope = AutoPassthroughScope(
             host: host,
             clientIdentifier: clientIdentifier
@@ -559,13 +598,13 @@ final class SSLProxyingManager {
         defer { passthroughLock.unlock() }
         let now = passthroughNowProvider()
         if let timestamp = autoPassthroughHosts[scope] {
-            if now.timeIntervalSince(timestamp) <= Self.passthroughTTLSeconds {
+            if Self.isFresh(timestamp, at: now, ttl: Self.passthroughTTLSeconds) {
                 return true
             }
             autoPassthroughHosts.removeValue(forKey: scope)
         }
         if let timestamp = transientPassthroughHosts[scope] {
-            if now.timeIntervalSince(timestamp) <= Self.transientPassthroughTTLSeconds {
+            if Self.isFresh(timestamp, at: now, ttl: Self.transientPassthroughTTLSeconds) {
                 return true
             }
             transientPassthroughHosts.removeValue(forKey: scope)
@@ -699,8 +738,8 @@ final class SSLProxyingManager {
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "SSLProxyingManager"
     )
-    nonisolated private static let passthroughTTLSeconds: TimeInterval = 86_400
-    nonisolated private static let transientPassthroughTTLSeconds: TimeInterval = 60
+    nonisolated private static let passthroughTTLSeconds: TimeInterval = 86_400,
+        transientPassthroughTTLSeconds: TimeInterval = 60
     nonisolated private static let maximumAutoPassthroughEntries = 2_048
     nonisolated private static let passthroughPersistenceQueue = DispatchQueue(
         label: "\(RockxyIdentity.current.logSubsystem).ssl-passthrough-persistence",
@@ -738,8 +777,7 @@ final class SSLProxyingManager {
             .appendingPathComponent("auto-passthrough-hosts.json")
     }
 
-    private let customStorageURL: URL?
-    private let customPassthroughStorageURL: URL?
+    private let customStorageURL: URL?, customPassthroughStorageURL: URL?
     private let migrationStorageURLs: [URL]
     private let passthroughNowProvider: @Sendable () -> Date
 
@@ -757,6 +795,8 @@ final class SSLProxyingManager {
     nonisolated(unsafe) private var cachedBypassPatterns: [String] = []
     nonisolated(unsafe) private var passthroughPersistenceDirty = false
     nonisolated(unsafe) private var passthroughPersistenceScheduled = false
+    nonisolated(unsafe) private var lastObservedSystemTrustValidated: Bool?
+    nonisolated(unsafe) private var lastObservedCertificateFingerprint: String?
 
     private var resolvedStorageURL: URL {
         customStorageURL ?? Self.defaultStorageURL
@@ -844,6 +884,11 @@ final class SSLProxyingManager {
             }
         }
         return false
+    }
+
+    nonisolated private static func isFresh(_ timestamp: Date, at now: Date, ttl: TimeInterval) -> Bool {
+        let age = now.timeIntervalSince(timestamp)
+        return age >= 0 && age <= ttl
     }
 
     private func clearAutoPassthroughIfNeeded(
@@ -999,10 +1044,12 @@ final class SSLProxyingManager {
                 return
             }
             let now = passthroughNowProvider()
+            lastObservedSystemTrustValidated = decoded.lastObservedSystemTrustValidated
+            lastObservedCertificateFingerprint = decoded.lastObservedCertificateFingerprint
             let validRecords = decoded.records
                 .filter {
                     $0.scope.clientIdentifier != nil
-                        && now.timeIntervalSince($0.timestamp) <= Self.passthroughTTLSeconds
+                        && Self.isFresh($0.timestamp, at: now, ttl: Self.passthroughTTLSeconds)
                 }
                 .sorted { $0.timestamp > $1.timestamp }
                 .prefix(Self.maximumAutoPassthroughEntries)
@@ -1055,7 +1102,9 @@ final class SSLProxyingManager {
                 schemaVersion: AutoPassthroughStorage.currentSchemaVersion,
                 records: autoPassthroughHosts.map {
                     AutoPassthroughRecord(scope: $0.key, timestamp: $0.value)
-                }
+                },
+                lastObservedSystemTrustValidated: lastObservedSystemTrustValidated,
+                lastObservedCertificateFingerprint: lastObservedCertificateFingerprint
             )
             passthroughLock.unlock()
 
@@ -1079,9 +1128,10 @@ private struct AutoPassthroughScope: Codable, Hashable, Sendable {
 
     init(host: String, clientIdentifier: String?) {
         self.host = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        self.clientIdentifier = clientIdentifier?
+        let normalizedIdentifier = clientIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+        self.clientIdentifier = normalizedIdentifier?.isEmpty == false ? normalizedIdentifier : nil
     }
 }
 
@@ -1095,6 +1145,8 @@ private struct AutoPassthroughStorage: Codable, Sendable {
 
     let schemaVersion: Int
     let records: [AutoPassthroughRecord]
+    let lastObservedSystemTrustValidated: Bool?
+    let lastObservedCertificateFingerprint: String?
 }
 
 // MARK: - SSLProxyingStorage

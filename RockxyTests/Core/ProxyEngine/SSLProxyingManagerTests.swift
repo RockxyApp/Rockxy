@@ -440,6 +440,127 @@ struct SSLProxyingManagerTests {
         #expect(!reloaded.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
     }
 
+    @Test("clock rollback expires future-dated persistent and transient fallbacks")
+    func passthroughClockRollbackCannotExtendFallback() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-clock-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-clock-passthrough")
+        let clock = MutableDateBox(Date(timeIntervalSince1970: 10_000))
+        let manager = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL,
+            passthroughNowProvider: clock.now
+        )
+
+        manager.markHostForPassthrough("persistent.example", clientIdentifier: "app.clock")
+        manager.markHostForTransientPassthrough("transient.example", clientIdentifier: "app.clock")
+        clock.advance(by: -3_600)
+
+        #expect(!manager.isAutoPassthrough("persistent.example", clientIdentifier: "app.clock"))
+        #expect(!manager.isAutoPassthrough("transient.example", clientIdentifier: "app.clock"))
+        #expect(manager.flushPassthroughPersistence())
+        let reloaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL,
+            passthroughNowProvider: clock.now
+        )
+        #expect(!reloaded.isAutoPassthrough("persistent.example", clientIdentifier: "app.clock"))
+    }
+
+    @Test("trust restoration across relaunch clears fallbacks from the untrusted epoch")
+    func trustRestorationAcrossRelaunchClearsFallback() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-trust-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-trust-passthrough")
+        let firstRun = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        firstRun.reconcileCertificateState(isTrusted: false, fingerprint: "root-a")
+        firstRun.markHostForPassthrough("stale.example", clientIdentifier: "app.one")
+        #expect(firstRun.flushPassthroughPersistence())
+
+        let relaunched = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(relaunched.isAutoPassthrough("stale.example", clientIdentifier: "app.one"))
+        relaunched.reconcileCertificateState(isTrusted: true, fingerprint: "root-a")
+
+        #expect(!relaunched.isAutoPassthrough("stale.example", clientIdentifier: "app.one"))
+        #expect(relaunched.flushPassthroughPersistence())
+        let verified = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!verified.isAutoPassthrough("stale.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("relaunch in the same trusted CA epoch preserves pinned-client fallback")
+    func trustedRelaunchPreservesFallback() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-pinned-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-pinned-passthrough")
+        let firstRun = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        firstRun.reconcileCertificateState(isTrusted: true, fingerprint: "root-a")
+        firstRun.markHostForPassthrough("pinned.example", clientIdentifier: "app.one")
+        #expect(firstRun.flushPassthroughPersistence())
+
+        let relaunched = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        relaunched.reconcileCertificateState(isTrusted: true, fingerprint: "ROOT-A")
+
+        #expect(relaunched.isAutoPassthrough("pinned.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("fallback files from before trust epoch metadata remain readable")
+    func legacyFallbackWithoutTrustMetadataStillLoads() throws {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-legacy-trust-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-legacy-trust-passthrough")
+        let writer = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        writer.markHostForPassthrough("legacy.example", clientIdentifier: "app.one")
+        #expect(writer.flushPassthroughPersistence())
+
+        let data = try Data(contentsOf: passthroughURL)
+        var payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        payload.removeValue(forKey: "lastObservedSystemTrustValidated")
+        payload.removeValue(forKey: "lastObservedCertificateFingerprint")
+        try JSONSerialization.data(withJSONObject: payload).write(to: passthroughURL, options: .atomic)
+
+        let reader = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(reader.isAutoPassthrough("legacy.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("blank hosts are ignored and blank client identities stay memory-only")
+    func passthroughRejectsBlankScopes() {
+        let settingsURL = makeTempURL(prefix: "rockxy-ssl-blank-settings")
+        let passthroughURL = makeTempURL(prefix: "rockxy-ssl-blank-passthrough")
+        let manager = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+
+        manager.markHostForPassthrough("   ", clientIdentifier: "app.blank")
+        manager.markHostForPassthrough(" unresolved.example ", clientIdentifier: "   ")
+
+        #expect(!manager.isAutoPassthrough("", clientIdentifier: "app.blank"))
+        #expect(manager.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
+        #expect(manager.flushPassthroughPersistence())
+        let reloaded = SSLProxyingManager(
+            storageURL: settingsURL,
+            passthroughStorageURL: passthroughURL
+        )
+        #expect(!reloaded.isAutoPassthrough("unresolved.example", clientIdentifier: nil))
+    }
+
     @Test("missing active settings recover from an earlier app namespace")
     func namespaceMigrationRecoversHTTPSSettings() {
         let legacyURL = makeTempURL(prefix: "rockxy-ssl-earlier-namespace")

@@ -884,7 +884,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     typealias InboundIn = ByteBuffer
 
     nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        if event is TLSUserEvent {
+        if let tlsEvent = event as? TLSUserEvent, case .handshakeCompleted = tlsEvent {
             guard !handshakeResolved else {
                 return
             }

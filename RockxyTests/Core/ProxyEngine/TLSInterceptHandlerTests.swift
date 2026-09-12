@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOEmbedded
 import NIOSSL
+import NIOTLS
 @testable import Rockxy
 import Testing
 
@@ -1053,6 +1054,27 @@ struct TLSInterceptHandlerTests {
         #expect(transaction.response?.statusCode == 200)
         #expect(transaction.state == .completed)
         #expect(transaction.sourcePort == 60_123)
+    }
+
+    @Test("TLS shutdown is not mistaken for a completed handshake")
+    func shutdownEventDoesNotCompleteHandshake() throws {
+        let channel = EmbeddedChannel()
+        let handler = PostHandshakeHandler(
+            host: "shutdown.example.com",
+            port: 443,
+            ruleEngine: RuleEngine(),
+            scriptPluginManager: nil,
+            connectionLimiter: ConnectionLimiter(),
+            sslProxyingManager: makeSSLProxyingManager(),
+            onTransactionComplete: { _ in }
+        )
+        try channel.pipeline.syncOperations.addHandler(handler)
+
+        channel.pipeline.fireUserInboundEventTriggered(TLSUserEvent.shutdownCompleted)
+        channel.embeddedEventLoop.run()
+
+        #expect((try? channel.pipeline.syncOperations.handler(type: PostHandshakeHandler.self)) != nil)
+        _ = try? channel.finish()
     }
 
     @Test("post-handshake successful tunnel reports transaction downstream")

@@ -38,6 +38,7 @@ struct SystemProxyWarningBanner: View {
                     .rockxyGlassButtonStyle()
                     .controlSize(.small)
                     .disabled(isActionInProgress)
+                    .accessibilityLabel(primaryActionTitle)
             }
 
             if let onDismiss {

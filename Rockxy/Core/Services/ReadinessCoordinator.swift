@@ -367,6 +367,21 @@ final class ReadinessCoordinator {
         return now - lastCompletedAt >= cooldown
     }
 
+    nonisolated static func beginsNewCertificateEpoch(
+        previousReadiness: CertReadiness,
+        currentReadiness: CertReadiness,
+        previousFingerprint: String?,
+        currentFingerprint: String?
+    ) -> Bool {
+        if previousReadiness != currentReadiness {
+            return true
+        }
+        guard let previousFingerprint, let currentFingerprint else {
+            return false
+        }
+        return previousFingerprint != currentFingerprint
+    }
+
     /// Begins observing readiness-related notifications. Idempotent — safe to call
     /// multiple times from workspace lifecycle without creating duplicate observers.
     func startObserving() {
@@ -653,6 +668,7 @@ final class ReadinessCoordinator {
 
     private func refreshCertState(performValidation: Bool = false) async {
         let snapshot = await CertificateManager.shared.rootCAStatusSnapshot(performValidation: performValidation)
+        let previousSnapshot = lastCertSnapshot
         lastCertSnapshot = snapshot
 
         let previousReadiness = certReadiness
@@ -684,6 +700,41 @@ final class ReadinessCoordinator {
                 )
             }
         }
+        reconcileTLSRecoveryAfterCertificateRefresh(
+            previousReadiness: previousReadiness,
+            currentReadiness: certReadiness,
+            previousFingerprint: previousSnapshot?.fingerprintSHA256,
+            currentFingerprint: snapshot.fingerprintSHA256,
+            sslProxyingManager: .shared
+        )
+    }
+
+    func reconcileTLSRecoveryAfterCertificateRefresh(
+        previousReadiness: CertReadiness,
+        currentReadiness: CertReadiness,
+        previousFingerprint: String?,
+        currentFingerprint: String?,
+        sslProxyingManager: SSLProxyingManager
+    ) {
+        let currentTrust: Bool? = switch currentReadiness {
+        case .trusted: true
+        case .unknown: nil
+        default: false
+        }
+        sslProxyingManager.reconcileCertificateState(
+            isTrusted: currentTrust,
+            fingerprint: currentFingerprint
+        )
+        guard Self.beginsNewCertificateEpoch(
+            previousReadiness: previousReadiness,
+            currentReadiness: currentReadiness,
+            previousFingerprint: previousFingerprint,
+            currentFingerprint: currentFingerprint
+        ) else {
+            return
+        }
+        tlsRejectionEvidence.reset()
+        RecentFailureTracker.certificateRejections.reset()
     }
 
     private func refreshHelperState() {

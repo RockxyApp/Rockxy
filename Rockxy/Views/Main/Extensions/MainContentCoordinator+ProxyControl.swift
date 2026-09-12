@@ -165,11 +165,11 @@ extension MainContentCoordinator {
             // duplicate window.
             readiness.clearTLSRejections(clientIdentifiers: clientIdentifiers)
             RecentFailureTracker.certificateRejections.reset(clientIdentifiers: clientIdentifiers)
-            let clearedHostCount = SSLProxyingManager.shared.retryInterception(
+            SSLProxyingManager.shared.retryInterception(
                 clientIdentifiers: clientIdentifiers
             )
             activeToast = ToastMessage(
-                style: clearedHostCount > 0 ? .success : .warning,
+                style: .success,
                 text: String(
                     localized: "HTTPS retry is ready. Repeat the request or reconnect the affected client.",
                     bundle: RockxyLocalization.bundle

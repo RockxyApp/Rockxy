@@ -284,6 +284,23 @@ struct ReadinessCoordinatorTests {
         #expect(!evidence.hasMultiHostClientFailure)
     }
 
+    @Test("a new certificate epoch rearms rejection evidence for clients that accepted the old epoch")
+    func newCertificateEpochRearmsAcceptedClients() {
+        var evidence = TLSRejectionEvidence()
+        evidence.recordSuccessfulHandshake(host: "working.example", clientIdentifier: "app.one")
+        for host in ["old-one.example", "old-two.example", "old-three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+        }
+        #expect(!evidence.hasMultiHostClientFailure)
+
+        evidence.reset()
+        for host in ["new-one.example", "new-two.example", "new-three.example"] {
+            evidence.recordRejection(host: host, clientIdentifier: "app.one")
+        }
+
+        #expect(evidence.clientIdentifiersNeedingRetry == ["app.one"])
+    }
+
     @Test("unattributed TLS rejections produce separate bounded evidence")
     func unattributedTLSRejectionsAreBounded() {
         var evidence = TLSRejectionEvidence()
@@ -416,6 +433,95 @@ struct ReadinessCoordinatorTests {
         }
 
         #expect(coordinator.lastCertSnapshot != nil)
+    }
+
+    @Test("trust restoration clears sticky HTTPS fallbacks during capture")
+    @MainActor
+    func trustRestorationClearsFallbacks() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-trust-recovery-\(UUID().uuidString)", isDirectory: true)
+        let manager = SSLProxyingManager(
+            storageURL: directory.appendingPathComponent("settings.json"),
+            passthroughStorageURL: directory.appendingPathComponent("passthrough.json")
+        )
+        let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        manager.reconcileCertificateState(isTrusted: false, fingerprint: "old")
+        manager.markHostForPassthrough("sticky.example", clientIdentifier: "app.one")
+        manager.markHostForTransientPassthrough("temporary.example", clientIdentifier: nil)
+        coordinator.setCaptureActive(true)
+        coordinator.reconcileTLSRecoveryAfterCertificateRefresh(
+            previousReadiness: .installedNotTrusted,
+            currentReadiness: .trusted,
+            previousFingerprint: "old",
+            currentFingerprint: "old",
+            sslProxyingManager: manager
+        )
+
+        #expect(!manager.isAutoPassthrough("sticky.example", clientIdentifier: "app.one"))
+        #expect(!manager.isAutoPassthrough("temporary.example", clientIdentifier: nil))
+    }
+
+    @Test("same trusted certificate epoch preserves client-scoped fallback")
+    @MainActor
+    func unchangedCertificateEpochPreservesFallback() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-same-trust-\(UUID().uuidString)", isDirectory: true)
+        let manager = SSLProxyingManager(
+            storageURL: directory.appendingPathComponent("settings.json"),
+            passthroughStorageURL: directory.appendingPathComponent("passthrough.json")
+        )
+        let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        manager.reconcileCertificateState(isTrusted: true, fingerprint: "same")
+        manager.markHostForPassthrough("pinned.example", clientIdentifier: "app.one")
+        coordinator.setCaptureActive(true)
+        coordinator.reconcileTLSRecoveryAfterCertificateRefresh(
+            previousReadiness: .trusted,
+            currentReadiness: .trusted,
+            previousFingerprint: "same",
+            currentFingerprint: "same",
+            sslProxyingManager: manager
+        )
+
+        #expect(manager.isAutoPassthrough("pinned.example", clientIdentifier: "app.one"))
+    }
+
+    @Test("rotating a trusted Root CA clears fallbacks tied to the old identity")
+    @MainActor
+    func trustedCertificateRotationClearsFallback() {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-rotated-trust-\(UUID().uuidString)", isDirectory: true)
+        let manager = SSLProxyingManager(
+            storageURL: directory.appendingPathComponent("settings.json"),
+            passthroughStorageURL: directory.appendingPathComponent("passthrough.json")
+        )
+        let coordinator = ReadinessCoordinator.shared
+        defer {
+            coordinator.setCaptureActive(false)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        manager.reconcileCertificateState(isTrusted: true, fingerprint: "old-fingerprint")
+        manager.markHostForPassthrough("old-ca.example", clientIdentifier: "app.one")
+        coordinator.setCaptureActive(true)
+        coordinator.reconcileTLSRecoveryAfterCertificateRefresh(
+            previousReadiness: .trusted,
+            currentReadiness: .trusted,
+            previousFingerprint: "old-fingerprint",
+            currentFingerprint: "new-fingerprint",
+            sslProxyingManager: manager
+        )
+
+        #expect(!manager.isAutoPassthrough("old-ca.example", clientIdentifier: "app.one"))
     }
 
     @Test("helperStatusChanged notification refreshes helper state")
