@@ -31,7 +31,7 @@ struct SessionStoreMigrationTests {
         let store = try SessionStore(directory: dir)
         let version = try await store.schemaVersion()
 
-        #expect(version >= 2)
+        #expect(version >= 3)
     }
 
     @Test("Second initialization skips migration")
@@ -57,7 +57,7 @@ struct SessionStoreMigrationTests {
         let store = try SessionStore(directory: dir)
         let version = try await store.schemaVersion()
 
-        #expect(version >= 2)
+        #expect(version >= 3)
     }
 
     @Test("Save and load transaction after migration")
@@ -114,6 +114,28 @@ struct SessionStoreMigrationTests {
         #expect(info.chainHint?.chainID == "0x1")
         #expect(info.requestPayloadSize == transaction.web3RPCInfo?.requestPayloadSize)
         #expect(info.responsePayloadSize == transaction.web3RPCInfo?.responsePayloadSize)
+    }
+
+    @Test("Save and load preserves a zero-frame WebSocket identity")
+    func saveLoadPreservesZeroFrameWebSocketIdentity() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try SessionStore(directory: dir)
+        let request = TestFixtures.makeRequest(url: "wss://ws.example.com/empty")
+        let transaction = HTTPTransaction(
+            request: request,
+            state: .completed,
+            webSocketConnection: WebSocketConnection(upgradeRequest: request)
+        )
+
+        try await store.saveTransaction(transaction)
+        let reloadedStore = try SessionStore(directory: dir)
+        let loaded = try #require(try await reloadedStore.loadTransaction(byID: transaction.id))
+
+        #expect(loaded.webSocketConnection != nil)
+        #expect(loaded.webSocketConnection?.frames.isEmpty == true)
+        #expect(!MainContentCoordinator.canReplay(loaded))
     }
 
     @Test("Migrated columns have correct defaults")
