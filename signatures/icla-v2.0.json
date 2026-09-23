@@ -4651,6 +4651,42 @@
       "prNumber": 366,
       "pullCreatedAt": "2026-09-21T07:24:34Z",
       "repositoryId": 1192753899
+    },
+    {
+      "commits": [
+        {
+          "login": "LocNguyenHuu",
+          "sha": "167c78f0ac709ce57a2ffc7a03f1e9c478e02aa5",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "331da2585e663f523f78e4a0a2ffc9011c2f9018",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "a8b0231fd68c6bf3f83538db63619aeb5c9ab8e1",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "eaa8a7acea84524c4ef03f195fa8169613f8cc8f",
+          "userId": 9362970
+        },
+        {
+          "login": "LocNguyenHuu",
+          "sha": "f170dd45660ff2eec1de0e1a3d871b1dcd1d9f88",
+          "userId": 9362970
+        }
+      ],
+      "contributors": [],
+      "headSha": "167c78f0ac709ce57a2ffc7a03f1e9c478e02aa5",
+      "prId": 4614262276,
+      "prNodeId": "PR_kwDORxf6688AAAABEwgOBA",
+      "prNumber": 369,
+      "pullCreatedAt": "2026-09-23T13:37:25Z",
+      "repositoryId": 1192753899
     }
   ],
   "iclaVersion": "2.0",
