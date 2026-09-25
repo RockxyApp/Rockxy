@@ -6,43 +6,34 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.39.0 (build 60)</title>
-      <pubDate>Mon, 21 Sep 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-09-21T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.40.0 (build 61)</title>
+      <pubDate>Fri, 25 Sep 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-09-25T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.39.0/Rockxy-0.39.0-60.dmg"
-        sparkle:version="60"
-        sparkle:shortVersionString="0.39.0"
-        sparkle:edSignature="mFts5NsDkHCsJbRJrf44dqn8sM/tKvdCZOsdoF7Dvl6qYjZD0A4zNwWUxXoYuInc/63XG/E3jrR+j97xuLyLAA=="
-        length="40809101"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.40.0/Rockxy-0.40.0-61.dmg"
+        sparkle:version="61"
+        sparkle:shortVersionString="0.40.0"
+        sparkle:edSignature="22qeNiX4B986fMAjhHl6h+NgjjMB8L2nx89ScSLj/X0vYV6mtPhRL4l06Hv4OZjKNmbYfbGc7gN/H5Xv1l9pCA=="
+        length="40128234"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.39.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.40.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Explore live Traffic Insights with findings, trends, protocol and outcome breakdowns, top apps and hosts, request handoffs, and Markdown export.</li>
-  <li>Keep separate local Projects with their own traffic history, layouts, and filters; import or export project configuration when moving between Macs.</li>
-  <li>Choose which apps and hosts Rockxy decrypts or tunnels, and receive nearby iPhone captures in a separate workspace.</li>
-  <li>Identify AI, Web3, x402, gRPC, GraphQL, and WebSocket traffic more quickly with protocol labels, filters, and focused inspection.</li>
-  <li>Build advanced filters, route through an upstream proxy, and inspect WebSocket Protobuf payloads without uploading schemas.</li>
-  <li>Import cURL into Compose and copy requests as Swift, Python, JavaScript, or Go code.</li>
-  <li>Opt in to untrusted upstream certificates for development servers and restart the proxy after listener-setting changes.</li>
+  <li>See live Server-Sent Events and NDJSON responses in the request list as soon as their headers arrive; each stream completes in the same row when it ends.</li>
+  <li>Inspect assembled streamed output, tool calls, usage, and provider errors for supported AI API traffic when those details are present in the capture.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Made capture startup, stop, helper recovery, and system-proxy restoration more reliable when macOS responds late or a helper is unavailable.</li>
-  <li>Restored plain HTTP replay, recorded repeated requests in the traffic list, and removed stale transport headers when replaying to another host.</li>
-  <li>Decoded compressed responses across rules, scripts, Diff, HAR export, and inspection; redacted or omitted sensitive encoded content before sharing.</li>
-  <li>Kept WebSocket sessions and frames visible while connected, fixed plain `ws://` routing, and kept the inspector usable in short panes.</li>
-  <li>Returned a clear failure when an upstream connection dies and rejected requests that would loop back into Rockxy&#x27;s own proxy.</li>
-  <li>Fixed Developer Setup layout and device endpoint guidance, rule editing, no-cache behavior, and client-app attribution for locally served responses.</li>
-  <li>Kept the MCP setup screen free of personal filesystem paths while preserving a working copied client configuration.</li>
-  <li>Improved Diff line alignment, sidebar navigation, keyboard commands, and Welcome startup behavior.</li>
+  <li>Kept streaming and WebSocket requests to one row and finalized them correctly when capture is paused or a connection closes.</li>
+  <li>Kept the inspector on a visible selected request when a filter hides the previously focused row.</li>
+  <li>Localized capture readiness and scripting errors that previously appeared in English.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
-  <li>Moved Clear Session and Follow Live into a traffic command bar, and reduced request-list work during capture.</li>
+  <li>Follow running durations for active streams and WebSocket connections, with timestamps, counts, and sizes formatted for the selected language and region.</li>
+  <li>Export streamed responses to HAR with their captured content type and measured duration.</li>
 </ul>
       ]]></description>
     </item>

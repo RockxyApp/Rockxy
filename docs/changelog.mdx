@@ -6,6 +6,25 @@ rss: true
 
 # Changelog
 
+<Update label="September 2026" description="v0.40.0">
+  ### Added
+
+  - See live Server-Sent Events and NDJSON responses in the request list as soon as their headers arrive; each stream completes in the same row when it ends.
+  - Inspect assembled streamed output, tool calls, usage, and provider errors for supported AI API traffic when those details are present in the capture.
+
+  ### Fixed
+
+  - Kept streaming and WebSocket requests to one row and finalized them correctly when capture is paused or a connection closes.
+  - Kept the inspector on a visible selected request when a filter hides the previously focused row.
+  - Localized capture readiness and scripting errors that previously appeared in English.
+
+  ### Changed
+
+  - Follow running durations for active streams and WebSocket connections, with timestamps, counts, and sizes formatted for the selected language and region.
+  - Export streamed responses to HAR with their captured content type and measured duration.
+
+</Update>
+
 <Update label="September 2026" description="v0.39.0">
   ### Added
 

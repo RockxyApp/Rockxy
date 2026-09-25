@@ -120,6 +120,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Kept AI, Web3, and gRPC inspector tabs available at the end of the inspector tab row so protocol details are consistent with the existing Headers, Body, Set-Cookie, and Timeline workflow.
 - Clarified that existing rules and debugging tools still operate on URL, HTTP method, and headers rather than AI model names, tool calls, chain IDs, JSON-RPC methods, or batch subcalls.
 
+## [0.40.0] - 2026-09-25
+
+### Added
+
+- See live Server-Sent Events and NDJSON responses in the request list as soon as their headers arrive; each stream completes in the same row when it ends.
+- Inspect assembled streamed output, tool calls, usage, and provider errors for supported AI API traffic when those details are present in the capture.
+
+### Fixed
+
+- Kept streaming and WebSocket requests to one row and finalized them correctly when capture is paused or a connection closes.
+- Kept the inspector on a visible selected request when a filter hides the previously focused row.
+- Localized capture readiness and scripting errors that previously appeared in English.
+
+### Changed
+
+- Follow running durations for active streams and WebSocket connections, with timestamps, counts, and sizes formatted for the selected language and region.
+- Export streamed responses to HAR with their captured content type and measured duration.
+
 ## [0.39.0] - 2026-09-21
 
 ### Added
