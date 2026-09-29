@@ -203,6 +203,9 @@ final class MainContentCoordinator {
         if let evictionObserver {
             NotificationCenter.default.removeObserver(evictionObserver)
         }
+        if let reverseProxyObserver {
+            NotificationCenter.default.removeObserver(reverseProxyObserver)
+        }
     }
 
     // MARK: Internal
@@ -320,6 +323,7 @@ final class MainContentCoordinator {
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
+    nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
 
     // MARK: - UI State — Engine Status
 

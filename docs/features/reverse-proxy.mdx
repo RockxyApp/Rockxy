@@ -1,0 +1,50 @@
+---
+title: "Reverse Proxy"
+description: "Capture clients that cannot use an HTTP proxy by giving them a local address that forwards to the real server."
+---
+
+# Reverse Proxy
+
+Some clients cannot be pointed at an HTTP proxy: a quick `curl` without `--proxy`, a script
+whose HTTP library ignores proxy settings, a server-side job, or an embedded device. A reverse
+proxy rule gives such a client a local address instead. Rockxy listens on that port, forwards
+every request to the server you choose, and captures the exchange like any other request —
+rules, scripts, breakpoints, and Map Local all apply.
+
+## Entry points
+
+| Action | How to Access |
+|--------|---------------|
+| Reverse Proxy window | **Tools > Reverse Proxy…** |
+| Command Palette | `⇧⌘P`, then type "reverse" |
+
+## Create a rule
+
+1. Open **Tools > Reverse Proxy…** and click **+**.
+2. Enter a name and a free **Local Port** (1024–65535), for example `10000`.
+3. Choose the **Remote Scheme** (HTTP or HTTPS), **Remote Host**, and **Remote Port** of the
+   real server, for example `https`, `api.example.com`, `443`.
+4. Leave **Preserve Host header** off unless the server needs the client's original `Host`.
+5. Click **Save**. While the proxy is running the status reads **Listening**.
+
+Then change the client's base URL:
+
+```bash
+curl http://127.0.0.1:10000/v1/users
+```
+
+The request appears in the traffic list as `https://api.example.com/v1/users`.
+
+## How it behaves
+
+- Listeners bind to `127.0.0.1` only and run while the proxy runs; they start and stop with it.
+- The client always talks plain HTTP to the local port; Rockxy uses HTTPS to the server when
+  the rule says so, so no certificate needs to be installed on the client.
+- Only the path and query of each request are used. A request cannot redirect the listener to
+  a different server, and `CONNECT` requests are refused.
+- A port that is already in use shows **Port in use**; pick another port.
+
+## Related pages
+
+- [Map Remote](/rules/map-remote) — redirect traffic that already goes through the proxy.
+- [Automatic Setup](/automatic-setup/automatic-setup) — route supported runtimes through the proxy without changing base URLs.

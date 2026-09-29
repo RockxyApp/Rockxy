@@ -272,6 +272,8 @@ extension MainContentCoordinator {
                 startLogCapture()
 
                 installEvictionObserver()
+                installReverseProxyObserver()
+                await applyReverseProxies()
 
                 readiness.startObserving()
                 readiness.setSystemRoutingExpected(true)
@@ -302,6 +304,32 @@ extension MainContentCoordinator {
                 Self.logger.error("Failed to start proxy: \(error.localizedDescription)")
                 proxyError = error.localizedDescription
                 activeProxyPort = settings.proxyPort
+            }
+        }
+    }
+
+    /// Opens, closes, or rebinds reverse proxy listeners to match the saved rules.
+    func applyReverseProxies() async {
+        let store = ReverseProxyStore.shared
+        let targets = store.enabledTargets
+        let failures = await proxyServer.updateReverseProxies(targets)
+        store.applyListenerResult(targets: targets, failures: failures)
+    }
+
+    private func installReverseProxyObserver() {
+        guard reverseProxyObserver == nil else {
+            return
+        }
+        reverseProxyObserver = NotificationCenter.default.addObserver(
+            forName: .reverseProxyRulesDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isProxyRunning else {
+                    return
+                }
+                await self.applyReverseProxies()
             }
         }
     }
@@ -428,6 +456,11 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(evictionObserver)
                 self.evictionObserver = nil
             }
+            if let reverseProxyObserver {
+                NotificationCenter.default.removeObserver(reverseProxyObserver)
+                self.reverseProxyObserver = nil
+            }
+            ReverseProxyStore.shared.markProxyStopped()
             probeTracker.cancel()
             await probeServer.stop()
             isSystemProxyConfigured = false

@@ -74,6 +74,7 @@
           "features/scripting",
           "features/custom-certificates",
           "features/upstream-proxy",
+          "features/reverse-proxy",
           "features/mcp"
         ]
       },

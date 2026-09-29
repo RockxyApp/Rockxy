@@ -101,6 +101,8 @@ struct RockxyApp: App {
 
         settingsWindow
 
+        ReverseProxyWindowScene()
+
         macCertificateSetupGuideWindow
 
         customCertificatesWindow
@@ -1192,6 +1194,9 @@ struct RockxyMenuCommands: Commands {
 
             Button(String(localized: "Network Conditions…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "networkConditions")
+            }
+            Button(String(localized: "Reverse Proxy…", bundle: RockxyLocalization.bundle)) {
+                openWindow(id: "reverseProxy")
             }
 
             Divider()

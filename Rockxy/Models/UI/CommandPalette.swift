@@ -128,6 +128,14 @@ enum CommandPaletteCatalog {
                 .openWindow("networkConditions")
             ),
             command(
+                "tools.reverseProxy",
+                "Reverse Proxy…",
+                tools,
+                nil,
+                ["local port", "forward", "curl", "base url"],
+                .openWindow("reverseProxy")
+            ),
+            command(
                 "tools.scripts",
                 "Script List…",
                 tools,

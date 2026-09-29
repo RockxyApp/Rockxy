@@ -28,6 +28,7 @@ struct CommandPaletteTests {
     func windowIDsExist() throws {
         let source = try projectFile("Rockxy/RockxyApp.swift")
             + projectFile("Rockxy/Views/Settings/SettingsWindowScene.swift")
+            + projectFile("Rockxy/Views/Rules/ReverseProxyWindowView.swift")
         for command in CommandPaletteCatalog.commands {
             guard case let .openWindow(id) = command.action else {
                 continue

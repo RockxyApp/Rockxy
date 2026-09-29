@@ -74,12 +74,42 @@
         }
       }
     },
+    "Add Reverse Proxy…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加反向代理…"
+          }
+        }
+      }
+    },
+    "Add a rule, then point your client at http://127.0.0.1:<local port>.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加规则后，将客户端指向 http://127.0.0.1:<本地端口>。"
+          }
+        }
+      }
+    },
     "All Fields": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "所有字段"
+          }
+        }
+      }
+    },
+    "Another reverse proxy already uses this local port.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个反向代理已在使用此本地端口。"
           }
         }
       }
@@ -180,6 +210,26 @@
         }
       }
     },
+    "Choose a local port from 1024 to 65535.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择 1024 到 65535 之间的本地端口。"
+          }
+        }
+      }
+    },
+    "Choose a remote port from 1 to 65535.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择 1 到 65535 之间的远程端口。"
+          }
+        }
+      }
+    },
     "Choose which captured transactions to list, one row each, in this CSV file.": {
       "localizations": {
         "zh-Hans": {
@@ -190,12 +240,32 @@
         }
       }
     },
+    "Clients use %@ in place of %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端使用 %@ 代替 %@。"
+          }
+        }
+      }
+    },
     "Command Palette…": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "命令面板…"
+          }
+        }
+      }
+    },
+    "Copy Local Address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝本地地址"
           }
         }
       }
@@ -260,12 +330,42 @@
         }
       }
     },
+    "Each rule listens on a local port and forwards every request to one server, so a client that cannot use a proxy (cURL, scripts, embedded devices) is captured by switching its base URL to the local address. Listeners run while the proxy is running and accept connections from this Mac only.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每条规则监听一个本地端口，并将所有请求转发到一台服务器。无法使用代理的客户端（cURL、脚本、嵌入式设备）只需将基础 URL 改为本地地址即可被捕获。监听器在代理运行期间工作，并且只接受来自这台 Mac 的连接。"
+          }
+        }
+      }
+    },
     "Empty value": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "空值"
+          }
+        }
+      }
+    },
+    "Enter only the host name, without a scheme or path.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只输入主机名，不要包含协议或路径。"
+          }
+        }
+      }
+    },
+    "Enter the remote host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入远程主机。"
           }
         }
       }
@@ -360,6 +460,16 @@
         }
       }
     },
+    "Forwards To": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转发至"
+          }
+        }
+      }
+    },
     "GraphQL Operation": {
       "localizations": {
         "zh-Hans": {
@@ -440,6 +550,26 @@
         }
       }
     },
+    "Local Address": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地地址"
+          }
+        }
+      }
+    },
+    "Local Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地端口"
+          }
+        }
+      }
+    },
     "Manual Setup…": {
       "localizations": {
         "zh-Hans": {
@@ -506,6 +636,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无部分"
+          }
+        }
+      }
+    },
+    "No Reverse Proxies": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有反向代理"
           }
         }
       }
@@ -580,6 +720,16 @@
         }
       }
     },
+    "Port in use": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口已被占用"
+          }
+        }
+      }
+    },
     "Projects could not be loaded, so Rockxy did not import the transferred session.": {
       "localizations": {
         "zh-Hans": {
@@ -596,6 +746,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "请在模拟器中重新启动 App，然后为其主机启用 HTTPS 解密。"
+          }
+        }
+      }
+    },
+    "Remote Host": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程主机"
+          }
+        }
+      }
+    },
+    "Remote Port": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程端口"
+          }
+        }
+      }
+    },
+    "Remote Scheme": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程协议"
+          }
+        }
+      }
+    },
+    "Reverse Proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反向代理"
+          }
+        }
+      }
+    },
+    "Reverse Proxy…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "反向代理…"
           }
         }
       }
@@ -740,6 +940,16 @@
         }
       }
     },
+    "Send the client's Host header instead of the remote host. Use only when the server expects the original host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送客户端的 Host 标头而不是远程主机。仅在服务器需要原始主机时使用。"
+          }
+        }
+      }
+    },
     "Serve this response only for GraphQL requests with this exact operation name. Leave empty to match every request to the URL.": {
       "localizations": {
         "zh-Hans": {
@@ -810,12 +1020,32 @@
         }
       }
     },
+    "Starts with the proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随代理启动"
+          }
+        }
+      }
+    },
     "The body does not contain any parts for its declared boundary.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "正文中没有与声明的边界匹配的部分。"
+          }
+        }
+      }
+    },
+    "The local port is Rockxy's proxy port. Choose another port.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该本地端口是 Rockxy 的代理端口。请选择其他端口。"
           }
         }
       }
@@ -926,6 +1156,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "这些模拟器将信任 Rockxy 签发的 HTTPS 证书。抹掉模拟器会移除该证书。"
+          }
+        }
+      }
+    },
+    "This rule would forward to itself. Point it at the real server.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规则会转发给自身。请将其指向真实服务器。"
           }
         }
       }
