@@ -94,6 +94,52 @@ struct UseCaseViewSnapshotTests {
         try await render(WebSocketInspectorView(transaction: transaction), name: "websocket", size: CGSize(width: 720, height: 520))
     }
 
+    @Test("Status bar with active tools")
+    func statusBar() async throws {
+        let rules = [
+            ProxyRule(name: "Mock", matchCondition: RuleMatchCondition(urlPattern: ".*"), action: .mapLocal(filePath: "/tmp/a.json")),
+            ProxyRule(
+                name: "Offline",
+                matchCondition: RuleMatchCondition(urlPattern: ".*"),
+                action: .networkCondition(preset: .offline, delayMs: 0)
+            ),
+        ]
+        try await render(
+            StatusBarView(totalCount: 1_204, selectedCount: 0, isProxyRunning: true, activeRules: rules),
+            name: "status-bar",
+            size: CGSize(width: 1_100, height: 36)
+        )
+    }
+
+    @Test("Request and response inspectors show conditional tabs")
+    func inspectorTabs() async throws {
+        let coordinator = MainContentCoordinator()
+        let store = PreviewTabStore(defaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard)
+        let upload = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/upload")
+        upload.request = HTTPRequestData(
+            method: "POST",
+            url: upload.request.url,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "multipart/form-data; boundary=B")],
+            body: Data("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--B--\r\n".utf8)
+        )
+        upload.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "text/event-stream")],
+            body: Data("data: hello\n\n".utf8)
+        )
+        try await render(
+            HStack(spacing: 0) {
+                RequestInspectorView(transaction: upload, coordinator: coordinator, previewTabStore: store)
+                Divider()
+                ResponseInspectorView(transaction: upload, coordinator: coordinator, previewTabStore: store)
+            },
+            name: "inspector-tabs",
+            size: CGSize(width: 1_280, height: 300)
+        )
+    }
+
     // MARK: Private
 
     private func render(_ view: some View, name: String, size: CGSize) async throws {
