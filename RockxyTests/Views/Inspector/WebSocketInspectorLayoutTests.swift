@@ -22,7 +22,10 @@ struct WebSocketInspectorLayoutTests {
         #expect(source.contains("private func frameListHeight(for connection: WebSocketConnection) -> CGFloat"))
         #expect(source.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"))
         #expect(!source.contains("minHeight:"))
-        #expect(Self.occurrences(of: ".frame(maxHeight: 200)", in: source) == 2)
+        // Inside the scroll view a max-only height collapses to zero, so payload views take a
+        // fixed height instead.
+        #expect(Self.occurrences(of: ".frame(height: 200)", in: source) == 2)
+        #expect(!source.contains(".frame(maxHeight: 200)"))
     }
 
     // MARK: Private
