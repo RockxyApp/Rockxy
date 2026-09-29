@@ -2,14 +2,26 @@ import SwiftUI
 
 // MARK: - TrafficPaneView
 
-/// One traffic pane: the request table over its bottom payload inspector, bound to a single
-/// `WorkspaceState`. The main window shows one pane per tab, or two in split view, where each
-/// pane keeps its own filters and selection and clicking a pane gives it focus.
+/// One traffic pane: the request table over its bottom payload inspector. The main window shows
+/// one pane per tab, or two in split view, where each pane keeps its own filters and selection
+/// and clicking a pane gives it focus.
+///
+/// The pane is resolved from `role` on every read rather than stored: the native split keeps
+/// its hosting roots for its whole lifetime, so a stored workspace would stay pinned to the
+/// tab that was selected when the split was created — after a tab switch or a Project restore
+/// the table would keep showing that stale workspace.
 struct TrafficPaneView: View {
     // MARK: Internal
 
+    enum Role {
+        /// The selected tab's own pane.
+        case primary
+        /// The selected tab's split-view companion pane.
+        case secondary
+    }
+
     let coordinator: MainContentCoordinator
-    let pane: WorkspaceState
+    let role: Role
     /// Whether another pane is shown beside this one.
     let isSplit: Bool
     let inspectorAutosaveName: String
@@ -68,6 +80,15 @@ struct TrafficPaneView: View {
 
     @Environment(\.appUIDisplayMetrics) private var displayMetrics
     @State private var selectedIDs: Set<UUID> = []
+
+    private var pane: WorkspaceState {
+        switch role {
+        case .primary:
+            coordinator.primaryTrafficPane
+        case .secondary:
+            coordinator.secondaryTrafficPane ?? coordinator.primaryTrafficPane
+        }
+    }
 
     private var isFocused: Bool {
         coordinator.activeWorkspace.id == pane.id

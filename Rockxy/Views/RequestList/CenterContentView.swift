@@ -139,26 +139,25 @@ struct CenterContentView: View {
     }
 
     private var inspectorWorkspace: some View {
-        let primary = coordinator.primaryTrafficPane
-        return Group {
-            if let secondary = coordinator.secondaryTrafficPane {
+        Group {
+            if coordinator.secondaryTrafficPane != nil {
                 HSplitView {
-                    pane(primary, isSplit: true, autosaveName: Self.bottomInspectorSplitAutosaveName)
+                    pane(.primary, isSplit: true, autosaveName: Self.bottomInspectorSplitAutosaveName)
                         .frame(minWidth: 360)
-                    pane(secondary, isSplit: true, autosaveName: Self.splitPaneInspectorAutosaveName)
+                    pane(.secondary, isSplit: true, autosaveName: Self.splitPaneInspectorAutosaveName)
                         .frame(minWidth: 360)
                 }
             } else {
-                pane(primary, isSplit: false, autosaveName: Self.bottomInspectorSplitAutosaveName)
+                pane(.primary, isSplit: false, autosaveName: Self.bottomInspectorSplitAutosaveName)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func pane(_ workspace: WorkspaceState, isSplit: Bool, autosaveName: String) -> some View {
+    private func pane(_ role: TrafficPaneView.Role, isSplit: Bool, autosaveName: String) -> some View {
         TrafficPaneView(
             coordinator: coordinator,
-            pane: workspace,
+            role: role,
             isSplit: isSplit,
             inspectorAutosaveName: autosaveName,
             onOpenToolWindow: onOpenToolWindow

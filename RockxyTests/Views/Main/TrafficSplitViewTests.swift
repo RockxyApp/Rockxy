@@ -111,6 +111,37 @@ struct TrafficSplitViewTests {
         #expect(pane.filterCriteria.sidebarApp == "curl")
         #expect(coordinator.activeWorkspace === pane)
     }
+
+    @Test("The table pane follows the selected tab after a tab switch and a Project restore")
+    func paneFollowsReplacedTabs() throws {
+        // The native bottom split keeps its hosting roots for its whole lifetime, so the
+        // pane view must resolve its workspace on each read instead of storing one.
+        let source = try readProjectFile("Rockxy/Views/RequestList/TrafficPaneView.swift")
+        #expect(!source.contains("let pane: WorkspaceState"))
+        #expect(source.contains("coordinator.primaryTrafficPane"))
+
+        let coordinator = MainContentCoordinator()
+        let original = coordinator.primaryTrafficPane
+        let created = coordinator.workspaceStore.createWorkspace(title: "API")
+        #expect(coordinator.primaryTrafficPane === created)
+        #expect(coordinator.activeWorkspace === created)
+
+        let store = coordinator.workspaceStore
+        store.applyTabSnapshots(store.captureTabSnapshots(), activeTabID: original.id)
+        #expect(coordinator.primaryTrafficPane !== original)
+        #expect(coordinator.primaryTrafficPane === coordinator.activeWorkspace)
+    }
+
+    // MARK: Private
+
+    private func readProjectFile(_ relativePath: String) throws -> String {
+        var url = URL(fileURLWithPath: #filePath)
+        while url.lastPathComponent != "RockxyTests", url.path != "/" {
+            url.deleteLastPathComponent()
+        }
+        url.deleteLastPathComponent()
+        return try String(contentsOf: url.appendingPathComponent(relativePath), encoding: .utf8)
+    }
 }
 
 // MARK: - SplitViewPolicy
