@@ -117,3 +117,51 @@ struct GraphQLOperationRuleMatchingTests {
 
     private static let endpoint = URL(string: "https://api.example.com/graphql")!
 }
+
+// MARK: - GraphQLDetectorCoverageTests
+
+struct GraphQLDetectorCoverageTests {
+    @Test("GET requests carry the document and operation name in the URL")
+    func detectsGET() throws {
+        var components = try #require(URLComponents(string: "https://api.example.com/graphql"))
+        components.queryItems = [
+            URLQueryItem(name: "query", value: "query Me { me { id } }"),
+            URLQueryItem(name: "variables", value: #"{"a":1}"#),
+        ]
+        let request = HTTPRequestData(method: "GET", url: try #require(components.url), httpVersion: "HTTP/1.1", headers: [])
+
+        let info = try #require(GraphQLDetector.detect(request: request))
+        #expect(info.operationName == "Me")
+        #expect(info.variables == #"{"a":1}"#)
+    }
+
+    @Test("Automatic persisted queries are detected by hash and operation name")
+    func detectsPersistedQuery() throws {
+        let body = Data(#"{"operationName":"Feed","extensions":{"persistedQuery":{"version":1,"sha256Hash":"abc"}}}"#.utf8)
+        let request = HTTPRequestData(
+            method: "POST",
+            url: try #require(URL(string: "https://api.example.com/GraphQL")),
+            httpVersion: "HTTP/1.1",
+            headers: [],
+            body: body
+        )
+
+        let info = try #require(GraphQLDetector.detect(request: request))
+        #expect(info.operationName == "Feed")
+        #expect(info.query.isEmpty)
+    }
+
+    @Test("Batched requests are not treated as a single operation")
+    func ignoresBatches() throws {
+        let body = Data(#"[{"query":"query A { a }"},{"query":"query B { b }"}]"#.utf8)
+        let request = HTTPRequestData(
+            method: "POST",
+            url: try #require(URL(string: "https://api.example.com/graphql")),
+            httpVersion: "HTTP/1.1",
+            headers: [],
+            body: body
+        )
+
+        #expect(GraphQLDetector.detect(request: request) == nil)
+    }
+}

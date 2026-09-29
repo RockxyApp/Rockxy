@@ -8,32 +8,57 @@ enum GraphQLDetector {
     // MARK: Internal
 
     static func detect(request: HTTPRequestData) -> GraphQLInfo? {
-        // GraphQL mutations/queries are always POST; GET queries exist but are uncommon
-        guard request.method.uppercased() == "POST" else {
+        guard request.path.lowercased().contains("graphql") else {
             return nil
         }
-        guard request.path.contains("graphql") else {
-            return nil
-        }
-        guard let body = request.body,
-              let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
-              let query = json["query"] as? String else
-        {
+        let fields: [String: Any]
+        switch request.method.uppercased() {
+        case "POST":
+            // Batched requests (a JSON array) carry several operations; they are not a
+            // single operation and are left to the generic inspectors.
+            guard let body = request.body,
+                  let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else
+            {
+                return nil
+            }
+            fields = json
+        case "GET":
+            // GraphQL over GET carries the document (or a persisted-query hash) in the URL.
+            let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            var values: [String: Any] = [:]
+            for item in items {
+                values[item.name] = item.value
+            }
+            if let extensions = values["extensions"] as? String,
+               let data = extensions.data(using: .utf8),
+               let object = try? JSONSerialization.jsonObject(with: data)
+            {
+                values["extensions"] = object
+            }
+            fields = values
+        default:
             return nil
         }
 
-        let declaredName = (json["operationName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let operationName = declaredName?.isEmpty == false ? declaredName : operationName(inQuery: query)
-        let variables = (json["variables"] as? [String: Any])
-            .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
-            .flatMap { String(data: $0, encoding: .utf8) }
+        let query = fields["query"] as? String
+        let isPersistedQuery = (fields["extensions"] as? [String: Any])?["persistedQuery"] != nil
+        let declaredName = (fields["operationName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let operationName = declaredName?.isEmpty == false ? declaredName : query.flatMap(operationName(inQuery:))
+        // Automatic persisted queries send only a hash and the operation name.
+        guard query != nil || (isPersistedQuery && operationName != nil) else {
+            return nil
+        }
 
-        let operationType = parseOperationType(from: query)
+        let variables: String? = if let object = fields["variables"] as? [String: Any] {
+            (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
+        } else {
+            fields["variables"] as? String
+        }
 
         return GraphQLInfo(
             operationName: operationName,
-            operationType: operationType,
-            query: query,
+            operationType: query.map(parseOperationType(from:)) ?? .query,
+            query: query ?? "",
             variables: variables
         )
     }

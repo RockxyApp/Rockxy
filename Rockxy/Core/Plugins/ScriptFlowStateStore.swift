@@ -17,7 +17,7 @@ import JavaScriptCore
 final class ScriptFlowStateStore: @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(capacity: Int = 256) {
+    init(capacity: Int = 1_024) {
         self.capacity = max(1, capacity)
     }
 
