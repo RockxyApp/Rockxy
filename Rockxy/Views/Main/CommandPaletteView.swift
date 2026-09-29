@@ -1,0 +1,127 @@
+import SwiftUI
+
+// Keyboard-first command search for the main workspace.
+
+// MARK: - CommandPaletteView
+
+/// Type to filter workspace commands, move with ↑/↓, run with Return, dismiss
+/// with Esc. Commands are the same actions the menus expose; the palette only
+/// makes them searchable.
+struct CommandPaletteView: View {
+    // MARK: Internal
+
+    let commands: [CommandPaletteCommand]
+    let onRun: (CommandPaletteCommand) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField(
+                    String(localized: "Search commands", bundle: RockxyLocalization.bundle),
+                    text: $query
+                )
+                .textFieldStyle(.plain)
+                .font(.title3)
+                .focused($isSearchFocused)
+                .onSubmit(runSelection)
+                .onKeyPress(.downArrow) {
+                    moveSelection(by: 1)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    moveSelection(by: -1)
+                    return .handled
+                }
+                .accessibilityLabel(String(localized: "Search commands", bundle: RockxyLocalization.bundle))
+            }
+            .padding(12)
+
+            Divider()
+
+            if results.isEmpty {
+                ContentUnavailableView(
+                    String(localized: "No Matching Commands", bundle: RockxyLocalization.bundle),
+                    systemImage: "command"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollViewReader { proxy in
+                    List(results, selection: $selection) { command in
+                        row(command)
+                            .tag(command.id)
+                            .id(command.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) {
+                                onRun(command)
+                            }
+                    }
+                    .listStyle(.plain)
+                    .onChange(of: selection) { _, newValue in
+                        if let newValue {
+                            proxy.scrollTo(newValue)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(width: 560, height: 380)
+        .onAppear {
+            isSearchFocused = true
+            selection = results.first?.id
+        }
+        .onChange(of: query) {
+            selection = results.first?.id
+        }
+        .onExitCommand {
+            dismiss()
+        }
+    }
+
+    // MARK: Private
+
+    @State private var query = ""
+    @State private var selection: CommandPaletteCommand.ID?
+    @FocusState private var isSearchFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private var results: [CommandPaletteCommand] {
+        CommandPaletteMatcher.rank(commands, query: query)
+    }
+
+    private func row(_ command: CommandPaletteCommand) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(command.title)
+                Text(command.category)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            if let shortcut = command.shortcut {
+                Text(verbatim: shortcut)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func moveSelection(by offset: Int) {
+        let ids = results.map(\.id)
+        guard !ids.isEmpty else {
+            return
+        }
+        let current = selection.flatMap { ids.firstIndex(of: $0) } ?? (offset > 0 ? -1 : ids.count)
+        selection = ids[min(max(current + offset, 0), ids.count - 1)]
+    }
+
+    private func runSelection() {
+        guard let command = results.first(where: { $0.id == selection }) ?? results.first else {
+            return
+        }
+        onRun(command)
+    }
+}

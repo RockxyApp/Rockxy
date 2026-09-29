@@ -160,6 +160,16 @@
         }
       }
     },
+    "Certificate Setup…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书设置…"
+          }
+        }
+      }
+    },
     "Certificate Unavailable": {
       "localizations": {
         "zh-Hans": {
@@ -176,6 +186,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择要在此 CSV 文件中列出的已捕获事务，每个事务一行。"
+          }
+        }
+      }
+    },
+    "Command Palette…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令面板…"
           }
         }
       }
@@ -420,6 +440,16 @@
         }
       }
     },
+    "Manual Setup…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动设置…"
+          }
+        }
+      }
+    },
     "Multipart": {
       "localizations": {
         "zh-Hans": {
@@ -456,6 +486,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无连接"
+          }
+        }
+      }
+    },
+    "No Matching Commands": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的命令"
           }
         }
       }
@@ -506,6 +546,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅暂停具有此确切操作名称的 GraphQL 请求。留空则匹配发往该 URL 的所有请求。"
+          }
+        }
+      }
+    },
+    "Pause or Resume Recording": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂停或继续录制"
           }
         }
       }
@@ -660,6 +710,26 @@
         }
       }
     },
+    "Search and run any command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索并运行任意命令"
+          }
+        }
+      }
+    },
+    "Search commands": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索命令"
+          }
+        }
+      }
+    },
     "Search: ⌘F": {
       "localizations": {
         "zh-Hans": {
@@ -696,6 +766,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示高级筛选"
+          }
+        }
+      }
+    },
+    "Show or Hide Advanced Filters": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏高级筛选"
           }
         }
       }
