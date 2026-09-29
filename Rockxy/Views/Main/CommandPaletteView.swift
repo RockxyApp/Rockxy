@@ -204,6 +204,8 @@ struct CommandPaletteSheet: ViewModifier {
             actions.focusSidebarSearchField()
         case .toggleTrafficInsights:
             actions.toggleTrafficInsights()
+        case .toggleSplitView:
+            actions.toggleTrafficSplitView()
         case .newTab:
             actions.newWorkspaceTab()
         case .showKeyboardShortcuts:

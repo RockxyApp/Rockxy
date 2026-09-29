@@ -28,6 +28,7 @@ enum CommandPaletteAction: Hashable {
     case findInCapture
     case searchAppsAndDomains
     case toggleTrafficInsights
+    case toggleSplitView
     case newTab
     case showKeyboardShortcuts
 }
@@ -107,6 +108,7 @@ enum CommandPaletteCatalog {
                 .searchAppsAndDomains
             ),
             command("view.insights", "Traffic Insights", view, "⇧⌘D", ["report", "overview"], .toggleTrafficInsights),
+            command("view.splitView", "Show or Hide Split View", view, nil, ["pane", "compare", "side"], .toggleSplitView),
             command("view.newTab", "New Tab", view, "⌘T", ["workspace"], .newTab),
             command(
                 "tools.https",

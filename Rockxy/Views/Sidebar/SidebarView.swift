@@ -695,6 +695,13 @@ struct SidebarView: View {
         }
         .disabled(!coordinator.workspaceStore.canCreateWorkspace)
 
+        OpenInSplitViewButton(coordinator: coordinator, filter: {
+            var filter = FilterCriteria.empty
+            filter.sidebarDomain = domain
+            filter.sidebarPathPrefix = pathPrefix
+            return filter
+        }())
+
         Divider()
 
         if coordinator.isSSLProxyingEnabled(for: domain) {
@@ -972,6 +979,12 @@ struct SidebarView: View {
             )
         }
         .disabled(!coordinator.workspaceStore.canCreateWorkspace)
+
+        OpenInSplitViewButton(coordinator: coordinator, filter: {
+            var filter = FilterCriteria.empty
+            filter.sidebarApp = app.name
+            return filter
+        }())
 
         Divider()
 

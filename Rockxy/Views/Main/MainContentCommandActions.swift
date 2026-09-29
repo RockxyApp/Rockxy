@@ -69,7 +69,7 @@ struct MainContentCommandActions {
     }
 
     var canCloseWorkspaceTab: Bool {
-        coordinator.workspaceStore.activeWorkspace.isClosable
+        coordinator.workspaceStore.activeTab.isClosable
     }
 
     var canRenameWorkspaceTab: Bool {
@@ -157,6 +157,14 @@ struct MainContentCommandActions {
 
     func exportRockxySession() {
         coordinator.exportRockxySession()
+    }
+
+    var isTrafficSplitViewVisible: Bool {
+        coordinator.isTrafficSplitViewVisible
+    }
+
+    func toggleTrafficSplitView() {
+        coordinator.toggleTrafficSplitView()
     }
 
     func exportOpenAPIYAML() {

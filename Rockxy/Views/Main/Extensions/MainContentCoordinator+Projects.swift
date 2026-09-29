@@ -411,7 +411,7 @@ extension MainContentCoordinator {
     /// Recomputes each workspace's sidebar indexes and filtered rows from only the
     /// active Project's runtime capture projection.
     func rebuildAllWorkspacesForCaptureReplacement() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             rebuildSidebarIndexes(for: workspace)
             recomputeFilteredTransactions(for: workspace)
         }

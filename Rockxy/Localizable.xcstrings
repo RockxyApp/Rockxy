@@ -44979,6 +44979,96 @@
           }
         }
       }
+    },
+    "Focused traffic pane": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前聚焦的流量窗格"
+          }
+        }
+      }
+    },
+    "Hide Split View": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏分屏视图"
+          }
+        }
+      }
+    },
+    "No matching requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有匹配的请求"
+          }
+        }
+      }
+    },
+    "Open in Split View": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在分屏视图中打开"
+          }
+        }
+      }
+    },
+    "Show Split View": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示分屏视图"
+          }
+        }
+      }
+    },
+    "Show a second traffic pane with its own filters and selection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示第二个流量窗格，拥有独立的过滤器和选择"
+          }
+        }
+      }
+    },
+    "Show or Hide Split View": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏分屏视图"
+          }
+        }
+      }
+    },
+    "Split view is unavailable in this build.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本不提供分屏视图。"
+          }
+        }
+      }
+    },
+    "Traffic pane": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流量窗格"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

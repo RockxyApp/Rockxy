@@ -264,7 +264,7 @@ extension MainContentCoordinator {
     )
         -> Bool
     {
-        guard let workspace = workspaceStore.workspaces.first(where: { $0.id == workspaceID }),
+        guard let workspace = workspaceStore.allWorkspaces.first(where: { $0.id == workspaceID }),
               workspace.debugAssistantConversationID == conversationID,
               workspace.debugAssistantConversationContext == nil,
               case let .streaming(currentRunID, _, _, _, _, _) = workspace.debugAssistantProductHelpState,

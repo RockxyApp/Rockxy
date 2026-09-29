@@ -220,7 +220,7 @@ extension MainContentCoordinator {
                 }
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
+                      let currentWorkspace = self.workspaceStore.allWorkspaces.first(where: { $0.id == workspace.id }),
                       case let .investigating(currentRunID, _) = currentWorkspace.debugAssistantState,
                       currentRunID == runID else
                 {
@@ -239,7 +239,7 @@ extension MainContentCoordinator {
             } catch {
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
+                      let currentWorkspace = self.workspaceStore.allWorkspaces.first(where: { $0.id == workspace.id }),
                       case let .investigating(currentRunID, _) = currentWorkspace.debugAssistantState,
                       currentRunID == runID else
                 {
@@ -329,7 +329,7 @@ extension MainContentCoordinator {
                 }
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
+                      let currentWorkspace = self.workspaceStore.allWorkspaces.first(where: { $0.id == workspace.id }),
                       case let .result(currentResult) = currentWorkspace.debugAssistantState,
                       currentResult.selectedTransactionID == selectedTransactionID else
                 {
@@ -358,7 +358,7 @@ extension MainContentCoordinator {
             } catch {
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }) else
+                      let currentWorkspace = self.workspaceStore.allWorkspaces.first(where: { $0.id == workspace.id }) else
                 {
                     return
                 }
@@ -615,7 +615,7 @@ extension MainContentCoordinator {
                 }
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces.first(where: { $0.id == workspace.id }),
+                      let currentWorkspace = self.workspaceStore.allWorkspaces.first(where: { $0.id == workspace.id }),
                       case let .result(currentResult) = currentWorkspace.debugAssistantState,
                       currentResult == result,
                       currentWorkspace.debugAssistantTrafficScope == scope,
@@ -637,7 +637,7 @@ extension MainContentCoordinator {
             } catch {
                 guard let self,
                       self.debugAssistantTasks[workspace.id]?.id == taskID,
-                      let currentWorkspace = self.workspaceStore.workspaces
+                      let currentWorkspace = self.workspaceStore.allWorkspaces
                       .first(where: { $0.id == workspace.id }) else
                 {
                     return
@@ -1181,7 +1181,7 @@ extension MainContentCoordinator {
     )
         -> Bool
     {
-        guard let workspace = workspaceStore.workspaces.first(where: { $0.id == workspaceID }),
+        guard let workspace = workspaceStore.allWorkspaces.first(where: { $0.id == workspaceID }),
               case let .result(result) = workspace.debugAssistantState,
               result.selectedTransactionID == selectedTransactionID,
               case let .streaming(currentRunID, _, _, _, _, _) = workspace.modelInvestigationState else

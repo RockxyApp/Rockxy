@@ -959,6 +959,14 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("\\", modifiers: [.command, .control])
 
+            Button(
+                proxyActions.isTrafficSplitViewVisible
+                    ? String(localized: "Hide Split View", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Show Split View", bundle: RockxyLocalization.bundle)
+            ) {
+                proxyActions.toggleTrafficSplitView()
+            }
+
             Divider()
 
             Button(String(localized: "Select Next Tab", bundle: RockxyLocalization.bundle)) {

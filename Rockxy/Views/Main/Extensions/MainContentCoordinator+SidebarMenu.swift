@@ -314,7 +314,7 @@ extension MainContentCoordinator {
 
     func refreshSSLProxyingPresentation() {
         sslProxyingRefreshToken += 1
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             workspace.lastDeriveWasAppendOnly = false
             deriveFilteredRows(for: workspace)
         }

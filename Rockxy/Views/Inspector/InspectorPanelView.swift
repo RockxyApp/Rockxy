@@ -8,13 +8,16 @@ struct InspectorPanelView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    /// The traffic pane to inspect; `nil` follows the focused pane.
+    var workspace: WorkspaceState?
     var onOpenToolWindow: (String) -> Void = { _ in }
 
     var body: some View {
+        let pane = workspace ?? coordinator.activeWorkspace
         VStack(spacing: 0) {
-            if coordinator.selectedTransactionIDs.count > 1 {
-                InspectorSelectionSummaryView(coordinator: coordinator)
-            } else if let transaction = coordinator.selectedTransaction {
+            if pane.selectedTransactionIDs.count > 1 {
+                InspectorSelectionSummaryView(coordinator: coordinator, selectedIDs: pane.selectedTransactionIDs)
+            } else if let transaction = pane.selectedTransaction {
                 let highlightContext = coordinator.activeInspectorHighlightContext()
                 InspectorURLBar(
                     transaction: transaction,
@@ -68,6 +71,7 @@ private struct InspectorSelectionSummaryView: View {
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
+    let selectedIDs: Set<UUID>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -108,7 +112,7 @@ private struct InspectorSelectionSummaryView: View {
     // MARK: Private
 
     private var transactions: [HTTPTransaction] {
-        coordinator.selectedTransactionIDs.compactMap(coordinator.transaction(for:))
+        selectedIDs.compactMap(coordinator.transaction(for:))
     }
 
     private var transferredBytes: Int64 {

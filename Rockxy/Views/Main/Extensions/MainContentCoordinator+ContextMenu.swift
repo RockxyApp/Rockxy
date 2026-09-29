@@ -429,7 +429,7 @@ extension MainContentCoordinator {
     /// Refreshes all workspaces after a row-visible property mutation (pin, save, note,
     /// highlight). Library scopes get a full recompute because membership may have changed.
     func refreshRowsAfterMutation() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             if workspace.filterCriteria.sidebarScope == .saved
                 || workspace.filterCriteria.sidebarScope == .pinned
                 || workspace.filterCriteria.sidebarScope == .notes
@@ -519,7 +519,7 @@ extension MainContentCoordinator {
         invalidateSidebarFavoriteCache()
 
         // Update all workspaces (same consistency as eviction)
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             workspace.filteredTransactions.removeAll { ids.contains($0.id) }
             workspace.selectedTransactionIDs.subtract(ids)
             if workspace.selectedTransaction.map({ ids.contains($0.id) }) == true {

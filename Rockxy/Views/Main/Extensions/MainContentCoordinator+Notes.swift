@@ -88,7 +88,7 @@ extension MainContentCoordinator {
     /// Note text can participate in both the simple search field and compound filters. When an edit
     /// keeps the request inside Notes, only those workspaces need a full filter recomputation.
     private func refreshWorkspacesFilteringNotes() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             let criteria = workspace.filterCriteria
             let usesSimpleNoteSearch = criteria.isSearchEnabled
                 && criteria.searchField == .comment

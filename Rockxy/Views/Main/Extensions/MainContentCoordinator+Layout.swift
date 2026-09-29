@@ -25,9 +25,21 @@ extension MainContentCoordinator {
 
     /// Content the bottom payload inspector can present for the current selection.
     var bottomInspectorContent: BottomInspectorContent {
+        bottomInspectorContent(for: activeWorkspace)
+    }
+
+    func bottomInspectorContent(for workspace: WorkspaceState) -> BottomInspectorContent {
         BottomInspectorPresentation.content(
-            selectedCount: selectedTransactionIDs.count,
-            hasSingleSelection: selectedTransaction != nil
+            selectedCount: workspace.selectedTransactionIDs.count,
+            hasSingleSelection: workspace.selectedTransaction != nil
+        )
+    }
+
+    /// Bottom-inspector visibility for one traffic pane, which may not have focus.
+    func isBottomInspectorEffectivelyPresented(for workspace: WorkspaceState) -> Bool {
+        BottomInspectorPresentation.isPresented(
+            layout: workspace.inspectorLayout,
+            content: bottomInspectorContent(for: workspace)
         )
     }
 

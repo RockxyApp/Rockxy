@@ -487,7 +487,7 @@ struct ToolWindowReadabilityTests {
         let appSource = try readProjectFile("Rockxy/RockxyApp.swift")
         let previewSource = try readProjectFile("Rockxy/Views/Settings/PreviewerTabSettingsView.swift")
         let columnsSource = try readProjectFile("Rockxy/Views/Settings/CustomHeaderColumnsView.swift")
-        let centerSource = try readProjectFile("Rockxy/Views/RequestList/CenterContentView.swift")
+        let centerSource = try readProjectFile("Rockxy/Views/RequestList/TrafficPaneView.swift")
         let tableSource = try readProjectFile("Rockxy/Views/RequestList/RequestTableView.swift")
         let requestInspectorSource = try readProjectFile("Rockxy/Views/Inspector/RequestInspectorView.swift")
         let responseInspectorSource = try readProjectFile("Rockxy/Views/Inspector/ResponseInspectorView.swift")
@@ -506,7 +506,7 @@ struct ToolWindowReadabilityTests {
         #expect(centerSource.contains("headerColumns: coordinator.headerColumnStore.columns"))
         #expect(tableSource.contains("var headerColumns: [HeaderColumn] = []"))
         #expect(tableSource.contains("parent.headerColumns.filter(\\.isEnabled)"))
-        #expect(tableSource.contains("mainCoordinator.activeSortDescriptors = reconciledSortDescriptors"))
+        #expect(tableSource.contains("paneWorkspace.activeSortDescriptors = reconciledSortDescriptors"))
         #expect(!columnsSource.contains(".keyboardShortcut(.space, modifiers: [])"))
 
         #expect(requestInspectorSource.contains(

@@ -8,26 +8,29 @@ import os
 extension MainContentCoordinator {
     func closeWorkspace(id: UUID) {
         cancelDebugAssistantTask(for: id)
+        if let pane = workspaceStore.splitCompanion(for: id) {
+            cancelDebugAssistantTask(for: pane.id)
+        }
         workspaceStore.closeWorkspace(id: id)
     }
 
     // MARK: - All-Workspace Updates
 
     func recomputeAllWorkspaces() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             recomputeFilteredTransactions(for: workspace)
         }
     }
 
     func clearAllWorkspaces() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             workspace.reset()
         }
         TrafficDomainSnapshot.shared.update(appNodes: [], domainTree: [])
     }
 
     func updateAllWorkspaces(with batch: [HTTPTransaction]) {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             for transaction in batch {
                 updateDomainGroupingIndex(for: transaction, in: workspace)
                 addToAppGroupingIndex(transaction, in: workspace)
@@ -166,7 +169,7 @@ extension MainContentCoordinator {
     // MARK: - Eviction Across Workspaces
 
     func evictFromAllWorkspaces(removedIDs: Set<UUID>) {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             workspace.filteredTransactions.removeAll { removedIDs.contains($0.id) }
             workspace.selectedTransactionIDs.subtract(removedIDs)
             if workspace.selectedTransaction.map({ removedIDs.contains($0.id) }) == true {

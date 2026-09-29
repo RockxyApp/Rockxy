@@ -36,7 +36,7 @@ struct CenterContentView: View {
 
             StatusBarView(
                 totalCount: coordinator.filteredTransactions.count,
-                selectedCount: selectedIDs.count,
+                selectedCount: coordinator.selectedTransactionIDs.count,
                 availableCount: coordinator.availableTransactionCountForCurrentScope,
                 isProxyRunning: coordinator.isProxyRunning,
                 proxyHost: AppSettingsManager.shared.settings.effectiveListenAddress,
@@ -92,24 +92,6 @@ struct CenterContentView: View {
                 )
             }
         }
-        .onChange(of: coordinator.selectedTransaction?.id) { _, newID in
-            // Only sync single selection to multi-selection IDs when not actively multi-selecting
-            if coordinator.selectedTransactionIDs.count <= 1 {
-                if let newID {
-                    selectedIDs = [newID]
-                } else {
-                    selectedIDs = []
-                }
-            }
-        }
-        .onChange(of: coordinator.selectedTransactionIDs) { _, ids in
-            // Insights can select a whole time bin before the table is remounted. Sync the
-            // full set, not just the primary transaction, into the NSTableView binding.
-            selectedIDs = ids
-        }
-        .onChange(of: coordinator.activeWorkspace.id) {
-            selectedIDs = coordinator.selectedTransactionIDs
-        }
     }
 
     // MARK: Private
@@ -120,6 +102,11 @@ struct CenterContentView: View {
         "workspaceBottomInspectorSplit.payloadFirst.v2"
     )
 
+    /// The second split-view pane keeps its own inspector divider position.
+    private static let splitPaneInspectorAutosaveName = RockxyIdentity.current.defaultsKey(
+        "workspaceBottomInspectorSplit.secondPane"
+    )
+
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
     @AppStorage("mapLocalToolEnabled") private var mapLocalToolEnabled = true
     @AppStorage("mapRemoteToolEnabled") private var mapRemoteToolEnabled = true
@@ -127,9 +114,6 @@ struct CenterContentView: View {
     @AppStorage("networkConditionsToolEnabled") private var networkConditionsToolEnabled = true
     @AppStorage("blockListToolEnabled") private var blockListToolEnabled = true
     @AppStorage("modifyHeaderToolEnabled") private var modifyHeaderToolEnabled = true
-    @Environment(\.appUIDisplayMetrics) private var displayMetrics
-
-    @State private var selectedIDs: Set<UUID> = []
 
     /// Stable reference to the Allow List singleton so SwiftUI's Observation framework
     /// tracks access to `isActive` inside `body` and re-renders the status bar when
@@ -154,74 +138,30 @@ struct CenterContentView: View {
             + (coordinator.activeWorkspace.mutedTrafficSources.isEmpty ? 0 : 1)
     }
 
-    private var bottomInspectorVisibility: Binding<Bool> {
-        Binding(
-            get: { coordinator.isBottomInspectorEffectivelyPresented },
-            set: { isPresented in
-                // A false transition driven purely by losing the selection (the effective
-                // getter collapsing) must not persist a hidden preference — only a manual or
-                // native collapse while something is still selected should. Expansions always
-                // pass through.
-                if !isPresented, !coordinator.hasPayloadInspectorSelection {
-                    return
-                }
-                coordinator.setBottomInspectorVisible(isPresented)
-            }
-        )
-    }
-
-    private var bottomInspectorLayoutMetrics: BottomInspectorLayoutMetrics {
-        BottomInspectorLayoutMetrics(appMetrics: displayMetrics)
-    }
-
     private var inspectorWorkspace: some View {
-        NativeBottomInspectorSplitView(
-            isInspectorPresented: bottomInspectorVisibility,
-            autosaveName: Self.bottomInspectorSplitAutosaveName,
-            primaryMinimumHeight: bottomInspectorLayoutMetrics.requestListMinimumHeight,
-            inspectorMinimumHeight: bottomInspectorLayoutMetrics.inspectorMinimumHeight
-        ) {
-            tableContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .appUIDisplayMetrics(displayMetrics)
-        } inspector: {
-            InspectorPanelView(
-                coordinator: coordinator,
-                onOpenToolWindow: onOpenToolWindow
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .appUIDisplayMetrics(displayMetrics)
+        let primary = coordinator.primaryTrafficPane
+        return Group {
+            if let secondary = coordinator.secondaryTrafficPane {
+                HSplitView {
+                    pane(primary, isSplit: true, autosaveName: Self.bottomInspectorSplitAutosaveName)
+                        .frame(minWidth: 360)
+                    pane(secondary, isSplit: true, autosaveName: Self.splitPaneInspectorAutosaveName)
+                        .frame(minWidth: 360)
+                }
+            } else {
+                pane(primary, isSplit: false, autosaveName: Self.bottomInspectorSplitAutosaveName)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var tableContent: some View {
-        RequestTableView(
-            workspaceID: coordinator.activeWorkspace.id,
-            rows: coordinator.filteredRows,
-            refreshToken: coordinator.refreshToken,
-            isAppendOnly: coordinator.activeWorkspace.lastDeriveWasAppendOnly,
-            appendChainOrigin: coordinator.activeWorkspace.appendChainOriginToken,
-            selectionIndex: coordinator.activeWorkspace.trafficSelectionIndex,
-            revealRequest: coordinator.trafficRevealRequest,
-            selectedIDs: $selectedIDs,
-            onSelectionChanged: { ids, primaryID in
-                coordinator.userDidNavigateTrafficHistory()
-                coordinator.selectTransactions(ids, primaryID: primaryID)
-            },
-            onUserScroll: {
-                coordinator.userDidNavigateTrafficHistory()
-            },
-            mainCoordinator: coordinator,
-            headerColumns: coordinator.headerColumnStore.columns
+    private func pane(_ workspace: WorkspaceState, isSplit: Bool, autosaveName: String) -> some View {
+        TrafficPaneView(
+            coordinator: coordinator,
+            pane: workspace,
+            isSplit: isSplit,
+            inspectorAutosaveName: autosaveName,
+            onOpenToolWindow: onOpenToolWindow
         )
-        .overlay {
-            // Overlay (not replacement) so the table stays mounted: live append, native column
-            // widths, selection, and scroll position survive an empty-then-populated transition.
-            RequestListEmptyStateView(
-                coordinator: coordinator,
-                hasVisibleRows: !coordinator.filteredRows.isEmpty
-            )
-        }
     }
 }

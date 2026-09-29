@@ -1103,7 +1103,7 @@ extension MainContentCoordinator {
         )
         moveObservedDomainsFromUnknown(for: enrichedTransactions)
 
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             updateAppGroupingForEnrichedTransactions(enrichedTransactions, in: workspace)
             refreshAppNodes(for: workspace)
 
@@ -1130,7 +1130,7 @@ extension MainContentCoordinator {
             updatedTransactions.map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             if workspaceUsesStateDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {

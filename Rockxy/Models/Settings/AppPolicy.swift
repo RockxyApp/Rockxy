@@ -21,6 +21,8 @@ protocol AppPolicy: Sendable {
     var maxUpstreamProxyBypassEntries: Int { get }
     var protobufDecodingAllowsSchemaUpload: Bool { get }
     var maxProtobufSchemas: Int { get }
+    /// Whether a traffic tab can show a second pane beside it (split view).
+    var allowsTrafficSplitView: Bool { get }
 }
 
 extension AppPolicy {
@@ -50,6 +52,10 @@ extension AppPolicy {
     var maxProtobufSchemas: Int {
         0
     }
+
+    var allowsTrafficSplitView: Bool {
+        false
+    }
 }
 
 // MARK: - DefaultAppPolicy
@@ -68,4 +74,5 @@ struct DefaultAppPolicy: AppPolicy {
     let maxUpstreamProxyBypassEntries = 3
     let protobufDecodingAllowsSchemaUpload = false
     let maxProtobufSchemas = 0
+    let allowsTrafficSplitView = false
 }

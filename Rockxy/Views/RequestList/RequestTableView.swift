@@ -42,6 +42,27 @@ enum RequestTableBoundaryNavigation: Equatable {
 /// Command-Up/Down retain their standard behavior everywhere else, including editable fields.
 final class NavigableRequestTableView: NSTableView {
     var onBoundaryNavigation: ((RequestTableBoundaryNavigation) -> Void)?
+    /// Called before a click or keyboard focus reaches the table, so a split-view pane takes
+    /// focus before its selection or context menu acts.
+    var onActivate: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onActivate?()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onActivate?()
+        super.rightMouseDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onActivate?()
+        }
+        return accepted
+    }
 
     override func keyDown(with event: NSEvent) {
         guard let navigation = RequestTableBoundaryNavigation.resolve(
@@ -78,6 +99,7 @@ struct RequestTableView: NSViewRepresentable {
     var onSelectionChanged: ((Set<UUID>, UUID?) -> Void)?
     var onUserScroll: (() -> Void)?
     var onDoubleClick: ((HTTPTransaction) -> Void)?
+    var onActivate: (() -> Void)?
     var mainCoordinator: MainContentCoordinator?
     var headerColumns: [HeaderColumn] = []
 
@@ -241,6 +263,7 @@ struct RequestTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.target = context.coordinator
         tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
+        tableView.onActivate = onActivate
         tableView.onBoundaryNavigation = { [weak coordinator = context.coordinator] navigation in
             MainActor.assumeIsolated {
                 switch navigation {
@@ -321,6 +344,7 @@ struct RequestTableView: NSViewRepresentable {
         let workspaceChanged = oldWorkspaceID != workspaceID
 
         coordinator.parent = self
+        (tableView as? NavigableRequestTableView)?.onActivate = onActivate
         coordinator.rows = rows
         coordinator.mainCoordinator = mainCoordinator
         coordinator.lastRefreshToken = newToken
@@ -383,17 +407,19 @@ struct RequestTableView: NSViewRepresentable {
 
         // Sync per-workspace sort state into AppKit (e.g., after workspace switch).
         // A removed custom column must not leave the traffic list sorted invisibly.
-        let currentSortDescriptors = mainCoordinator?.activeSortDescriptors ?? []
+        let paneWorkspace = mainCoordinator?.workspaceStore.workspace(id: workspaceID)
+        let currentSortDescriptors = paneWorkspace?.activeSortDescriptors ?? []
         let reconciledSortDescriptors = coordinator.sortDescriptors(
             currentSortDescriptors,
             availableIn: tableView
         )
         if reconciledSortDescriptors != currentSortDescriptors,
-           let mainCoordinator
+           let mainCoordinator,
+           let paneWorkspace
         {
-            mainCoordinator.activeSortDescriptors = reconciledSortDescriptors
-            mainCoordinator.activeWorkspace.lastDeriveWasAppendOnly = false
-            mainCoordinator.deriveFilteredRows()
+            paneWorkspace.activeSortDescriptors = reconciledSortDescriptors
+            paneWorkspace.lastDeriveWasAppendOnly = false
+            mainCoordinator.deriveFilteredRows(for: paneWorkspace)
         }
         coordinator.syncSortDescriptors(from: reconciledSortDescriptors, into: tableView)
 
@@ -776,9 +802,12 @@ extension RequestTableView {
                 guard let coordinator = mainCoordinator else {
                     return
                 }
-                coordinator.activeSortDescriptors = tableView.sortDescriptors
-                coordinator.activeWorkspace.lastDeriveWasAppendOnly = false
-                coordinator.deriveFilteredRows()
+                // Sort the pane this table belongs to, which may not have focus in split view.
+                let workspace = lastWorkspaceID.flatMap { coordinator.workspaceStore.workspace(id: $0) }
+                    ?? coordinator.activeWorkspace
+                workspace.activeSortDescriptors = tableView.sortDescriptors
+                workspace.lastDeriveWasAppendOnly = false
+                coordinator.deriveFilteredRows(for: workspace)
             }
         }
 

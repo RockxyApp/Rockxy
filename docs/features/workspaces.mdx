@@ -58,6 +58,17 @@ In other words, you cannot "stop recording" in one tab and "keep recording" in a
 
 Up to **8 tabs** can be open at a time (`AppPolicy.maxWorkspaceTabs`). Hitting the limit silently no-ops the new-tab action — close one to make room.
 
+## Split view
+
+Split view shows two traffic panes side by side inside one tab. Each pane has its own request list, filters, selection, sort, and bottom inspector, and both read the same capture, so new requests appear in each pane that matches them.
+
+- Click **Show Split View** in the toolbar, choose **View > Show Split View**, or run it from the Command Palette.
+- Right-click an app or domain in the sidebar and choose **Open in Split View** to show only that source in the second pane. If the second pane is already open, it switches to the new source; a tab never has more than two panes.
+- Click a pane to focus it. The focused pane has an accent line along its top edge, and the sidebar, filter bars, footer, and menu commands act on it.
+- Drag the divider to resize the panes. **Hide Split View** closes the second pane and keeps the first pane's filters and selection.
+
+Split view belongs to the tab: another tab can stay single-pane. The second pane is not saved with the Project, and it does not count toward the tab limit. Split view is a Pro capability; builds without it explain that at the button.
+
 ## Default tab
 
 Every new Project starts with a single, non-closable Traffic Tab titled **All Traffic**. Its filter is `.empty`, so it always shows the full capture. Treat it as your unfiltered baseline.
