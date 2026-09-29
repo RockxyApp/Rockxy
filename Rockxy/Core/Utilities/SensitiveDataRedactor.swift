@@ -303,6 +303,7 @@ struct SensitiveDataRedactor {
         redacted.matchedRuleName = transaction.matchedRuleName
         redacted.matchedRuleActionSummary = transaction.matchedRuleActionSummary
         redacted.matchedRulePattern = transaction.matchedRulePattern
+        redacted.appliedScriptNames = transaction.appliedScriptNames
         redacted.sequenceNumber = transaction.sequenceNumber
         return redacted
     }

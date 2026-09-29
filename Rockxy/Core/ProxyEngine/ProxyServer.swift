@@ -363,6 +363,26 @@ actor ProxyServer {
     /// the upstream relay derives, so a locally served response (Map Local, block, breakpoint
     /// abort) is attributed to the same client as the rest of its traffic instead of showing
     /// up as an unknown app; anything still unresolved is left for port-map enrichment.
+    /// Stamps the scripts that ran for the transaction's flow, so a request a script
+    /// changed is never presented as untouched.
+    static func makeScriptAttributionCallback(
+        ledger: ScriptExecutionLedger?,
+        downstream: @escaping @Sendable (HTTPTransaction) -> Void
+    )
+        -> @Sendable (HTTPTransaction) -> Void
+    {
+        guard let ledger else {
+            return downstream
+        }
+        return { transaction in
+            let names = ledger.scriptNames(for: transaction.request.flowID)
+            if !names.isEmpty {
+                transaction.appliedScriptNames = names
+            }
+            downstream(transaction)
+        }
+    }
+
     static func makeIdentityStampingCallback(
         handle: ClientIdentityHandle?,
         downstream: @escaping @Sendable (HTTPTransaction) -> Void
@@ -511,7 +531,10 @@ actor ProxyServer {
                 identityHandle?.startResolution()
                 let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
                     handle: identityHandle,
-                    downstream: callback
+                    downstream: ProxyServer.makeScriptAttributionCallback(
+                        ledger: scriptMgr?.executionLedger,
+                        downstream: callback
+                    )
                 )
                 return channel.pipeline.addHandler(BreakpointClientLivenessProbeHandler()).flatMap {
                     channel.pipeline.addHandler(ConnectionTimeoutHandler(timeout: .seconds(300)))

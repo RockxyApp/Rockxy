@@ -47,6 +47,9 @@ actor ScriptPluginManager {
 
     private(set) var plugins: [PluginInfo] = []
 
+    /// Scripts that actually ran per flow, read by the proxy when it emits a transaction.
+    nonisolated let executionLedger = ScriptExecutionLedger()
+
     nonisolated let defaults: UserDefaults
 
     nonisolated let settingsProviderOverride: (@Sendable () -> AppSettings)?
@@ -286,6 +289,7 @@ actor ScriptPluginManager {
                     behavior: behavior,
                     originalRequest: current
                 )
+                executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onRequest failed: \(error.localizedDescription)")
                 markPluginErrored(id: plugin.id, reason: error.localizedDescription)
@@ -344,6 +348,7 @@ actor ScriptPluginManager {
                     originalRequest: request,
                     originalResponse: current
                 )
+                executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
                 if chain {
                     current = mutated
                     continue

@@ -640,6 +640,16 @@
         }
       }
     },
+    "Scripts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "脚本"
+          }
+        }
+      }
+    },
     "Search Apps and Domains": {
       "localizations": {
         "zh-Hans": {

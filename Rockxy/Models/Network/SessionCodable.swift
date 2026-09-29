@@ -74,6 +74,7 @@ struct CodableTransaction: Codable {
         self.matchedRuleName = transaction.matchedRuleName
         self.matchedRuleActionSummary = transaction.matchedRuleActionSummary
         self.matchedRulePattern = transaction.matchedRulePattern
+        self.appliedScriptNames = transaction.appliedScriptNames.isEmpty ? nil : transaction.appliedScriptNames
     }
 
     init(from decoder: Decoder) throws {
@@ -101,6 +102,7 @@ struct CodableTransaction: Codable {
         matchedRuleName = try container.decodeIfPresent(String.self, forKey: .matchedRuleName)
         matchedRuleActionSummary = try container.decodeIfPresent(String.self, forKey: .matchedRuleActionSummary)
         matchedRulePattern = try container.decodeIfPresent(String.self, forKey: .matchedRulePattern)
+        appliedScriptNames = try container.decodeIfPresent([String].self, forKey: .appliedScriptNames)
     }
 
     // MARK: Internal
@@ -127,6 +129,7 @@ struct CodableTransaction: Codable {
         case matchedRuleName
         case matchedRuleActionSummary
         case matchedRulePattern
+        case appliedScriptNames
     }
 
     let id: UUID
@@ -152,6 +155,7 @@ struct CodableTransaction: Codable {
     let matchedRuleName: String?
     let matchedRuleActionSummary: String?
     let matchedRulePattern: String?
+    let appliedScriptNames: [String]?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -177,6 +181,7 @@ struct CodableTransaction: Codable {
         transaction.matchedRuleName = matchedRuleName
         transaction.matchedRuleActionSummary = matchedRuleActionSummary
         transaction.matchedRulePattern = matchedRulePattern
+        transaction.appliedScriptNames = appliedScriptNames ?? []
         return transaction
     }
 }

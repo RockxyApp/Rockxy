@@ -33,6 +33,14 @@ struct SynopsisInspectorView: View {
                     }
                 }
 
+                if !transaction.appliedScriptNames.isEmpty {
+                    Divider()
+                    synopsisRow(
+                        String(localized: "Scripts", bundle: RockxyLocalization.bundle),
+                        transaction.appliedScriptNames.joined(separator: ", ")
+                    )
+                }
+
                 if let response = transaction.response {
                     Divider()
                     synopsisRow(

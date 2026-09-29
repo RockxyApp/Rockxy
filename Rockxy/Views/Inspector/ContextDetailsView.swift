@@ -443,7 +443,21 @@ struct ContextDetailsView: View {
                     Divider()
                     openRuleActionRow(windowID: windowID, help: target.openHelp)
                 }
-            } else {
+            }
+            if !transaction.appliedScriptNames.isEmpty {
+                if transaction.matchedRuleID != nil {
+                    Divider()
+                }
+                ContextInspectorFieldRow(field: ContextTableField(
+                    label: String(localized: "Scripts", bundle: RockxyLocalization.bundle),
+                    value: transaction.appliedScriptNames.joined(separator: ", "),
+                    monospaced: false,
+                    color: .green
+                ))
+                Divider()
+                openRuleActionRow(windowID: "scriptingList", help: nil)
+            }
+            if transaction.matchedRuleID == nil, transaction.appliedScriptNames.isEmpty {
                 ContextInspectorFullRow {
                     Label(
                         String(localized: "No rule modified this request", bundle: RockxyLocalization.bundle),

@@ -102,6 +102,8 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var matchedRuleName: String?
     var matchedRuleActionSummary: String?
     var matchedRulePattern: String?
+    /// Names of scripts whose request or response hook ran for this exchange.
+    var appliedScriptNames: [String] = []
 
     /// Runtime-only ownership. Portable session files intentionally omit this so
     /// an imported capture is assigned to the destination Project chosen by the user.
