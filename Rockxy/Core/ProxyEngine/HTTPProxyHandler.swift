@@ -71,6 +71,25 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
+    /// Resolves the request target to an absolute URL string. A proxied WebSocket client may send
+    /// its absolute-form target with its own scheme (`GET ws://host:port/socket`); the upgrade
+    /// travels over HTTP, so `ws`/`wss` map to `http`/`https`. Treating that target as a path
+    /// glued it onto the Host into an unparseable URL, which fell back to `http://host/` — the
+    /// upgrade then went to the wrong path and port.
+    nonisolated static func requestURLString(uri: String, host: String) -> String {
+        let lowered = uri.lowercased()
+        if lowered.hasPrefix("http://") || lowered.hasPrefix("https://") {
+            return uri
+        }
+        if lowered.hasPrefix("ws://") {
+            return "http://" + uri.dropFirst("ws://".count)
+        }
+        if lowered.hasPrefix("wss://") {
+            return "https://" + uri.dropFirst("wss://".count)
+        }
+        return "http://\(host)\(uri)"
+    }
+
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         guard !requestBodyLimitState.isRejected else {
             return
@@ -234,7 +253,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         let operationName = GraphQLDetector.detect(request: requestData)?.operationName
 
         eventLoop.makeFutureWithTask {
-            await ProxyHandlerShared.evaluateRules(ruleEngine, request: requestData, graphQLOperationName: operationName)
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: operationName
+            )
         }.whenComplete { [weak self] result in
             guard let self else {
                 return
@@ -371,25 +394,6 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 )
             }
         }
-    }
-
-    /// Resolves the request target to an absolute URL string. A proxied WebSocket client may send
-    /// its absolute-form target with its own scheme (`GET ws://host:port/socket`); the upgrade
-    /// travels over HTTP, so `ws`/`wss` map to `http`/`https`. Treating that target as a path
-    /// glued it onto the Host into an unparseable URL, which fell back to `http://host/` — the
-    /// upgrade then went to the wrong path and port.
-    nonisolated static func requestURLString(uri: String, host: String) -> String {
-        let lowered = uri.lowercased()
-        if lowered.hasPrefix("http://") || lowered.hasPrefix("https://") {
-            return uri
-        }
-        if lowered.hasPrefix("ws://") {
-            return "http://" + uri.dropFirst("ws://".count)
-        }
-        if lowered.hasPrefix("wss://") {
-            return "https://" + uri.dropFirst("wss://".count)
-        }
-        return "http://\(host)\(uri)"
     }
 
     nonisolated private func buildRequestData(from head: HTTPRequestHead) -> HTTPRequestData {
@@ -803,7 +807,13 @@ extension HTTPProxyHandler {
     /// Applies the same policy an HTTP CONNECT gets — the listener loop guard, Block
     /// rules, and the Offline network condition — to a SOCKS5 destination, recording
     /// refused tunnels like refused CONNECTs.
-    nonisolated func admitTunnel(context: ChannelHandlerContext, host: String, port: Int) -> EventLoopFuture<TunnelAdmission> {
+    nonisolated func admitTunnel(
+        context: ChannelHandlerContext,
+        host: String,
+        port: Int
+    )
+        -> EventLoopFuture<TunnelAdmission>
+    {
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
                host: EmulatorHostAlias.connectHost(for: host, clientHost: descriptor.clientHost),
@@ -1108,13 +1118,15 @@ extension HTTPProxyHandler {
                     NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                         bodyData: bodyData,
                         to: clientChannel,
-                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                        packetLoss: networkConditionProfile?.packetLoss
                     )
                 } else {
                     NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                         bodyData: nil,
                         to: clientChannel,
-                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                        packetLoss: networkConditionProfile?.packetLoss
                     )
                 }
             case let .failure(error):

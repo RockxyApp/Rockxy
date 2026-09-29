@@ -527,13 +527,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                         NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                             bodyData: bodyData,
                             to: clientChannel,
-                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                            packetLoss: networkConditionProfile?.packetLoss
                         )
                     } else {
                         NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                             bodyData: nil,
                             to: clientChannel,
-                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                            packetLoss: networkConditionProfile?.packetLoss
                         )
                     }
                 case let .failure(error):
@@ -1206,7 +1208,9 @@ extension HTTPSProxyRelayHandler {
         clientIdentity: CustomTLSIdentity?,
         acceptsUntrustedCertificates: Bool = UpstreamTrustPolicy.acceptsUntrustedCertificates,
         host: String? = nil
-    ) throws -> TLSConfiguration {
+    )
+        throws -> TLSConfiguration
+    {
         var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
         clientTLSConfig.certificateVerification = UpstreamTrustPolicy.certificateVerification(
             acceptingUntrusted: acceptsUntrustedCertificates

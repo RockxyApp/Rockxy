@@ -49,11 +49,15 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.custom.uploadBytesPerSecond == nil)
     }
 
-    @Test("packet loss stays disabled for every throttling preset")
-    func packetLossDisabled() {
-        for preset in NetworkConditionPreset.allCases where preset != .offline {
+    @Test("Only Very Bad Network drops packets among throttling presets")
+    func packetLossRates() {
+        for preset in NetworkConditionPreset.allCases where preset != .offline && preset != .veryBadNetwork {
             #expect(preset.packetLossRate == 0.0)
         }
+        #expect(NetworkConditionPreset.veryBadNetwork.packetLossRate == 0.1)
+        #expect(NetworkConditionProfile(preset: .veryBadNetwork, latencyMs: 2_000).packetLoss?.rate == 0.1)
+        #expect(NetworkConditionProfile(preset: .threeG, latencyMs: 400).packetLoss == nil)
+        #expect(NetworkConditionProfile(preset: .offline, latencyMs: 0).packetLoss == nil)
     }
 
     @Test("Offline refuses traffic and is never inferred from a latency value")

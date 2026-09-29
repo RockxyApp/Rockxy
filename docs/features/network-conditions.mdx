@@ -1,13 +1,11 @@
 ---
 title: "Network Conditions"
-description: "Simulate slow networks with latency presets applied to proxied HTTP and HTTPS requests."
+description: "Simulate slow and lossy networks with latency, bandwidth, and packet-loss presets for proxied HTTP and HTTPS requests."
 ---
 
 # Network Conditions
 
-Network Conditions adds artificial latency to matching requests using named presets modeled after Apple's Network Link Conditioner. Use it to test loading states, timeout handling, and degraded-network UX without leaving Rockxy.
-
-Phase 1 simulates added request-start latency only. Bandwidth shaping, packet loss, and jitter are planned for a future release.
+Network Conditions slows matching requests down using named presets modeled after Apple's Network Link Conditioner: added latency, capped upload and download bandwidth, and packet loss. Use it to test loading states, timeout handling, and degraded-network UX without leaving Rockxy.
 
 <Frame caption="Network Conditions window with latency presets">
   <img src="/images/features/DemoNetworkConnection.png" alt="Network Conditions window" />
@@ -23,17 +21,15 @@ Phase 1 simulates added request-start latency only. Bandwidth shaping, packet lo
 
 ## Presets
 
-Each preset maps to a fixed latency value applied before the request is forwarded upstream:
-
-| Preset | Latency | Use Case |
-|--------|---------|----------|
-| 3G | 400 ms | Mobile fallback testing |
-| EDGE | 850 ms | Extreme slow-network edge cases |
-| LTE | 50 ms | Typical mobile latency |
-| Very Bad Network | 2000 ms | Timeout and retry logic |
-| WiFi | 2 ms | Baseline with minimal overhead |
-| Offline | — | Lost-connection handling: matching requests fail immediately |
-| Custom | User-defined | Specific latency requirements |
+| Preset | Latency | Download | Upload | Packet loss | Use Case |
+|--------|---------|----------|--------|-------------|----------|
+| 3G | 400 ms | 780 kbps | 330 kbps | 0% | Mobile fallback testing |
+| EDGE | 850 ms | 240 kbps | 200 kbps | 0% | Extreme slow-network edge cases |
+| LTE | 50 ms | 50 Mbps | 10 Mbps | 0% | Typical mobile network |
+| Very Bad Network | 2000 ms | 1 Mbps | 1 Mbps | 10% | Timeout, retry, and stall handling |
+| WiFi | 2 ms | 40 Mbps | 30 Mbps | 0% | Baseline with minimal overhead |
+| Offline | — | — | — | 100% | Lost-connection handling: matching requests fail immediately |
+| Custom | User-defined | Unlimited | Unlimited | 0% | Specific latency requirements |
 
 **Offline** never contacts the server. Rockxy closes the client connection the way a device
 with no network would, and the request appears in the list as failed with no response. Use a
@@ -83,7 +79,8 @@ Network Conditions rules use the `networkCondition` action type internally, sepa
 
 1. The rule engine evaluates rules in order and finds the first matching enabled rule.
 2. If it is a Network Conditions rule, the proxy holds the request for the configured latency before forwarding it upstream.
-3. The delay applies to the request initiation phase — response streaming is not paced.
+3. The request body is sent to the server, and the response body to the client, in chunks paced to the preset's upload and download bandwidth.
+4. With packet loss, each chunk may be treated as lost. Because traffic runs over TCP, a real lost packet is retransmitted rather than skipped, so a lost chunk arrives one retransmission timeout late (at least 200 ms, or twice the latency) and everything after it waits too. Apps see the stalls and slow recoveries of a lossy link, not corrupted data.
 
 HTTPS requests are delayed after TLS interception, so the delay applies to the decrypted HTTP traffic inside the tunnel, not to the CONNECT handshake.
 
@@ -93,7 +90,7 @@ Network Conditions rules are persisted alongside all other rules under `~/Librar
 
 ## Limitations
 
-- **Latency only** — no bandwidth shaping, packet loss, or jitter simulation in Phase 1
-- **Request-start delay** — the delay is applied before forwarding; response body streaming is not paced
+- **Custom** — adds latency only; bandwidth and packet loss come from the named presets
+- **No jitter** — latency is constant per request
 - **WebSocket frames** — latency applies to the initial HTTP upgrade request, not to individual WebSocket frames after the connection is established
 - **One active rule** — only one Network Conditions rule can be active at a time

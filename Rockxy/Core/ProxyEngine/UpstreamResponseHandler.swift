@@ -504,7 +504,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         guard let plan = NetworkThrottlePlanner.makePlan(
             byteCount: buffer.readableBytes,
             bytesPerSecond: networkConditionProfile?.downloadBytesPerSecond,
-            earliestReadyAtNanos: downloadReadyAtNanos
+            earliestReadyAtNanos: downloadReadyAtNanos,
+            packetLoss: networkConditionProfile?.packetLoss
         ) else {
             clientContext.write(
                 NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))),

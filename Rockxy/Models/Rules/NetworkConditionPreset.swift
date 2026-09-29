@@ -91,10 +91,14 @@ enum NetworkConditionPreset: String, CaseIterable, Codable {
         uploadBandwidthKbps.map { ($0 * 1_000) / 8 }
     }
 
-    /// Packet loss remains disabled until the proxy engine has packet-dropping
-    /// semantics for HTTP body chunks and WebSocket frames.
+    /// Fraction of body chunks treated as lost. Very Bad Network drops 10%, like the
+    /// macOS Network Link Conditioner profile of the same name; Offline drops everything.
     var packetLossRate: Double {
-        isOffline ? 1.0 : 0.0
+        switch self {
+        case .offline: 1.0
+        case .veryBadNetwork: 0.1
+        default: 0.0
+        }
     }
 
     var systemImage: String {

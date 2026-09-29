@@ -29,6 +29,29 @@ struct NetworkConditionProfile: Equatable, Sendable {
     var latencyDelay: TimeAmount {
         .milliseconds(Int64(latencyMs))
     }
+
+    /// Loss applied to throttled body chunks, or nil when the profile drops nothing.
+    var packetLoss: NetworkPacketLoss? {
+        guard packetLossRate > 0, packetLossRate < 1 else {
+            return nil
+        }
+        return NetworkPacketLoss(rate: packetLossRate, latencyMs: latencyMs)
+    }
+}
+
+// MARK: - NetworkPacketLoss
+
+/// Simulated packet loss. A proxy relays over TCP, which never hands a gap to the app: a lost
+/// segment is retransmitted after a timeout. So each lost chunk arrives late by one
+/// retransmission timeout (at least 200 ms, or twice the profile latency), and everything
+/// after it waits too — the stall-and-recover pattern a lossy link produces.
+struct NetworkPacketLoss: Equatable {
+    let rate: Double
+    let latencyMs: Int
+
+    var retransmissionPenaltyNanos: UInt64 {
+        UInt64(max(200, latencyMs * 2)) * 1_000_000
+    }
 }
 
 // MARK: - NetworkThrottleChunkPlan
@@ -69,7 +92,9 @@ enum NetworkThrottlePlanner {
         byteCount: Int,
         bytesPerSecond: Int?,
         nowNanos: UInt64 = DispatchTime.now().uptimeNanoseconds,
-        earliestReadyAtNanos: UInt64? = nil
+        earliestReadyAtNanos: UInt64? = nil,
+        packetLoss: NetworkPacketLoss? = nil,
+        random: () -> Double = { Double.random(in: 0 ..< 1) }
     )
         -> NetworkThrottlePlan?
     {
@@ -88,10 +113,15 @@ enum NetworkThrottlePlanner {
 
         var offset = 0
         var transmittedBytes = 0
+        var lossPenaltyNanos: UInt64 = 0
         while offset < byteCount {
             let length = min(chunkSize, byteCount - offset)
             transmittedBytes += length
+            if let packetLoss, random() < packetLoss.rate {
+                lossPenaltyNanos = lossPenaltyNanos.saturatingAdd(packetLoss.retransmissionPenaltyNanos)
+            }
             let elapsedNanos = nanoseconds(forByteCount: transmittedBytes, bytesPerSecond: bytesPerSecond)
+                .saturatingAdd(lossPenaltyNanos)
             let scheduledAtNanos = startNanos.saturatingAdd(elapsedNanos)
             chunks.append(NetworkThrottleChunkPlan(
                 offset: offset,
@@ -103,7 +133,9 @@ enum NetworkThrottlePlanner {
 
         return NetworkThrottlePlan(
             chunks: chunks,
-            readyAtNanos: startNanos.saturatingAdd(nanoseconds(forByteCount: byteCount, bytesPerSecond: bytesPerSecond))
+            readyAtNanos: startNanos
+                .saturatingAdd(nanoseconds(forByteCount: byteCount, bytesPerSecond: bytesPerSecond))
+                .saturatingAdd(lossPenaltyNanos)
         )
     }
 
@@ -139,7 +171,8 @@ enum NetworkConditionIOThrottle {
     static func writeClientRequestBodyAndEnd(
         bodyData: Data?,
         to channel: Channel,
-        uploadBytesPerSecond: Int?
+        uploadBytesPerSecond: Int?,
+        packetLoss: NetworkPacketLoss? = nil
     ) {
         guard let bodyData, !bodyData.isEmpty else {
             writeClientRequestEnd(to: channel)
@@ -148,7 +181,8 @@ enum NetworkConditionIOThrottle {
 
         guard let plan = NetworkThrottlePlanner.makePlan(
             byteCount: bodyData.count,
-            bytesPerSecond: uploadBytesPerSecond
+            bytesPerSecond: uploadBytesPerSecond,
+            packetLoss: packetLoss
         ) else {
             var bodyBuffer = channel.allocator.buffer(capacity: bodyData.count)
             bodyBuffer.writeBytes(bodyData)
