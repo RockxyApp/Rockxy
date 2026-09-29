@@ -905,10 +905,11 @@ extension HTTPProxyHandler {
         }
 
         let port: Int = requestData.url.port ?? (requestData.url.scheme == "https" ? 443 : 80)
+        let connectHost = EmulatorHostAlias.connectHost(for: host, clientHost: clientConnectionDescriptor?.clientHost)
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: host,
+               host: connectHost,
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost
@@ -932,7 +933,7 @@ extension HTTPProxyHandler {
         UpstreamProxyConnector.connect(
             eventLoop: context.eventLoop,
             targetScheme: requestData.url.scheme ?? "http",
-            targetHost: host,
+            targetHost: connectHost,
             targetPort: port,
             configuration: bypassUserModifications ? nil : upstreamProxySnapshotProvider()
         ) { channel in

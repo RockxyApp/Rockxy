@@ -192,6 +192,23 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("An emulator's 10.0.2.2 host alias reaches the Mac's loopback server")
+    func emulatorHostAliasReachesLoopback() async throws {
+        let onAliasSubnet = RootCADownloadServer.lanIPv4Addresses().contains { $0.hasPrefix("10.0.2.") }
+        try await MapLocalLoopbackHarness.run { harness in
+            guard !onAliasSubnet else {
+                return
+            }
+            let response = try await harness.getViaEmulatorAlias("/live")
+
+            #expect(response.status == 200)
+            #expect(response.body == Data("origin:/live".utf8))
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.host() == "10.0.2.2" }
+            #expect(captured?.state == .completed)
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -704,6 +721,17 @@ private actor MapLocalLoopbackHarness {
             originPort: port,
             proxyHost: "127.0.0.1",
             proxyPort: port
+        )
+    }
+
+    /// Sends `GET http://10.0.2.2:<originPort><path>` the way an Android emulator names the Mac.
+    func getViaEmulatorAlias(_ path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://10.0.2.2:\(origin.boundPort)\(path)",
+            host: "10.0.2.2",
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
         )
     }
 
