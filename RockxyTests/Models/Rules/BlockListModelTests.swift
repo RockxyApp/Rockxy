@@ -10,7 +10,8 @@ import Testing
 struct HTTPMethodFilterTests {
     @Test("All cases are defined")
     func allCases() {
-        #expect(HTTPMethodFilter.allCases.count == 9)
+        #expect(HTTPMethodFilter.allCases.count == 10)
+        #expect(HTTPMethodFilter.query.methodValue == "QUERY")
     }
 
     @Test("ANY method returns nil for rule matching")
