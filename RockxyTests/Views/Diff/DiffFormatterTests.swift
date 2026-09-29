@@ -333,4 +333,64 @@ struct DiffFormatterTests {
         #expect(output.contains("- before"))
         #expect(output.contains("+ after"))
     }
+
+    @Test("Unified patch uses standard headers, hunk ranges, and context")
+    func unifiedPatchFormat() {
+        let result = DiffResult(sections: [
+            DiffSection(title: "Response Headers", lines: [
+                DiffLine(lineNumber: 1, content: "A: 1", type: .unchanged, oldLineNumber: 1, newLineNumber: 1),
+                DiffLine(lineNumber: 2, content: "ETag: \"old\"", type: .removed, oldLineNumber: 2),
+                DiffLine(lineNumber: 3, content: "ETag: \"new\"", type: .added, newLineNumber: 2),
+                DiffLine(lineNumber: 4, content: "B: 2", type: .unchanged, oldLineNumber: 3, newLineNumber: 3),
+            ]),
+            DiffSection(title: "Body", lines: [
+                DiffLine(lineNumber: 1, content: "same", type: .unchanged),
+            ]),
+        ])
+
+        let patch = DiffExportFormatter.unifiedPatch(for: result)
+
+        #expect(patch == """
+        --- a/response-headers
+        +++ b/response-headers
+        @@ -1,3 +1,3 @@
+         A: 1
+        -ETag: "old"
+        +ETag: "new"
+         B: 2
+
+        """)
+    }
+
+    @Test("Distant changes become separate hunks with correct ranges")
+    func unifiedPatchSplitsHunks() {
+        var lines = [DiffLine(lineNumber: 1, content: "top", type: .added, newLineNumber: 1)]
+        for number in 1 ... 10 {
+            lines.append(DiffLine(
+                lineNumber: number + 1,
+                content: "l\(number)",
+                type: .unchanged,
+                oldLineNumber: number,
+                newLineNumber: number + 1
+            ))
+        }
+        lines.append(DiffLine(lineNumber: 12, content: "l11", type: .removed, oldLineNumber: 11))
+
+        let patch = DiffExportFormatter.unifiedPatch(
+            for: DiffResult(sections: [DiffSection(title: "Body", lines: lines)]),
+            context: 1
+        )
+
+        #expect(patch == """
+        --- a/body
+        +++ b/body
+        @@ -1,1 +1,2 @@
+        +top
+         l1
+        @@ -10,2 +11,1 @@
+         l10
+        -l11
+
+        """)
+    }
 }

@@ -188,8 +188,8 @@ struct DiffWindowView: View {
 
         let panel = NSSavePanel()
         panel.title = String(localized: "Export Diff", bundle: RockxyLocalization.bundle)
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "diff.txt"
+        panel.allowedContentTypes = [UTType(filenameExtension: "diff") ?? .plainText, .plainText]
+        panel.nameFieldStringValue = "rockxy-comparison.diff"
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return
@@ -221,7 +221,91 @@ enum DiffExportFormatter {
         return output
     }
 
+    /// Writes a unified diff (`diff -u` / `git apply` format) so the export opens in
+    /// FileMerge, code review tools, and editors that understand patches.
     static func write(_ result: DiffResult, to url: URL) throws {
-        try text(for: result).write(to: url, atomically: true, encoding: .utf8)
+        try unifiedPatch(for: result).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Unified diff with one file entry per changed section and `context` unchanged
+    /// lines around each change. Sections without changes are omitted.
+    static func unifiedPatch(for result: DiffResult, context: Int = 3) -> String {
+        var output = ""
+        for section in result.sections {
+            let hunks = unifiedHunks(for: section.lines, context: max(0, context))
+            guard !hunks.isEmpty else {
+                continue
+            }
+            let path = patchPath(for: section.title)
+            output += "--- a/\(path)\n+++ b/\(path)\n"
+            for hunk in hunks {
+                output += hunk
+            }
+        }
+        return output
+    }
+
+    private static func unifiedHunks(for lines: [DiffLine], context: Int) -> [String] {
+        let changed = lines.indices.filter { lines[$0].type != .unchanged }
+        guard let firstChange = changed.first else {
+            return []
+        }
+        var groups: [ClosedRange<Int>] = []
+        var start = firstChange
+        var end = firstChange
+        for index in changed.dropFirst() {
+            if index - end > context * 2 + 1 {
+                groups.append(start ... end)
+                start = index
+            }
+            end = index
+        }
+        groups.append(start ... end)
+
+        return groups.map { group in
+            let range = max(0, group.lowerBound - context) ... min(lines.count - 1, group.upperBound + context)
+            let slice = lines[range]
+            let oldCount = slice.count { $0.type != .added }
+            let newCount = slice.count { $0.type != .removed }
+            let oldStart = hunkStart(
+                in: lines, range: range, count: oldCount, lineNumber: \.oldLineNumber
+            )
+            let newStart = hunkStart(
+                in: lines, range: range, count: newCount, lineNumber: \.newLineNumber
+            )
+            var hunk = "@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@\n"
+            for line in slice {
+                let marker = switch line.type {
+                case .unchanged: " "
+                case .added: "+"
+                case .removed: "-"
+                }
+                hunk += marker + line.content + "\n"
+            }
+            return hunk
+        }
+    }
+
+    /// First line number of the hunk on one side. For an empty side, unified diff
+    /// uses the line *before* the insertion point (0 at the top of the file).
+    private static func hunkStart(
+        in lines: [DiffLine],
+        range: ClosedRange<Int>,
+        count: Int,
+        lineNumber: KeyPath<DiffLine, Int?>
+    )
+        -> Int
+    {
+        if count > 0, let first = lines[range].lazy.compactMap({ $0[keyPath: lineNumber] }).first {
+            return first
+        }
+        return lines[..<range.lowerBound].lazy.compactMap { $0[keyPath: lineNumber] }.last ?? 0
+    }
+
+    private static func patchPath(for title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let slug = String(title.lowercased().unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "section" : slug
     }
 }
