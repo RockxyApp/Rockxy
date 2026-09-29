@@ -25,12 +25,22 @@ struct DNSSpoofingRule: Codable, Identifiable, Equatable, Hashable {
 // MARK: - DNSSpoofingRuleValidator
 
 enum DNSSpoofingRuleValidator {
-    /// First problem with `rule`, or `nil` when it can be saved.
-    static func problem(with rule: DNSSpoofingRule, among rules: [DNSSpoofingRule]) -> String? {
+    /// First problem with `rule`, or `nil` when it can be saved. With `reportsMissingFields`
+    /// false, a field that is still empty is not reported, so an editor can keep Save disabled
+    /// without flagging a form the user has not filled in yet.
+    static func problem(
+        with rule: DNSSpoofingRule,
+        among rules: [DNSSpoofingRule],
+        reportsMissingFields: Bool = true
+    )
+        -> String?
+    {
         let host = rule.host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let address = rule.address.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty else {
-            return String(localized: "Enter the host name to spoof.", bundle: RockxyLocalization.bundle)
+            return reportsMissingFields
+                ? String(localized: "Enter the host name to spoof.", bundle: RockxyLocalization.bundle)
+                : nil
         }
         guard isBareName(host), HostPatternMatcher.isValid(pattern: host) else {
             return String(
@@ -39,7 +49,9 @@ enum DNSSpoofingRuleValidator {
             )
         }
         guard !address.isEmpty else {
-            return String(localized: "Enter the address to connect to.", bundle: RockxyLocalization.bundle)
+            return reportsMissingFields
+                ? String(localized: "Enter the address to connect to.", bundle: RockxyLocalization.bundle)
+                : nil
         }
         let bareAddress = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard RemoteAccessAddressRange.addressBytes(bareAddress) != nil

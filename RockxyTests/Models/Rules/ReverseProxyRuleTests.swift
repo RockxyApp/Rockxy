@@ -27,6 +27,25 @@ struct ReverseProxyRuleTests {
         #expect(ReverseProxyRuleValidator.problem(with: localDevServer, among: [], proxyPort: 9_090) == nil)
     }
 
+    @Test("A new rule's empty remote host keeps Save disabled without an error message")
+    func emptyHostIsQuiet() {
+        let draft = rule(localPort: 10_000, host: "", remotePort: 443)
+        #expect(ReverseProxyRuleValidator.problem(with: draft, among: [], proxyPort: 9_090) != nil)
+        #expect(ReverseProxyRuleValidator.problem(
+            with: draft,
+            among: [],
+            proxyPort: 9_090,
+            reportsMissingFields: false
+        ) == nil)
+        let lowPort = rule(localPort: 80, host: "", remotePort: 443)
+        #expect(ReverseProxyRuleValidator.problem(
+            with: lowPort,
+            among: [],
+            proxyPort: 9_090,
+            reportsMissingFields: false
+        ) != nil)
+    }
+
     @Test("Two rules cannot share a local port")
     func duplicateLocalPort() {
         let first = rule(localPort: 10_000, host: "a.example.com", remotePort: 443)

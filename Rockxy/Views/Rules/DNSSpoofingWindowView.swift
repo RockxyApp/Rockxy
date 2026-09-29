@@ -195,12 +195,20 @@ private struct DNSSpoofingRuleEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Form {
-                TextField(String(localized: "Host", bundle: RockxyLocalization.bundle), text: $rule.host)
+                TextField(
+                    String(localized: "Host", bundle: RockxyLocalization.bundle),
+                    text: $rule.host,
+                    prompt: Text(verbatim: "api.example.com")
+                )
                     .help(String(
                         localized: "An exact host name, or *.example.com for every subdomain.",
                         bundle: RockxyLocalization.bundle
                     ))
-                TextField(String(localized: "Connect To", bundle: RockxyLocalization.bundle), text: $rule.address)
+                TextField(
+                    String(localized: "Connect To", bundle: RockxyLocalization.bundle),
+                    text: $rule.address,
+                    prompt: Text(verbatim: "192.168.1.20")
+                )
                     .help(String(
                         localized: "The IP address or host name Rockxy connects to instead. The port stays the same.",
                         bundle: RockxyLocalization.bundle
@@ -208,7 +216,7 @@ private struct DNSSpoofingRuleEditor: View {
             }
             .formStyle(.grouped)
 
-            if let problem {
+            if let problem = visibleProblem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .font(toolMetrics.secondaryFont())
@@ -249,5 +257,10 @@ private struct DNSSpoofingRuleEditor: View {
 
     private var problem: String? {
         DNSSpoofingRuleValidator.problem(with: rule, among: existingRules)
+    }
+
+    /// Save stays disabled while a field is empty, but only a real mistake is spelled out.
+    private var visibleProblem: String? {
+        DNSSpoofingRuleValidator.problem(with: rule, among: existingRules, reportsMissingFields: false)
     }
 }

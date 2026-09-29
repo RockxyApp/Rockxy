@@ -45,6 +45,22 @@ struct DNSSpoofingRuleValidatorTests {
         #expect(problem("api.example.com", "API.example.com") != nil)
         #expect(problem("api.example.com", "10.0.0.6", others: [DNSSpoofingRule(host: "api.example.com", address: "10.0.0.5")]) != nil)
     }
+
+    @Test("An editor can leave empty fields unreported while still flagging real mistakes")
+    func missingFieldsAreQuiet() {
+        func quiet(_ host: String, _ address: String) -> String? {
+            DNSSpoofingRuleValidator.problem(
+                with: DNSSpoofingRule(host: host, address: address),
+                among: [],
+                reportsMissingFields: false
+            )
+        }
+        #expect(quiet("", "") == nil)
+        #expect(quiet("api.example.com", "") == nil)
+        #expect(quiet("", "10.0.0.5") == nil)
+        #expect(quiet("https://api.example.com", "") != nil)
+        #expect(quiet("api.example.com", "http://10.0.0.5") != nil)
+    }
 }
 
 // MARK: - DNSSpoofingStoreTests

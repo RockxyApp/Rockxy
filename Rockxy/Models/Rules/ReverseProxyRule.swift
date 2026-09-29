@@ -63,8 +63,17 @@ enum ReverseProxyRuleStatus: Equatable {
 enum ReverseProxyRuleValidator {
     static let localPortRange = 1_024 ... 65_535
 
-    /// First problem with `rule`, or `nil` when it can be saved.
-    static func problem(with rule: ReverseProxyRule, among rules: [ReverseProxyRule], proxyPort: Int) -> String? {
+    /// First problem with `rule`, or `nil` when it can be saved. With `reportsMissingFields`
+    /// false, an empty remote host is not reported, so an editor can keep Save disabled
+    /// without flagging a form the user has not filled in yet.
+    static func problem(
+        with rule: ReverseProxyRule,
+        among rules: [ReverseProxyRule],
+        proxyPort: Int,
+        reportsMissingFields: Bool = true
+    )
+        -> String?
+    {
         let host = rule.remoteHost.trimmingCharacters(in: .whitespacesAndNewlines)
         guard localPortRange.contains(rule.localPort) else {
             return String(localized: "Choose a local port from 1024 to 65535.", bundle: RockxyLocalization.bundle)
@@ -82,7 +91,9 @@ enum ReverseProxyRuleValidator {
             )
         }
         guard !host.isEmpty else {
-            return String(localized: "Enter the remote host.", bundle: RockxyLocalization.bundle)
+            return reportsMissingFields
+                ? String(localized: "Enter the remote host.", bundle: RockxyLocalization.bundle)
+                : nil
         }
         guard !host.contains("/"), !host.contains("://"), !host.contains(where: \.isWhitespace) else {
             return String(

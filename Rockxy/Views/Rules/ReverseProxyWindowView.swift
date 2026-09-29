@@ -285,15 +285,17 @@ private struct ReverseProxyRuleEditor: View {
             }
             .formStyle(.grouped)
 
-            Text(String(
-                localized: "Clients use \(rule.localURLString) in place of \(rule.remoteURLString).",
-                bundle: RockxyLocalization.bundle
-            ))
-            .font(toolMetrics.secondaryFont())
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 20)
+            if !rule.remoteHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text(String(
+                    localized: "Clients use \(rule.localURLString) in place of \(rule.remoteURLString).",
+                    bundle: RockxyLocalization.bundle
+                ))
+                .font(toolMetrics.secondaryFont())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 20)
+            }
 
-            if let problem {
+            if let problem = visibleProblem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .font(toolMetrics.secondaryFont())
@@ -333,5 +335,15 @@ private struct ReverseProxyRuleEditor: View {
 
     private var problem: String? {
         ReverseProxyRuleValidator.problem(with: rule, among: existingRules, proxyPort: proxyPort)
+    }
+
+    /// Save stays disabled while the remote host is empty, but only a real mistake is spelled out.
+    private var visibleProblem: String? {
+        ReverseProxyRuleValidator.problem(
+            with: rule,
+            among: existingRules,
+            proxyPort: proxyPort,
+            reportsMissingFields: false
+        )
     }
 }
