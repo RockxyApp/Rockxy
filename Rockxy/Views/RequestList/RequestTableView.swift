@@ -234,7 +234,7 @@ struct RequestTableView: NSViewRepresentable {
         guard columnIDs.count >= legacyBuiltInOrder.count,
               Array(columnIDs.prefix(legacyBuiltInOrder.count)) == legacyBuiltInOrder,
               columnIDs.dropFirst(legacyBuiltInOrder.count).allSatisfy({ columnID in
-                  columnID == "version" || columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.")
+                  columnID == "version" || HeaderColumn.isCustomColumnID(columnID)
               }),
               let protocolIndex = columnIDs.firstIndex(of: "ai"),
               let rowIndex = columnIDs.firstIndex(of: "row") else
@@ -297,7 +297,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -316,7 +316,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -399,7 +399,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -980,7 +980,7 @@ extension RequestTableView {
                     }
                     font = metrics.appKitFont()
                 default:
-                    if columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.") {
+                    if HeaderColumn.isCustomColumnID(columnID) {
                         text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
                         font = metrics.appKitFont(monospaced: true)
                     } else {
@@ -1493,7 +1493,7 @@ extension RequestTableView {
                 let existingCustomIDs = Set(
                     tableView.tableColumns
                         .map(\.identifier.rawValue)
-                        .filter { $0.hasPrefix("reqHeader.") || $0.hasPrefix("resHeader.") }
+                        .filter { HeaderColumn.isCustomColumnID($0) }
                 )
 
                 var columnsChanged = false
@@ -2924,7 +2924,7 @@ extension RequestTableView {
                 }
 
             default:
-                if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
+                if HeaderColumn.isCustomColumnID(column) {
                     let headerValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
                     cell.stringValue = headerValue
                     cell.toolTip = headerValue.isEmpty ? nil : headerValue

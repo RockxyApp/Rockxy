@@ -34327,16 +34327,6 @@
         }
       }
     },
-    "Show a request or response header value as a column. Changes appear in the traffic table right away.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将请求或响应标头值显示为一列。更改会立即出现在流量表中。"
-          }
-        }
-      }
-    },
     "Show alert when quitting Rockxy": {
       "localizations": {
         "zh-Hans": {
@@ -46756,6 +46746,126 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有添加新规则；备份中的规则已存在。"
+          }
+        }
+      }
+    },
+    "Enter JSONPath, such as $.data.id, or a jq filter, such as .data.id.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 JSONPath（如 $.data.id）或 jq 过滤器（如 .data.id）。"
+          }
+        }
+      }
+    },
+    "Enter a parameter name.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入参数名称。"
+          }
+        }
+      }
+    },
+    "Enter only the parameter name, without spaces, =, &, ?, or #.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只输入参数名称，不要包含空格、=、&、? 或 #。"
+          }
+        }
+      }
+    },
+    "Expression": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表达式"
+          }
+        }
+      }
+    },
+    "Expressions are limited to %lld characters.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表达式最多 %lld 个字符。"
+          }
+        }
+      }
+    },
+    "Parameter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参数"
+          }
+        }
+      }
+    },
+    "Parameter names are limited to %lld characters.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参数名称最多 %lld 个字符。"
+          }
+        }
+      }
+    },
+    "Several results are joined with commas. Bodies that are not JSON show an empty cell.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多个结果以逗号连接。非 JSON 正文显示为空单元格。"
+          }
+        }
+      }
+    },
+    "Show a header, a query parameter, or a value from a JSON body as a column. Changes appear in the traffic table right away.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将请求头、查询参数或 JSON 正文中的值显示为列。更改会立即显示在流量表中。"
+          }
+        }
+      }
+    },
+    "Show a value from the JSON body as a column. Use JSONPath, starting with $, or a jq filter.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 JSON 正文中的值显示为列。使用以 $ 开头的 JSONPath 或 jq 过滤器。"
+          }
+        }
+      }
+    },
+    "Show this query parameter's value as a column in the traffic table.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在流量表中将此查询参数的值显示为列。"
+          }
+        }
+      }
+    },
+    "Shows the first value when the parameter repeats.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参数重复时显示第一个值。"
           }
         }
       }

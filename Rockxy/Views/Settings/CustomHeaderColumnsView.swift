@@ -74,6 +74,7 @@ final class CustomHeaderColumnsViewModel {
     // MARK: Internal
 
     static let maxHeaderNameLength = 256
+    static let maxExpressionLength = 512
 
     let store: HeaderColumnStore
 
@@ -144,6 +145,58 @@ final class CustomHeaderColumnsViewModel {
         return nil
     }
 
+    /// Validation for a name typed for `source`: a header token, a query parameter name, or a
+    /// JSONPath/jq expression for a body column.
+    static func validationMessage(for value: String, source: HeaderColumnSource) -> String? {
+        switch source {
+        case .request,
+             .response:
+            return validationMessage(for: value)
+        case .query:
+            if value.isEmpty {
+                return String(localized: "Enter a parameter name.", bundle: RockxyLocalization.bundle)
+            }
+            if value.count > maxHeaderNameLength {
+                return String(
+                    localized: "Parameter names are limited to \(maxHeaderNameLength) characters.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+            if value.contains(where: { "&=#?".contains($0) || $0.isWhitespace }) {
+                return String(
+                    localized: "Enter only the parameter name, without spaces, =, &, ?, or #.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+            return nil
+        case .requestBody,
+             .responseBody:
+            if value.isEmpty {
+                return String(
+                    localized: "Enter JSONPath, such as $.data.id, or a jq filter, such as .data.id.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+            if value.count > maxExpressionLength {
+                return String(
+                    localized: "Expressions are limited to \(maxExpressionLength) characters.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+            do {
+                if value.hasPrefix("$") {
+                    var parser = try JSONPathParser(source: value)
+                    _ = try parser.parse()
+                } else {
+                    _ = try JQFilter(value)
+                }
+            } catch {
+                return error.localizedDescription
+            }
+            return nil
+        }
+    }
+
     /// Removes any selected ids that are no longer visible (hidden by search,
     /// source switch, or store mutation).
     func reconcileSelection() {
@@ -204,11 +257,11 @@ final class CustomHeaderColumnsViewModel {
     @discardableResult
     func addHeader(_ raw: String) -> CustomHeaderColumnsAddOutcome {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let message = Self.validationMessage(for: trimmed) {
+        if let message = Self.validationMessage(for: trimmed, source: source) {
             return .invalid(message)
         }
 
-        let normalized = trimmed.lowercased()
+        let normalized = source.normalizedName(trimmed)
         let rowID = Self.rowID(source: source, normalizedName: normalized)
 
         if let existing = savedColumn(named: trimmed, source: source) {
@@ -243,25 +296,30 @@ final class CustomHeaderColumnsViewModel {
 
     private func savedColumn(named name: String, source: HeaderColumnSource) -> HeaderColumn? {
         store.columns.first { (column: HeaderColumn) -> Bool in
-            column.source == source
-                && column.headerName.caseInsensitiveCompare(name) == .orderedSame
+            column.source == source && source.namesMatch(column.headerName, name)
         }
     }
 
     private func discoveredNames(for source: HeaderColumnSource) -> [String] {
-        source == .request ? store.discoveredRequestHeaders : store.discoveredResponseHeaders
+        switch source {
+        case .request: store.discoveredRequestHeaders
+        case .response: store.discoveredResponseHeaders
+        case .query,
+             .requestBody,
+             .responseBody: []
+        }
     }
 
     /// Merges stored and discovered names case-insensitively without mutating the
     /// store: saved spelling wins, discovered-only rows keep captured spelling.
     private func rows(for source: HeaderColumnSource) -> [HeaderColumnRow] {
         let discovered = discoveredNames(for: source)
-        let discoveredSet = Set(discovered.map { $0.lowercased() })
+        let discoveredSet = Set(discovered.map { source.normalizedName($0) })
 
         var savedByNormalized: [String: Bool] = [:]
         var savedRows: [HeaderColumnRow] = []
         for column in store.columns where column.source == source {
-            let normalized = column.headerName.lowercased()
+            let normalized = source.normalizedName(column.headerName)
             guard savedByNormalized[normalized] == nil else {
                 continue
             }
@@ -282,7 +340,7 @@ final class CustomHeaderColumnsViewModel {
         var discoveredRows: [HeaderColumnRow] = []
         var seen: Set<String> = []
         for name in discovered {
-            let normalized = name.lowercased()
+            let normalized = source.normalizedName(name)
             guard savedByNormalized[normalized] == nil, seen.insert(normalized).inserted else {
                 continue
             }
@@ -341,7 +399,9 @@ struct CustomHeaderColumnsView: View {
         .sheet(isPresented: $showingAdd) {
             AddHeaderColumnSheet(
                 source: model.source,
-                validate: { CustomHeaderColumnsViewModel.validationMessage(for: $0) },
+                validate: { [source = model.source] in
+                    CustomHeaderColumnsViewModel.validationMessage(for: $0, source: source)
+                },
                 commit: commitAdd
             )
         }
@@ -403,7 +463,7 @@ struct CustomHeaderColumnsView: View {
 
                 Text(
                     String(
-                        localized: "Show a request or response header value as a column. Changes appear in the traffic table right away.",
+                        localized: "Show a header, a query parameter, or a value from a JSON body as a column. Changes appear in the traffic table right away.",
                         bundle: RockxyLocalization.bundle
                     )
                 )
@@ -453,6 +513,12 @@ struct CustomHeaderColumnsView: View {
                 .tag(HeaderColumnSource.request)
             Text(String(localized: "Response Headers", bundle: RockxyLocalization.bundle))
                 .tag(HeaderColumnSource.response)
+            Text(String(localized: "Query", bundle: RockxyLocalization.bundle))
+                .tag(HeaderColumnSource.query)
+            Text(String(localized: "Request Body", bundle: RockxyLocalization.bundle))
+                .tag(HeaderColumnSource.requestBody)
+            Text(String(localized: "Response Body", bundle: RockxyLocalization.bundle))
+                .tag(HeaderColumnSource.responseBody)
         }
         .labelsHidden()
         .pickerStyle(.segmented)
@@ -748,8 +814,8 @@ private struct AddHeaderColumnSheet: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                fieldRow(String(localized: "Header Name", bundle: RockxyLocalization.bundle)) {
-                    TextField("", text: $name, prompt: Text(verbatim: "X-Request-Id"))
+                fieldRow(nameLabel) {
+                    TextField("", text: $name, prompt: Text(verbatim: namePrompt))
                         .textFieldStyle(.roundedBorder)
                         .font(toolMetrics.font(monospaced: true))
                         .frame(height: toolMetrics.formControlHeight)
@@ -758,7 +824,7 @@ private struct AddHeaderColumnSheet: View {
                             feedback = nil
                         }
                         .onSubmit(attemptCommit)
-                        .accessibilityLabel(String(localized: "Header name", bundle: RockxyLocalization.bundle))
+                        .accessibilityLabel(nameLabel)
                 }
 
                 if let message = inlineMessage {
@@ -767,10 +833,7 @@ private struct AddHeaderColumnSheet: View {
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text(String(
-                        localized: "Matching is case-insensitive. Request and Response are kept separate.",
-                        bundle: RockxyLocalization.bundle
-                    ))
+                    Text(footnote)
                     .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -838,21 +901,81 @@ private struct AddHeaderColumnSheet: View {
     }
 
     private var sourceLabel: String {
-        source == .request
-            ? String(localized: "Request Headers", bundle: RockxyLocalization.bundle)
-            : String(localized: "Response Headers", bundle: RockxyLocalization.bundle)
+        switch source {
+        case .request: String(localized: "Request Headers", bundle: RockxyLocalization.bundle)
+        case .response: String(localized: "Response Headers", bundle: RockxyLocalization.bundle)
+        case .query: String(localized: "Query", bundle: RockxyLocalization.bundle)
+        case .requestBody: String(localized: "Request Body", bundle: RockxyLocalization.bundle)
+        case .responseBody: String(localized: "Response Body", bundle: RockxyLocalization.bundle)
+        }
     }
 
     private var sourceExplanation: String {
-        source == .request
-            ? String(
+        switch source {
+        case .request:
+            String(
                 localized: "Show this request header's value as a column in the traffic table.",
                 bundle: RockxyLocalization.bundle
             )
-            : String(
+        case .response:
+            String(
                 localized: "Show this response header's value as a column in the traffic table.",
                 bundle: RockxyLocalization.bundle
             )
+        case .query:
+            String(
+                localized: "Show this query parameter's value as a column in the traffic table.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .requestBody,
+             .responseBody:
+            String(
+                localized: "Show a value from the JSON body as a column. Use JSONPath, starting with $, or a jq filter.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+    }
+
+    private var nameLabel: String {
+        switch source {
+        case .request,
+             .response: String(localized: "Header Name", bundle: RockxyLocalization.bundle)
+        case .query: String(localized: "Parameter", bundle: RockxyLocalization.bundle)
+        case .requestBody,
+             .responseBody: String(localized: "Expression", bundle: RockxyLocalization.bundle)
+        }
+    }
+
+    private var namePrompt: String {
+        switch source {
+        case .request,
+             .response: "X-Request-Id"
+        case .query: "page"
+        case .requestBody,
+             .responseBody: "$.data.user.name"
+        }
+    }
+
+    private var footnote: String {
+        switch source {
+        case .request,
+             .response:
+            String(
+                localized: "Matching is case-insensitive. Request and Response are kept separate.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .query:
+            String(
+                localized: "Shows the first value when the parameter repeats.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .requestBody,
+             .responseBody:
+            String(
+                localized: "Several results are joined with commas. Bodies that are not JSON show an empty cell.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
     }
 
     private func fieldRow(_ label: String, @ViewBuilder content: () -> some View) -> some View {

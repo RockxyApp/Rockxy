@@ -45,6 +45,19 @@ The main traffic list displays captured requests in a high-performance virtualiz
 - **Duration** — total round-trip time in milliseconds
 - **Content Type** — detected response type (JSON, XML, HTML, image, etc.)
 
+### Custom columns
+
+**Tools > Custom Header Columns…** adds columns of your own:
+
+| Source | Shows | Example |
+|--------|-------|---------|
+| Request Headers / Response Headers | A header's value | `X-Request-Id` |
+| Query | A query parameter's first value | `page` |
+| Request Body / Response Body | A value from a JSON body, with JSONPath (starting with `$`) or a jq filter | `$.data.user.name`, `.items \| length` |
+
+Several results are joined with commas, and a body that is not JSON shows an empty cell. Custom
+columns can be sorted like any other column.
+
 Above the request list, the main content switcher gives you different perspectives on captured data:
 
 - **Traffic** — the full chronological request list
@@ -75,7 +88,10 @@ Request and response headers each have their own tab on their respective side of
 ### Body
 
 Auto-detects the content type and renders the body accordingly:
-- **JSON** — collapsible tree view with syntax highlighting
+- **JSON** — collapsible tree view with syntax highlighting. The filter bar under the tree
+  searches by **JSON Paths** (`$.posts[*].user.name`), **Key Paths**, **All Keys**, or **All
+  Values**, or transforms the body with **jq** (`.posts[] | select(.likes > 10) | .user.name`);
+  jq results replace the tree while the filter is set
 - **XML/HTML** — formatted tree view with tag folding
 - **Images** — inline preview (PNG, JPEG, GIF, WebP, SVG)
 - **Binary** — hex dump with ASCII sidebar

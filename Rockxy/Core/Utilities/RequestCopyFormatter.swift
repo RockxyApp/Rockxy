@@ -56,7 +56,7 @@ enum RequestCopyFormatter {
         case "queryName":
             return web3RPCMethodDescription(transaction.web3RPCInfo) ?? transaction.graphQLInfo?.operationName ?? ""
         default:
-            if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
+            if HeaderColumn.isCustomColumnID(column) {
                 return HeaderColumnStore.resolveValue(for: column, transaction: transaction)
             }
             return transaction.request.url.absoluteString

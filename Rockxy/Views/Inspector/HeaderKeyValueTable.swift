@@ -138,7 +138,10 @@ struct HeaderKeyValueTable: View {
         switch source {
         case .request:
             String(localized: "Add Request Header as Column", bundle: RockxyLocalization.bundle)
-        case .response:
+        case .response,
+             .query,
+             .requestBody,
+             .responseBody:
             String(localized: "Add Response Header as Column", bundle: RockxyLocalization.bundle)
         }
     }

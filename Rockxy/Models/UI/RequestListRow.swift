@@ -15,6 +15,7 @@ struct RequestListRow: Identifiable {
 
     init(from transaction: HTTPTransaction, sslState: SSLState? = nil) {
         id = transaction.id
+        source = transaction
         timestamp = transaction.timestamp
         method = transaction.request.method
         scheme = transaction.request.url.scheme ?? "http"
@@ -70,17 +71,6 @@ struct RequestListRow: Identifiable {
         )
     }
 
-    static func modificationSummary(for transaction: HTTPTransaction) -> String? {
-        var lines: [String] = []
-        if let ruleName = transaction.matchedRuleName {
-            lines.append(transaction.matchedRuleActionSummary.map { "\(ruleName) — \($0)" } ?? ruleName)
-        }
-        if !transaction.appliedScriptNames.isEmpty {
-            lines.append(transaction.appliedScriptNames.joined(separator: ", "))
-        }
-        return lines.isEmpty ? nil : lines.joined(separator: "\n")
-    }
-
     // MARK: Internal
 
     enum SSLState: Int {
@@ -90,6 +80,8 @@ struct RequestListRow: Identifiable {
     }
 
     let id: UUID
+    /// The captured transaction, read lazily by query and body columns.
+    weak var source: HTTPTransaction?
     let timestamp: Date
     let method: String
     let scheme: String
@@ -170,6 +162,17 @@ struct RequestListRow: Identifiable {
     var isConnectTunnel: Bool {
         method.caseInsensitiveCompare("CONNECT") == .orderedSame
     }
+
+    static func modificationSummary(for transaction: HTTPTransaction) -> String? {
+        var lines: [String] = []
+        if let ruleName = transaction.matchedRuleName {
+            lines.append(transaction.matchedRuleActionSummary.map { "\(ruleName) — \($0)" } ?? ruleName)
+        }
+        if !transaction.appliedScriptNames.isEmpty {
+            lines.append(transaction.appliedScriptNames.joined(separator: ", "))
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
 }
 
 // MARK: - Sorting
@@ -231,7 +234,7 @@ extension RequestListRow {
         case "row":
             compareInt(lhs.sequenceNumber, rhs.sequenceNumber)
         default:
-            if key.hasPrefix("reqHeader.") || key.hasPrefix("resHeader.") {
+            if HeaderColumn.isCustomColumnID(key) {
                 compareHeaderValue(lhs, rhs, columnID: key)
             } else {
                 .orderedSame
@@ -455,25 +458,35 @@ extension RequestListRow {
         let number = trimmed.uppercased().hasPrefix("HTTP/") ? String(trimmed.dropFirst(5)) : trimmed
         switch number {
         case "": return ""
-        case "2", "2.0": return "HTTP/2"
-        case "3", "3.0": return "HTTP/3"
+        case "2",
+             "2.0": return "HTTP/2"
+        case "3",
+             "3.0": return "HTTP/3"
         default: return "HTTP/\(number)"
         }
     }
 
     static func resolveHeaderValue(for columnID: String, row: RequestListRow) -> String {
-        if columnID.hasPrefix("reqHeader.") {
-            let headerName = String(columnID.dropFirst("reqHeader.".count))
-            return row.requestHeaders
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
-        } else if columnID.hasPrefix("resHeader.") {
-            let headerName = String(columnID.dropFirst("resHeader.".count))
-            return row.responseHeaders?
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
+        guard let (source, name) = HeaderColumn.parse(columnID: columnID) else {
+            return ""
         }
-        return ""
+        switch source {
+        case .request:
+            return row.requestHeaders
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .response:
+            return row.responseHeaders?
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .query,
+             .requestBody,
+             .responseBody:
+            guard let transaction = row.source else {
+                return ""
+            }
+            return HeaderColumnStore.resolveValue(for: columnID, transaction: transaction)
+        }
     }
 }
 

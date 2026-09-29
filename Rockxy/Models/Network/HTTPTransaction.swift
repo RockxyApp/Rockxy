@@ -63,7 +63,11 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         didSet { signalEvidenceRevision &+= 1 }
     }
     /// Changes whenever request or response evidence used by cached list signals changes.
-    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0
+    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0 {
+        didSet { customColumnValueCache.removeAll() }
+    }
+    /// Values of body columns, keyed by column, kept once the transaction has finished.
+    @ObservationIgnored let customColumnValueCache = CustomColumnValueCache()
     var state: TransactionState
     /// Whether this transaction reaches the session twice — as an `.active` row when it opens
     /// and again when it finishes. Fixed at creation because the two deliveries travel through
