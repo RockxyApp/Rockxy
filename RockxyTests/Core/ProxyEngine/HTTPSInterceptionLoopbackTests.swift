@@ -41,6 +41,21 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
+    @Test("HTTPS through the SOCKS5 listener is decrypted like an HTTP CONNECT")
+    func httpsViaSOCKSIsDecrypted() async throws {
+        try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
+            let response = try await harness.getViaSOCKS("/secure/socks")
+
+            #expect(response.status == 200)
+            #expect(response.headerValue(HTTPSLoopbackHarness.originMarkerHeader) == "tls-origin")
+
+            try await Task.sleep(for: .milliseconds(300))
+            let decrypted = await harness.capturedTransactions().first { $0.request.url.path == "/secure/socks" }
+            #expect(decrypted?.request.url.scheme == "https")
+            #expect(decrypted?.response?.statusCode == 200)
+        }
+    }
+
     @Test("Plain HTTP sent through a CONNECT tunnel is relayed and captured as http://")
     func plainHTTPInsideConnectTunnelIsCaptured() async throws {
         try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
@@ -187,6 +202,22 @@ private actor HTTPSLoopbackHarness {
             path: path,
             proxyPort: proxyPort,
             trustRoot: rootCertificate
+        )
+    }
+
+    /// Issues the same HTTPS request through the SOCKS5 listener instead of an HTTP CONNECT.
+    func getViaSOCKS(_ path: String) async throws -> LoopbackHTTPResponse {
+        let socksPort = try Self.reserveLoopbackPort()
+        if let failure = await proxyServer.updateSOCKSListener(port: socksPort) {
+            throw LoopbackError.tunnelRefused(failure == .portInUse ? 1 : 2)
+        }
+        return try await LoopbackHTTPSClient.get(
+            host: Self.originHost,
+            port: origin.boundPort,
+            path: path,
+            proxyPort: socksPort,
+            trustRoot: rootCertificate,
+            useSOCKS: true
         )
     }
 
@@ -476,7 +507,8 @@ private enum LoopbackHTTPSClient {
         port: Int,
         path: String,
         proxyPort: Int,
-        trustRoot: NIOSSLCertificate?
+        trustRoot: NIOSSLCertificate?,
+        useSOCKS: Bool = false
     )
         async throws -> LoopbackHTTPResponse
     {
@@ -499,6 +531,7 @@ private enum LoopbackHTTPSClient {
                     targetPort: port,
                     path: path,
                     sslContext: sslContext,
+                    useSOCKS: useSOCKS,
                     promise: promise
                 ))
             }
@@ -527,12 +560,14 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
         targetPort: Int,
         path: String,
         sslContext: NIOSSLContext?,
+        useSOCKS: Bool = false,
         promise: EventLoopPromise<LoopbackHTTPResponse>
     ) {
         self.targetHost = targetHost
         self.targetPort = targetPort
         self.path = path
         self.sslContext = sslContext
+        self.useSOCKS = useSOCKS
         self.promise = promise
     }
 
@@ -542,6 +577,12 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
     typealias OutboundOut = ByteBuffer
 
     func channelActive(context: ChannelHandlerContext) {
+        if useSOCKS {
+            var greeting = context.channel.allocator.buffer(capacity: 3)
+            greeting.writeBytes([0x05, 0x01, 0x00])
+            context.writeAndFlush(wrapOutboundOut(greeting), promise: nil)
+            return
+        }
         let connect = "CONNECT \(targetHost):\(targetPort) HTTP/1.1\r\nHost: \(targetHost):\(targetPort)\r\n\r\n"
         var buffer = context.channel.allocator.buffer(capacity: connect.utf8.count)
         buffer.writeString(connect)
@@ -551,6 +592,10 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
         pending.writeBuffer(&buffer)
+        if useSOCKS {
+            readSOCKS(context: context)
+            return
+        }
         guard let text = pending.getString(at: pending.readerIndex, length: pending.readableBytes),
               let headerEnd = text.range(of: "\r\n\r\n") else
         {
@@ -564,6 +609,36 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
             return
         }
 
+        installTransport(context: context)
+    }
+
+    /// SOCKS5: greeting reply (2 bytes), then CONNECT reply (10 bytes), then TLS.
+    private func readSOCKS(context: ChannelHandlerContext) {
+        if !socksGreetingDone {
+            guard pending.readableBytes >= 2 else {
+                return
+            }
+            pending.moveReaderIndex(forwardBy: 2)
+            socksGreetingDone = true
+            let name = Array(targetHost.utf8)
+            var request = context.channel.allocator.buffer(capacity: 7 + name.count)
+            request.writeBytes([0x05, 0x01, 0x00, 0x03, UInt8(name.count)] + name)
+            request.writeBytes([UInt8(targetPort >> 8), UInt8(targetPort & 0xFF)])
+            context.writeAndFlush(wrapOutboundOut(request), promise: nil)
+        }
+        guard pending.readableBytes >= 10 else {
+            return
+        }
+        guard pending.getInteger(at: pending.readerIndex + 1, as: UInt8.self) == 0x00 else {
+            promise.fail(LoopbackError.tunnelRefused(-1))
+            context.close(promise: nil)
+            return
+        }
+        pending.moveReaderIndex(forwardBy: 10)
+        installTransport(context: context)
+    }
+
+    private func installTransport(context: ChannelHandlerContext) {
         let path = path
         let targetHost = targetHost
         let targetPort = targetPort
@@ -607,8 +682,10 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
     private let targetPort: Int
     private let path: String
     private let sslContext: NIOSSLContext?
+    private let useSOCKS: Bool
     private let promise: EventLoopPromise<LoopbackHTTPResponse>
     private var pending = ByteBufferAllocator().buffer(capacity: 256)
+    private var socksGreetingDone = false
 }
 
 // MARK: - TunneledRequestHandler
