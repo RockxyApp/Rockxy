@@ -130,6 +130,16 @@
         }
       }
     },
+    "Data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据"
+          }
+        }
+      }
+    },
     "Drop a HAR or Rockxy session to open it": {
       "localizations": {
         "zh-Hans": {
@@ -146,6 +156,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "空值"
+          }
+        }
+      }
+    },
+    "Event %lld · %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事件 %lld · %@"
           }
         }
       }
@@ -380,6 +400,16 @@
         }
       }
     },
+    "Server-sent events": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器发送事件"
+          }
+        }
+      }
+    },
     "Show Advanced Filters": {
       "localizations": {
         "zh-Hans": {
@@ -466,6 +496,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "该会话过大，无法通过附近传输发送。"
+          }
+        }
+      }
+    },
+    "The stream has not delivered a complete event yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数据流尚未传送完整的事件。"
           }
         }
       }

@@ -138,7 +138,7 @@ struct ResponseInspectorView: View {
 
     private var tabDescriptors: [InspectorTabDescriptor] {
         var descriptors: [InspectorTabDescriptor] = ResponseInspectorTab
-            .availableTabs()
+            .availableTabs(includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction))
             .map { tab in
                 InspectorTabDescriptor(
                     id: "native.\(tab.rawValue)",
@@ -406,6 +406,12 @@ struct ResponseInspectorView: View {
                 responseHeadersView(response: response)
             case .body:
                 responseBodyView(response: response)
+            case .events:
+                if ServerSentEventsInspectorView.isApplicable(to: transaction) {
+                    ServerSentEventsInspectorView(transaction: transaction)
+                } else {
+                    responseBodyView(response: response)
+                }
             case .setCookie:
                 SetCookieInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .auth:
@@ -561,6 +567,9 @@ struct ResponseInspectorView: View {
     }
 
     private func syncInspectorStateForTransaction() {
+        if selectedTab == .events, !ServerSentEventsInspectorView.isApplicable(to: transaction) {
+            selectedTab = .body
+        }
         if let selectedPreviewTab,
            !previewTabStore.responseTabs.contains(where: { $0.id == selectedPreviewTab.id })
         {
