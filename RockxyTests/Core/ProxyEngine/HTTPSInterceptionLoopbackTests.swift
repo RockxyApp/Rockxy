@@ -41,6 +41,29 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
+    @Test("The TLS key log records secrets for both legs of a decrypted connection")
+    func tlsKeyLogRecordsBothLegs() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-keylog-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try TLSKeyLogWriter.shared.setDestination(url)
+        defer { try? TLSKeyLogWriter.shared.setDestination(nil) }
+
+        try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
+            let response = try await harness.get("/secure/items")
+            #expect(response.status == 200)
+        }
+        TLSKeyLogWriter.shared.flush()
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n")
+        // TLS 1.3 logs one CLIENT_TRAFFIC_SECRET_0 per handshake: client→Rockxy and Rockxy→origin.
+        let trafficSecrets = lines.filter { $0.hasPrefix("CLIENT_TRAFFIC_SECRET_0 ") }
+        #expect(trafficSecrets.count >= 2, "lines: \(lines.map { $0.prefix(24) })")
+        #expect(lines.allSatisfy { $0.split(separator: " ").count == 3 })
+    }
+
     @Test("An HTTPS request edited at a breakpoint to another server is sent to that server")
     func breakpointEditRedirectsHTTPSToAnotherServer() async throws {
         let manager = await MainActor.run { BreakpointManager() }

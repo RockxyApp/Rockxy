@@ -165,6 +165,14 @@ enum CommandPaletteCatalog {
                 .openWindow("dnsSpoofing")
             ),
             command(
+                "tools.tlsKeyLog",
+                "TLS Key Log…",
+                tools,
+                nil,
+                ["sslkeylogfile", "wireshark", "secrets", "pcap"],
+                .openWindow("tlsKeyLog")
+            ),
+            command(
                 "tools.scripts",
                 "Script List…",
                 tools,

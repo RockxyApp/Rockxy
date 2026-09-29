@@ -430,6 +430,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         )
         config.minimumTLSVersion = .tlsv12
         config.applicationProtocols = allowsHTTP2 ? HTTP2ProxyOptions.alpnProtocols : ["http/1.1"]
+        TLSKeyLogWriter.apply(to: &config)
         return config
     }
 

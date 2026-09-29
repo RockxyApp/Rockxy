@@ -1119,6 +1119,7 @@ extension HTTPSProxyRelayHandler {
             clientTLSConfig.certificateChain = try clientIdentity.certificateSources
             clientTLSConfig.privateKey = try clientIdentity.privateKeySource
         }
+        TLSKeyLogWriter.apply(to: &clientTLSConfig)
         return clientTLSConfig
     }
 }

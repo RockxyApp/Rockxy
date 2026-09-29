@@ -45419,6 +45419,86 @@
           }
         }
       }
+    },
+    "Rockxy can't write to %@. Choose another file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法写入 %@。请选择其他文件。"
+          }
+        }
+      }
+    },
+    "TLS Key Log": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS 密钥日志"
+          }
+        }
+      }
+    },
+    "Write TLS keys to a file": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 TLS 密钥写入文件"
+          }
+        }
+      }
+    },
+    "In Wireshark, open Settings > Protocols > TLS and set (Pre)-Master-Secret log filename to this file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Wireshark 中，打开“设置 > 协议 > TLS”，并将 (Pre)-Master-Secret log filename 设置为此文件。"
+          }
+        }
+      }
+    },
+    "Choose where Rockxy appends TLS keys. An existing file is kept and added to.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择 Rockxy 追加写入 TLS 密钥的位置。现有文件会保留并继续追加。"
+          }
+        }
+      }
+    },
+    "TLS Key Log…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TLS 密钥日志…"
+          }
+        }
+      }
+    },
+    "Write the secrets of every TLS connection Rockxy decrypts to a key log file. Wireshark and other packet analyzers use it to decrypt a capture of the same traffic.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Rockxy 解密的每个 TLS 连接的密钥写入密钥日志文件。Wireshark 等数据包分析工具可用它解密同一流量的抓包。"
+          }
+        }
+      }
+    },
+    "Anyone with this file and a packet capture can read the decrypted traffic. Turn logging off when you finish, and delete the file when you no longer need it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任何拥有此文件和抓包数据的人都能读取解密后的流量。完成后请关闭日志记录，并在不再需要时删除该文件。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

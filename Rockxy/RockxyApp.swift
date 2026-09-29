@@ -103,6 +103,7 @@ struct RockxyApp: App {
 
         ReverseProxyWindowScene()
         DNSSpoofingWindowScene()
+        TLSKeyLogWindowScene()
 
         macCertificateSetupGuideWindow
 
@@ -1190,6 +1191,9 @@ struct RockxyMenuCommands: Commands {
             }
             Button(String(localized: "DNS Spoofing…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "dnsSpoofing")
+            }
+            Button(String(localized: "TLS Key Log…", bundle: RockxyLocalization.bundle)) {
+                openWindow(id: "tlsKeyLog")
             }
 
             Divider()

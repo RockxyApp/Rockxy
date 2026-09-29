@@ -887,9 +887,10 @@ extension MainContentCoordinator {
         let captureProbeTracker = captureProbeTracker
         let captureRecordingGate = captureRecordingGate
 
-        // Load Access Control and DNS Spoofing before the listener accepts its first connection.
+        // Load Access Control, DNS Spoofing, and the TLS key log before the first connection.
         RemoteAccessSettings.shared.activate()
         _ = DNSSpoofingStore.shared
+        _ = TLSKeyLogSettings.shared
         let configuration = ProxyConfiguration(
             port: resolvedPort,
             listenAddress: settings.effectiveListenAddress,
