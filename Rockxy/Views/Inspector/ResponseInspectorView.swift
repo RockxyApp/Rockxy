@@ -140,7 +140,8 @@ struct ResponseInspectorView: View {
         var descriptors: [InspectorTabDescriptor] = ResponseInspectorTab
             .availableTabs(
                 includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction),
-                includesProtobuf: ProtobufBodyInspection.isApplicable(to: transaction, direction: .response)
+                includesProtobuf: ProtobufBodyInspection.isApplicable(to: transaction, direction: .response),
+                includesMultipart: MultipartInspectorView.isApplicable(to: transaction, direction: .response)
             )
             .map { tab in
                 InspectorTabDescriptor(
@@ -410,6 +411,12 @@ struct ResponseInspectorView: View {
                 } else {
                     responseBodyView(response: response)
                 }
+            case .multipart:
+                if MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
+                    MultipartInspectorView(transaction: transaction, direction: .response)
+                } else {
+                    responseBodyView(response: response)
+                }
             case .setCookie:
                 SetCookieInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .auth:
@@ -583,6 +590,9 @@ struct ResponseInspectorView: View {
             selectedTab = .body
         }
         if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
+            selectedTab = .body
+        }
+        if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
             selectedTab = .body
         }
         if let selectedPreviewTab,

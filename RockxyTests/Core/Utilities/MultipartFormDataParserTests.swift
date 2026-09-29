@@ -74,3 +74,24 @@ struct MultipartFormDataParserTests {
         ) == nil)
     }
 }
+
+// MARK: - MultipartResponseTabTests
+
+@MainActor
+struct MultipartResponseTabTests {
+    @Test("Multipart responses get their own tab; requests keep theirs")
+    func responseMultipartIsApplicable() {
+        let body = Data("--b\r\nContent-Type: text/plain\r\n\r\nhello\r\n--b--\r\n".utf8)
+        let transaction = TestFixtures.makeTransaction()
+        transaction.response = TestFixtures.makeResponse(
+            headers: [HTTPHeader(name: "Content-Type", value: "multipart/mixed; boundary=b")],
+            body: body
+        )
+
+        #expect(MultipartInspectorView.isApplicable(to: transaction, direction: .response))
+        #expect(!MultipartInspectorView.isApplicable(to: transaction, direction: .request))
+        #expect(ResponseInspectorTab.availableTabs(includesMultipart: true).contains(.multipart))
+        #expect(!ResponseInspectorTab.availableTabs().contains(.multipart))
+        #expect(MultipartFormDataParser.parse(body: body, boundary: "b").count == 1)
+    }
+}

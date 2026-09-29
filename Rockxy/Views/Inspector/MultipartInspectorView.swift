@@ -12,6 +12,8 @@ struct MultipartInspectorView: View {
     // MARK: Internal
 
     let transaction: HTTPTransaction
+    /// Which body to split: the upload the client sent, or a multipart response.
+    var direction: ProtobufPayloadDirection = .request
 
     var body: some View {
         Group {
@@ -39,15 +41,17 @@ struct MultipartInspectorView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: transaction.id) {
+        .task(id: "\(transaction.id.uuidString)-\(direction == .request ? "request" : "response")") {
             await loadParts()
         }
     }
 
-    /// Whether the request declares a multipart body worth a dedicated tab.
-    static func isApplicable(to transaction: HTTPTransaction) -> Bool {
-        guard transaction.request.body?.isEmpty == false,
-              let contentType = transaction.request.headers.first(where: {
+    /// Whether the request (or response) declares a multipart body worth a dedicated tab.
+    static func isApplicable(to transaction: HTTPTransaction, direction: ProtobufPayloadDirection = .request) -> Bool {
+        let body = direction == .request ? transaction.request.body : transaction.response?.body
+        let headers = direction == .request ? transaction.request.headers : transaction.response?.headers ?? []
+        guard body?.isEmpty == false,
+              let contentType = headers.first(where: {
                   $0.name.caseInsensitiveCompare("Content-Type") == .orderedSame
               })?.value else
         {
@@ -166,11 +170,15 @@ struct MultipartInspectorView: View {
     private func loadParts() async {
         parts = nil
         selection = nil
-        guard let body = transaction.request.body else {
+        let rawBody = direction == .request ? transaction.request.body : transaction.response?.body
+        let headers = direction == .request ? transaction.request.headers : transaction.response?.headers ?? []
+        guard let rawBody else {
             parts = []
             return
         }
-        let headers = transaction.request.headers
+        // Responses may arrive compressed; parts are split from the decoded bytes.
+        let encoding = headers.first { $0.name.caseInsensitiveCompare("Content-Encoding") == .orderedSame }?.value
+        let body = direction == .response ? BodyDecoder.decode(rawBody, encoding: encoding) : rawBody
         let parsed = await Task.detached(priority: .userInitiated) {
             MultipartFormDataParser.parse(body: body, headers: headers) ?? []
         }.value
