@@ -634,7 +634,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n\ncase \"$TARGET_BUILD_DIR\" in\n    */DerivedData/*/Build/Products/*) ;;\n    *) exit 0 ;;\nesac\n\nSOURCE=\"${BUILT_PRODUCTS_DIR}/rockxy-mcp\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/rockxy-mcp\"\n\n# Stop only the bridge from this DerivedData bundle before replacing it. Copy the\n# product here as well as in the following Copy Files phase so an incremental build\n# can never leave the app's sealed MCP executable missing.\n/usr/bin/pkill -f \"$DEST\" 2>/dev/null || true\n\nif [ ! -x \"$SOURCE\" ]; then\n    echo \"error: Missing built MCP tool at $SOURCE\" >&2\n    exit 1\nfi\n\n/bin/cp -f \"$SOURCE\" \"$DEST\"\n";
+			shellScript = "set -e\n\n# rockxy-cli is the same executable reached by another name; it picks its mode from\n# the name it was run as.\nTOOL_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nmkdir -p \"$TOOL_DIR\"\nln -sfn rockxy-mcp \"$TOOL_DIR/rockxy-cli\"\n\ncase \"$TARGET_BUILD_DIR\" in\n    */DerivedData/*/Build/Products/*) ;;\n    *) exit 0 ;;\nesac\n\nSOURCE=\"${BUILT_PRODUCTS_DIR}/rockxy-mcp\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/rockxy-mcp\"\n\n# Stop only the bridge from this DerivedData bundle before replacing it. Copy the\n# product here as well as in the following Copy Files phase so an incremental build\n# can never leave the app's sealed MCP executable missing.\n/usr/bin/pkill -f \"$DEST\" 2>/dev/null || true\n\nif [ ! -x \"$SOURCE\" ]; then\n    echo \"error: Missing built MCP tool at $SOURCE\" >&2\n    exit 1\nfi\n\n/bin/cp -f \"$SOURCE\" \"$DEST\"\n";
 		};
 		DCA9D0212F700100005B1552 /* Generate Helper LaunchDaemon Plist */ = {
 			isa = PBXShellScriptBuildPhase;

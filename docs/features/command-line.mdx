@@ -1,0 +1,56 @@
+---
+title: "Command Line"
+description: "Control the running Rockxy from a terminal or a script with rockxy-cli."
+---
+
+# Command Line
+
+`rockxy-cli` ships inside the app and controls the Rockxy that is running: start and stop the
+proxy, route macOS traffic through it, switch debugging tools, clear the session, and export or
+import settings and traffic. It is handy in shell scripts, CI helpers, and launcher apps.
+
+## Turn it on
+
+Command-line control is off until you allow it:
+
+1. Open **Rockxy > Settings > Advanced**.
+2. Under **Command Line**, turn on **Allow command-line control**.
+3. Click **Copy Path** to copy the tool's location, for example
+   `/Applications/Rockxy.app/Contents/MacOS/rockxy-cli`.
+
+Rockxy listens on a private socket in its own Application Support folder. Only programs running
+as your macOS user can connect, and turning the setting off closes the socket.
+
+## Commands
+
+| Command | What it does |
+|---------|--------------|
+| `status` | Shows whether the proxy, the system proxy, and recording are on |
+| `start` / `stop` | Starts or stops the proxy |
+| `proxy on` / `proxy off` | Routes macOS HTTP and HTTPS traffic through Rockxy, or stops |
+| `record on` / `record off` | Resumes or pauses recording |
+| `clear-session` | Removes every captured request |
+| `<tool> on` / `<tool> off` | Switches a tool: `breakpoint`, `maplocal`, `mapremote`, `blocklist`, `allowlist`, `networkconditions`, `modifyheaders`, `scripting`, `nocaching` |
+| `export -o <file> [--enabled-only]` | Saves every tool's rules, like **Tools > Import / Export Settings** |
+| `import -i <file> [--mode append\|replace]` | Loads a file saved by `export`; `append` is the default |
+| `export-log -o <file> [--format har\|session] [--domain <host>]…` | Saves captured traffic as HAR or a Rockxy session, optionally only for some hosts |
+| `help` | Lists the commands |
+
+Relative paths are resolved from the directory you run the command in. Exported files are
+readable only by you.
+
+```bash
+rockxy-cli start
+rockxy-cli proxy on
+rockxy-cli maplocal off
+rockxy-cli export-log -o ~/Desktop/api.har --domain api.example.com
+rockxy-cli export -o team-rules.json --enabled-only
+```
+
+The tool exits with status `0` on success and `1` with a message on standard error otherwise,
+for example when Rockxy is not running or command-line control is off.
+
+<Note>
+Imported scripts are added turned off, the same as an import from the Tools menu. Review each
+script in Rockxy before you turn it on.
+</Note>

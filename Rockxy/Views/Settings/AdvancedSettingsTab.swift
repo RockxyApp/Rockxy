@@ -195,6 +195,10 @@ struct AdvancedSettingsTab: View {
                 updatesSection
             }
 
+            SettingsSection(String(localized: "Command Line", bundle: RockxyLocalization.bundle)) {
+                CommandLineControlSettingsSection()
+            }
+
             SettingsSection(String(localized: "Behavior", bundle: RockxyLocalization.bundle)) {
                 checkboxRow(
                     title: String(localized: "Show alert when quitting Rockxy", bundle: RockxyLocalization.bundle),

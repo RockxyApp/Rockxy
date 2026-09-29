@@ -100,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             await PluginManager.shared.ensureLoadedOnce()
             if !RockxyIdentity.isRunningTests {
                 await MCPServerCoordinator.shared.startIfEnabled()
+                CommandLineControlCoordinator.shared.startIfEnabled()
             }
             await helperReconciliation.value
         }
@@ -199,6 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             Self.logger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
         }
         MCPHandshakeStore.delete()
+        CommandLineControlCoordinator.shared.stop()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

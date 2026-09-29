@@ -91,7 +91,7 @@ enum HandshakeReader {
             .appendingPathComponent("mcp-handshake.json")
     }
 
-    private static var applicationSupportDirectory: URL {
+    static var applicationSupportDirectory: URL {
         if let override = ProcessInfo.processInfo.environment["ROCKXY_TEST_APP_SUPPORT_DIRECTORY"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
             !override.isEmpty

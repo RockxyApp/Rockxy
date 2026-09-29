@@ -46929,6 +46929,336 @@
           }
         }
       }
+    },
+    "%@ is off.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已关闭。"
+          }
+        }
+      }
+    },
+    "%@ is on.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已打开。"
+          }
+        }
+      }
+    },
+    "%@ needs a value.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要一个值。"
+          }
+        }
+      }
+    },
+    "Add %@ with a file path.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请添加 %@ 并指定文件路径。"
+          }
+        }
+      }
+    },
+    "Add on or off.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请添加 on 或 off。"
+          }
+        }
+      }
+    },
+    "Allow command-line control": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许命令行控制"
+          }
+        }
+      }
+    },
+    "Copy Path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝路径"
+          }
+        }
+      }
+    },
+    "Lets rockxy-cli start and stop the proxy, switch tools, clear the session, and export or import settings and traffic. Only programs running as you can use it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 rockxy-cli 启动和停止代理、切换工具、清除会话，以及导出或导入设置和流量。只有以你的身份运行的程序可以使用它。"
+          }
+        }
+      }
+    },
+    "Proxy: running on port %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理：正在端口 %@ 上运行"
+          }
+        }
+      }
+    },
+    "Proxy: stopped": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理：已停止"
+          }
+        }
+      }
+    },
+    "Recording paused.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已暂停录制。"
+          }
+        }
+      }
+    },
+    "Recording resumed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复录制。"
+          }
+        }
+      }
+    },
+    "Recording: on": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制：开启"
+          }
+        }
+      }
+    },
+    "Recording: paused": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "录制：已暂停"
+          }
+        }
+      }
+    },
+    "Rockxy has no open window. Open a Rockxy window and try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 没有打开的窗口。请打开 Rockxy 窗口后重试。"
+          }
+        }
+      }
+    },
+    "Routing macOS traffic through Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在通过 Rockxy 路由 macOS 流量。"
+          }
+        }
+      }
+    },
+    "Saved ^[%lld request](inflect: true) to %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将 %lld 个请求保存到 %@。"
+          }
+        }
+      }
+    },
+    "Saved settings to %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已将设置保存到 %@。"
+          }
+        }
+      }
+    },
+    "Session cleared.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话已清除。"
+          }
+        }
+      }
+    },
+    "Starting the proxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在启动代理。"
+          }
+        }
+      }
+    },
+    "Stopped routing macOS traffic through Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止通过 Rockxy 路由 macOS 流量。"
+          }
+        }
+      }
+    },
+    "Stopping the proxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在停止代理。"
+          }
+        }
+      }
+    },
+    "System proxy: off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统代理：关闭"
+          }
+        }
+      }
+    },
+    "System proxy: on": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统代理：开启"
+          }
+        }
+      }
+    },
+    "The command-line socket could not be opened (%@).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开命令行套接字（%@）。"
+          }
+        }
+      }
+    },
+    "The command-line socket path is too long.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令行套接字路径过长。"
+          }
+        }
+      }
+    },
+    "The format must be har or session.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式必须是 har 或 session。"
+          }
+        }
+      }
+    },
+    "The mode must be append or replace.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模式必须是 append 或 replace。"
+          }
+        }
+      }
+    },
+    "The proxy is not running. Run rockxy-cli start first.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理未运行。请先运行 rockxy-cli start。"
+          }
+        }
+      }
+    },
+    "The request could not be read. Update rockxy-cli to match this Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取请求。请更新 rockxy-cli 以匹配此版本的 Rockxy。"
+          }
+        }
+      }
+    },
+    "Unknown command “%@”. Run rockxy-cli help to see the commands.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知命令“%@”。运行 rockxy-cli help 查看可用命令。"
+          }
+        }
+      }
+    },
+    "Unknown option “%@”.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知选项“%@”。"
+          }
+        }
+      }
+    },
+    "Command Line": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令行"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

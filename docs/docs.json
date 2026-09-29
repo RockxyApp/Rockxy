@@ -78,6 +78,7 @@
           "features/reverse-proxy",
           "features/dns-spoofing",
           "features/settings-backup",
+          "features/command-line",
           "features/mcp"
         ]
       },

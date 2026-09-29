@@ -154,6 +154,7 @@ struct ContentView: View {
             coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
             coordinator.attachToMCPServer(MCPServerCoordinator.shared)
+            CommandLineControlCoordinator.shared.target = coordinator
         }
         .onDisappear {
             guard managesLifecycle, !ProcessInfo.processInfo.isTestHost else {

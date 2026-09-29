@@ -109,6 +109,24 @@ enum SettingsBackupFlow {
         return String(localized: "The backup contains \(list).", bundle: RockxyLocalization.bundle)
     }
 
+    /// What an import did, one sentence per line; shared by the import alert and rockxy-cli.
+    static func reportLines(_ report: SettingsBackupImportReport) -> [String] {
+        var lines = [
+            report.ruleCount > 0
+                ? inflected("^[\(report.ruleCount) rule](inflect: true) imported.")
+                : String(localized: "No new rules were added; the backup's rules are already here.", bundle: RockxyLocalization.bundle),
+        ]
+        if report.scriptCount > 0 {
+            lines.append(inflected("^[\(report.scriptCount) script](inflect: true) added, turned off."))
+        }
+        if report.skippedCount > 0 {
+            lines.append(inflected(
+                "^[\(report.skippedCount) entry](inflect: true) skipped because it was invalid or conflicted with a current setting."
+            ))
+        }
+        return lines
+    }
+
     // MARK: Private
 
     private static func inflected(_ text: String.LocalizationValue) -> String {
@@ -158,19 +176,7 @@ enum SettingsBackupFlow {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(localized: "Settings Imported", bundle: RockxyLocalization.bundle)
-        var lines = [
-            report.ruleCount > 0
-                ? inflected("^[\(report.ruleCount) rule](inflect: true) imported.")
-                : String(localized: "No new rules were added; the backup's rules are already here.", bundle: RockxyLocalization.bundle),
-        ]
-        if report.scriptCount > 0 {
-            lines.append(inflected("^[\(report.scriptCount) script](inflect: true) added, turned off."))
-        }
-        if report.skippedCount > 0 {
-            lines.append(inflected(
-                "^[\(report.skippedCount) entry](inflect: true) skipped because it was invalid or conflicted with a current setting."
-            ))
-        }
+        let lines = reportLines(report)
         alert.informativeText = lines.joined(separator: "\n")
         alert.runModal()
     }
