@@ -83,20 +83,21 @@ final class ProtobufSchemaStore {
         guard schemas.count < policy.maxProtobufSchemas else {
             throw AppPolicyViolation.protobufSchemaLimitReached(limit: policy.maxProtobufSchemas)
         }
-        guard ProtobufSchemaSourceValidator.hasProtoExtension(fileName) else {
+        guard ProtobufSchemaSourceValidator.hasSupportedExtension(fileName) else {
             throw ProtobufSchemaImportError.invalidFileType
         }
         guard data.count <= ProxyLimits.maxProtobufSchemaFileSize else {
             throw ProtobufSchemaStoreError.fileTooLarge
         }
-        try ProtobufSchemaSourceValidator.validate(data)
+        try ProtobufSchemaSourceValidator.validate(data, fileName: fileName)
         guard HostPatternMatcher.isValid(pattern: hostPattern) else {
             throw ProtobufSchemaStoreError.invalidHostPattern(hostPattern)
         }
+        let compiled = try ProtobufSchemaCompiler.compile(data, fileName: fileName)
 
         let descriptor = ProtobufSchemaDescriptor(
             fileName: fileName,
-            parsedMessageNames: [],
+            parsedMessageNames: compiled.messageNames,
             hostPattern: hostPattern,
             urlPattern: urlPattern,
             defaultMessageType: defaultMessageType
@@ -112,6 +113,8 @@ final class ProtobufSchemaStore {
             throw error
         }
         schemas = updated
+        compiledCache[descriptor.id] = compiled
+        combinedCache = nil
         Self.logger.info("Uploaded Protobuf schema descriptor")
         return descriptor
     }
@@ -134,9 +137,38 @@ final class ProtobufSchemaStore {
             throw error
         }
         schemas = updated
+        compiledCache[id] = nil
+        combinedCache = nil
+    }
+
+    /// Every stored schema merged, so a type defined in one import resolves from another.
+    /// Files that no longer parse are skipped rather than blocking the rest.
+    func combinedSchema() -> ProtobufSchema {
+        if let combinedCache {
+            return combinedCache
+        }
+        var combined = ProtobufSchema()
+        for descriptor in schemas {
+            if let compiled = compiledSchema(for: descriptor) {
+                combined = combined.merged(with: compiled)
+            }
+        }
+        let resolved = combined.resolvingReferences()
+        combinedCache = resolved
+        return resolved
+    }
+
+    /// Message types defined by one stored schema, for display.
+    func messageNames(for descriptor: ProtobufSchemaDescriptor) -> [String] {
+        if !descriptor.parsedMessageNames.isEmpty {
+            return descriptor.parsedMessageNames
+        }
+        return compiledSchema(for: descriptor)?.messageNames ?? []
     }
 
     func reload() {
+        compiledCache.removeAll()
+        combinedCache = nil
         do {
             schemas = try fileStore.loadDescriptors()
             storageState = .ready
@@ -153,6 +185,25 @@ final class ProtobufSchemaStore {
 
     private let policy: any AppPolicy
     private let fileStore: any ProtobufSchemaFileStoring
+    private var compiledCache: [UUID: ProtobufSchema] = [:]
+    private var combinedCache: ProtobufSchema?
+
+    private func compiledSchema(for descriptor: ProtobufSchemaDescriptor) -> ProtobufSchema? {
+        if let cached = compiledCache[descriptor.id] {
+            return cached
+        }
+        do {
+            guard let data = try fileStore.loadSchemaData(descriptorID: descriptor.id) else {
+                return nil
+            }
+            let compiled = try ProtobufSchemaCompiler.compile(data, fileName: descriptor.fileName)
+            compiledCache[descriptor.id] = compiled
+            return compiled
+        } catch {
+            Self.logger.error("Stored Protobuf schema could not be compiled: \(error.localizedDescription)")
+            return nil
+        }
+    }
 }
 
 // MARK: - ProtobufSchemaStoreError
@@ -215,7 +266,7 @@ enum ProtobufSchemaImportError: LocalizedError, Equatable {
         switch self {
         case .invalidFileType:
             String(
-                localized: "Select a Protocol Buffers schema file with a .proto extension.",
+                localized: "Select a .proto source file or a .desc descriptor set compiled with protoc.",
                 bundle: RockxyLocalization.bundle
             )
         case .emptySource:
@@ -230,10 +281,9 @@ enum ProtobufSchemaImportError: LocalizedError, Equatable {
 
 // MARK: - ProtobufSchemaSourceValidator
 
-/// Pure, side-effect-free validation for local `.proto` imports.
-///
-/// It never parses the schema or infers message names — it only enforces the file type,
-/// a bounded on-disk read, and that the bytes are non-empty UTF-8 within the size limit.
+/// Side-effect-free checks for local schema imports: the file type, a bounded on-disk read,
+/// and non-empty bytes within the size limit (UTF-8 for `.proto` sources). Parsing happens in
+/// `ProtobufSchemaCompiler` when the schema is stored.
 enum ProtobufSchemaSourceValidator {
     static var maxBytes: Int {
         ProxyLimits.maxProtobufSchemaFileSize
@@ -241,6 +291,11 @@ enum ProtobufSchemaSourceValidator {
 
     static func hasProtoExtension(_ fileName: String) -> Bool {
         (fileName as NSString).pathExtension.lowercased() == "proto"
+    }
+
+    /// `.proto` sources or compiled descriptor sets (`.desc`, `.pb`, `.protoset`, `.binpb`).
+    static func hasSupportedExtension(_ fileName: String) -> Bool {
+        ProtobufSchemaCompiler.isSupported(fileName: fileName)
     }
 
     /// Reads at most `maxBytes + 1` bytes so an oversized file is rejected without ever growing
@@ -262,6 +317,20 @@ enum ProtobufSchemaSourceValidator {
         return data
     }
 
+    /// Validates bytes for the file's kind: descriptor sets are binary, sources must be UTF-8.
+    static func validate(_ data: Data, fileName: String, maxBytes: Int = maxBytes) throws {
+        if ProtobufSchemaCompiler.isDescriptorSet(fileName: fileName) {
+            guard !data.isEmpty else {
+                throw ProtobufSchemaImportError.emptySource
+            }
+            guard data.count <= maxBytes else {
+                throw ProtobufSchemaImportError.fileTooLarge
+            }
+            return
+        }
+        try validate(data, maxBytes: maxBytes)
+    }
+
     /// Validates already-loaded bytes: non-empty and decodable as UTF-8 within the size limit.
     static func validate(_ data: Data, maxBytes: Int = maxBytes) throws {
         guard !data.isEmpty else {
@@ -278,11 +347,11 @@ enum ProtobufSchemaSourceValidator {
     /// Convenience: validates the file name extension, performs the bounded read, and validates
     /// the bytes. Returns the validated source data ready for `ProtobufSchemaStore.uploadSchema`.
     static func loadValidatedSource(at url: URL, fileName: String, maxBytes: Int = maxBytes) throws -> Data {
-        guard hasProtoExtension(fileName) else {
+        guard hasSupportedExtension(fileName) else {
             throw ProtobufSchemaImportError.invalidFileType
         }
         let data = try read(contentsOf: url, maxBytes: maxBytes)
-        try validate(data, maxBytes: maxBytes)
+        try validate(data, fileName: fileName, maxBytes: maxBytes)
         return data
     }
 }
