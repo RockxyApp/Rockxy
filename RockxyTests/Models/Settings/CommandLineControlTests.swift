@@ -113,7 +113,13 @@ struct CommandLineControlTests {
         let permissions = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? Int
         #expect(permissions == 0o600)
 
-        let reply = try await Task.detached { try Self.send(Data("ping\n".utf8), to: path) }.value
+        // Blocking socket I/O runs off the Swift concurrency pool so the server's reply task
+        // always has a thread, even while the rest of the suite is busy.
+        let reply = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            DispatchQueue.global().async {
+                continuation.resume(with: Result { try Self.send(Data("ping\n".utf8), to: path) })
+            }
+        }
         #expect(reply == "echo:ping\n")
 
         server.stop()
@@ -181,6 +187,8 @@ struct CommandLineControlTests {
     nonisolated private static func send(_ payload: Data, to path: String) throws -> String {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         defer { close(fd) }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &address.sun_path) { buffer in
