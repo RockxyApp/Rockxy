@@ -14,6 +14,16 @@
         }
       }
     },
+    "%@ of binary data. Save the part to inspect it in another app.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的二进制数据。保存该部分后可在其他应用中查看。"
+          }
+        }
+      }
+    },
     "%@'s recognized proxy settings were prepared temporarily and will be restored after it quits. A fresh instance was opened with Rockxy's scoped environment.": {
       "localizations": {
         "zh-Hans": {
@@ -74,6 +84,16 @@
         }
       }
     },
+    "Binary Part": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "二进制部分"
+          }
+        }
+      }
+    },
     "Cannot read %@: %@": {
       "localizations": {
         "en": {
@@ -86,6 +106,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法读取 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "Could Not Save Part": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存部分"
           }
         }
       }
@@ -110,12 +140,32 @@
         }
       }
     },
+    "Empty value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "空值"
+          }
+        }
+      }
+    },
     "Failed to create JSContext": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "无法创建 JSContext"
+          }
+        }
+      }
+    },
+    "File Name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件名"
           }
         }
       }
@@ -156,6 +206,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "JS 异常：%@"
+          }
+        }
+      }
+    },
+    "Multipart": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多部分"
+          }
+        }
+      }
+    },
+    "Multipart parts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "多部分列表"
+          }
+        }
+      }
+    },
+    "No Parts": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无部分"
           }
         }
       }
@@ -260,6 +340,16 @@
         }
       }
     },
+    "Save Part…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存部分…"
+          }
+        }
+      }
+    },
     "Script load failed: %@": {
       "localizations": {
         "zh-Hans": {
@@ -306,6 +396,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示或隐藏：⇧⌘F"
+          }
+        }
+      }
+    },
+    "The body does not contain any parts for its declared boundary.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文中没有与声明的边界匹配的部分。"
           }
         }
       }
@@ -396,6 +496,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "意外的 networksetup 输出：%@"
+          }
+        }
+      }
+    },
+    "Unnamed Part": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名部分"
           }
         }
       }

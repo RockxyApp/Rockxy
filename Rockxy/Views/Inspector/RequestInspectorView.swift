@@ -24,6 +24,11 @@ struct RequestInspectorView: View {
             tabContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: transaction.id) {
+            if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction) {
+                selectedTab = .body
+            }
+        }
         .onChange(of: previewTabStore.requestTabs.map(\.id)) { _, availableTabIDs in
             selectedPreviewTab = InspectorPreviewSelectionReconciler.retainedSelection(
                 selectedPreviewTab,
@@ -41,7 +46,7 @@ struct RequestInspectorView: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var tabDescriptors: [InspectorTabDescriptor] {
-        var descriptors: [InspectorTabDescriptor] = RequestInspectorTab.allCases.map { tab in
+        var descriptors: [InspectorTabDescriptor] = visibleNativeTabs.map { tab in
             InspectorTabDescriptor(
                 id: "native.\(tab.rawValue)",
                 title: tab.displayName,
@@ -66,6 +71,12 @@ struct RequestInspectorView: View {
         }
 
         return descriptors
+    }
+
+    /// The Multipart tab appears only for requests that declare a multipart body.
+    private var visibleNativeTabs: [RequestInspectorTab] {
+        let showsMultipart = MultipartInspectorView.isApplicable(to: transaction)
+        return RequestInspectorTab.allCases.filter { $0 != .multipart || showsMultipart }
     }
 
     private var inspectorTabBar: some View {
@@ -115,6 +126,12 @@ struct RequestInspectorView: View {
             QueryInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .body:
             requestBodyView
+        case .multipart:
+            if MultipartInspectorView.isApplicable(to: transaction) {
+                MultipartInspectorView(transaction: transaction)
+            } else {
+                requestBodyView
+            }
         case .cookies:
             CookiesInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .raw:
