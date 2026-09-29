@@ -157,8 +157,8 @@ struct ServerSentEventsInspectorView: View {
         guard !Task.isCancelled else {
             return
         }
-        if let selection, !parsed.contains(where: { $0.id == selection }) {
-            self.selection = nil
+        if selection == nil || !parsed.contains(where: { $0.id == selection }) {
+            selection = parsed.first?.id
         }
         events = parsed
     }

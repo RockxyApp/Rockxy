@@ -14,6 +14,7 @@ struct SOCKSListenerSettingsTests {
 
         let settings = SOCKSListenerSettings(defaults: defaults)
         #expect(!settings.isEnabled)
+        #expect(settings.status == .disabled)
         #expect(settings.port == 8_889)
         #expect(settings.requestedPort == nil)
 
@@ -35,6 +36,7 @@ struct SOCKSListenerSettingsTests {
         #expect(settings.status == .disabled)
 
         settings.update(isEnabled: true, port: 8_889)
+        #expect(settings.status == .proxyStopped)
         settings.applyListenerResult(nil)
         #expect(settings.status == .listening)
         settings.applyListenerResult(.portInUse)

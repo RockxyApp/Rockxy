@@ -13,9 +13,11 @@ final class SOCKSListenerSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        isEnabled = defaults.bool(forKey: Self.enabledKey)
+        let storedEnabled = defaults.bool(forKey: Self.enabledKey)
+        isEnabled = storedEnabled
         let storedPort = defaults.integer(forKey: Self.portKey)
         port = storedPort == 0 ? Self.defaultPort : storedPort
+        status = storedEnabled ? .proxyStopped : .disabled
     }
 
     // MARK: Internal
@@ -26,7 +28,7 @@ final class SOCKSListenerSettings {
 
     private(set) var isEnabled: Bool
     private(set) var port: Int
-    private(set) var status: ReverseProxyRuleStatus = .proxyStopped
+    private(set) var status: ReverseProxyRuleStatus
 
     /// The port the proxy should listen on, or `nil` when the listener is off.
     var requestedPort: Int? {
@@ -39,6 +41,12 @@ final class SOCKSListenerSettings {
         }
         self.isEnabled = isEnabled
         self.port = port
+        // A running proxy reports the real status right after the notification below.
+        if !isEnabled {
+            status = .disabled
+        } else if status == .disabled {
+            status = .proxyStopped
+        }
         defaults.set(isEnabled, forKey: Self.enabledKey)
         defaults.set(port, forKey: Self.portKey)
         NotificationCenter.default.post(name: .socksListenerSettingsDidChange, object: nil)
