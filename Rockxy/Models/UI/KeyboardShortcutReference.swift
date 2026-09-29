@@ -116,7 +116,7 @@ enum KeyboardShortcutCatalog {
             row("rules.breakpoint.filter", "Breakpoint Rules", "Focus the rules search field", "⌘F", "Breakpoint Rules window", nil, nil),
             row("rules.templates", "Breakpoint Rules", "Open Breakpoint Templates", "⌘T", "Breakpoint Rules window", nil, nil),
             row("rules.new", "Other Rules Windows", "New rule", "⌘N", "Focused non-Breakpoint rules window", nil, nil),
-            row("rules.newFolder", "Other Rules Windows", "New folder", "⇧⌘N", "Map Local and Scripting lists", nil, "Unavailable in rule windows without folder support."),
+            row("rules.newFolder", "Other Rules Windows", "New folder", "⇧⌘N", "Scripting list", nil, "Other rule windows do not have folders."),
             row("rules.edit", "Other Rules Windows", "Edit selected rule", "⌘E", "Focused non-Breakpoint rules list", nil, nil),
             row("rules.duplicate", "Other Rules Windows", "Duplicate selected rule", "⌘D", "Focused non-Breakpoint rules list", nil, nil),
             row("rules.delete", "Other Rules Windows", "Delete selected rule", "⌘⌫", "Focused non-Breakpoint rules list", nil, nil),

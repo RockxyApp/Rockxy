@@ -90,7 +90,7 @@ Applies to Map Local, Map Remote, Block List, Allow List, Modify Headers, Networ
 | Shortcut | Action |
 |---|---|
 | `⌘N` | New rule |
-| `⇧⌘N` | New folder |
+| `⇧⌘N` | New folder (Scripting list) |
 | `⌘E` | Edit selected rule |
 | `⌘D` | Duplicate selected rule |
 | `⌘⌫` | Delete selected rule |
