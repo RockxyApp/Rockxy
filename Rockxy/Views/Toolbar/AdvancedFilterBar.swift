@@ -132,7 +132,7 @@ struct AdvancedFilterBar: View {
                     Text(field.displayName).tag(field)
                 }
             }
-            .frame(width: 138)
+            .frame(width: max(184, metrics.fontSize * 14))
 
             Picker("", selection: $rules[index].filterOperator) {
                 ForEach(FilterOperator.allCases, id: \.self) { op in

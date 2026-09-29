@@ -280,10 +280,13 @@ struct WebSocketInspectorView: View {
 
     private func frameRow(_ frame: WebSocketFrameData) -> some View {
         HStack(spacing: 4) {
+            // Fixed-format monospaced text keeps the column aligned without a hard width
+            // that clips at larger text sizes.
             Text(formatTimestamp(frame.timestamp))
                 .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize()
 
             Image(systemName: frame.direction == .sent ? "arrow.up.circle" : "arrow.down.circle")
                 .font(.system(size: metrics.secondaryFontSize))
@@ -304,7 +307,9 @@ struct WebSocketInspectorView: View {
             Text(SizeFormatter.format(bytes: frame.payload.count))
                 .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
-                .frame(width: 48, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 48, alignment: .trailing)
         }
         .padding(.vertical, 1)
     }

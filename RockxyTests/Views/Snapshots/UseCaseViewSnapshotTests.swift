@@ -64,6 +64,36 @@ struct UseCaseViewSnapshotTests {
         try await render(SOCKSListenerSettingsSection().padding(), name: "socks-settings", size: CGSize(width: 560, height: 200))
     }
 
+    @Test("Advanced filter bar")
+    func advancedFilterBar() async throws {
+        let rules = [
+            FilterRule(field: .all, filterOperator: .contains, value: "token_expired"),
+            FilterRule(connector: .or, field: .graphQLOperation, filterOperator: .is, value: "GetUser"),
+        ]
+        let store = FilterPresetStore(
+            userDefaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard,
+            storageKey: "presets"
+        )
+        try await render(
+            AdvancedFilterBar(rules: .constant(rules), presetStore: store),
+            name: "advanced-filter-bar",
+            size: CGSize(width: 900, height: 110)
+        )
+    }
+
+    @Test("WebSocket inspector with JSON frames")
+    func webSocketInspector() async throws {
+        let transaction = TestFixtures.makeTransaction(url: "https://chat.example.com/socket")
+        transaction.webSocketConnection = WebSocketConnection(
+            upgradeRequest: transaction.request,
+            frames: [
+                WebSocketFrameData(direction: .sent, opcode: .text, payload: Data(#"{"type":"join","room":"lobby"}"#.utf8)),
+                WebSocketFrameData(direction: .received, opcode: .text, payload: Data(#"{"type":"message","text":"hi"}"#.utf8)),
+            ]
+        )
+        try await render(WebSocketInspectorView(transaction: transaction), name: "websocket", size: CGSize(width: 720, height: 520))
+    }
+
     // MARK: Private
 
     private func render(_ view: some View, name: String, size: CGSize) async throws {
