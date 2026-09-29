@@ -16,6 +16,10 @@ extension MainContentCoordinator {
         presentExport(format: .har)
     }
 
+    func exportCSV() {
+        presentExport(format: .csv)
+    }
+
     func exportOpenAPIYAML() {
         presentExport(format: .openAPIYAML)
     }
@@ -98,6 +102,10 @@ extension MainContentCoordinator {
             switch format {
             case .har:
                 data = try HARExporter().export(transactions: plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = 0
+            case .csv:
+                data = TrafficCSVExporter.export(transactions: plan.eligibleTransactions)
                 exportedCount = plan.eligibleTransactions.count
                 skippedCount = 0
             case .openAPIYAML:
@@ -274,7 +282,8 @@ extension MainContentCoordinator {
         -> [HTTPTransaction]
     {
         switch format {
-        case .har:
+        case .har,
+             .csv:
             source
         case .openAPIYAML,
              .openAPIHTML:
@@ -312,6 +321,9 @@ extension MainContentCoordinator {
             switch format {
             case .har:
                 data = try HARExporter().export(transactions: transactionsToExport)
+                skippedCount = 0
+            case .csv:
+                data = TrafficCSVExporter.export(transactions: transactionsToExport)
                 skippedCount = 0
             case .openAPIYAML:
                 let result = try OpenAPIExporter().export(
@@ -392,6 +404,8 @@ extension MainContentCoordinator {
         switch format {
         case .har:
             [.har]
+        case .csv:
+            [.commaSeparatedText]
         case .openAPIYAML:
             [.openAPIYAML]
         case .openAPIHTML:
@@ -403,6 +417,8 @@ extension MainContentCoordinator {
         switch format {
         case .har:
             "har"
+        case .csv:
+            "csv"
         case .openAPIYAML:
             "yaml"
         case .openAPIHTML:

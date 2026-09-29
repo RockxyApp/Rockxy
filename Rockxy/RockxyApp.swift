@@ -788,6 +788,11 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
 
+            Button(String(localized: "Export CSV…", bundle: RockxyLocalization.bundle)) {
+                proxyActions.exportCSV()
+            }
+            .disabled(!proxyActions.hasVisibleTransactions)
+
             Button(String(localized: "Export OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.exportOpenAPIYAML()
             }
@@ -999,6 +1004,10 @@ struct RockxyMenuCommands: Commands {
             Menu(String(localized: "Export", bundle: RockxyLocalization.bundle)) {
                 Button(String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle)) {
                     proxyActions.exportHAR()
+                }
+
+                Button(String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle)) {
+                    proxyActions.exportCSV()
                 }
 
                 Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {

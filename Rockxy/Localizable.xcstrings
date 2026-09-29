@@ -94,6 +94,16 @@
         }
       }
     },
+    "CSV files list full URLs with query strings, client apps, and notes. Headers and bodies are not included. Review the file before sharing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV 文件会列出包含查询字符串的完整 URL、客户端应用和备注，但不包含标头和正文。分享前请检查文件。"
+          }
+        }
+      }
+    },
     "Cannot read %@: %@": {
       "localizations": {
         "en": {
@@ -106,6 +116,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法读取 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "Choose which captured transactions to list, one row each, in this CSV file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要在此 CSV 文件中列出的已捕获事务，每个事务一行。"
           }
         }
       }
@@ -166,6 +186,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "事件 %lld · %@"
+          }
+        }
+      }
+    },
+    "Export CSV…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出 CSV…"
+          }
+        }
+      }
+    },
+    "Export as CSV": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 CSV"
+          }
+        }
+      }
+    },
+    "Export as CSV…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 CSV…"
           }
         }
       }

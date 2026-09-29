@@ -151,6 +151,10 @@ struct MainContentCommandActions {
         coordinator.exportHAR()
     }
 
+    func exportCSV() {
+        coordinator.exportCSV()
+    }
+
     func exportOpenAPIYAML() {
         coordinator.exportOpenAPIYAML()
     }

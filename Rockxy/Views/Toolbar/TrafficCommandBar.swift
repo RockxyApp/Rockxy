@@ -541,6 +541,8 @@ struct TrafficCommandBar: View {
         Menu(String(localized: "Export", bundle: RockxyLocalization.bundle)) {
             Button(String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle)) { actions.exportHAR() }
                 .disabled(coordinator.transactions.isEmpty)
+            Button(String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle)) { actions.exportCSV() }
+                .disabled(coordinator.transactions.isEmpty)
             Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 actions.exportOpenAPIYAML()
             }
