@@ -891,6 +891,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         )
         transaction.sourcePort = sourcePort
         transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
+        transaction.noCachingApplied = disablesResponseCaching
 
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
@@ -905,6 +906,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             live.timingInfo = transaction.timingInfo
             live.web3RPCInfo = transaction.web3RPCInfo
             live.x402Info = transaction.x402Info
+            live.noCachingApplied = transaction.noCachingApplied
             live.state = .completed
             onTransactionComplete(live)
         }

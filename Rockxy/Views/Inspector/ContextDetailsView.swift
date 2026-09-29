@@ -457,7 +457,18 @@ struct ContextDetailsView: View {
                 Divider()
                 openRuleActionRow(windowID: "scriptingList", help: nil)
             }
-            if transaction.matchedRuleID == nil, transaction.appliedScriptNames.isEmpty {
+            if transaction.noCachingApplied {
+                if transaction.matchedRuleID != nil || !transaction.appliedScriptNames.isEmpty {
+                    Divider()
+                }
+                ContextInspectorFieldRow(field: ContextTableField(
+                    label: String(localized: "Tools", bundle: RockxyLocalization.bundle),
+                    value: String(localized: "No Caching", bundle: RockxyLocalization.bundle),
+                    monospaced: false,
+                    color: .green
+                ))
+            }
+            if transaction.matchedRuleID == nil, transaction.appliedScriptNames.isEmpty, !transaction.noCachingApplied {
                 ContextInspectorFullRow {
                     Label(
                         String(localized: "No rule modified this request", bundle: RockxyLocalization.bundle),

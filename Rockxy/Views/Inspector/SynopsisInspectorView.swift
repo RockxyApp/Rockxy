@@ -41,6 +41,14 @@ struct SynopsisInspectorView: View {
                     )
                 }
 
+                if transaction.noCachingApplied {
+                    Divider()
+                    synopsisRow(
+                        String(localized: "Tools", bundle: RockxyLocalization.bundle),
+                        String(localized: "No Caching", bundle: RockxyLocalization.bundle)
+                    )
+                }
+
                 if let response = transaction.response {
                     Divider()
                     synopsisRow(

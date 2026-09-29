@@ -54,3 +54,25 @@ private final class LockedTransactions: @unchecked Sendable {
     private let lock = NSLock()
     private var items: [HTTPTransaction] = []
 }
+
+// MARK: - NoCachingAttributionTests
+
+struct NoCachingAttributionTests {
+    @Test("No Caching attribution survives session save and load and stays off by default")
+    func noCachingAttributionRoundTrips() throws {
+        let marked = TestFixtures.makeTransaction()
+        marked.noCachingApplied = true
+        let plain = TestFixtures.makeTransaction()
+
+        let decodedMarked = try JSONDecoder().decode(
+            CodableTransaction.self,
+            from: JSONEncoder().encode(CodableTransaction(from: marked))
+        ).toLiveModel()
+        let plainData = try JSONEncoder().encode(CodableTransaction(from: plain))
+        let decodedPlain = try JSONDecoder().decode(CodableTransaction.self, from: plainData).toLiveModel()
+
+        #expect(decodedMarked.noCachingApplied)
+        #expect(!decodedPlain.noCachingApplied)
+        #expect(String(bytes: plainData, encoding: .utf8)?.contains("noCachingApplied") == false)
+    }
+}
