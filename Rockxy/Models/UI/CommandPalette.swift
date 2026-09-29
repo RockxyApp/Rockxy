@@ -145,7 +145,7 @@ enum CommandPaletteCatalog {
                 "Advanced Proxy Settings",
                 tools,
                 nil,
-                ["port", "listener", "socks", "lan"],
+                ["port", "listener", "socks", "lan", "access control", "allow devices", "block devices"],
                 .openWindow("advancedProxySettings")
             ),
             command(

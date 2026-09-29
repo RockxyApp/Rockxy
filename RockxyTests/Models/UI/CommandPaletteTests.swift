@@ -14,6 +14,7 @@ struct CommandPaletteTests {
         #expect(CommandPaletteMatcher.rank(commands, query: "map local").first?.id == "tools.mapLocal")
         #expect(CommandPaletteMatcher.rank(commands, query: "exp csv").first?.id == "file.exportCSV")
         #expect(CommandPaletteMatcher.rank(commands, query: "throttle").first?.id == "tools.network")
+        #expect(CommandPaletteMatcher.rank(commands, query: "access").first?.id == "tools.advancedProxy")
         #expect(CommandPaletteMatcher.rank(commands, query: "zzqx").isEmpty)
         #expect(CommandPaletteMatcher.rank(commands, query: "   ").count == commands.count)
     }
