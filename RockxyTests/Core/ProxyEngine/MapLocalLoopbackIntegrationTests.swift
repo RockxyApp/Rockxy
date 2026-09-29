@@ -96,6 +96,37 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A Custom Network Conditions profile paces the response at its download limit")
+    func customNetworkConditionPacesDownload() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let absolute = harness.absoluteURLString(path: "/large")
+            await harness.addRule(ProxyRule(
+                name: "Slow custom",
+                matchCondition: RuleMatchCondition(
+                    urlPattern: absolute,
+                    sourceURLPattern: absolute,
+                    matchType: .wildcard,
+                    includeSubpaths: false
+                ),
+                // 80 kbps is 10,000 bytes per second, so a 20 KB body takes about two seconds.
+                action: .networkCondition(
+                    preset: .custom,
+                    delayMs: 10,
+                    custom: NetworkCustomProfile(downloadKbps: 80)
+                )
+            ))
+
+            let started = ContinuousClock.now
+            let response = try await harness.get("/large")
+            let elapsed = ContinuousClock.now - started
+
+            #expect(response.status == 200)
+            #expect(response.body.count == 20_000 + "origin:/large".utf8.count)
+            #expect(elapsed >= .milliseconds(1_500), "custom download limit was not applied (\(elapsed))")
+            #expect(elapsed < .seconds(10))
+        }
+    }
+
     @Test("A Map Local rule scoped to a GraphQL operation mocks only that operation")
     func graphQLOperationScopedMapLocal() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -978,6 +1009,10 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
         }
         var buffer = context.channel.allocator.buffer(capacity: path.utf8.count + 8)
         buffer.writeString("origin:\(path)")
+        // A 20 KB body, large enough for bandwidth pacing to be measurable.
+        if path == "/large" {
+            buffer.writeRepeatingByte(UInt8(ascii: "x"), count: 20_000)
+        }
 
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
