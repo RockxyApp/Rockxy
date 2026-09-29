@@ -45519,6 +45519,926 @@
           }
         }
       }
+    },
+    "$%@ is not defined.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$%@ 未定义。"
+          }
+        }
+      }
+    },
+    "%@ and %@ cannot be added.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 与 %@ 不能相加。"
+          }
+        }
+      }
+    },
+    "%@ and %@ cannot be divided.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 与 %@ 不能相除。"
+          }
+        }
+      }
+    },
+    "%@ and %@ cannot be multiplied.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 与 %@ 不能相乘。"
+          }
+        }
+      }
+    },
+    "%@ and %@ cannot be subtracted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 与 %@ 不能相减。"
+          }
+        }
+      }
+    },
+    "%@ and %@ cannot have their containment checked.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法检查 %@ 与 %@ 的包含关系。"
+          }
+        }
+      }
+    },
+    "%@ cannot be added to a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不能添加到字符串。"
+          }
+        }
+      }
+    },
+    "%@ cannot be divided by zero.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不能除以零。"
+          }
+        }
+      }
+    },
+    "%@ cannot be escaped for a shell.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法转义为 Shell 参数。"
+          }
+        }
+      }
+    },
+    "%@ cannot be joined.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法连接。"
+          }
+        }
+      }
+    },
+    "%@ cannot be matched, as it is not a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是字符串，无法匹配。"
+          }
+        }
+      }
+    },
+    "%@ cannot be negated.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法取负。"
+          }
+        }
+      }
+    },
+    "%@ cannot be parsed as JSON.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法解析为 JSON。"
+          }
+        }
+      }
+    },
+    "%@ cannot be parsed as a number.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法解析为数字。"
+          }
+        }
+      }
+    },
+    "%@ cannot be reversed.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法反转。"
+          }
+        }
+      }
+    },
+    "%@ cannot be used as a regular expression.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不能用作正则表达式。"
+          }
+        }
+      }
+    },
+    "%@ cannot be used with %@; it needs an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不能用于 %@；需要数组。"
+          }
+        }
+      }
+    },
+    "%@ does not match the date format.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 与日期格式不匹配。"
+          }
+        }
+      }
+    },
+    "%@ has no %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有 %@。"
+          }
+        }
+      }
+    },
+    "%@ has no UTF-8 byte length; only strings do.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有 UTF-8 字节长度；只有字符串才有。"
+          }
+        }
+      }
+    },
+    "%@ has no absolute value.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有绝对值。"
+          }
+        }
+      }
+    },
+    "%@ has no keys.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有键。"
+          }
+        }
+      }
+    },
+    "%@ is not a valid regular expression flag.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是有效的正则表达式标志。"
+          }
+        }
+      }
+    },
+    "%@ is not a valid regular expression.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不是有效的正则表达式。"
+          }
+        }
+      }
+    },
+    "%@ is not valid in @%@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在 @%@ 中无效。"
+          }
+        }
+      }
+    },
+    "%@ needs a number of seconds.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要秒数。"
+          }
+        }
+      }
+    },
+    "%@ needs a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要字符串。"
+          }
+        }
+      }
+    },
+    "%@ needs string input and argument.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要字符串输入和参数。"
+          }
+        }
+      }
+    },
+    "%@/%lld cannot be used as a path expression.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@/%lld 不能用作路径表达式。"
+          }
+        }
+      }
+    },
+    "%@/%lld is not a known function.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@/%lld 不是已知函数。"
+          }
+        }
+      }
+    },
+    "%lld+ results": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld+ 个结果"
+          }
+        }
+      }
+    },
+    "^[%lld result](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个结果"
+          }
+        }
+      }
+    },
+    "@%@ is not a known format.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%@ 不是已知格式。"
+          }
+        }
+      }
+    },
+    "@%@ needs an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%@ 需要数组。"
+          }
+        }
+      }
+    },
+    "A computed object key needs a value.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "计算得出的对象键需要值。"
+          }
+        }
+      }
+    },
+    "A slice can only be replaced with an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切片只能替换为数组。"
+          }
+        }
+      }
+    },
+    "A string interpolation is missing its closing parenthesis.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字符串插值缺少右括号。"
+          }
+        }
+      }
+    },
+    "A string is missing its closing quote.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字符串缺少右引号。"
+          }
+        }
+      }
+    },
+    "Array indices must be finite numbers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数组索引必须是有限数字。"
+          }
+        }
+      }
+    },
+    "Cannot check whether %@ has a %@ key.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法检查 %@ 是否有 %@ 键。"
+          }
+        }
+      }
+    },
+    "Cannot delete %@ from %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法删除 %@（位于 %@ 中）。"
+          }
+        }
+      }
+    },
+    "Cannot find %@ in %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 %@（在 %@ 中）。"
+          }
+        }
+      }
+    },
+    "Cannot index %@ with %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法索引 %@（使用 %@）。"
+          }
+        }
+      }
+    },
+    "Cannot iterate over %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法遍历 %@。"
+          }
+        }
+      }
+    },
+    "Cannot parse “%@” as a number.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将“%@”解析为数字。"
+          }
+        }
+      }
+    },
+    "Cannot set %@ on %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法设置 %@（在 %@ 上）。"
+          }
+        }
+      }
+    },
+    "Cannot slice %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法对 %@ 切片。"
+          }
+        }
+      }
+    },
+    "Expected a $variable after “as”.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“as”后应为 $变量。"
+          }
+        }
+      }
+    },
+    "Expected a $variable.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应为 $变量。"
+          }
+        }
+      }
+    },
+    "Expected a variable name after $.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "$ 后应为变量名。"
+          }
+        }
+      }
+    },
+    "Expected “%@” %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应为“%@”（%@）。"
+          }
+        }
+      }
+    },
+    "Function definitions (def) are not supported in this filter.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此过滤器不支持函数定义（def）。"
+          }
+        }
+      }
+    },
+    "Invalid \\u escape in a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字符串中的 \\u 转义无效。"
+          }
+        }
+      }
+    },
+    "Invalid escape in a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字符串中的转义无效。"
+          }
+        }
+      }
+    },
+    "Object keys must be strings.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对象键必须是字符串。"
+          }
+        }
+      }
+    },
+    "Out of bounds negative array index.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负数组索引越界。"
+          }
+        }
+      }
+    },
+    "Path must be specified as an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路径必须指定为数组。"
+          }
+        }
+      }
+    },
+    "Paths must be specified as an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路径列表必须指定为数组。"
+          }
+        }
+      }
+    },
+    "Regular expression flags must be a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正则表达式标志必须是字符串。"
+          }
+        }
+      }
+    },
+    "Slice indices must be numbers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切片索引必须是数字。"
+          }
+        }
+      }
+    },
+    "The array index is too large.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "数组索引过大。"
+          }
+        }
+      }
+    },
+    "The body is not valid JSON.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文不是有效的 JSON。"
+          }
+        }
+      }
+    },
+    "The decoded base64 is not UTF-8 text.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解码后的 Base64 不是 UTF-8 文本。"
+          }
+        }
+      }
+    },
+    "The filter did too much work and was stopped.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器运算量过大，已停止。"
+          }
+        }
+      }
+    },
+    "The filter is nested too deeply.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器嵌套过深。"
+          }
+        }
+      }
+    },
+    "The filter recursed too deeply.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器递归过深。"
+          }
+        }
+      }
+    },
+    "The regular expression is too long.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正则表达式过长。"
+          }
+        }
+      }
+    },
+    "The repeated string would be too long.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重复后的字符串过长。"
+          }
+        }
+      }
+    },
+    "The replacement produced no string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换表达式没有生成字符串。"
+          }
+        }
+      }
+    },
+    "The string is not valid base64.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该字符串不是有效的 Base64。"
+          }
+        }
+      }
+    },
+    "This filter cannot be used as a path expression.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此过滤器不能用作路径表达式。"
+          }
+        }
+      }
+    },
+    "Unexpected character “%@” in the filter.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器中出现意外字符“%@”。"
+          }
+        }
+      }
+    },
+    "Unexpected “%@” in the filter.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器中出现意外的“%@”。"
+          }
+        }
+      }
+    },
+    "ascii needs a codepoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ascii 需要码位。"
+          }
+        }
+      }
+    },
+    "at the end of the filter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在过滤器末尾"
+          }
+        }
+      }
+    },
+    "before “%@”": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“%@”之前"
+          }
+        }
+      }
+    },
+    "boolean has no length.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "布尔值没有长度。"
+          }
+        }
+      }
+    },
+    "explode needs a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "explode 需要字符串。"
+          }
+        }
+      }
+    },
+    "flatten depth must not be negative.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "flatten 的深度不能为负数。"
+          }
+        }
+      }
+    },
+    "flatten needs an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "flatten 需要数组。"
+          }
+        }
+      }
+    },
+    "from_entries needs objects with key and value.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "from_entries 需要包含 key 和 value 的对象。"
+          }
+        }
+      }
+    },
+    "implode needs an array of codepoints.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "implode 需要码位数组。"
+          }
+        }
+      }
+    },
+    "input and inputs are not available in the inspector.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查器中不支持 input 和 inputs。"
+          }
+        }
+      }
+    },
+    "join needs an array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "join 需要数组。"
+          }
+        }
+      }
+    },
+    "jq output": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jq 输出"
+          }
+        }
+      }
+    },
+    "limit needs a number.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "limit 需要数字。"
+          }
+        }
+      }
+    },
+    "nth needs a non-negative index.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nth 需要非负索引。"
+          }
+        }
+      }
+    },
+    "pow needs numbers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pow 需要数字。"
+          }
+        }
+      }
+    },
+    "range needs numbers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "range 需要数字。"
+          }
+        }
+      }
+    },
+    "split needs a string separator.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "split 需要字符串分隔符。"
+          }
+        }
+      }
+    },
+    "split needs a string.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "split 需要字符串。"
+          }
+        }
+      }
+    },
+    "“%@” is not a number.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是数字。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

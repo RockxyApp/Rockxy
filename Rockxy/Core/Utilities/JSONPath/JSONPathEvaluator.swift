@@ -62,6 +62,9 @@ struct JSONPathEvaluator: Sendable {
         case .allKeys,
              .allValues:
             try textSearch(query, mode: mode)
+        case .jq:
+            // jq transforms the body rather than selecting nodes; JSONTreeView runs it directly.
+            .empty
         }
     }
 
@@ -205,7 +208,8 @@ struct JSONPathEvaluator: Sendable {
                 }
                 return matcher.matches(node.scalarDescription)
             case .jsonPath,
-                 .keyPath:
+                 .keyPath,
+                 .jq:
                 return false
             }
         }
@@ -681,6 +685,7 @@ enum JSONTreeFilterMode: String, CaseIterable, Identifiable, Sendable {
     case keyPath
     case allKeys
     case allValues
+    case jq
 
     // MARK: Internal
 
@@ -694,6 +699,7 @@ enum JSONTreeFilterMode: String, CaseIterable, Identifiable, Sendable {
         case .keyPath: "Key Paths"
         case .allKeys: "All Keys"
         case .allValues: "All Values"
+        case .jq: "jq"
         }
     }
 
@@ -703,6 +709,7 @@ enum JSONTreeFilterMode: String, CaseIterable, Identifiable, Sendable {
         case .keyPath: "posts[1].makers[2]"
         case .allKeys: "username"
         case .allValues: "/friedland/i"
+        case .jq: ".posts[] | select(.likes > 10) | .user.name"
         }
     }
 }
