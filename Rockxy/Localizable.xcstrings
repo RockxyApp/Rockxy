@@ -44879,6 +44879,26 @@
           }
         }
       }
+    },
+    "Turn No Caching On or Off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开或关闭“不缓存”"
+          }
+        }
+      }
+    },
+    "Turn No Caching on or off": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开或关闭“不缓存”"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

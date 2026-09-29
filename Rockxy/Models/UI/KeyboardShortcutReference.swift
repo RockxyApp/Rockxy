@@ -86,6 +86,7 @@ enum KeyboardShortcutCatalog {
             row("main.editRepeat", "Main Capture", "Edit and Repeat the selected request", "⌘E", "Selected request", "Flow", nil),
             row("main.replay", "Main Capture", "Replay the selected request", "⌘R", "Selected request", "Flow", nil),
             row("main.breakpoint", "Main Capture", "Add a Breakpoint rule for the selected request URL", "⌘B", "Selected request", "Tools", nil),
+            row("main.noCaching", "Main Capture", "Turn No Caching on or off", "⌥⌘C", "Main capture window", "Tools", nil),
             row("main.tabs", "Main Capture", "Switch workspace tabs", "⇧⌘[ / ⇧⌘]", "Main capture window", "View", nil),
         ]),
         KeyboardShortcutSection(id: "compose", title: "Compose", shortcuts: [

@@ -1090,6 +1090,7 @@ struct RockxyMenuCommands: Commands {
             Divider()
 
             Toggle(String(localized: "No Caching", bundle: RockxyLocalization.bundle), isOn: $isNoCachingEnabled)
+                .keyboardShortcut("c", modifiers: [.command, .option])
 
             Divider()
 

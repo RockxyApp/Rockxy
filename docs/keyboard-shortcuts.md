@@ -37,6 +37,7 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⌘E` | Edit and Repeat the selected request |
 | `⌘R` | Replay the selected request |
 | `⌘B` | Add a Breakpoint rule for the selected request URL |
+| `⌥⌘C` | Turn No Caching on or off |
 | `⇧⌘B` | Open Breakpoint Rules |
 | `⇧⌘[` / `⇧⌘]` | Switch workspace tabs |
 

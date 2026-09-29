@@ -12,6 +12,7 @@ enum CommandPaletteAction: Hashable {
     case stopProxy
     case toggleRecording
     case toggleSystemProxy
+    case toggleNoCaching
     case clearSession
     case clearSessionAndFilters
     case compose
@@ -116,6 +117,7 @@ enum CommandPaletteCatalog {
                 .openWindow("sslProxyingList")
             ),
             command("tools.mapLocal", "Map Local…", tools, "⌥⌘L", ["mock", "file"], .openWindow("mapLocal")),
+            command("tools.noCaching", "Turn No Caching On or Off", tools, "⌥⌘C", ["cache", "fresh", "headers"], .toggleNoCaching),
             command("tools.mapRemote", "Map Remote…", tools, nil, ["redirect", "rewrite"], .openWindow("mapRemote")),
             command(
                 "tools.breakpoints",

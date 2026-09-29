@@ -157,6 +157,7 @@ struct CommandPaletteSheet: ViewModifier {
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
 
     private func perform(_ action: CommandPaletteAction) {
         let actions = MainContentCommandActions(coordinator: coordinator)
@@ -171,6 +172,8 @@ struct CommandPaletteSheet: ViewModifier {
             actions.toggleRecording()
         case .toggleSystemProxy:
             actions.toggleSystemProxyOverride()
+        case .toggleNoCaching:
+            isNoCachingEnabled.toggle()
         case .clearSession:
             actions.clearSession()
         case .clearSessionAndFilters:
