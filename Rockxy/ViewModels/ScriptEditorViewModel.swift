@@ -114,6 +114,7 @@ enum ScriptMatchMethod: String, CaseIterable, Identifiable {
     case head
     case options
     case trace
+    case query
 
     // MARK: Lifecycle
 
@@ -143,6 +144,7 @@ enum ScriptMatchMethod: String, CaseIterable, Identifiable {
         case .head: "HEAD"
         case .options: "OPTIONS"
         case .trace: "TRACE"
+        case .query: "QUERY"
         }
     }
 

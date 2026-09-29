@@ -324,7 +324,7 @@ enum ProxyHandlerShared {
 
     /// Lowercase set of RFC-defined methods we accept from scripts.
     nonisolated private static let HTTPMethodRawValues: Set<String> = [
-        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT",
+        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "QUERY",
     ]
 
     nonisolated(unsafe) private static var warned: Set<String> = []

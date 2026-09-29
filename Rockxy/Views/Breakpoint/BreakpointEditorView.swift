@@ -39,7 +39,7 @@ struct BreakpointEditorView: View {
 
     // MARK: Private
 
-    private static let httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+    private static let httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "QUERY"]
 
     private static let statusCodes: [(code: Int, text: String)] = [
         (200, "OK"),

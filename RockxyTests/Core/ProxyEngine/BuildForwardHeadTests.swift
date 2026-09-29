@@ -89,6 +89,20 @@ struct BuildForwardHeadTests {
         #expect(forward.uri == "/")
     }
 
+    @Test("Script-set QUERY method is forwarded with its body length")
+    func queryMethodForwarded() {
+        let body = Data("{\"q\":\"rockxy\"}".utf8)
+        let req = makeRequest(
+            method: "query",
+            headers: [HTTPHeader(name: "Content-Length", value: "2")],
+            body: body
+        )
+        let originalHead = makeOriginalHead(method: .POST, uri: "/search", headers: [("Content-Length", "2")])
+        let forward = ProxyHandlerShared.buildForwardHead(from: req, originalHead: originalHead)
+        #expect(forward.method.rawValue == "QUERY")
+        #expect(forward.headers.first(name: "Content-Length") == "\(body.count)")
+    }
+
     @Test("Invalid method falls back to original head's method")
     func invalidMethodFallback() {
         let req = makeRequest(method: "BOGUS")
