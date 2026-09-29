@@ -122,6 +122,38 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A reverse proxy listener relays origin-form requests to its server and captures them")
+    func reverseProxyRelaysAndCaptures() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let reversePort = try await harness.startReverseProxy()
+
+            let response = try await harness.getViaReverseProxy(port: reversePort, path: "/live?source=reverse")
+
+            #expect(response.status == 200)
+            #expect(response.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+            #expect(response.body == Data("origin:/live".utf8))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.path == "/live" }
+            #expect(captured?.request.url.absoluteString == harness.absoluteURLString(path: "/live?source=reverse"))
+            #expect(captured?.state == .completed)
+        }
+    }
+
+    @Test("A reverse proxy rule applies like any captured request")
+    func reverseProxyHonorsRules() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(named: "reverse.txt", contents: Data("MOCKED".utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Reverse mock", path: "/mocked", filePath: file.path))
+            let reversePort = try await harness.startReverseProxy()
+
+            let response = try await harness.getViaReverseProxy(port: reversePort, path: "/mocked")
+
+            #expect(response.body == Data("MOCKED".utf8))
+            #expect(response.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -591,6 +623,36 @@ private actor MapLocalLoopbackHarness {
             originPort: origin.boundPort,
             proxyHost: "127.0.0.1",
             proxyPort: proxyPort
+        )
+    }
+
+    /// Opens a reverse proxy listener that forwards to the origin fixture and returns its port.
+    func startReverseProxy() async throws -> Int {
+        let port = try Self.reserveLoopbackPort()
+        let target = ReverseProxyTarget(
+            id: UUID(),
+            localPort: port,
+            scheme: .http,
+            host: origin.host,
+            port: origin.boundPort,
+            preserveHostHeader: false
+        )
+        let failures = await proxyServer.updateReverseProxies([target])
+        guard failures.isEmpty else {
+            throw MapLocalLoopbackError.connectionFailed("reverse proxy bind failed: \(failures)")
+        }
+        return port
+    }
+
+    /// Sends an origin-form request straight to a reverse proxy listener, like a client
+    /// whose base URL was changed to `http://127.0.0.1:<port>`.
+    func getViaReverseProxy(port: Int, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: path,
+            host: "127.0.0.1",
+            originPort: port,
+            proxyHost: "127.0.0.1",
+            proxyPort: port
         )
     }
 
