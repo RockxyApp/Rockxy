@@ -106,6 +106,9 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var appliedScriptNames: [String] = []
     /// True when No Caching rewrote this exchange's cache headers.
     var noCachingApplied = false
+    /// Protocol Rockxy used to reach the server (`1.1` or `2`); nil for tunnels, local
+    /// responses, and sessions saved before it was recorded.
+    var serverHTTPVersion: String?
 
     /// Runtime-only ownership. Portable session files intentionally omit this so
     /// an imported capture is assigned to the destination Project chosen by the user.

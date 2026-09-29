@@ -44689,6 +44689,16 @@
           }
         }
       }
+    },
+    "Server Protocol": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器协议"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

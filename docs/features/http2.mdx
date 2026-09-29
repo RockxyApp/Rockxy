@@ -26,7 +26,8 @@ So an HTTP/2 client can reach an HTTP/1.1-only server through Rockxy, and the ot
 ## What you see
 
 - Every HTTP/2 stream is its own row, so concurrent requests on one connection appear separately.
-- The **Version** column shows `HTTP/2` or `HTTP/1.1` for the client side. It is hidden by default; right-click a column header to show it. The Synopsis tab also shows the version.
+- The **Version** column shows `HTTP/2` or `HTTP/1.1` for the client side. It is hidden by default; right-click a column header to show it.
+- The **Synopsis** tab shows both legs: **HTTP Version** for the client side and **Server Protocol** for the connection Rockxy made to the server. Sessions saved before Server Protocol was recorded show **Unknown** rather than guessing.
 - Response **Trailers**, such as gRPC's `grpc-status` and `grpc-message`, appear below the response headers and are forwarded to the client. The gRPC tab reads the call status from them.
 
 ## Limitations

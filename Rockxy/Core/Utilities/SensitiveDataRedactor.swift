@@ -305,6 +305,7 @@ struct SensitiveDataRedactor {
         redacted.matchedRulePattern = transaction.matchedRulePattern
         redacted.appliedScriptNames = transaction.appliedScriptNames
         redacted.noCachingApplied = transaction.noCachingApplied
+        redacted.serverHTTPVersion = transaction.serverHTTPVersion
         redacted.sequenceNumber = transaction.sequenceNumber
         return redacted
     }

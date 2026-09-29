@@ -76,6 +76,7 @@ struct CodableTransaction: Codable {
         self.matchedRulePattern = transaction.matchedRulePattern
         self.appliedScriptNames = transaction.appliedScriptNames.isEmpty ? nil : transaction.appliedScriptNames
         self.noCachingApplied = transaction.noCachingApplied ? true : nil
+        self.serverHTTPVersion = transaction.serverHTTPVersion
     }
 
     init(from decoder: Decoder) throws {
@@ -105,6 +106,7 @@ struct CodableTransaction: Codable {
         matchedRulePattern = try container.decodeIfPresent(String.self, forKey: .matchedRulePattern)
         appliedScriptNames = try container.decodeIfPresent([String].self, forKey: .appliedScriptNames)
         noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
+        serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
     }
 
     // MARK: Internal
@@ -133,6 +135,7 @@ struct CodableTransaction: Codable {
         case matchedRulePattern
         case appliedScriptNames
         case noCachingApplied
+        case serverHTTPVersion
     }
 
     let id: UUID
@@ -160,6 +163,7 @@ struct CodableTransaction: Codable {
     let matchedRulePattern: String?
     let appliedScriptNames: [String]?
     let noCachingApplied: Bool?
+    let serverHTTPVersion: String?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -187,6 +191,7 @@ struct CodableTransaction: Codable {
         transaction.matchedRulePattern = matchedRulePattern
         transaction.appliedScriptNames = appliedScriptNames ?? []
         transaction.noCachingApplied = noCachingApplied ?? false
+        transaction.serverHTTPVersion = serverHTTPVersion
         return transaction
     }
 }

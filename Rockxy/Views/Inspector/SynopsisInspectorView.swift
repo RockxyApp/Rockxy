@@ -21,6 +21,11 @@ struct SynopsisInspectorView: View {
                     String(localized: "HTTP Version", bundle: RockxyLocalization.bundle),
                     transaction.request.httpVersion
                 )
+                synopsisRow(
+                    String(localized: "Server Protocol", bundle: RockxyLocalization.bundle),
+                    transaction.serverHTTPVersion.map(RequestListRow.displayVersion)
+                        ?? String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+                )
 
                 if let matchedRuleName = transaction.matchedRuleName {
                     Divider()

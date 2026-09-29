@@ -30,6 +30,7 @@ struct HTTP2InterceptionLoopbackTests {
 
             let row = try await harness.transaction(path: "/h2/items")
             #expect(row.request.httpVersion == "2.0")
+            #expect(row.serverHTTPVersion == "2")
             #expect(row.response?.statusCode == 200)
             #expect(row.response?.trailers?.contains { $0.name == "grpc-status" && $0.value == "0" } == true)
         }
@@ -57,6 +58,9 @@ struct HTTP2InterceptionLoopbackTests {
             #expect(result.negotiatedProtocol == "h2")
             #expect(result.responses.first?.status == 200)
             #expect(result.responses.first?.headers.first(name: "x-origin-protocol") == "http/1.1")
+            let row = try await harness.transaction(path: "/h1/origin")
+            #expect(row.request.httpVersion == "2.0")
+            #expect(row.serverHTTPVersion == "1.1")
         }
     }
 

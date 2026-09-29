@@ -121,6 +121,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     }
 
     nonisolated func handlerAdded(context: ChannelHandlerContext) {
+        // An HTTP/2 origin is reached through a stream channel whose parent is the connection.
+        serverHTTPVersion = context.channel.parent == nil ? "1.1" : "2"
         readTimeoutTask = context.eventLoop.scheduleTask(in: .seconds(30)) { [weak self] in
             guard let self, !self.completed else {
                 return
@@ -430,6 +432,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var responseHead: HTTPResponseHead?
     /// Trailers sent after the body (HTTP/2, or chunked HTTP/1.1), e.g. `grpc-status`.
     private var responseTrailers: HTTPHeaders?
+    private var serverHTTPVersion: String?
     private var pendingWebSocketUpgrade = false
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
@@ -892,6 +895,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         transaction.sourcePort = sourcePort
         transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
         transaction.noCachingApplied = disablesResponseCaching
+        transaction.serverHTTPVersion = serverHTTPVersion
 
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
@@ -907,6 +911,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             live.web3RPCInfo = transaction.web3RPCInfo
             live.x402Info = transaction.x402Info
             live.noCachingApplied = transaction.noCachingApplied
+            live.serverHTTPVersion = transaction.serverHTTPVersion
             live.state = .completed
             onTransactionComplete(live)
         }
