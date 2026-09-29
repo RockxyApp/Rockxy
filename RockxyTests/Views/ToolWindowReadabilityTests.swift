@@ -1047,7 +1047,8 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains(#"TextField(String(localized: "Search rules", bundle: RockxyLocalization.bundle)"#))
         #expect(source.contains(#".keyboardShortcut("f", modifiers: .command)"#))
         #expect(source.contains(".focused($searchIsFocused)"))
-        #expect(source.contains(#"Table(viewModel.rows, children: \.children"#))
+        #expect(source.contains("Table(of: RuleListRow.self, selection: $viewModel.selectedRuleID)"))
+        #expect(source.contains("DisclosureTableRow(row)"))
         #expect(source.contains(#"TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle))"#))
 
         // Info banner + status capsule + native empty state.

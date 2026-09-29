@@ -77,3 +77,44 @@ struct RuleFolderStoreTests {
         return (try #require(UserDefaults(suiteName: suite)), suite)
     }
 }
+
+// MARK: - RuleFolderDragTests
+
+@MainActor
+struct RuleFolderDragTests {
+    @Test("Dragging a selected rule carries the whole selection")
+    func payloadUsesSelection() {
+        let first = UUID()
+        let second = UUID()
+        let other = UUID()
+        let payload = RuleFolderDrag.payload(for: first, selection: [first, second])
+        #expect(RuleFolderDrag.ruleIDs(from: [payload]) == [first, second])
+        #expect(RuleFolderDrag.ruleIDs(from: [RuleFolderDrag.payload(for: other, selection: [first])]) == [other])
+        #expect(RuleFolderDrag.ruleIDs(from: ["not-an-id"]).isEmpty)
+    }
+
+    @Test("Dropping onto a folder moves rules in; onto a loose rule moves them to the top level")
+    func dropTargets() throws {
+        let suite = "RuleFolderDragTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = RuleFolderStore(tool: "dragTest", defaults: defaults)
+        let rules = (0 ..< 3).map { index in
+            ProxyRule(name: "Rule \(index)", matchCondition: RuleMatchCondition(urlPattern: ".*"), action: .block(statusCode: 403))
+        }
+        let known = Set(rules.map(\.id))
+        let folderID = store.createFolder(named: "Mocks", containing: [rules[0].id])
+        let rows = RuleListRow.rows(rules: rules, folders: store.folders, flat: false)
+        let folderRow = try #require(rows.first { $0.folder != nil })
+        let looseRow = try #require(rows.first { $0.rule?.id == rules[2].id })
+
+        #expect(store.drop([rules[1].id.uuidString], onto: folderRow, knownRuleIDs: known))
+        #expect(store.folder(containing: rules[1].id)?.id == folderID)
+
+        #expect(store.drop([rules[0].id.uuidString], onto: looseRow, knownRuleIDs: known))
+        #expect(store.folder(containing: rules[0].id) == nil)
+
+        // A folder id or an unknown rule is never moved.
+        #expect(!store.drop([folderID.uuidString, UUID().uuidString], onto: folderRow, knownRuleIDs: known))
+    }
+}

@@ -164,3 +164,36 @@ struct RuleListRow: Identifiable {
         return folderRows + loose
     }
 }
+
+// MARK: - RuleFolderDrag
+
+/// Drag and drop between rule folders. A dragged rule carries its own id, or every selected
+/// rule id when it is part of the selection, as comma-separated text.
+enum RuleFolderDrag {
+    static func payload(for ruleID: UUID, selection: Set<UUID>) -> String {
+        let ids = selection.contains(ruleID) ? selection.sorted { $0.uuidString < $1.uuidString } : [ruleID]
+        return ids.map(\.uuidString).joined(separator: ",")
+    }
+
+    static func ruleIDs(from payloads: [String]) -> Set<UUID> {
+        Set(payloads.flatMap { $0.split(separator: ",") }.compactMap { UUID(uuidString: String($0)) })
+    }
+}
+
+extension RuleFolderStore {
+    /// Moves dropped rules into the folder row they land on, or next to the rule row they
+    /// land on (into its folder, or the top level). Folder ids and unknown ids are ignored.
+    @discardableResult
+    func drop(_ payloads: [String], onto row: RuleListRow, knownRuleIDs: Set<UUID>) -> Bool {
+        let ruleIDs = RuleFolderDrag.ruleIDs(from: payloads).intersection(knownRuleIDs)
+        guard !ruleIDs.isEmpty else {
+            return false
+        }
+        let target: UUID? = switch row.kind {
+        case let .folder(folder): folder.id
+        case let .rule(rule): folder(containing: rule.id)?.id
+        }
+        move(ruleIDs: ruleIDs, toFolder: target)
+        return true
+    }
+}

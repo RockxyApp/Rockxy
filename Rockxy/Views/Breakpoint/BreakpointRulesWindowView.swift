@@ -23,6 +23,10 @@ final class BreakpointRulesViewModel {
         return RuleListRow.rows(rules: filteredBreakpointRules, folders: folderStore.folders, flat: searching)
     }
 
+    func dropRules(_ payloads: [String], onto row: RuleListRow) {
+        folderStore.drop(payloads, onto: row, knownRuleIDs: Set(breakpointRules.map(\.id)))
+    }
+
     func rules(in folder: RuleFolder) -> [ProxyRule] {
         let members = Set(folder.ruleIDs)
         return breakpointRules.filter { members.contains($0.id) }
@@ -573,8 +577,18 @@ struct BreakpointRulesWindowView: View {
         .background(Color.accentColor.opacity(0.055))
     }
 
+    @TableRowBuilder<RuleListRow>
+    private func draggableRuleRow(_ row: RuleListRow) -> some TableRowContent<RuleListRow> {
+        TableRow(row)
+            .draggable(RuleFolderDrag.payload(
+                for: row.id,
+                selection: viewModel.selectedRuleID.map { [$0] } ?? []
+            ))
+            .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+    }
+
     private var tableContent: some View {
-        Table(viewModel.rows, children: \.children, selection: $viewModel.selectedRuleID) {
+        Table(of: RuleListRow.self, selection: $viewModel.selectedRuleID) {
             TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { row in
                 HStack {
                     Spacer()
@@ -652,6 +666,19 @@ struct BreakpointRulesWindowView: View {
                 }
             }
             .width(min: 116, ideal: 138)
+        } rows: {
+            ForEach(viewModel.rows) { row in
+                if let children = row.children {
+                    DisclosureTableRow(row) {
+                        ForEach(children) { child in
+                            draggableRuleRow(child)
+                        }
+                    }
+                    .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+                } else {
+                    draggableRuleRow(row)
+                }
+            }
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             tableContextMenu(ids: ids)

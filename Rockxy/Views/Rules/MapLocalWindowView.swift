@@ -40,6 +40,10 @@ final class MapLocalViewModel {
         return ids
     }
 
+    func dropRules(_ payloads: [String], onto row: RuleListRow) {
+        folderStore.drop(payloads, onto: row, knownRuleIDs: Set(mapLocalRules.map(\.id)))
+    }
+
     func rules(in folder: RuleFolder) -> [ProxyRule] {
         let members = Set(folder.ruleIDs)
         return mapLocalRules.filter { members.contains($0.id) }
@@ -516,8 +520,15 @@ struct MapLocalWindowView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
+    @TableRowBuilder<RuleListRow>
+    private func draggableRuleRow(_ row: RuleListRow) -> some TableRowContent<RuleListRow> {
+        TableRow(row)
+            .draggable(RuleFolderDrag.payload(for: row.id, selection: viewModel.selectedRuleIDs))
+            .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+    }
+
     private var tableContent: some View {
-        Table(viewModel.rows, children: \.children, selection: $viewModel.selectedRuleIDs) {
+        Table(of: RuleListRow.self, selection: $viewModel.selectedRuleIDs) {
             TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { row in
                 enabledCell(for: row)
             }
@@ -578,6 +589,19 @@ struct MapLocalWindowView: View {
                 }
             }
             .width(min: 280, ideal: 420)
+        } rows: {
+            ForEach(viewModel.rows) { row in
+                if let children = row.children {
+                    DisclosureTableRow(row) {
+                        ForEach(children) { child in
+                            draggableRuleRow(child)
+                        }
+                    }
+                    .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+                } else {
+                    draggableRuleRow(row)
+                }
+            }
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             tableContextMenu(ids: ids)
