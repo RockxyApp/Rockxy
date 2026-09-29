@@ -94,16 +94,6 @@
         }
       }
     },
-    "Add a rule, then point your client at http://127.0.0.1:<local port>.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "添加规则后，将客户端指向 http://127.0.0.1:<本地端口>。"
-          }
-        }
-      }
-    },
     "All Fields": {
       "localizations": {
         "zh-Hans": {
@@ -44976,6 +44966,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "显示主窗口中所选的请求，而不是固定显示当前请求"
+          }
+        }
+      }
+    },
+    "Add a rule, then point your client at the rule's local address instead of the server.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加规则，然后让客户端改为连接该规则的本地地址，而不是服务器。"
           }
         }
       }

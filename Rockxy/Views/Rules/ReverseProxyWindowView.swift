@@ -14,7 +14,7 @@ struct ReverseProxyWindowScene: Scene {
             }
         }
         .commandsRemoved()
-        .defaultSize(width: 860, height: 420)
+        .defaultSize(width: 860, height: 540)
         .defaultPosition(.center)
         .windowToolbarStyle(.unifiedCompact)
     }
@@ -52,7 +52,7 @@ struct ReverseProxyWindowView: View {
                     )
                 } description: {
                     Text(String(
-                        localized: "Add a rule, then point your client at http://127.0.0.1:<local port>.",
+                        localized: "Add a rule, then point your client at the rule's local address instead of the server.",
                         bundle: RockxyLocalization.bundle
                     ))
                 } actions: {
@@ -68,7 +68,8 @@ struct ReverseProxyWindowView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 720, minHeight: 320)
+        // Tall enough for the rule editor sheet to show every field without scrolling.
+        .frame(minWidth: 720, minHeight: 480)
         .sheet(item: $editingRule) { draft in
             ReverseProxyRuleEditor(
                 draft: draft,
