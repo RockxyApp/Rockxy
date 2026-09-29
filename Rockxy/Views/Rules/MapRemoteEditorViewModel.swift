@@ -19,6 +19,8 @@ final class MapRemoteEditorViewModel {
     var method: MapLocalHTTPMethod = .any
     var matchType: MapLocalMatchType = .wildcard
     var includeSubpaths = true
+    /// Optional exact GraphQL operation name; empty matches every request to the URL.
+    var graphQLOperationName = ""
     var destScheme = ""
     var destHost = ""
     var destPort = ""
@@ -225,6 +227,8 @@ final class MapRemoteEditorViewModel {
         condition.sourceURLPattern = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         condition.matchType = matchType == .regex ? .regex : .wildcard
         condition.includeSubpaths = matchType == .wildcard ? includeSubpaths : false
+        let operationName = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        condition.graphQLOperationName = operationName.isEmpty ? nil : operationName
 
         let config = MapRemoteConfiguration(
             scheme: destScheme.isEmpty ? nil : destScheme.lowercased(),
@@ -448,6 +452,7 @@ final class MapRemoteEditorViewModel {
         method = .any
         matchType = .wildcard
         includeSubpaths = true
+        graphQLOperationName = ""
         destScheme = ""
         destHost = ""
         destPort = ""
@@ -467,6 +472,7 @@ final class MapRemoteEditorViewModel {
         method = MapLocalHTTPMethod(ruleMethod: draft.sourceMethod)
         matchType = .wildcard
         includeSubpaths = draft.origin == .domainQuickCreate
+        graphQLOperationName = draft.graphQLOperationName ?? ""
         if let sourceURL = draft.sourceURL {
             urlText = sourceURL.absoluteString
         } else {
@@ -478,6 +484,7 @@ final class MapRemoteEditorViewModel {
         name = rule.name.isEmpty ? "Untitled" : rule.name
         loadURLMetadata(from: rule.matchCondition)
         method = MapLocalHTTPMethod(ruleMethod: rule.matchCondition.method)
+        graphQLOperationName = rule.matchCondition.requiredGraphQLOperationName ?? ""
         destScheme = ""
         destHost = ""
         destPort = ""

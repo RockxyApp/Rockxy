@@ -1260,7 +1260,11 @@ extension MainContentCoordinator {
         -> [HTTPTransaction]
     {
         batch.filter {
-            manager.isRequestAllowed(method: $0.request.method, url: $0.request.url)
+            manager.isRequestAllowed(
+                method: $0.request.method,
+                url: $0.request.url,
+                graphQLOperationName: $0.graphQLInfo?.operationName
+            )
         }
     }
 }

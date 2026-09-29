@@ -28,6 +28,12 @@ Useful when you want to test a new route while keeping the same host and authent
 
 Useful when you are sending traffic to a local service or test environment with a different transport shape.
 
+### Redirect one GraphQL operation
+
+Set **GraphQL Operation** to send only that operation (for example `GetUsers`) to another
+server while every other operation on the same endpoint keeps its original destination. Rules
+created from a captured GraphQL request prefill the operation name.
+
 ## Practical advice
 
 Start with the smallest rewrite that proves the behavior change you want. If changing only the host works, do not rewrite path and query too.

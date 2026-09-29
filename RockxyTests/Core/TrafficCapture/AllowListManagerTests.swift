@@ -292,6 +292,67 @@ struct AllowListManagerTests {
         #expect(manager.isRequestAllowed(method: "GET", url: longURL))
     }
 
+    // MARK: - GraphQL Operation
+
+    @Test
+    func graphQLOperationRestrictsMatch() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(AllowListRule(
+            name: "users",
+            rawPattern: "*api.example.com/graphql",
+            method: "POST",
+            includeSubpaths: false,
+            graphQLOperationName: " GetUsers "
+        ))
+        manager.setActive(true)
+        let endpoint = self.url("https://api.example.com/graphql")
+
+        #expect(manager.rules[0].graphQLOperationName == "GetUsers")
+        #expect(manager.isRequestAllowed(method: "POST", url: endpoint, graphQLOperationName: "GetUsers"))
+        #expect(!manager.isRequestAllowed(method: "POST", url: endpoint, graphQLOperationName: "DeleteUser"))
+        #expect(!manager.isRequestAllowed(method: "POST", url: endpoint))
+    }
+
+    @Test
+    func graphQLOperationSurvivesPersistenceAndLegacyFilesDecode() throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("allow-list-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let writer = AllowListManager(storageURL: tempURL)
+        writer.addRule(AllowListRule(name: "op", rawPattern: "*/graphql", graphQLOperationName: "GetUsers"))
+        let reader = AllowListManager(storageURL: tempURL)
+        #expect(reader.rules.first?.graphQLOperationName == "GetUsers")
+
+        let legacy = Data("""
+        {"id":"\(UUID().uuidString)","name":"old","isEnabled":true,"rawPattern":"*a.com*",
+         "matchType":"Use Wildcard","includeSubpaths":true}
+        """.utf8)
+        let decoded = try JSONDecoder().decode(AllowListRule.self, from: legacy)
+        #expect(decoded.graphQLOperationName == nil)
+    }
+
+    @Test
+    func batchFilterPassesTheTransactionOperation() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(AllowListRule(
+            name: "users",
+            rawPattern: "*api.example.com/graphql",
+            includeSubpaths: false,
+            graphQLOperationName: "GetUsers"
+        ))
+        manager.setActive(true)
+
+        let wanted = TestFixtures.makeGraphQLTransaction(operationName: "GetUsers")
+        let other = TestFixtures.makeGraphQLTransaction(operationName: "DeleteUser")
+        let kept = MainContentCoordinator.filterBatchThroughAllowList([wanted, other], using: manager)
+        #expect(kept.map(\.id) == [wanted.id])
+    }
+
     // MARK: - Persistence Round-Trip
 
     @Test

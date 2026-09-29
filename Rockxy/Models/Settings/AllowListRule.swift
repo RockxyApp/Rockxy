@@ -19,7 +19,8 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         rawPattern: String,
         method: String? = nil,
         matchType: RuleMatchType = .wildcard,
-        includeSubpaths: Bool = true
+        includeSubpaths: Bool = true,
+        graphQLOperationName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -28,6 +29,7 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         self.method = Self.normalizeMethod(method)
         self.matchType = matchType
         self.includeSubpaths = includeSubpaths
+        self.graphQLOperationName = Self.normalizeOperationName(graphQLOperationName)
     }
 
     init(from decoder: Decoder) throws {
@@ -40,6 +42,9 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         method = Self.normalizeMethod(decodedMethod)
         matchType = try container.decode(RuleMatchType.self, forKey: .matchType)
         includeSubpaths = try container.decode(Bool.self, forKey: .includeSubpaths)
+        graphQLOperationName = Self.normalizeOperationName(
+            try container.decodeIfPresent(String.self, forKey: .graphQLOperationName)
+        )
     }
 
     // MARK: Internal
@@ -56,6 +61,8 @@ struct AllowListRule: Identifiable, Codable, Hashable {
     var matchType: RuleMatchType
     /// Display flag for wildcard rules. Ignored at runtime for `.regex` rules.
     var includeSubpaths: Bool
+    /// Exact GraphQL operation name the request must carry. `nil` matches every request.
+    var graphQLOperationName: String?
 
     // MARK: Private
 
@@ -67,6 +74,7 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         case method
         case matchType
         case includeSubpaths
+        case graphQLOperationName
     }
 
     /// Normalizes an HTTP method string for storage:
@@ -83,5 +91,12 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         }
         let upper = trimmed.uppercased()
         return upper == "ANY" ? nil : upper
+    }
+
+    private static func normalizeOperationName(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }

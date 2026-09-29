@@ -9,7 +9,8 @@ enum MapRemoteDraftBuilder {
             sourceURL: transaction.request.url,
             sourceHost: transaction.request.host,
             sourcePath: transaction.request.path,
-            sourceMethod: transaction.request.method
+            sourceMethod: transaction.request.method,
+            graphQLOperationName: transaction.graphQLInfo?.operationName
         )
     }
 

@@ -45069,6 +45069,26 @@
           }
         }
       }
+    },
+    "Redirect only GraphQL requests with this exact operation name. Leave empty to redirect every request to the URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅重定向具有此确切操作名称的 GraphQL 请求。留空则重定向该 URL 的所有请求。"
+          }
+        }
+      }
+    },
+    "Record only GraphQL requests with this exact operation name. Leave empty to record every request to the URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅记录具有此确切操作名称的 GraphQL 请求。留空则记录该 URL 的所有请求。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

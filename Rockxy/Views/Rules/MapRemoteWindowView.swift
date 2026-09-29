@@ -764,6 +764,23 @@ struct MapRemoteEditorWindowView: View {
                     .toggleStyle(.checkbox)
                     .font(toolMetrics.font())
                 }
+
+                inlineField(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {
+                    TextField(
+                        String(localized: "Any operation", bundle: RockxyLocalization.bundle),
+                        text: $viewModel.graphQLOperationName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: max(220, toolMetrics.fieldWidth(220)))
+                    .accessibilityLabel(String(
+                        localized: "GraphQL operation name to match",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .help(String(
+                        localized: "Redirect only GraphQL requests with this exact operation name. Leave empty to redirect every request to the URL.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
             }
             .padding(.horizontal, toolMetrics.formHorizontalPadding - 2)
             .padding(.vertical, toolMetrics.formVerticalPadding - 2)
