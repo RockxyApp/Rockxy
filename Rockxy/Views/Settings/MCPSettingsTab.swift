@@ -1,5 +1,37 @@
 import SwiftUI
 
+// MARK: - MCPClientSetupCommand
+
+/// One-line setup commands for MCP clients that register servers from their
+/// own CLI. The bridge path is single-quoted so paths with spaces or quotes
+/// survive the shell unchanged.
+enum MCPClientSetupCommand: String, CaseIterable, Identifiable {
+    case claudeCode
+    case codex
+
+    // MARK: Internal
+
+    var id: String {
+        rawValue
+    }
+
+    /// Client product names stay verbatim in every language.
+    var clientName: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    func command(bridgePath: String) -> String {
+        let quotedPath = "'" + bridgePath.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return switch self {
+        case .claudeCode: "claude mcp add rockxy -- \(quotedPath)"
+        case .codex: "codex mcp add rockxy -- \(quotedPath)"
+        }
+    }
+}
+
 // MARK: - MCPSettingsServerState
 
 enum MCPSettingsServerState: Equatable {
@@ -272,6 +304,22 @@ struct MCPSettingsTab: View {
                     localized: "Copies JSON with this Mac's absolute Rockxy app path.",
                     bundle: RockxyLocalization.bundle
                 ))
+
+                Menu {
+                    ForEach(MCPClientSetupCommand.allCases) { client in
+                        Button(client.clientName) {
+                            copyToClipboard(client.command(bridgePath: binaryPath))
+                        }
+                    }
+                } label: {
+                    Text(String(localized: "Copy Command", bundle: RockxyLocalization.bundle))
+                        .font(settingsMetrics.secondaryFont(weight: .medium))
+                }
+                .fixedSize()
+                .help(String(
+                    localized: "Copy a terminal command that registers Rockxy with an MCP client",
+                    bundle: RockxyLocalization.bundle
+                ))
             }
 
             ScrollView(.horizontal) {
@@ -361,9 +409,13 @@ struct MCPSettingsTab: View {
     }
 
     private func copyConfigToClipboard() {
+        copyToClipboard(configJSON)
+    }
+
+    private func copyToClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(configJSON, forType: .string)
+        pasteboard.setString(text, forType: .string)
         let generation = UUID()
         copyFeedbackGeneration = generation
         didCopyConfig = true

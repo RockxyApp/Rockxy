@@ -170,6 +170,16 @@
         }
       }
     },
+    "Copy a terminal command that registers Rockxy with an MCP client": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝一条用于向 MCP 客户端注册 Rockxy 的终端命令"
+          }
+        }
+      }
+    },
     "Could Not Save Part": {
       "localizations": {
         "zh-Hans": {

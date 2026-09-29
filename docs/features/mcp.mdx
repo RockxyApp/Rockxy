@@ -39,7 +39,9 @@ Make sure all of these are true:
 2. In Rockxy, open **Settings → MCP**.
 3. Turn on **Enable MCP Server**.
 4. Optionally keep **Redact Sensitive Data Before Sending to AI** enabled.
-5. Copy the generated MCP config snippet from Rockxy.
+5. Copy the generated MCP config snippet from Rockxy, or use **Copy Command** to copy a
+   one-line terminal command for clients that register servers from their CLI
+   (for example `claude mcp add rockxy -- '<path>/rockxy-mcp'`).
 
 <Tip>
 If you move `Rockxy.app` to a different folder later, open **Settings → MCP** and copy the config again so the `command` path stays correct.
