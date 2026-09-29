@@ -31,7 +31,21 @@ Physical iOS devices always need an explicit setup path. The main tasks are:
 - the device cannot reach the Mac,
 - the certificate is installed but not fully trusted,
 - the app uses certificate pinning,
-- or the device changes networks and the proxy path breaks.
+- the device changes networks and the proxy path breaks,
+- or **Only listen on localhost** is on, or Access Control does not list the device.
+
+## Limit which devices can connect
+
+When Rockxy listens on every interface, anyone on the same network can use the proxy. Open
+**Settings > General > Advanced Proxy Setting…** and choose an **Access Control** mode:
+
+- **Allow all devices** (default).
+- **Allow only listed devices** — add each device's IP address or a range such as
+  `192.168.1.0/24`. When an unlisted device connects, Rockxy blocks it and asks whether to allow
+  it; blocked devices also appear under **Recently blocked**.
+- **Block all other devices** — only this Mac can use the proxy.
+
+Changes apply to the next connection without restarting the proxy.
 
 ## Related pages
 

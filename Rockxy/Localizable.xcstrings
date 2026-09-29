@@ -45089,6 +45089,176 @@
           }
         }
       }
+    },
+    "Allow the device at %@?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 %@ 处的设备吗？"
+          }
+        }
+      }
+    },
+    "It tried to connect to Rockxy, which only accepts listed devices. Allowing it adds its address to Access Control in Advanced Proxy Settings.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该设备尝试连接 Rockxy，而 Rockxy 仅接受列出的设备。允许后，其地址将添加到“高级代理设置”中的访问控制。"
+          }
+        }
+      }
+    },
+    "Allow": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许"
+          }
+        }
+      }
+    },
+    "Keep Blocked": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持阻止"
+          }
+        }
+      }
+    },
+    "Access Control": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "访问控制"
+          }
+        }
+      }
+    },
+    "Rockxy only listens on localhost, so other devices can't connect. These settings apply when it listens on every interface.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 仅在 localhost 上监听，因此其他设备无法连接。这些设置在监听所有网络接口时生效。"
+          }
+        }
+      }
+    },
+    "Choose which other devices on your network can use the proxy. Connections from this Mac are always accepted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择网络中哪些其他设备可以使用此代理。来自本 Mac 的连接始终被接受。"
+          }
+        }
+      }
+    },
+    "Remote devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程设备"
+          }
+        }
+      }
+    },
+    "Allow all devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许所有设备"
+          }
+        }
+      }
+    },
+    "Allow only listed devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅允许列出的设备"
+          }
+        }
+      }
+    },
+    "Block all other devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止所有其他设备"
+          }
+        }
+      }
+    },
+    "Remove %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除 %@"
+          }
+        }
+      }
+    },
+    "192.168.1.20 or 192.168.1.0/24": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "192.168.1.20 或 192.168.1.0/24"
+          }
+        }
+      }
+    },
+    "Device IP address or range": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备 IP 地址或范围"
+          }
+        }
+      }
+    },
+    "Enter an IPv4 or IPv6 address, or a range such as 10.0.0.0/8.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 IPv4 或 IPv6 地址，或 10.0.0.0/8 这样的范围。"
+          }
+        }
+      }
+    },
+    "Recently blocked": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近阻止"
+          }
+        }
+      }
+    },
+    "Allow %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 %@"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -30,6 +30,7 @@ struct AdvancedProxySettingsView: View {
                 VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
                     systemRoutingSection
                     listenerSection
+                    RemoteAccessSettingsSection(listensOnlyOnLocalhost: draft.onlyListenOnLocalhost)
                     SOCKSListenerSettingsSection()
                     helperToolSection
                 }

@@ -311,7 +311,8 @@ actor ProxyServer {
             await ProcessResolver.shared.identityResolver.resolveIdentity(descriptor: $0)
         },
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void = { _ in },
-        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil,
+        remoteAccessGate: RemoteAccessGate = .shared
     ) {
         self.configuration = configuration
         self.certificateManager = certificateManager
@@ -327,6 +328,7 @@ actor ProxyServer {
         self.clientIdentityResolver = clientIdentityResolver
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
+        self.remoteAccessGate = remoteAccessGate
     }
 
     // MARK: Internal
@@ -473,7 +475,18 @@ actor ProxyServer {
 
         // One pipeline for the main listener and every reverse proxy listener; a reverse
         // listener adds only the request rewriter in front of the proxy handler.
+        let accessGate = remoteAccessGate
         let makeChildPipeline: @Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void> = { channel, reverseTarget in
+            // Access Control: refuse other devices before any byte is read. A failed
+            // initializer closes the connection.
+            let access = accessGate.decision(
+                clientAddress: channel.remoteAddress?.ipAddress,
+                localAddress: channel.localAddress?.ipAddress
+            )
+            guard access == .allow else {
+                proxyServerLogger.info("Refused a connection from a device not allowed by Access Control")
+                return channel.eventLoop.makeFailedFuture(RemoteAccessRefusedError())
+            }
             childRegistry.register(channel)
             // Capture an immutable connection descriptor at accept and start identity
             // resolution concurrently. The decorated callback stamps the resolved
@@ -787,6 +800,7 @@ actor ProxyServer {
     private let clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)?
     private let clientIdentityResolver: @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?
     private let connectionLimiter = ConnectionLimiter()
+    private let remoteAccessGate: RemoteAccessGate
     private let childChannelRegistry = ProxyChildChannelRegistry()
     private let breakpointBridgeTracker = BreakpointBridgeTracker()
     /// Tracks live raw CONNECT tunnels so an SSL-policy change can reset exactly the tunnels the
