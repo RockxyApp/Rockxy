@@ -1002,12 +1002,13 @@ extension HTTPProxyHandler {
                 do {
                     let tlsConfig = try HTTPSProxyRelayHandler.makeClientTLSConfiguration(
                         clientIdentity: self.customCertificateManager.clientIdentity(for: host),
-                        acceptsUntrustedCertificates: self.upstreamTrustProvider()
+                        acceptsUntrustedCertificates: self.upstreamTrustProvider(),
+                        host: host
                     )
                     let sslContext = try NIOSSLContext(configuration: tlsConfig)
                     let sslHandler = try NIOSSLClientHandler(
                         context: sslContext,
-                        serverHostname: host
+                        serverHostname: TLSServerName.sni(for: host)
                     )
                     return channel.pipeline.addHandler(sslHandler).flatMap {
                         channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)

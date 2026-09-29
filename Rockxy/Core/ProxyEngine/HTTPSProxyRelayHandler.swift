@@ -36,9 +36,11 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
-        breakpointBridgeTracker: BreakpointBridgeTracker? = nil
+        breakpointBridgeTracker: BreakpointBridgeTracker? = nil,
+        connectHost: String? = nil
     ) {
         self.host = host
+        self.connectHost = connectHost ?? host
         self.port = port
         self.scheme = scheme
         self.ruleEngine = ruleEngine
@@ -69,21 +71,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
-
-    nonisolated static func makeClientTLSConfiguration(
-        clientIdentity: CustomTLSIdentity?,
-        acceptsUntrustedCertificates: Bool = UpstreamTrustPolicy.acceptsUntrustedCertificates
-    ) throws -> TLSConfiguration {
-        var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
-        clientTLSConfig.certificateVerification = UpstreamTrustPolicy.certificateVerification(
-            acceptingUntrusted: acceptsUntrustedCertificates
-        )
-        if let clientIdentity {
-            clientTLSConfig.certificateChain = try clientIdentity.certificateSources
-            clientTLSConfig.privateKey = try clientIdentity.privateKeySource
-        }
-        return clientTLSConfig
-    }
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         guard !requestBodyLimitState.isRejected else {
@@ -151,6 +138,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     // MARK: Private
 
     private let host: String
+    /// Where the origin connection goes; differs from `host` only for emulator loopback aliases.
+    private let connectHost: String
     private let port: Int
     /// `https` for a decrypted TLS tunnel, `http` when the CONNECT tunnel carried plain HTTP
     /// (a `ws://` upgrade or an http:// request sent through CONNECT).
@@ -406,7 +395,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             UpstreamProxyConnector.connect(
                 eventLoop: context.eventLoop,
                 targetScheme: scheme,
-                targetHost: host,
+                targetHost: connectHost,
                 targetPort: port,
                 configuration: upstreamProxySnapshotProvider()
             ) { channel in
@@ -434,7 +423,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         do {
             var clientTLSConfig = try Self.makeClientTLSConfiguration(
                 clientIdentity: customCertificateManager.clientIdentity(for: upstreamHost),
-                acceptsUntrustedCertificates: upstreamTrustProvider()
+                acceptsUntrustedCertificates: upstreamTrustProvider(),
+                host: upstreamHost
             )
             let offersHTTP2 = HTTP2ProxyOptions.isEnabled
             if offersHTTP2 {
@@ -451,7 +441,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 UpstreamProxyConnector.connect(
                     eventLoop: context.eventLoop,
                     targetScheme: "https",
-                    targetHost: upstreamHost,
+                    targetHost: self.connectHost,
                     targetPort: upstreamPort,
                     configuration: upstreamProxy,
                     channelInitializer: initializer
@@ -906,7 +896,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             do {
                 let clientTLSConfig = try Self.makeClientTLSConfiguration(
                     clientIdentity: customCertificateManager.clientIdentity(for: remoteHost),
-                    acceptsUntrustedCertificates: upstreamTrustProvider()
+                    acceptsUntrustedCertificates: upstreamTrustProvider(),
+                    host: remoteHost
                 )
                 let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
 
@@ -920,7 +911,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                     do {
                         let sslHandler = try NIOSSLClientHandler(
                             context: sslContext,
-                            serverHostname: remoteHost
+                            serverHostname: TLSServerName.sni(for: remoteHost)
                         )
                         return channel.pipeline.addHandler(sslHandler).flatMap {
                             channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
@@ -1205,5 +1196,32 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 callback: callback
             )
         }
+    }
+}
+
+// MARK: - Client TLS
+
+extension HTTPSProxyRelayHandler {
+    nonisolated static func makeClientTLSConfiguration(
+        clientIdentity: CustomTLSIdentity?,
+        acceptsUntrustedCertificates: Bool = UpstreamTrustPolicy.acceptsUntrustedCertificates,
+        host: String? = nil
+    ) throws -> TLSConfiguration {
+        var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
+        clientTLSConfig.certificateVerification = UpstreamTrustPolicy.certificateVerification(
+            acceptingUntrusted: acceptsUntrustedCertificates
+        )
+        // NIOSSL matches hostnames only through SNI, which an IP address cannot carry. For IP
+        // origins the chain is still verified; the name check has nothing to compare against.
+        if let host, TLSServerName.sni(for: host) == nil,
+           clientTLSConfig.certificateVerification == .fullVerification
+        {
+            clientTLSConfig.certificateVerification = .noHostnameVerification
+        }
+        if let clientIdentity {
+            clientTLSConfig.certificateChain = try clientIdentity.certificateSources
+            clientTLSConfig.privateKey = try clientIdentity.privateKeySource
+        }
+        return clientTLSConfig
     }
 }

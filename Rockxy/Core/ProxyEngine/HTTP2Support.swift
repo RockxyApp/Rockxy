@@ -70,7 +70,7 @@ nonisolated enum UpstreamHTTPChannelConnector {
         guard offersHTTP2 else {
             return connect { channel in
                 do {
-                    let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
+                    let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: TLSServerName.sni(for: host))
                     return channel.pipeline.addHandler(sslHandler).flatMap {
                         channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
                     }
@@ -89,7 +89,7 @@ nonisolated enum UpstreamHTTPChannelConnector {
                 promise.fail(ChannelError.alreadyClosed)
             }
             do {
-                let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: host)
+                let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: TLSServerName.sni(for: host))
                 let alpn = ApplicationProtocolNegotiationHandler { result, channel in
                     configure(channel: channel, result: result, promise: promise)
                 }

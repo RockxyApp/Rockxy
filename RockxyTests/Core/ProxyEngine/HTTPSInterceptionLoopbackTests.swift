@@ -41,6 +41,24 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
+    @Test("Decrypted HTTPS to the emulator's host alias reaches the Mac's loopback origin")
+    func emulatorAliasHTTPSReachesLoopback() async throws {
+        guard !RootCADownloadServer.lanIPv4Addresses().contains(where: { $0.hasPrefix("10.0.2.") }) else {
+            return
+        }
+        try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
+            let response = try await harness.getViaEmulatorAlias("/secure/metro")
+
+            #expect(response.status == 200)
+            #expect(response.headerValue(HTTPSLoopbackHarness.originMarkerHeader) == "tls-origin")
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/secure/metro" }
+            #expect(row?.request.url.host == "10.0.2.2")
+            #expect(row?.response?.statusCode == 200)
+        }
+    }
+
     @Test("HTTPS through the SOCKS5 listener is decrypted like an HTTP CONNECT")
     func httpsViaSOCKSIsDecrypted() async throws {
         try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
@@ -198,6 +216,18 @@ private actor HTTPSLoopbackHarness {
     func get(_ path: String) async throws -> LoopbackHTTPResponse {
         try await LoopbackHTTPSClient.get(
             host: Self.originHost,
+            port: origin.boundPort,
+            path: path,
+            proxyPort: proxyPort,
+            trustRoot: rootCertificate
+        )
+    }
+
+    /// Issues `GET https://10.0.2.2:<originPort><path>`, the address an Android emulator uses for
+    /// the Mac, from a loopback client the way emulator traffic arrives.
+    func getViaEmulatorAlias(_ path: String) async throws -> LoopbackHTTPResponse {
+        try await LoopbackHTTPSClient.get(
+            host: "10.0.2.2",
             port: origin.boundPort,
             path: path,
             proxyPort: proxyPort,
@@ -518,7 +548,9 @@ private enum LoopbackHTTPSClient {
         let sslContext: NIOSSLContext? = try trustRoot.map { trustRoot in
             var tlsConfiguration = TLSConfiguration.makeClientConfiguration()
             tlsConfiguration.trustRoots = .certificates([trustRoot])
-            tlsConfiguration.certificateVerification = .fullVerification
+            tlsConfiguration.certificateVerification = TLSServerName.sni(for: host) == nil
+                ? .noHostnameVerification
+                : .fullVerification
             return try NIOSSLContext(configuration: tlsConfiguration)
         }
 
@@ -648,7 +680,7 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
             do {
                 let transport: EventLoopFuture<Void> = if let sslContext {
                     try context.channel.pipeline.addHandler(
-                        NIOSSLClientHandler(context: sslContext, serverHostname: targetHost)
+                        NIOSSLClientHandler(context: sslContext, serverHostname: TLSServerName.sni(for: targetHost))
                     )
                 } else {
                     context.channel.eventLoop.makeSucceededVoidFuture()

@@ -157,3 +157,21 @@ private final class MemorySecureDataStoreForTLS: SecureDataStore, @unchecked Sen
     private let lock = NSLock()
     private var values: [String: Data] = [:]
 }
+
+// MARK: - TLSServerNameTests
+
+struct TLSServerNameTests {
+    @Test("IP literals get no SNI and an iPAddress SAN; names keep both as DNS")
+    func ipHostsUseAddressIdentity() throws {
+        #expect(TLSServerName.sni(for: "10.0.2.2") == nil)
+        #expect(TLSServerName.sni(for: "::1") == nil)
+        #expect(TLSServerName.sni(for: "[fe80::1]") == nil)
+        #expect(TLSServerName.sni(for: "api.example.com") == "api.example.com")
+        #expect(TLSServerName.ipAddressBytes("10.0.2.2") == [10, 0, 2, 2])
+
+        let root = try RootCAGenerator.generate()
+        let leaf = try HostCertGenerator.generate(host: "10.0.2.2", issuer: root.certificate, issuerKey: root.privateKey)
+        let names = try #require(try leaf.certificate.extensions.subjectAlternativeNames)
+        #expect(Array(names) == [.ipAddress(ASN1OctetString(contentBytes: [10, 0, 2, 2]))])
+    }
+}

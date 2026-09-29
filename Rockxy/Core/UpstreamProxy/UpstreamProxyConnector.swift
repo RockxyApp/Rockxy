@@ -255,7 +255,7 @@ nonisolated enum UpstreamProxyConnector {
         do {
             let tlsConfig = TLSConfiguration.makeClientConfiguration()
             let sslContext = try NIOSSLContext(configuration: tlsConfig)
-            let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: proxyHost)
+            let sslHandler = try NIOSSLClientHandler(context: sslContext, serverHostname: TLSServerName.sni(for: proxyHost))
             return channel.pipeline.addHandler(sslHandler)
         } catch {
             return channel.eventLoop.makeFailedFuture(error)

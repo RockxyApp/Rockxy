@@ -49,8 +49,10 @@ nonisolated enum HostCertGenerator {
             Critical(
                 KeyUsage(digitalSignature: true)
             )
+            // Clients validate an IP host against an iPAddress SAN, never a dNSName.
             SubjectAlternativeNames([
-                .dnsName(host)
+                TLSServerName.ipAddressBytes(host)
+                    .map { .ipAddress(ASN1OctetString(contentBytes: ArraySlice($0))) } ?? .dnsName(host)
             ])
             try ExtendedKeyUsage([.serverAuth])
             SubjectKeyIdentifier(

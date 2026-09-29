@@ -688,7 +688,11 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 provesRootCATrust: provesRootCATrust,
                 onTransactionComplete: callback,
                 onBreakpointHit: breakpointHit,
-                breakpointBridgeTracker: self.breakpointBridgeTracker
+                breakpointBridgeTracker: self.breakpointBridgeTracker,
+                upstreamConnectHost: EmulatorHostAlias.connectHost(
+                    for: host,
+                    clientHost: self.clientConnectionDescriptor?.clientHost
+                )
             )
 
             let detector = ProtocolDetectorHandler(
@@ -852,7 +856,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             clientSourcePort: clientSourcePort,
             onTransactionComplete: onTransactionComplete,
             onBreakpointHit: onBreakpointHit,
-            breakpointBridgeTracker: breakpointBridgeTracker
+            breakpointBridgeTracker: breakpointBridgeTracker,
+            connectHost: EmulatorHostAlias.connectHost(for: host, clientHost: clientConnectionDescriptor?.clientHost)
         )
         let pipeline = context.pipeline
         let replay = bufferedData
@@ -1009,8 +1014,10 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
-        breakpointBridgeTracker: BreakpointBridgeTracker? = nil
+        breakpointBridgeTracker: BreakpointBridgeTracker? = nil,
+        upstreamConnectHost: String? = nil
     ) {
+        self.upstreamConnectHost = upstreamConnectHost
         self.host = host
         self.port = port
         self.ruleEngine = ruleEngine
@@ -1236,7 +1243,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             clientSourcePort: clientSourcePort,
             onTransactionComplete: onTransactionComplete,
             onBreakpointHit: onBreakpointHit,
-            breakpointBridgeTracker: breakpointBridgeTracker
+            breakpointBridgeTracker: breakpointBridgeTracker,
+            connectHost: upstreamConnectHost
         )
     }
 
@@ -1301,6 +1309,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
         BreakpointDecision,
         BreakpointRequestData
     ))?
+    private let upstreamConnectHost: String?
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var handshakeResolved = false
     private var tunnelOutcomeRecorded = false
