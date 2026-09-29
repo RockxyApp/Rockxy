@@ -236,7 +236,9 @@ enum SettingsBackupError: LocalizedError, Equatable {
 
 struct SettingsBackupMergeResult {
     var settings: SettingsBackupSnapshot
-    /// Entries left out because they were invalid, duplicated, or conflicted with current settings.
+    /// Rules the import adds; an identical rule that is already there is not added again.
+    var addedRuleCount: Int
+    /// Entries left out because they were invalid or conflicted with current settings.
     var skippedCount: Int
 }
 
@@ -280,9 +282,13 @@ enum SettingsBackupMerger {
             }
         case .append:
             let existingIDs = Set(current.rules.map(\.id))
-            let appended = validRules.map { existingIDs.contains($0.id) ? reidentified($0) : $0 }
+            var fingerprints = Set(current.rules.compactMap(fingerprint))
+            let appended = validRules
+                .filter { rule in fingerprint(rule).map { fingerprints.insert($0).inserted } ?? true }
+                .map { existingIDs.contains($0.id) ? reidentified($0) : $0 }
             result.rules = keepOneNetworkCondition(current.rules + appended)
         }
+        let addedRuleCount = mode == .replace ? result.rules.count : result.rules.count - current.rules.count
 
         if let ssl = backup.sslProxying {
             result.sslProxying = mergeSSL(ssl, into: current.sslProxying, mode: mode)
@@ -331,7 +337,7 @@ enum SettingsBackupMerger {
         }
         result.dnsSpoofing = dnsRules
 
-        return SettingsBackupMergeResult(settings: result, skippedCount: skipped)
+        return SettingsBackupMergeResult(settings: result, addedRuleCount: addedRuleCount, skippedCount: skipped)
     }
 
     /// Returns `value` with a fresh `id`, for models whose identifier is immutable.
@@ -351,6 +357,22 @@ enum SettingsBackupMerger {
     }
 
     // MARK: Private
+
+    /// A rule's content without its identifier and on/off state, to recognize a rule that is
+    /// already present.
+    private static func fingerprint(_ rule: ProxyRule) -> String? {
+        guard let data = try? JSONEncoder().encode(rule),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else
+        {
+            return nil
+        }
+        object["id"] = nil
+        object["isEnabled"] = nil
+        guard let normalized = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(bytes: normalized, encoding: .utf8)
+    }
 
     /// Only one network condition can shape traffic at a time; later enabled ones are turned off.
     private static func keepOneNetworkCondition(_ rules: [ProxyRule]) -> [ProxyRule] {

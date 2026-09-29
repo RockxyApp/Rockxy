@@ -158,7 +158,11 @@ enum SettingsBackupFlow {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(localized: "Settings Imported", bundle: RockxyLocalization.bundle)
-        var lines = [inflected("^[\(report.ruleCount) rule](inflect: true) imported.")]
+        var lines = [
+            report.ruleCount > 0
+                ? inflected("^[\(report.ruleCount) rule](inflect: true) imported.")
+                : String(localized: "No new rules were added; the backup's rules are already here.", bundle: RockxyLocalization.bundle),
+        ]
         if report.scriptCount > 0 {
             lines.append(inflected("^[\(report.scriptCount) script](inflect: true) added, turned off."))
         }

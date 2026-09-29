@@ -109,7 +109,7 @@ enum SettingsBackupService {
             await PluginManager.shared.scriptManager.loadAllPlugins()
         }
         return SettingsBackupImportReport(
-            ruleCount: backup.rules.count,
+            ruleCount: merged.addedRuleCount,
             scriptCount: scriptCount,
             skippedCount: merged.skippedCount + document.scripts.count - scriptCount
         )

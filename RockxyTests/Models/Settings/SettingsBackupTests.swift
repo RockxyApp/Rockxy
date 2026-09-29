@@ -69,13 +69,19 @@ struct SettingsBackupTests {
             remotePort: 443
         ))
         backup.toolsEnabled = ["mapLocalToolEnabled": true]
+        var renamed = backup.rules[0]
+        renamed.name = "Mock user v2"
+        backup.rules.append(renamed)
 
         let result = SettingsBackupMerger.merge(backup, into: current, mode: .append, proxyPort: 9_090)
         let settings = result.settings
 
-        // Rules are appended with fresh identifiers where they collide; the broken regex is skipped.
-        #expect(settings.rules.count == 6)
-        #expect(Set(settings.rules.map(\.id)).count == 6)
+        // Identical rules are not added twice, a changed rule that reuses an identifier gets a
+        // fresh one, and the broken regex is skipped.
+        #expect(settings.rules.count == 4)
+        #expect(Set(settings.rules.map(\.id)).count == 4)
+        #expect(settings.rules.last?.name == "Mock user v2")
+        #expect(result.addedRuleCount == 1)
         #expect(!settings.rules.contains { $0.name == "Broken" })
         // Only one network condition stays on.
         let enabledConditions = settings.rules.filter { rule in

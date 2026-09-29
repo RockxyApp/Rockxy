@@ -46749,6 +46749,16 @@
           }
         }
       }
+    },
+    "No new rules were added; the backup's rules are already here.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有添加新规则；备份中的规则已存在。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
