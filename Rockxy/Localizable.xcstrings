@@ -64,6 +64,16 @@
         }
       }
     },
+    "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络条件配置正在减慢或阻止匹配的流量。打开“网络条件”。"
+          }
+        }
+      }
+    },
     "All Fields": {
       "localizations": {
         "zh-Hans": {

@@ -135,6 +135,7 @@ struct FooterMutationIndicator: Identifiable, Equatable {
         case mapLocal
         case mapRemote
         case breakpoint
+        case networkCondition
 
         // MARK: Internal
 
@@ -144,6 +145,7 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "mapLocal"
             case .mapRemote: "mapRemote"
             case .breakpoint: "breakpoint"
+            case .networkCondition: "networkCondition"
             }
         }
 
@@ -153,6 +155,7 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "mapLocal"
             case .mapRemote: "mapRemote"
             case .breakpoint: "breakpointRules"
+            case .networkCondition: "networkConditions"
             }
         }
 
@@ -161,6 +164,7 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: String(localized: "Map Local", bundle: RockxyLocalization.bundle)
             case .mapRemote: String(localized: "Map Remote", bundle: RockxyLocalization.bundle)
             case .breakpoint: String(localized: "Breakpoints", bundle: RockxyLocalization.bundle)
+            case .networkCondition: String(localized: "Network Conditions", bundle: RockxyLocalization.bundle)
             }
         }
 
@@ -169,6 +173,7 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "folder.badge.gearshape"
             case .mapRemote: "arrow.triangle.branch"
             case .breakpoint: "pause.circle"
+            case .networkCondition: "tortoise"
             }
         }
     }
@@ -220,6 +225,11 @@ struct FooterMutationIndicator: Identifiable, Equatable {
                 localized: "\(count) active Breakpoint rules. Open Breakpoint Rules.",
                 bundle: RockxyLocalization.bundle
             )
+        case .networkCondition:
+            return String(
+                localized: "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.",
+                bundle: RockxyLocalization.bundle
+            )
         }
     }
 
@@ -243,7 +253,8 @@ enum FooterMutationIndicatorBuilder {
         rules: [ProxyRule],
         mapLocalToolEnabled: Bool,
         mapRemoteToolEnabled: Bool,
-        breakpointToolEnabled: Bool
+        breakpointToolEnabled: Bool,
+        networkConditionsToolEnabled: Bool = true
     )
         -> [FooterMutationIndicator]
     {
@@ -256,9 +267,10 @@ enum FooterMutationIndicatorBuilder {
             .mapLocal: mapLocalToolEnabled,
             .mapRemote: mapRemoteToolEnabled,
             .breakpoint: breakpointToolEnabled,
+            .networkCondition: networkConditionsToolEnabled,
         ]
 
-        let order: [FooterMutationIndicator.Category] = [.mapLocal, .mapRemote, .breakpoint]
+        let order: [FooterMutationIndicator.Category] = [.mapLocal, .mapRemote, .breakpoint, .networkCondition]
         return order.compactMap { category in
             guard toolSwitches[category] == true else {
                 return nil
@@ -343,6 +355,8 @@ private struct FooterMutationIndicatorButton: View {
             Color(nsColor: .systemOrange)
         case .breakpoint:
             Color(nsColor: .systemPurple)
+        case .networkCondition:
+            Color(nsColor: .systemRed)
         }
     }
 
@@ -505,6 +519,7 @@ struct StatusBarView: View {
     var mapLocalToolEnabled: Bool = true
     var mapRemoteToolEnabled: Bool = true
     var breakpointToolEnabled: Bool = true
+    var networkConditionsToolEnabled: Bool = true
     var pausedBreakpointCount: Int = 0
 
     var onSwitchOffProxyOverride: () -> Void = {}
@@ -552,7 +567,8 @@ struct StatusBarView: View {
             rules: activeRules,
             mapLocalToolEnabled: mapLocalToolEnabled,
             mapRemoteToolEnabled: mapRemoteToolEnabled,
-            breakpointToolEnabled: breakpointToolEnabled
+            breakpointToolEnabled: breakpointToolEnabled,
+            networkConditionsToolEnabled: networkConditionsToolEnabled
         )
     }
 

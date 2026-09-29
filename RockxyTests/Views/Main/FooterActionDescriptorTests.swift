@@ -349,6 +349,32 @@ struct FooterMutationIndicatorBuilderTests {
         #expect(indicators.first { $0.id == .mapRemote }?.count == 1)
     }
 
+    @Test("An active Network Conditions profile surfaces last and respects its tool switch")
+    func networkConditionIndicator() {
+        let rules = [
+            makeRule(.networkCondition(preset: .offline, delayMs: 0)),
+            makeRule(.breakpoint()),
+        ]
+
+        let indicators = FooterMutationIndicatorBuilder.indicators(
+            rules: rules,
+            mapLocalToolEnabled: true,
+            mapRemoteToolEnabled: true,
+            breakpointToolEnabled: true
+        )
+        #expect(indicators.map(\.id) == [.breakpoint, .networkCondition])
+        #expect(indicators.last?.windowID == "networkConditions")
+
+        let switchedOff = FooterMutationIndicatorBuilder.indicators(
+            rules: rules,
+            mapLocalToolEnabled: true,
+            mapRemoteToolEnabled: true,
+            breakpointToolEnabled: true,
+            networkConditionsToolEnabled: false
+        )
+        #expect(switchedOff.map(\.id) == [.breakpoint])
+    }
+
     @Test("A category is omitted when its tool-level switch is off")
     func toolSwitchGating() {
         let rules = [

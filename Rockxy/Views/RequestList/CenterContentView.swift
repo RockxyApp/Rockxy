@@ -58,6 +58,7 @@ struct CenterContentView: View {
                 mapLocalToolEnabled: mapLocalToolEnabled,
                 mapRemoteToolEnabled: mapRemoteToolEnabled,
                 breakpointToolEnabled: breakpointToolEnabled,
+                networkConditionsToolEnabled: networkConditionsToolEnabled,
                 pausedBreakpointCount: coordinator.breakpointManager.pausedItems.count,
                 onSwitchOffProxyOverride: {
                     coordinator.switchOffSystemProxyOverride()
@@ -121,6 +122,7 @@ struct CenterContentView: View {
     @AppStorage("mapLocalToolEnabled") private var mapLocalToolEnabled = true
     @AppStorage("mapRemoteToolEnabled") private var mapRemoteToolEnabled = true
     @AppStorage("breakpointToolEnabled") private var breakpointToolEnabled = true
+    @AppStorage("networkConditionsToolEnabled") private var networkConditionsToolEnabled = true
     @Environment(\.appUIDisplayMetrics) private var displayMetrics
 
     @State private var selectedIDs: Set<UUID> = []
