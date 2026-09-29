@@ -154,6 +154,44 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A SOCKS5 client reaches the origin through Rockxy and the request is captured")
+    func socks5PlainHTTPIsCaptured() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+            let originPort = harness.originPort
+
+            let raw = try await Task.detached {
+                try SOCKS5TestClient.exchange(
+                    socksPort: socksPort,
+                    destinationIPv4: [127, 0, 0, 1],
+                    destinationPort: originPort,
+                    payload: "GET /live?via=socks HTTP/1.1\r\nHost: 127.0.0.1:\(originPort)\r\nConnection: close\r\n\r\n"
+                )
+            }.value
+
+            #expect(raw.hasPrefix("HTTP/1.1 200"))
+            #expect(raw.contains("origin:/live"))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.query == "via=socks" }
+            #expect(captured?.request.url.absoluteString == harness.absoluteURLString(path: "/live?via=socks"))
+            #expect(captured?.state == .completed)
+        }
+    }
+
+    @Test("A SOCKS5 client that offers no usable method is refused")
+    func socks5RefusesUnsupportedMethods() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+
+            let reply = try await Task.detached {
+                try SOCKS5TestClient.greetingReply(socksPort: socksPort, methods: [0x02])
+            }.value
+
+            #expect(reply == [0x05, 0xFF])
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -626,6 +664,19 @@ private actor MapLocalLoopbackHarness {
         )
     }
 
+    /// Opens the SOCKS5 listener on a free loopback port and returns it.
+    func startSOCKSListener() async throws -> Int {
+        let port = try Self.reserveLoopbackPort()
+        if let failure = await proxyServer.updateSOCKSListener(port: port) {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS bind failed: \(failure)")
+        }
+        return port
+    }
+
+    nonisolated var originPort: Int {
+        origin.boundPort
+    }
+
     /// Opens a reverse proxy listener that forwards to the origin fixture and returns its port.
     func startReverseProxy() async throws -> Int {
         let port = try Self.reserveLoopbackPort()
@@ -1033,5 +1084,92 @@ private enum MapLocalLoopbackError: Error, CustomStringConvertible {
         case .timeout:
             "Timed out waiting for the proxied response."
         }
+    }
+}
+
+// MARK: - SOCKS5TestClient
+
+/// Blocking POSIX SOCKS5 client used only by the loopback tests.
+private enum SOCKS5TestClient {
+    static func greetingReply(socksPort: Int, methods: [UInt8]) throws -> [UInt8] {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, UInt8(methods.count)] + methods)
+        return try receive(fd, count: 2)
+    }
+
+    static func exchange(
+        socksPort: Int,
+        destinationIPv4: [UInt8],
+        destinationPort: Int,
+        payload: String
+    ) throws -> String {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, 0x01, 0x00])
+        guard try receive(fd, count: 2) == [0x05, 0x00] else {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS greeting refused")
+        }
+        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        let reply = try receive(fd, count: 10)
+        guard reply.count == 10, reply[1] == 0x00 else {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS CONNECT refused: \(reply)")
+        }
+        try send(fd, Array(payload.utf8))
+        var response: [UInt8] = []
+        var chunk = [UInt8](repeating: 0, count: 4_096)
+        while true {
+            let count = recv(fd, &chunk, chunk.count, 0)
+            if count <= 0 {
+                break
+            }
+            response.append(contentsOf: chunk[0 ..< count])
+        }
+        return String(decoding: response, as: UTF8.self)
+    }
+
+    private static func connect(port: Int) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw MapLocalLoopbackError.socket("socket() failed")
+        }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard result == 0 else {
+            close(fd)
+            throw MapLocalLoopbackError.connectionFailed("connect() failed")
+        }
+        return fd
+    }
+
+    private static func send(_ fd: Int32, _ bytes: [UInt8]) throws {
+        let sent = bytes.withUnsafeBytes { Darwin.send(fd, $0.baseAddress, bytes.count, 0) }
+        guard sent == bytes.count else {
+            throw MapLocalLoopbackError.connectionFailed("send() failed")
+        }
+    }
+
+    private static func receive(_ fd: Int32, count: Int) throws -> [UInt8] {
+        var buffer = [UInt8](repeating: 0, count: count)
+        var received = 0
+        while received < count {
+            let result = buffer.withUnsafeMutableBytes {
+                recv(fd, $0.baseAddress! + received, count - received, 0)
+            }
+            if result <= 0 {
+                break
+            }
+            received += result
+        }
+        return Array(buffer[0 ..< received])
     }
 }

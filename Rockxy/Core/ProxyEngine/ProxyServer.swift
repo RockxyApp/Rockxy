@@ -648,6 +648,48 @@ actor ProxyServer {
         return failures
     }
 
+    /// Starts, moves, or stops the SOCKS5 listener. It binds to the same address as
+    /// the HTTP proxy, so it is reachable from other devices only when the proxy is.
+    /// Pass `nil` to stop it. Requires a running proxy.
+    @discardableResult
+    func updateSOCKSListener(port: Int?) async -> ReverseProxyBindFailure? {
+        let host = configuration.listenAddress
+        if let current = socksListener, current.port != port || current.host != host {
+            try? await current.channel.close().get()
+            socksListener = nil
+        }
+        guard let port else {
+            return nil
+        }
+        guard socksListener == nil else {
+            return nil
+        }
+        guard let group = eventLoopGroup, let childPipeline, serverChannel != nil else {
+            return .proxyNotRunning
+        }
+        guard port != configuration.port else {
+            return .portInUse
+        }
+        let bootstrap = ServerBootstrap(group: group)
+            .serverChannelOption(.backlog, value: 128)
+            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                childPipeline(channel, nil).flatMap {
+                    channel.pipeline.addHandler(SOCKS5ServerHandler(), position: .first)
+                }
+            }
+            .childChannelOption(.maxMessagesPerRead, value: 16)
+        do {
+            let channel = try await bootstrap.bind(host: host, port: port).get()
+            socksListener = (channel, host, port)
+            Self.logger.info("SOCKS5 listener on \(host):\(port)")
+            return nil
+        } catch {
+            let inUse = (error as? IOError)?.errnoCode == EADDRINUSE
+            return inUse ? .portInUse : .bindFailed(error.localizedDescription)
+        }
+    }
+
     func stop() async {
         guard let channel = serverChannel, !isStopping else {
             return
@@ -660,6 +702,10 @@ actor ProxyServer {
             try? await listener.close().get()
         }
         reverseListeners.removeAll()
+        if let socksListener {
+            try? await socksListener.channel.close().get()
+            self.socksListener = nil
+        }
         childPipeline = nil
 
         do {
@@ -721,6 +767,7 @@ actor ProxyServer {
     /// Child pipeline factory built by `start()`; reverse proxy listeners reuse it.
     private var childPipeline: (@Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void>)?
     private var reverseListeners: [ReverseProxyTarget: Channel] = [:]
+    private var socksListener: (channel: Channel, host: String, port: Int)?
     private var serverChannel: Channel?
     private var isStopping = false
     private var upstreamProxyObserver: NSObjectProtocol?

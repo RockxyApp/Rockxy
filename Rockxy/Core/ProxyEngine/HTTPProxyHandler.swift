@@ -778,10 +778,25 @@ extension HTTPProxyHandler {
         var responseHead = HTTPResponseHead(version: head.version, status: .ok)
         responseHead.headers.add(name: "content-length", value: "0")
         context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
-        context.writeAndFlush(wrapOutboundOut(.end(nil))).flatMap {
+        context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
             proxyHandlerLogger.info("CONNECT tunnel for \(host):\(port)")
-            return context.channel.setOption(ChannelOptions.autoRead, value: false)
-        }.flatMap {
+            self.beginTunnel(context: context, host: host, port: port, captureContext: requestData.captureContext)
+        }
+    }
+
+    /// Turns this connection into a tunnel to `host:port`: removes the HTTP layer and
+    /// hands the socket to `TLSInterceptHandler`, which intercepts or relays per policy.
+    /// Used after an HTTP CONNECT and after a SOCKS5 CONNECT whose client speaks TLS.
+    @discardableResult
+    nonisolated func beginTunnel(
+        context: ChannelHandlerContext,
+        host: String,
+        port: Int,
+        captureContext: TrafficCaptureContext?
+    )
+        -> EventLoopFuture<Void>
+    {
+        let installed = context.channel.setOption(ChannelOptions.autoRead, value: false).flatMap {
             context.pipeline.removeHandler(context: context)
         }.flatMap {
             ProxyPipeline.removeHTTPServerPipeline(from: context.pipeline, on: context.eventLoop)
@@ -811,7 +826,7 @@ extension HTTPProxyHandler {
                 upstreamProxySnapshotProvider: self.upstreamProxySnapshotProvider,
                 upstreamTrustProvider: self.upstreamTrustProvider,
                 captureContextProvider: self.captureContextProvider,
-                tunnelCaptureContext: requestData.captureContext,
+                tunnelCaptureContext: captureContext,
                 clientSourcePort: self.clientSourcePort,
                 clientApplicationIdentity: clientApplicationIdentity,
                 clientConnectionDescriptor: self.clientConnectionDescriptor,
@@ -821,7 +836,8 @@ extension HTTPProxyHandler {
                 breakpointBridgeTracker: self.breakpointBridgeTracker
             )
             return context.pipeline.addHandler(tlsHandler)
-        }.whenFailure { error in
+        }
+        installed.whenFailure { error in
             proxyHandlerLogger.error(
                 "Failed to set up TLS handler for \(host): \(String(describing: error))"
             )
@@ -833,7 +849,7 @@ extension HTTPProxyHandler {
                     statusMessage: "TLS Handler Setup Failed",
                     state: .failed,
                     sourcePort: self.clientSourcePort,
-                    captureContext: requestData.captureContext,
+                    captureContext: captureContext,
                     clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
                         application: nil,
                         connectionDescriptor: self.clientConnectionDescriptor
@@ -842,6 +858,7 @@ extension HTTPProxyHandler {
             )
             context.close(promise: nil)
         }
+        return installed
     }
 
     nonisolated func forwardRequest(
