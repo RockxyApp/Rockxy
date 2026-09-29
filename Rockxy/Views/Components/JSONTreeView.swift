@@ -7,6 +7,14 @@ import SwiftUI
 /// Collapsible JSON tree with JSONPath/key/value filtering. Parsing and query evaluation
 /// happen off-main and are keyed to the current body/query so stale results are ignored.
 struct JSONTreeView: View {
+    // MARK: Lifecycle
+
+    init(data: Data, filterMode: JSONTreeFilterMode = .jsonPath, query: String = "") {
+        self.data = data
+        _filterMode = State(initialValue: filterMode)
+        _query = State(initialValue: query)
+    }
+
     // MARK: Internal
 
     let data: Data

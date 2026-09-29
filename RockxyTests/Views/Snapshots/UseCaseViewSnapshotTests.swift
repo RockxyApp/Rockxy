@@ -45,6 +45,24 @@ struct UseCaseViewSnapshotTests {
         try await render(ServerSentEventsInspectorView(transaction: transaction), name: "sse", size: CGSize(width: 640, height: 420))
     }
 
+    @Test("JSON body filtered with jq")
+    func jqFilter() async throws {
+        let body = Data(#"""
+        {"posts":[{"id":1,"likes":4,"user":{"name":"ana"}},{"id":2,"likes":42,"user":{"name":"bo"}},
+        {"id":3,"likes":17,"user":{"name":"cy"}}],"page":1}
+        """#.utf8)
+        try await render(
+            JSONTreeView(data: body, filterMode: .jq, query: ".posts[] | select(.likes > 10) | {name: .user.name, likes}"),
+            name: "jq-filter",
+            size: CGSize(width: 560, height: 360)
+        )
+        try await render(
+            JSONTreeView(data: body, filterMode: .jq, query: ".posts[] | .nope("),
+            name: "jq-error",
+            size: CGSize(width: 560, height: 200)
+        )
+    }
+
     @Test("Command palette")
     func commandPalette() async throws {
         try await render(
