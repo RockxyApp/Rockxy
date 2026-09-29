@@ -44919,6 +44919,46 @@
           }
         }
       }
+    },
+    "Not JSON": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是 JSON"
+          }
+        }
+      }
+    },
+    "Save Payload As…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将负载另存为…"
+          }
+        }
+      }
+    },
+    "This frame's payload is not a JSON object or array.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此帧的负载不是 JSON 对象或数组。"
+          }
+        }
+      }
+    },
+    "Tree": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "树状"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

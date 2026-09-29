@@ -357,14 +357,18 @@ struct WebSocketInspectorView: View {
                     ) {
                         Text(String(localized: "Payload", bundle: RockxyLocalization.bundle))
                             .tag(WebSocketPayloadInspectorMode.payload)
+                        Text(String(localized: "Tree", bundle: RockxyLocalization.bundle))
+                            .tag(WebSocketPayloadInspectorMode.tree)
+                        Text(String(localized: "Hex", bundle: RockxyLocalization.bundle))
+                            .tag(WebSocketPayloadInspectorMode.hex)
                         Text(String(localized: "Protobuf", bundle: RockxyLocalization.bundle))
                             .tag(WebSocketPayloadInspectorMode.protobuf)
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
-                    .frame(width: 190)
+                    .fixedSize()
 
-                    if payloadMode == .payload, frame.opcode == .text {
+                    if payloadMode == .payload, WebSocketFrameSearch.isTextual(frame) {
                         Toggle(
                             String(localized: "Format JSON", bundle: RockxyLocalization.bundle),
                             isOn: $formatsJSONPayloads
@@ -392,18 +396,54 @@ struct WebSocketInspectorView: View {
                 switch payloadMode {
                 case .payload:
                     rawPayloadView(frame)
+                case .tree:
+                    treePayloadView(frame)
+                case .hex:
+                    AsyncHexDumpView(
+                        data: frame.payload,
+                        renderID: "\(frame.id.uuidString)-payload-hex-\(frame.payload.count)"
+                    )
+                    .frame(maxHeight: 240)
                 case .protobuf:
                     protobufPayloadView(frame)
                 }
+
+                Divider()
+                PayloadActionsBar(
+                    payload: frame.payload,
+                    fileStem: "\(frame.id.uuidString)-frame",
+                    fileExtension: WebSocketFrameSearch.jsonData(frame.payload) != nil
+                        ? "json"
+                        : WebSocketFrameSearch.isTextual(frame) ? "txt" : "bin",
+                    suggestedName: "websocket-frame",
+                    saveTitle: String(localized: "Save Payload As…", bundle: RockxyLocalization.bundle)
+                )
             }
         }
     }
 
     @ViewBuilder
+    private func treePayloadView(_ frame: WebSocketFrameData) -> some View {
+        if let json = WebSocketFrameSearch.jsonData(frame.payload) {
+            JSONTreeView(data: json)
+                .id(frame.id)
+                .frame(height: 240)
+        } else {
+            ContentUnavailableView(
+                String(localized: "Not JSON", bundle: RockxyLocalization.bundle),
+                systemImage: "curlybraces",
+                description: Text(String(
+                    localized: "This frame's payload is not a JSON object or array.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            )
+            .frame(height: 160)
+        }
+    }
+
+    @ViewBuilder
     private func rawPayloadView(_ frame: WebSocketFrameData) -> some View {
-        if frame.opcode == .text || frame.opcode == .connectionClose,
-           frame.payload.isProbablyUTF8Text
-        {
+        if WebSocketFrameSearch.isTextual(frame) {
             let payload = frame.payload
             let formatsJSON = formatsJSONPayloads
             AsyncInspectorTextEditor(
@@ -497,7 +537,12 @@ struct WebSocketInspectorView: View {
             }
             return text
         case .binary:
-            return Self.sizePlaceholder(for: frame)
+            guard WebSocketFrameSearch.jsonData(frame.payload) != nil,
+                  let text = String(data: frame.payload.prefix(Self.maxPayloadPreviewBytes), encoding: .utf8) else
+            {
+                return Self.sizePlaceholder(for: frame)
+            }
+            return String(text.prefix(80))
         case .connectionClose:
             if frame.payload.count >= 2 {
                 let code = UInt16(frame.payload[0]) << 8 | UInt16(frame.payload[1])
@@ -525,6 +570,8 @@ struct WebSocketInspectorView: View {
 
 private enum WebSocketPayloadInspectorMode {
     case payload
+    case tree
+    case hex
     case protobuf
 }
 
@@ -549,6 +596,32 @@ enum WebSocketFrameSearch {
             return false
         }
         return text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    /// Text frames, close reasons, and binary frames that carry JSON are shown as text.
+    static func isTextual(_ frame: WebSocketFrameData) -> Bool {
+        switch frame.opcode {
+        case .text,
+             .connectionClose:
+            String(data: frame.payload.prefix(512), encoding: .utf8) != nil
+        case .binary:
+            jsonData(frame.payload) != nil
+        case .ping,
+             .pong,
+             .continuation:
+            false
+        }
+    }
+
+    /// The payload when it parses as a JSON object or array, otherwise `nil`.
+    static func jsonData(_ payload: Data) -> Data? {
+        let first = payload.first { !($0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09) }
+        guard first == UInt8(ascii: "{") || first == UInt8(ascii: "["),
+              (try? JSONSerialization.jsonObject(with: payload)) != nil else
+        {
+            return nil
+        }
+        return payload
     }
 
     /// Pretty-printed JSON for an object or array payload, or `nil` when the text is not JSON.
