@@ -330,6 +330,16 @@
         }
       }
     },
+    "No Connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无连接"
+          }
+        }
+      }
+    },
     "No Parts": {
       "localizations": {
         "zh-Hans": {
@@ -346,6 +356,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "未定义脚本入口点"
+          }
+        }
+      }
+    },
+    "Offline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "离线"
           }
         }
       }

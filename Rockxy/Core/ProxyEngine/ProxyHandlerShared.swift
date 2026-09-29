@@ -1,4 +1,5 @@
 import Foundation
+import NIOCore
 import NIOHTTP1
 import os
 
@@ -65,6 +66,26 @@ enum ProxyHandlerShared {
         -> Bool
     {
         currentBufferSize + incomingChunkSize > maxSize
+    }
+
+    /// Network Conditions "Offline": drops the client connection without contacting
+    /// the server, the way a device with no network fails, and records the request
+    /// as failed with no response.
+    nonisolated static func simulateOffline(
+        context: ChannelHandlerContext,
+        requestData: HTTPRequestData,
+        elapsed: TimeInterval?,
+        sourcePort: UInt16?,
+        callback: @Sendable (HTTPTransaction) -> Void
+    ) {
+        guard context.channel.isActive else {
+            return
+        }
+        context.close(promise: nil)
+        let transaction = HTTPTransaction(request: requestData, response: nil, state: .failed)
+        transaction.measuredDuration = elapsed
+        transaction.sourcePort = sourcePort
+        callback(transaction)
     }
 
     /// Wraps a downstream transaction callback with matched-rule metadata injection.

@@ -495,6 +495,16 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             }
 
         case let .networkCondition(preset, delayMs):
+            if preset.isOffline {
+                ProxyHandlerShared.simulateOffline(
+                    context: context,
+                    requestData: requestData,
+                    elapsed: requestElapsedDuration(),
+                    sourcePort: clientSourcePort,
+                    callback: callback
+                )
+                return
+            }
             let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs)
             pendingThrottleTask = context.eventLoop.scheduleTask(in: profile.latencyDelay) { [weak self] in
                 guard let self else {

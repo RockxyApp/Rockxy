@@ -49,11 +49,27 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.custom.uploadBytesPerSecond == nil)
     }
 
-    @Test("packet loss stays disabled for all presets")
+    @Test("packet loss stays disabled for every throttling preset")
     func packetLossDisabled() {
-        for preset in NetworkConditionPreset.allCases {
+        for preset in NetworkConditionPreset.allCases where preset != .offline {
             #expect(preset.packetLossRate == 0.0)
         }
+    }
+
+    @Test("Offline refuses traffic and is never inferred from a latency value")
+    func offlinePreset() {
+        #expect(NetworkConditionPreset.offline.isOffline)
+        #expect(NetworkConditionPreset.offline.packetLossRate == 1.0)
+        #expect(NetworkConditionPreset.offline.downloadBandwidthKbps == nil)
+        #expect(NetworkConditionPreset.offline.downloadBandwidthLabel == "No Connection")
+        #expect(NetworkConditionPreset.from(delayMs: 0) == .custom)
+        #expect(NetworkConditionsRuleForm.isValid(
+            name: "Airplane",
+            hostText: "api.example.com",
+            applySystemWide: false,
+            preset: .offline,
+            customLatencyMs: 0
+        ))
     }
 
     @Test("each preset returns correct display name")

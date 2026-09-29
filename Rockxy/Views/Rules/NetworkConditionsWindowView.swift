@@ -553,7 +553,7 @@ enum NetworkConditionsRuleForm {
         -> Bool
     {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs) > 0
+            && (preset.isOffline || effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs) > 0)
             && hostValidationMessage(
                 original: original,
                 hostText: hostText,

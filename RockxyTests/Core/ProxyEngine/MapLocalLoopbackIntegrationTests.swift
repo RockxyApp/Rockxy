@@ -67,6 +67,35 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("Network Conditions Offline drops the connection without reaching the origin")
+    func offlineNetworkConditionDropsConnection() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let absolute = harness.absoluteURLString(path: "/offline")
+            await harness.addRule(ProxyRule(
+                name: "Offline",
+                matchCondition: RuleMatchCondition(
+                    urlPattern: absolute,
+                    sourceURLPattern: absolute,
+                    matchType: .wildcard,
+                    includeSubpaths: false
+                ),
+                action: .networkCondition(preset: .offline, delayMs: 0)
+            ))
+
+            let response = try? await harness.get("/offline")
+            #expect(response == nil || response?.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+
+            let live = try await harness.get("/live")
+            #expect(live.status == 200)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let offline = await harness.capturedTransactions().first { $0.request.url.path == "/offline" }
+            #expect(offline?.state == .failed)
+            #expect(offline?.response == nil)
+            #expect(offline?.matchedRuleName == "Offline")
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -524,6 +553,10 @@ private actor MapLocalLoopbackHarness {
     /// absolute-form request line (`GET http://127.0.0.1:<originPort><path> HTTP/1.1`). This
     /// avoids URLSession's automatic loopback-proxy bypass, so the request is guaranteed to
     /// traverse the proxy and exercise the rule engine.
+    nonisolated func absoluteURLString(path: String) -> String {
+        origin.absoluteURLString(path: path)
+    }
+
     func get(_ path: String) async throws -> ProxyHTTPResponse {
         let absolute = origin.absoluteURLString(path: path)
         return try await ProxyHTTPClient.get(
