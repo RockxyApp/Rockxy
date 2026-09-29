@@ -304,7 +304,7 @@ struct RuleEngineTests {
 
         let url = try #require(URL(string: "https://example.com/test"))
         let enabledResult = await engine.evaluate(method: "GET", url: url, headers: [])
-        guard case let .networkCondition(preset, delayMs) = enabledResult else {
+        guard case let .networkCondition(preset, delayMs, _) = enabledResult else {
             Issue.record("Expected network condition rule while Network Conditions tool is enabled")
             return
         }

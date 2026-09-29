@@ -10,12 +10,18 @@ import NIOHTTP1
 struct NetworkConditionProfile: Equatable, Sendable {
     // MARK: Lifecycle
 
-    init(preset: NetworkConditionPreset, latencyMs: Int) {
+    init(preset: NetworkConditionPreset, latencyMs: Int, custom: NetworkCustomProfile? = nil) {
         self.preset = preset
         self.latencyMs = max(0, latencyMs)
-        downloadBytesPerSecond = preset.downloadBytesPerSecond
-        uploadBytesPerSecond = preset.uploadBytesPerSecond
-        packetLossRate = preset.packetLossRate
+        if preset == .custom, let custom {
+            downloadBytesPerSecond = custom.downloadBytesPerSecond
+            uploadBytesPerSecond = custom.uploadBytesPerSecond
+            packetLossRate = custom.packetLossRate
+        } else {
+            downloadBytesPerSecond = preset.downloadBytesPerSecond
+            uploadBytesPerSecond = preset.uploadBytesPerSecond
+            packetLossRate = preset.packetLossRate
+        }
     }
 
     // MARK: Internal
@@ -79,6 +85,9 @@ enum NetworkThrottlePlanner {
     static let targetChunkIntervalMs = 250
     static let minimumChunkSize = 4 * 1_024
     static let maximumChunkSize = 64 * 1_024
+    /// Transfer rate assumed for a lossy profile with no bandwidth cap (1 GB/s),
+    /// fast enough that only loss penalties add measurable delay.
+    static let unpacedLossyBytesPerSecond = 1_000_000_000
 
     static func chunkSize(bytesPerSecond: Int) -> Int {
         guard bytesPerSecond > 0 else {
@@ -90,7 +99,7 @@ enum NetworkThrottlePlanner {
 
     static func makePlan(
         byteCount: Int,
-        bytesPerSecond: Int?,
+        bytesPerSecond requestedBytesPerSecond: Int?,
         nowNanos: UInt64 = DispatchTime.now().uptimeNanoseconds,
         earliestReadyAtNanos: UInt64? = nil,
         packetLoss: NetworkPacketLoss? = nil,
@@ -98,7 +107,17 @@ enum NetworkThrottlePlanner {
     )
         -> NetworkThrottlePlan?
     {
-        guard byteCount > 0, let bytesPerSecond, bytesPerSecond > 0 else {
+        guard byteCount > 0 else {
+            return nil
+        }
+        // A lossy profile without a bandwidth cap still delays lost chunks; its
+        // chunks are otherwise sent as fast as the link allows.
+        let bytesPerSecond: Int
+        if let requested = requestedBytesPerSecond, requested > 0 {
+            bytesPerSecond = requested
+        } else if packetLoss != nil {
+            bytesPerSecond = unpacedLossyBytesPerSecond
+        } else {
             return nil
         }
 

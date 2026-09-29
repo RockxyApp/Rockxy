@@ -444,7 +444,7 @@ private struct RuleGridRow: View {
             ).characters)
             let label = "\(opsLabel) \u{00B7} \(phaseLabel)"
             return (label, .green)
-        case let .networkCondition(preset, _):
+        case let .networkCondition(preset, _, _):
             return ("Network \u{00B7} \(preset.displayName)", .cyan)
         }
     }

@@ -80,7 +80,7 @@ enum NetworkConditionPreset: String, CaseIterable, Codable {
     }
 
     var packetLossLabel: String {
-        DecimalFormatter.percent(packetLossRate, fractionDigits: 1)
+        Self.packetLossLabel(forRate: packetLossRate)
     }
 
     var downloadBytesPerSecond: Int? {
@@ -137,19 +137,26 @@ enum NetworkConditionPreset: String, CaseIterable, Codable {
         )
     }
 
-    // MARK: Private
-
-    private static var noConnectionLabel: String {
-        String(localized: "No Connection", bundle: RockxyLocalization.bundle)
+    /// Formats a loss fraction (0.1 = 10%) with a decimal only when one is needed.
+    static func packetLossLabel(forRate rate: Double) -> String {
+        let percent = rate * 100
+        let fractionDigits = percent.rounded() == percent ? 0 : 1
+        return DecimalFormatter.percent(percent, fractionDigits: fractionDigits)
     }
 
-    private static func bandwidthLabel(for kbps: Int?) -> String {
+    static func bandwidthLabel(for kbps: Int?) -> String {
         guard let kbps else {
-            return "Unlimited"
+            return String(localized: "Unlimited", bundle: RockxyLocalization.bundle)
         }
         if kbps >= 1_000, kbps.isMultiple(of: 1_000) {
             return "< \(kbps / 1_000) Mbps"
         }
         return "< \(kbps) kbps"
+    }
+
+    // MARK: Private
+
+    private static var noConnectionLabel: String {
+        String(localized: "No Connection", bundle: RockxyLocalization.bundle)
     }
 }

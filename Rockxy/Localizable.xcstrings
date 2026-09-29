@@ -11992,16 +11992,6 @@
         }
       }
     },
-    "Custom Latency": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "自定义延迟"
-          }
-        }
-      }
-    },
     "Custom latency must be greater than 0 ms.": {
       "localizations": {
         "zh-Hans": {
@@ -26409,16 +26399,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "预设"
-          }
-        }
-      }
-    },
-    "Presets add connection latency and pace request and response bodies at the displayed limits. Custom Latency leaves upload and download bandwidth unlimited.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "预设会增加连接延迟，并按显示的限制控制请求和响应正文的传输速率。自定义延迟不会限制上传和下载带宽。"
           }
         }
       }
@@ -44836,6 +44816,96 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 会话会保留完整的 URL、标头、Cookie、正文、时间、备注和高亮。分享前请检查文件内容。"
+          }
+        }
+      }
+    },
+    "Bandwidth can't be negative.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带宽不能为负数。"
+          }
+        }
+      }
+    },
+    "Custom download bandwidth in kilobits per second": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义下载带宽（千比特每秒）"
+          }
+        }
+      }
+    },
+    "Custom packet loss percentage": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义丢包百分比"
+          }
+        }
+      }
+    },
+    "Custom upload bandwidth in kilobits per second": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义上传带宽（千比特每秒）"
+          }
+        }
+      }
+    },
+    "Packet Loss": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丢包"
+          }
+        }
+      }
+    },
+    "Packet loss must be from 0 to 99 percent. Use the Offline profile to drop everything.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丢包率必须在 0 到 99 之间。若要丢弃全部流量，请使用“离线”配置。"
+          }
+        }
+      }
+    },
+    "Presets add connection latency and pace request and response bodies at the displayed limits. Custom uses the latency, bandwidth, and packet loss you enter; empty bandwidth is unlimited.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预设会增加连接延迟，并按显示的限制节流请求和响应正文。自定义会使用你输入的延迟、带宽和丢包率；带宽留空表示不限制。"
+          }
+        }
+      }
+    },
+    "Unlimited": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不限制"
+          }
+        }
+      }
+    },
+    "kbps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kbps"
           }
         }
       }

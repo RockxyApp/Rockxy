@@ -29,7 +29,7 @@ Network Conditions slows matching requests down using named presets modeled afte
 | Very Bad Network | 2000 ms | 1 Mbps | 1 Mbps | 10% | Timeout, retry, and stall handling |
 | WiFi | 2 ms | 40 Mbps | 30 Mbps | 0% | Baseline with minimal overhead |
 | Offline | — | — | — | 100% | Lost-connection handling: matching requests fail immediately |
-| Custom | User-defined | Unlimited | Unlimited | 0% | Specific latency requirements |
+| Custom | User-defined | User-defined (empty = unlimited) | User-defined (empty = unlimited) | User-defined, 0–99% | Reproducing a specific connection |
 
 **Offline** never contacts the server. Rockxy closes the client connection the way a device
 with no network would, and the request appears in the list as failed with no response. Use a
@@ -57,7 +57,7 @@ The Network Conditions window (1198 x 641) follows the standard Rockxy tool-wind
 1. Open **Tools > Network Conditions...** from the Tools menu.
 2. Click **Add Rule** or the **+** button.
 3. Enter a rule name and URL pattern (Exact Path, Subpaths, or Regex).
-4. Select a preset or choose Custom and enter a latency value in milliseconds.
+4. Select a preset, or choose **Custom** and enter latency (ms), download and upload bandwidth (kbps; leave empty for unlimited), and packet loss (%).
 5. Click **Add Rule**.
 
 ### From a captured request (quick-create)
@@ -90,7 +90,6 @@ Network Conditions rules are persisted alongside all other rules under `~/Librar
 
 ## Limitations
 
-- **Custom** — adds latency only; bandwidth and packet loss come from the named presets
 - **No jitter** — latency is constant per request
 - **WebSocket frames** — latency applies to the initial HTTP upgrade request, not to individual WebSocket frames after the connection is established
 - **One active rule** — only one Network Conditions rule can be active at a time

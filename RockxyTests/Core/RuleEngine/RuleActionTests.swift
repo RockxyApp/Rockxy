@@ -716,7 +716,7 @@ struct RuleActionTests {
         let action = RuleAction.networkCondition(preset: .threeG, delayMs: 400)
         let data = try JSONEncoder().encode(action)
         let decoded = try JSONDecoder().decode(RuleAction.self, from: data)
-        if case let .networkCondition(preset, delayMs) = decoded {
+        if case let .networkCondition(preset, delayMs, _) = decoded {
             #expect(preset == .threeG)
             #expect(delayMs == 400)
         } else {
@@ -729,7 +729,7 @@ struct RuleActionTests {
         let action = RuleAction.networkCondition(preset: .custom, delayMs: 1_234)
         let data = try JSONEncoder().encode(action)
         let decoded = try JSONDecoder().decode(RuleAction.self, from: data)
-        if case let .networkCondition(preset, delayMs) = decoded {
+        if case let .networkCondition(preset, delayMs, _) = decoded {
             #expect(preset == .custom)
             #expect(delayMs == 1_234)
         } else {

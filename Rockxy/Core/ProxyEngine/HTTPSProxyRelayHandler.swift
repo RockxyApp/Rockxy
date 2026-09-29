@@ -639,7 +639,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
             }
 
-        case let .networkCondition(preset, delayMs):
+        case let .networkCondition(preset, delayMs, custom):
             if preset.isOffline {
                 ProxyHandlerShared.simulateOffline(
                     context: context,
@@ -650,7 +650,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
                 return
             }
-            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs)
+            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom)
             context.eventLoop.scheduleTask(in: profile.latencyDelay) { [weak self] in
                 self?.connectToUpstream(
                     context: context,

@@ -490,7 +490,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         let proxyHead = HTTPResponseHead(version: head.version, status: head.status, headers: head.headers)
         let part = NIOAny(HTTPServerResponsePart.head(proxyHead))
-        if networkConditionProfile?.downloadBytesPerSecond != nil {
+        if networkConditionProfile?.downloadBytesPerSecond != nil || networkConditionProfile?.packetLoss != nil {
             clientContext.writeAndFlush(part, promise: nil)
         } else {
             clientContext.write(part, promise: nil)

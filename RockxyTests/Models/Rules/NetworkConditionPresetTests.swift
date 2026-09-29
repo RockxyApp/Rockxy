@@ -98,7 +98,7 @@ struct NetworkConditionPresetTests {
 
         #expect(rule.name == "Slow 3G")
         #expect(rule.isEnabled == true)
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .threeG)
             #expect(delayMs == 400)
         } else {
@@ -116,7 +116,7 @@ struct NetworkConditionPresetTests {
             matchCondition: condition
         )
 
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .custom)
             #expect(delayMs == 1_234)
         } else {

@@ -288,7 +288,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
                         return
-                    case let .networkCondition(preset, _) where preset.isOffline:
+                    case let .networkCondition(preset, _, _) where preset.isOffline:
                         ProxyHandlerShared.simulateOffline(
                             context: context,
                             requestData: requestData,
@@ -506,7 +506,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
 
-        case let .networkCondition(preset, delayMs):
+        case let .networkCondition(preset, delayMs, custom):
             if preset.isOffline {
                 ProxyHandlerShared.simulateOffline(
                     context: context,
@@ -517,7 +517,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 )
                 return
             }
-            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs)
+            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom)
             pendingThrottleTask = context.eventLoop.scheduleTask(in: profile.latencyDelay) { [weak self] in
                 guard let self else {
                     return
@@ -846,7 +846,7 @@ extension HTTPProxyHandler {
             case .block:
                 callback(HTTPTransaction(request: requestData, response: nil, state: .blocked))
                 return .blocked
-            case let .networkCondition(preset, _) where preset.isOffline:
+            case let .networkCondition(preset, _, _) where preset.isOffline:
                 callback(HTTPTransaction(request: requestData, response: nil, state: .failed))
                 return .unreachable
             default:
