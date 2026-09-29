@@ -29,7 +29,8 @@ Use the MCP bridge when you want an AI tool to:
 - search or filter flows,
 - inspect a specific request in detail,
 - export a captured request as cURL,
-- or check proxy and certificate status without switching apps.
+- check proxy and certificate status without switching apps,
+- or, once you allow changes, create mock, breakpoint, redirect, and block rules for you.
 
 ## Before you start
 
@@ -61,6 +62,30 @@ Rockxy currently exposes these MCP tools:
 - `export_flow_curl`
 - `list_rules`
 - `get_ssl_proxying_list`
+
+### Tools that change Rockxy
+
+These tools are always listed, but Rockxy refuses every call until you turn on
+**Settings → MCP → Allow MCP Clients to Change Rules and Capture**. The setting is off by
+default, and turning it off takes effect on the next call without restarting the server.
+
+| Tool | What it does |
+| --- | --- |
+| `create_breakpoint` | Adds an enabled Breakpoint rule for a URL pattern (`phase`: `request`, `response`, or `both`). |
+| `create_map_local` | Adds an enabled Map Local rule that answers with `status_code`, `headers`, and `body` (up to 512 KB). |
+| `create_map_remote` | Adds an enabled Map Remote rule from `from_url` to `to_url`, for example production to `http://localhost:3000`. |
+| `create_block_rule` | Adds an enabled Block rule that returns 403 (`forbidden`) or closes the connection (`drop`). |
+| `set_rule_enabled` | Turns a rule from `list_rules` on or off. |
+| `enable_ssl_proxying` | Turns on HTTPS decryption for a host or `*.domain`, the same as **Enable HTTPS Decryption** in the app. |
+| `set_no_caching` | Turns No Caching on or off. |
+| `set_recording` | Pauses or resumes recording while the proxy keeps running. |
+| `clear_session` | Removes every captured flow from the current session. |
+
+Rule tools accept `url` (or `from_url`), `match_type` (`wildcard` or `regex`),
+`include_subpaths`, `method`, `graphql_operation`, and `name`, with the same matching rules
+as the rule editors. Created rules appear in their tool windows right away and count toward
+the same active-rule limits. MCP clients cannot start the proxy, change the system proxy, or
+install certificates; those stay with you in the app.
 
 ## Set up Claude CLI
 

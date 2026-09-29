@@ -91,6 +91,10 @@ struct MCPSettingsTab: View {
                 privacySection
             }
 
+            SettingsSection(String(localized: "Changes", bundle: RockxyLocalization.bundle)) {
+                changesSection
+            }
+
             SettingsSection(String(localized: "About MCP", bundle: RockxyLocalization.bundle)) {
                 aboutSection
             }
@@ -116,6 +120,7 @@ struct MCPSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.serverEnabled")) private var mcpEnabled = false
 
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.redactSensitiveData")) private var mcpRedactSensitiveData = true
+    @AppStorage(MCPChangePermission.defaultsKey) private var mcpAllowChanges = false
     @State private var didCopyConfig = false
     @State private var copyFeedbackGeneration = UUID()
     @Environment(\.appUIDisplayMetrics) private var appMetrics
@@ -385,6 +390,46 @@ struct MCPSettingsTab: View {
             )
             .font(settingsMetrics.metadataFont(weight: .medium))
             .foregroundStyle(mcpRedactSensitiveData ? Color.green : Color.orange)
+        }
+    }
+
+    // MARK: - Changes Section
+
+    private var changesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(
+                String(
+                    localized: "Allow MCP Clients to Change Rules and Capture",
+                    bundle: RockxyLocalization.bundle
+                ),
+                isOn: $mcpAllowChanges
+            )
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("mcp.allowChanges")
+
+            Text(
+                String(
+                    localized: """
+                    Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn \
+                    rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause \
+                    recording, and clear the session. Rules they create appear in the matching tool \
+                    windows and count toward the same active-rule limits.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(settingsMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Label(
+                mcpAllowChanges
+                    ? String(localized: "MCP clients can change Rockxy.", bundle: RockxyLocalization.bundle)
+                    : String(localized: "MCP clients can only read.", bundle: RockxyLocalization.bundle),
+                systemImage: mcpAllowChanges ? "pencil.circle.fill" : "eye.circle"
+            )
+            .font(settingsMetrics.metadataFont(weight: .medium))
+            .foregroundStyle(mcpAllowChanges ? Color.orange : Color.secondary)
         }
     }
 

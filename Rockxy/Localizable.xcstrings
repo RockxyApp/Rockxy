@@ -44386,6 +44386,56 @@
           }
         }
       }
+    },
+    "Changes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改"
+          }
+        }
+      }
+    },
+    "Allow MCP Clients to Change Rules and Capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 MCP 客户端更改规则和捕获"
+          }
+        }
+      }
+    },
+    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules they create appear in the matching tool windows and count toward the same active-rule limits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则会显示在对应的工具窗口中，并计入相同的启用规则上限。"
+          }
+        }
+      }
+    },
+    "MCP clients can change Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 客户端可以更改 Rockxy。"
+          }
+        }
+      }
+    },
+    "MCP clients can only read.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MCP 客户端只能读取。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

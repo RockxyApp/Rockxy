@@ -40,10 +40,12 @@ final class MCPServerCoordinator {
     /// Called when the app's main coordinator is available to wire live data providers.
     func attachProviders(
         flow: any MCPLiveFlowProvider,
-        state: any MCPProxyStateProvider
+        state: any MCPProxyStateProvider,
+        control: (any MCPCaptureControlProvider)? = nil
     ) {
         flowProvider = flow
         stateProvider = state
+        controlProvider = control
         Self.logger.debug("MCP providers attached")
     }
 
@@ -51,6 +53,7 @@ final class MCPServerCoordinator {
     func detachProviders() {
         flowProvider = nil
         stateProvider = nil
+        controlProvider = nil
         Self.logger.debug("MCP providers detached")
     }
 
@@ -62,6 +65,11 @@ final class MCPServerCoordinator {
     /// Resolve the current proxy state provider, if one is currently attached.
     func currentStateProvider() -> (any MCPProxyStateProvider)? {
         stateProvider
+    }
+
+    /// Resolve the capture control provider, if the main workspace is attached.
+    func currentControlProvider() -> (any MCPCaptureControlProvider)? {
+        controlProvider
     }
 
     /// Lazily-created session store for persisted transaction fallback.
@@ -123,7 +131,11 @@ final class MCPServerCoordinator {
         let registry = MCPToolRegistry(
             flowService: flowService,
             statusService: statusService,
-            ruleService: ruleService
+            ruleService: ruleService,
+            changeService: MCPChangeService(
+                serverCoordinator: self,
+                ruleMutations: MCPRuleMutationService(mutator: MCPPolicyGateRuleMutator())
+            )
         )
 
         let server = MCPServer(
@@ -198,6 +210,7 @@ final class MCPServerCoordinator {
     private var cachedSessionStore: SessionStore?
     private weak var flowProvider: (any MCPLiveFlowProvider)?
     private weak var stateProvider: (any MCPProxyStateProvider)?
+    private weak var controlProvider: (any MCPCaptureControlProvider)?
     private var stopRequested = false
 
     private func refreshClientActivity() {
