@@ -37,11 +37,31 @@ struct BreakpointRequestData {
     var fixedHTTPSAuthority: String?
     var matchedRuleName: String?
 
-    /// Whether the original request uses HTTPS. Used by the breakpoint editor to constrain
-    /// the URL editor so the user can only modify path and query — the host is fixed by the
-    /// TLS tunnel and cannot be changed mid-connection.
+    /// Whether the edited request URL uses HTTPS.
     var isHTTPS: Bool {
         url.lowercased().hasPrefix("https://")
+    }
+
+    /// The `scheme://host[:port]` an HTTPS request will be sent to when the edited URL names
+    /// a different server than the one the client connected to, or `nil` when it does not.
+    var redirectedOrigin: String? {
+        guard phase == .request,
+              let fixedHTTPSAuthority,
+              let components = URLComponents(string: url),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host, !host.isEmpty else
+        {
+            return nil
+        }
+        let bracketedHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        var editedAuthority = bracketedHost
+        if let port = components.port, port != (scheme == "https" ? 443 : 80) {
+            editedAuthority += ":\(port)"
+        }
+        if scheme == "https", editedAuthority.caseInsensitiveCompare(fixedHTTPSAuthority) == .orderedSame {
+            return nil
+        }
+        return "\(scheme)://\(editedAuthority)"
     }
 
     /// Phase-aware validation shared by the structured editor and proxy builders.

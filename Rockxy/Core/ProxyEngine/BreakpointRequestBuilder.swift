@@ -15,17 +15,37 @@ enum BreakpointRequestBuilder {
     struct Result {
         let head: HTTPRequestHead
         let requestData: HTTPRequestData
+        /// Set when an HTTPS request was edited to a different scheme, host, or port. The
+        /// tunnel's upstream connection cannot serve it, so the relay opens a new one there.
+        let upstreamRedirect: UpstreamRedirect?
+    }
+
+    struct UpstreamRedirect: Equatable {
+        let scheme: String
+        let host: String
+        let port: Int?
+
+        /// Connects to the new server while keeping the edited path, query, and Host header.
+        var mapRemoteConfiguration: MapRemoteConfiguration {
+            MapRemoteConfiguration(
+                scheme: scheme,
+                host: host,
+                port: port,
+                preserveOriginalURL: true,
+                preserveHostHeader: true
+            )
+        }
     }
 
     /// Builds a NIO request head and `HTTPRequestData` from the user-modified breakpoint
-    /// snapshot, falling back to the original request's authority when the edited URL is
-    /// origin-form (path-only) or when the HTTPS tunnel requires a fixed host.
+    /// snapshot. An origin-form (path-only) edit keeps the original authority; an absolute
+    /// URL may change the scheme, host, and port, which sends the request to that server.
     ///
     /// - Parameters:
     ///   - modifiedData: The snapshot edited by the user in the breakpoint sheet.
     ///   - originalHead: The original NIO request head captured before the breakpoint.
     ///   - originalRequestData: The original `HTTPRequestData` with a fully-qualified URL.
-    ///   - isHTTPS: Whether the request is on an HTTPS tunnel (forces original host).
+    ///   - isHTTPS: Whether the request arrived on a decrypted HTTPS tunnel.
     ///   - originalHost: The CONNECT-tunnel host for HTTPS; ignored for plain HTTP.
     static func build(
         from modifiedData: BreakpointRequestData,
@@ -39,14 +59,28 @@ enum BreakpointRequestBuilder {
     {
         // 1. Resolve URL — preserve original authority for origin-form edits
         var editedURL: URL
-        if let parsed = URL(string: modifiedData.url), parsed.host != nil {
+        var upstreamRedirect: UpstreamRedirect?
+        if let parsed = URL(string: modifiedData.url), parsed.host != nil,
+           let editedScheme = parsed.scheme?.lowercased(), editedScheme == "http" || editedScheme == "https"
+        {
             if isHTTPS, let host = originalHost {
-                // Force the tunnel host even if the user typed a different absolute URL
-                var components = URLComponents(url: parsed, resolvingAgainstBaseURL: false) ?? URLComponents()
-                components.scheme = "https"
-                components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                components.port = originalPort
-                editedURL = components.url ?? originalRequestData.url
+                upstreamRedirect = redirect(
+                    for: parsed,
+                    scheme: editedScheme,
+                    tunnelScheme: originalRequestData.url.scheme?.lowercased() ?? "https",
+                    tunnelHost: host,
+                    tunnelPort: originalPort
+                )
+                if upstreamRedirect == nil {
+                    // Same server: keep the tunnel's exact authority spelling.
+                    var components = URLComponents(url: parsed, resolvingAgainstBaseURL: false) ?? URLComponents()
+                    components.scheme = editedScheme
+                    components.host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                    components.port = originalPort
+                    editedURL = components.url ?? originalRequestData.url
+                } else {
+                    editedURL = parsed
+                }
             } else {
                 editedURL = parsed
             }
@@ -66,16 +100,7 @@ enum BreakpointRequestBuilder {
             editedURL = components.url ?? originalRequestData.url
         }
 
-        // 1b. Force original scheme for non-HTTPS — the user can type "https://" but the
-        // transport is cleartext, so the scheme must match the actual connection.
-        if !isHTTPS, let originalScheme = originalRequestData.url.scheme {
-            var components = URLComponents(url: editedURL, resolvingAgainstBaseURL: false)
-                ?? URLComponents()
-            if components.scheme != originalScheme {
-                components.scheme = originalScheme
-                editedURL = components.url ?? editedURL
-            }
-        }
+        let pinsTunnelAuthority = isHTTPS && upstreamRedirect == nil
 
         // 2. Build headers from the edited list
         var resolvedHeaders = modifiedData.headers.compactMap { header -> HTTPHeader? in
@@ -88,15 +113,15 @@ enum BreakpointRequestBuilder {
             return HTTPHeader(name: name, value: header.value)
         }
 
-        // 3. For HTTPS, pin the Host header to the tunnel authority
-        if isHTTPS, let host = originalHost {
+        // 3. For HTTPS to the same server, pin the Host header to the tunnel authority
+        if pinsTunnelAuthority, let host = originalHost {
             let authority = ProxyHandlerShared.authority(host: host, port: originalPort, scheme: "https")
             resolvedHeaders.removeAll {
                 $0.name.caseInsensitiveCompare("Host") == .orderedSame
             }
             resolvedHeaders.append(HTTPHeader(name: "Host", value: authority))
-        } else if !isHTTPS {
-            // For plain HTTP, reconcile the Host header with the edited URL authority.
+        } else {
+            // Otherwise reconcile the Host header with the edited URL authority.
             // An untouched original Host (still pointing at the original authority) must
             // follow the edited URL — including a non-default explicit port — so a URL
             // redirect actually reaches the new origin. A Host the user deliberately
@@ -139,7 +164,7 @@ enum BreakpointRequestBuilder {
         let queryComponent = encodedComponents?.percentEncodedQuery.map { "?\($0)" } ?? ""
         head.uri = pathComponent + queryComponent
         head.headers = HTTPHeaders(resolvedHeaders.map { ($0.name, $0.value) })
-        if isHTTPS, let host = originalHost {
+        if pinsTunnelAuthority, let host = originalHost {
             head.headers.replaceOrAdd(
                 name: "Host",
                 value: ProxyHandlerShared.authority(host: host, port: originalPort, scheme: "https")
@@ -158,10 +183,37 @@ enum BreakpointRequestBuilder {
             flowID: originalRequestData.flowID
         )
 
-        return Result(head: head, requestData: requestData)
+        return Result(head: head, requestData: requestData, upstreamRedirect: upstreamRedirect)
     }
 
     // MARK: Private
+
+    /// The new upstream for an HTTPS request whose edited URL names a different scheme,
+    /// host, or port than the tunnel, or `nil` when it still targets the tunnel's server.
+    private static func redirect(
+        for url: URL,
+        scheme: String,
+        tunnelScheme: String,
+        tunnelHost: String,
+        tunnelPort: Int?
+    )
+        -> UpstreamRedirect?
+    {
+        guard let rawHost = url.host(percentEncoded: false), !rawHost.isEmpty else {
+            return nil
+        }
+        let host = rawHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let normalizedTunnelHost = tunnelHost.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        let editedPort = url.port ?? (scheme == "https" ? 443 : 80)
+        let tunnelEffectivePort = tunnelPort ?? (tunnelScheme == "https" ? 443 : 80)
+        if scheme == tunnelScheme,
+           host.caseInsensitiveCompare(normalizedTunnelHost) == .orderedSame,
+           editedPort == tunnelEffectivePort
+        {
+            return nil
+        }
+        return UpstreamRedirect(scheme: scheme, host: host, port: url.port)
+    }
 
     /// Reconciles the Host header of a plain-HTTP request with the edited URL authority.
     /// See the call site for the untouched-vs-override policy.

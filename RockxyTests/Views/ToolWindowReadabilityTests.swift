@@ -1170,10 +1170,8 @@ struct ToolWindowReadabilityTests {
         #expect(editorSource.contains("Color(nsColor: .textBackgroundColor)"))
         #expect(editorSource.contains("RoundedRectangle(cornerRadius: 6)"))
         #expect(editorSource.contains(".stroke(Color(nsColor: .separatorColor), lineWidth: 1)"))
-        #expect(editorSource.contains(#"String(localized: "Path and query", bundle: RockxyLocalization.bundle)"#))
-        #expect(editorSource
-            .contains(#"String(localized: "Host, path, and query", bundle: RockxyLocalization.bundle)"#))
-        #expect(editorSource.contains("httpSchemePrefix(itemId: itemId)"))
+        #expect(editorSource.contains(#"String(localized: "Request URL", bundle: RockxyLocalization.bundle)"#))
+        #expect(editorSource.contains("item.editableDraft.redirectedOrigin"))
         #expect(editorSource.contains("canApplySelectedChanges = validation.isValid"))
         #expect(editorSource.contains("syncRawMessageFromDraft(itemId: selectedItemId, force: true)"))
         #expect(source.contains("item.editableDraft.isBodyEditable"))

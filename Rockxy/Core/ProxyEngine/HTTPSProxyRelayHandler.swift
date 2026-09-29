@@ -861,127 +861,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
     }
 
-    nonisolated private func handleMapRemote(
-        context: ChannelHandlerContext,
-        configuration: MapRemoteConfiguration,
-        head: HTTPRequestHead,
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        let rewrite = ProxyHandlerShared.buildMapRemoteRewrite(
-            configuration: configuration,
-            originalHead: head,
-            requestData: requestData,
-            fallbackScheme: scheme,
-            fallbackHost: host,
-            fallbackPort: port
-        )
-        let callback = ProxyHandlerShared.makeMapRemoteProvenanceCallback(
-            originalURL: requestData.url,
-            downstream: callback
-        )
-        let remoteHost = rewrite.upstreamHost
-        let remotePort = rewrite.upstreamPort
-        let scheme = rewrite.scheme
-
-        guard connectionLimiter.acquire(host: remoteHost, port: remotePort) else {
-            httpsRelayLogger.warning("Connection limit reached for \(remoteHost):\(remotePort)")
-            sendErrorResponse(context: context, status: 503, requestData: rewrite.requestData, callback: callback)
-            return
-        }
-        let limiter = connectionLimiter
-
-        if scheme == "https" {
-            let connectTime = DispatchTime.now()
-            do {
-                let clientTLSConfig = try Self.makeClientTLSConfiguration(
-                    clientIdentity: customCertificateManager.clientIdentity(for: remoteHost),
-                    acceptsUntrustedCertificates: upstreamTrustProvider(),
-                    host: remoteHost
-                )
-                let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
-
-                UpstreamProxyConnector.connect(
-                    eventLoop: context.eventLoop,
-                    targetScheme: "https",
-                    targetHost: remoteHost,
-                    targetPort: remotePort,
-                    configuration: upstreamProxySnapshotProvider()
-                ) { channel in
-                    do {
-                        let sslHandler = try NIOSSLClientHandler(
-                            context: sslContext,
-                            serverHostname: TLSServerName.sni(for: remoteHost)
-                        )
-                        return channel.pipeline.addHandler(sslHandler).flatMap {
-                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-                        }
-                    } catch {
-                        return channel.eventLoop.makeFailedFuture(error)
-                    }
-                }
-                .whenComplete { [weak self] result in
-                    guard let self else {
-                        if case let .success(channel) = result {
-                            channel.close(promise: nil)
-                        }
-                        limiter.release(host: remoteHost, port: remotePort)
-                        return
-                    }
-                    self.handleUpstreamConnection(
-                        result: result,
-                        context: context,
-                        head: rewrite.head,
-                        requestData: rewrite.requestData,
-                        graphQLInfo: graphQLInfo,
-                        startTime: startTime,
-                        connectTime: connectTime,
-                        upstreamHost: remoteHost,
-                        upstreamPort: remotePort,
-                        callback: callback
-                    )
-                }
-            } catch {
-                httpsRelayLogger.error("Map remote TLS setup failed: \(error.localizedDescription)")
-                limiter.release(host: remoteHost, port: remotePort)
-                sendErrorResponse(context: context, status: 502, requestData: rewrite.requestData, callback: callback)
-            }
-        } else {
-            let connectTime = DispatchTime.now()
-            UpstreamProxyConnector.connect(
-                eventLoop: context.eventLoop,
-                targetScheme: scheme,
-                targetHost: remoteHost,
-                targetPort: remotePort,
-                configuration: upstreamProxySnapshotProvider()
-            ) { channel in
-                channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-            }
-            .whenComplete { [weak self] result in
-                guard let self else {
-                    if case let .success(channel) = result {
-                        channel.close(promise: nil)
-                    }
-                    limiter.release(host: remoteHost, port: remotePort)
-                    return
-                }
-                self.handleUpstreamConnection(
-                    result: result,
-                    context: context,
-                    head: rewrite.head,
-                    requestData: rewrite.requestData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    connectTime: connectTime,
-                    upstreamHost: remoteHost,
-                    upstreamPort: remotePort,
-                    callback: callback
-                )
-            }
-        }
-    }
 
     nonisolated private func sendMappedResponse(
         context: ChannelHandlerContext,
@@ -1173,6 +1052,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 originalHost: self.host,
                 originalPort: self.port
             )
+            if let redirect = built.upstreamRedirect {
+                // The edit names another server: connect there like a Map Remote rule would.
+                self.handleMapRemote(
+                    context: context,
+                    configuration: redirect.mapRemoteConfiguration,
+                    head: built.head,
+                    requestData: built.requestData,
+                    graphQLInfo: GraphQLDetector.detect(request: built.requestData),
+                    startTime: startTime,
+                    recordsMapRemote: false,
+                    callback: callback
+                )
+                return
+            }
             self.connectToUpstream(
                 context: context,
                 head: built.head,
@@ -1227,5 +1120,131 @@ extension HTTPSProxyRelayHandler {
             clientTLSConfig.privateKey = try clientIdentity.privateKeySource
         }
         return clientTLSConfig
+    }
+}
+
+// MARK: - Map Remote
+
+extension HTTPSProxyRelayHandler {
+    nonisolated private func handleMapRemote(
+        context: ChannelHandlerContext,
+        configuration: MapRemoteConfiguration,
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
+        startTime: DispatchTime,
+        recordsMapRemote: Bool = true,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
+        let rewrite = ProxyHandlerShared.buildMapRemoteRewrite(
+            configuration: configuration,
+            originalHead: head,
+            requestData: requestData,
+            fallbackScheme: scheme,
+            fallbackHost: host,
+            fallbackPort: port
+        )
+        let callback = recordsMapRemote
+            ? ProxyHandlerShared.makeMapRemoteProvenanceCallback(originalURL: requestData.url, downstream: callback)
+            : callback
+        let remoteHost = rewrite.upstreamHost
+        let remotePort = rewrite.upstreamPort
+        let scheme = rewrite.scheme
+
+        guard connectionLimiter.acquire(host: remoteHost, port: remotePort) else {
+            httpsRelayLogger.warning("Connection limit reached for \(remoteHost):\(remotePort)")
+            sendErrorResponse(context: context, status: 503, requestData: rewrite.requestData, callback: callback)
+            return
+        }
+        let limiter = connectionLimiter
+
+        if scheme == "https" {
+            let connectTime = DispatchTime.now()
+            do {
+                let clientTLSConfig = try Self.makeClientTLSConfiguration(
+                    clientIdentity: customCertificateManager.clientIdentity(for: remoteHost),
+                    acceptsUntrustedCertificates: upstreamTrustProvider(),
+                    host: remoteHost
+                )
+                let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
+
+                UpstreamProxyConnector.connect(
+                    eventLoop: context.eventLoop,
+                    targetScheme: "https",
+                    targetHost: remoteHost,
+                    targetPort: remotePort,
+                    configuration: upstreamProxySnapshotProvider()
+                ) { channel in
+                    do {
+                        let sslHandler = try NIOSSLClientHandler(
+                            context: sslContext,
+                            serverHostname: TLSServerName.sni(for: remoteHost)
+                        )
+                        return channel.pipeline.addHandler(sslHandler).flatMap {
+                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
+                        }
+                    } catch {
+                        return channel.eventLoop.makeFailedFuture(error)
+                    }
+                }
+                .whenComplete { [weak self] result in
+                    guard let self else {
+                        if case let .success(channel) = result {
+                            channel.close(promise: nil)
+                        }
+                        limiter.release(host: remoteHost, port: remotePort)
+                        return
+                    }
+                    self.handleUpstreamConnection(
+                        result: result,
+                        context: context,
+                        head: rewrite.head,
+                        requestData: rewrite.requestData,
+                        graphQLInfo: graphQLInfo,
+                        startTime: startTime,
+                        connectTime: connectTime,
+                        upstreamHost: remoteHost,
+                        upstreamPort: remotePort,
+                        callback: callback
+                    )
+                }
+            } catch {
+                httpsRelayLogger.error("Map remote TLS setup failed: \(error.localizedDescription)")
+                limiter.release(host: remoteHost, port: remotePort)
+                sendErrorResponse(context: context, status: 502, requestData: rewrite.requestData, callback: callback)
+            }
+        } else {
+            let connectTime = DispatchTime.now()
+            UpstreamProxyConnector.connect(
+                eventLoop: context.eventLoop,
+                targetScheme: scheme,
+                targetHost: remoteHost,
+                targetPort: remotePort,
+                configuration: upstreamProxySnapshotProvider()
+            ) { channel in
+                channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
+            }
+            .whenComplete { [weak self] result in
+                guard let self else {
+                    if case let .success(channel) = result {
+                        channel.close(promise: nil)
+                    }
+                    limiter.release(host: remoteHost, port: remotePort)
+                    return
+                }
+                self.handleUpstreamConnection(
+                    result: result,
+                    context: context,
+                    head: rewrite.head,
+                    requestData: rewrite.requestData,
+                    graphQLInfo: graphQLInfo,
+                    startTime: startTime,
+                    connectTime: connectTime,
+                    upstreamHost: remoteHost,
+                    upstreamPort: remotePort,
+                    callback: callback
+                )
+            }
+        }
     }
 }

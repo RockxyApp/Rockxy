@@ -10056,16 +10056,6 @@
         }
       }
     },
-    "Host, path, and query": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "主机、路径和查询"
-          }
-        }
-      }
-    },
     "Message editor section": {
       "localizations": {
         "zh-Hans": {
@@ -10162,16 +10152,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 正在关闭活动连接并恢复系统路由。"
-          }
-        }
-      }
-    },
-    "The scheme is fixed for this cleartext connection": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此明文连接的协议已固定"
           }
         }
       }
@@ -17564,16 +17544,6 @@
     },
     "HTTPS / TLS": {
       "shouldTranslate": false
-    },
-    "HTTPS connection": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HTTPS 连接"
-          }
-        }
-      }
     },
     "HTTPS content was not inspected.": {
       "localizations": {
@@ -25599,16 +25569,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "路径"
-          }
-        }
-      }
-    },
-    "Path and query": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "路径和查询"
           }
         }
       }
@@ -37034,16 +36994,6 @@
         }
       }
     },
-    "The HTTPS authority is fixed for this connection": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此连接的 HTTPS 授权机构是固定的"
-          }
-        }
-      }
-    },
     "The import contains invalid or duplicate Full Proxy Bypass entries.": {
       "localizations": {
         "zh-Hans": {
@@ -44906,6 +44856,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "kbps"
+          }
+        }
+      }
+    },
+    "Edit the method, scheme, host, port, path, or query. Another host or port sends the request to that server.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可编辑方法、协议、主机、端口、路径或查询。更改主机或端口会将请求发送到该服务器。"
+          }
+        }
+      }
+    },
+    "Execute sends this request to %@ over a new connection instead of %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "执行后，此请求将通过新连接发送到 %1$@，而不是 %2$@。"
           }
         }
       }

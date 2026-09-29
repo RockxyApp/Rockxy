@@ -41,6 +41,50 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
+    @Test("An HTTPS request edited at a breakpoint to another server is sent to that server")
+    func breakpointEditRedirectsHTTPSToAnotherServer() async throws {
+        let manager = await MainActor.run { BreakpointManager() }
+        let engine = RuleEngine()
+        await engine.setBreakpointToolEnabled(true)
+        await engine.addRule(ProxyRule(
+            name: "Pause secure",
+            matchCondition: RuleMatchCondition(urlPattern: ".*/secure/pause.*"),
+            action: .breakpoint(phase: .request)
+        ))
+        try await HTTPSLoopbackHarness.run(
+            acceptUntrustedUpstream: true,
+            ruleEngine: engine,
+            onBreakpointHit: { await manager.enqueueAndWait($0) }
+        ) { harness in
+            let redirectURL = "http://127.0.0.1:\(harness.plainOriginPort)/redirected?from=breakpoint"
+            async let pending = harness.get("/secure/pause")
+
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            var paused: PausedBreakpointItem?
+            while paused == nil, ContinuousClock.now < deadline {
+                paused = await MainActor.run { manager.pausedItems.first }
+                if paused == nil {
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+            }
+            let item = try #require(paused)
+            await MainActor.run {
+                manager.updateDraft(id: item.id) { $0.url = redirectURL }
+                manager.resolve(id: item.id, decision: .execute)
+            }
+
+            let response = try await pending
+            #expect(response.status == 200)
+            #expect(response.headerValue(HTTPSLoopbackHarness.originMarkerHeader) == "plain-origin")
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/redirected" }
+            #expect(row?.request.url.absoluteString == redirectURL)
+            #expect(row?.request.headers.first { $0.name == "Host" }?.value == "127.0.0.1:\(harness.plainOriginPort)")
+            #expect(row?.matchedRuleActionSummary?.hasPrefix("Map Remote") != true)
+        }
+    }
+
     @Test("Decrypted HTTPS to the emulator's host alias reaches the Mac's loopback origin")
     func emulatorAliasHTTPSReachesLoopback() async throws {
         guard !RootCADownloadServer.lanIPv4Addresses().contains(where: { $0.hasPrefix("10.0.2.") }) else {
@@ -181,11 +225,18 @@ private actor HTTPSLoopbackHarness {
     static func run(
         acceptUntrustedUpstream: Bool,
         interceptTLS: Bool = true,
+        ruleEngine: RuleEngine = RuleEngine(),
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil,
         _ body: (HTTPSLoopbackHarness) async throws -> Void
     )
         async throws
     {
-        let harness = try await start(acceptUntrustedUpstream: acceptUntrustedUpstream, interceptTLS: interceptTLS)
+        let harness = try await start(
+            acceptUntrustedUpstream: acceptUntrustedUpstream,
+            interceptTLS: interceptTLS,
+            ruleEngine: ruleEngine,
+            onBreakpointHit: onBreakpointHit
+        )
         do {
             try await body(harness)
         } catch {
@@ -197,6 +248,10 @@ private actor HTTPSLoopbackHarness {
 
     func capturedTransactions() -> [HTTPTransaction] {
         recorder.snapshot()
+    }
+
+    nonisolated var plainOriginPort: Int {
+        plainOrigin.boundPort
     }
 
     /// Issues `GET http://localhost:<plainPort><path>` inside a CONNECT tunnel without any TLS,
@@ -268,7 +323,14 @@ private actor HTTPSLoopbackHarness {
     private let recorder: TransactionRecorder
     private let cleanup: @Sendable () -> Void
 
-    private static func start(acceptUntrustedUpstream: Bool, interceptTLS: Bool) async throws -> HTTPSLoopbackHarness {
+    private static func start(
+        acceptUntrustedUpstream: Bool,
+        interceptTLS: Bool,
+        ruleEngine: RuleEngine,
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))?
+    )
+        async throws -> HTTPSLoopbackHarness
+    {
         let overrides = try await installSharedTestOverrides()
         let manager = CertificateManager.shared
         try await manager.generateRootCA()
@@ -326,11 +388,12 @@ private actor HTTPSLoopbackHarness {
         let proxyServer = ProxyServer(
             configuration: ProxyConfiguration(port: proxyPort, listenAddress: "127.0.0.1", listenIPv6: false),
             certificateManager: manager,
-            ruleEngine: RuleEngine(),
+            ruleEngine: ruleEngine,
             sslProxyingManager: sslManager,
             bypassProxyManager: bypassManager,
             upstreamTrustProvider: { acceptUntrustedUpstream },
-            onTransactionComplete: { recorder.record($0) }
+            onTransactionComplete: { recorder.record($0) },
+            onBreakpointHit: onBreakpointHit
         )
         do {
             try await proxyServer.start()

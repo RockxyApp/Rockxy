@@ -11,11 +11,11 @@ Breakpoints let you stop a transaction at the proxy boundary and inspect or chan
 
 | Phase | Pause point | What you can change |
 |---|---|---|
-| **Request** | Before Rockxy connects to the origin | Method, HTTP host, path and query, headers, and text body |
+| **Request** | Before Rockxy connects to the origin | Method, full URL (scheme, host, port, path, and query), headers, and text body |
 | **Response** | After the origin replies but before Rockxy returns the response to the client | Status code, headers, and text body |
 | **Request & Response** | At both points in the same transaction | Both message editors, one after the other |
 
-For an HTTPS request, Rockxy keeps the established TLS authority fixed. You can still edit its path, query, headers, and body without creating a mismatch with the active connection.
+You can edit the whole request URL. When an HTTPS request is edited to another scheme, host, or port — for example from `https://api.example.com` to `http://localhost:3000` — the editor says where it will go, and **Execute** sends it to that server over a new connection, verifying its certificate as usual. The app still receives the response on its original connection. A `Host` header you changed by hand is kept; an untouched one follows the new URL.
 
 ## Create a rule
 
