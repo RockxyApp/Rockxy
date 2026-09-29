@@ -51,6 +51,8 @@ enum RequestCopyFormatter {
             return transaction.timingInfo.map { DurationFormatter.format(seconds: $0.totalDuration) } ?? ""
         case "size":
             return transaction.response?.body.map { SizeFormatter.format(bytes: $0.count) } ?? ""
+        case "version":
+            return RequestListRow.displayVersion(transaction.request.httpVersion)
         case "queryName":
             return web3RPCMethodDescription(transaction.web3RPCInfo) ?? transaction.graphQLInfo?.operationName ?? ""
         default:

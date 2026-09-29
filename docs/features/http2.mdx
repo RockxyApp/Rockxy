@@ -1,0 +1,38 @@
+---
+title: "HTTP/2"
+description: "Let decrypted HTTPS connections negotiate HTTP/2 so apps that require it, including gRPC clients, work through Rockxy."
+---
+
+# HTTP/2
+
+Rockxy can decrypt HTTPS traffic that uses HTTP/2. The option is off by default.
+
+## Turn it on
+
+1. Open **Settings > General**.
+2. Turn on **Use HTTP/2**.
+3. Make sure HTTPS decryption is enabled for the app or domain (see [HTTPS Interception](/features/https-interception)).
+4. Send fresh requests: reload the page or restart the app you are debugging. The setting applies to new connections; connections that were already open keep the protocol they started with.
+
+## How negotiation works
+
+Rockxy handles two connections for each decrypted request, and each one negotiates its protocol through TLS ALPN on its own:
+
+- **Client to Rockxy.** Rockxy offers `h2` and `http/1.1`. Clients that support HTTP/2 pick it; others keep HTTP/1.1.
+- **Rockxy to the server.** Rockxy offers `h2` and `http/1.1` again, and the server picks.
+
+So an HTTP/2 client can reach an HTTP/1.1-only server through Rockxy, and the other way around. With the option off, Rockxy offers only HTTP/1.1 on both sides.
+
+## What you see
+
+- Every HTTP/2 stream is its own row, so concurrent requests on one connection appear separately.
+- The **Version** column shows `HTTP/2` or `HTTP/1.1` for the client side. It is hidden by default; right-click a column header to show it. The Synopsis tab also shows the version.
+- Response **Trailers**, such as gRPC's `grpc-status` and `grpc-message`, appear below the response headers and are forwarded to the client. The gRPC tab reads the call status from them.
+
+## Limitations
+
+- Rockxy forwards a request once its body is complete, so unary and server-streaming gRPC calls work, but client-streaming and bidirectional streams do not.
+- WebSocket connections keep using HTTP/1.1.
+- HTTP/2 without TLS (`h2c`) and HTTP/3 are not intercepted.
+- Map Remote rules connect to their destination over HTTP/1.1.
+- Sessions saved by older versions of Rockxy do not include trailers.

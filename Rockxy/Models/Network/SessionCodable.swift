@@ -240,6 +240,7 @@ struct CodableResponse: Codable {
         self.bodyTruncated = encoded.truncated
         self.originalBodySize = encoded.originalSize
         self.contentType = response.contentType?.rawValue
+        self.trailers = response.trailers?.map { CodableHeader(from: $0) }
     }
 
     // MARK: Internal
@@ -251,6 +252,8 @@ struct CodableResponse: Codable {
     let bodyTruncated: Bool
     let originalBodySize: Int?
     let contentType: String?
+    /// Absent in sessions saved before trailers were recorded.
+    let trailers: [CodableHeader]?
 
     func toLiveModel() -> HTTPResponseData {
         HTTPResponseData(
@@ -258,6 +261,7 @@ struct CodableResponse: Codable {
             statusMessage: statusMessage,
             headers: headers.map { $0.toLiveModel() },
             body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            trailers: trailers?.map { $0.toLiveModel() },
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
     }

@@ -419,7 +419,7 @@ private actor TLSOriginFixtureServer {
     static func start(identity: CustomTLSIdentity?) async throws -> TLSOriginFixtureServer {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let sslContext: NIOSSLContext? = try identity.map { identity in
-            try NIOSSLContext(configuration: TLSInterceptHandler.makeServerTLSConfiguration(identity: identity))
+            try NIOSSLContext(configuration: TLSInterceptHandler.makeServerTLSConfiguration(identity: identity, allowsHTTP2: false))
         }
         let marker = identity == nil ? "plain-origin" : "tls-origin"
         let bootstrap = ServerBootstrap(group: group)

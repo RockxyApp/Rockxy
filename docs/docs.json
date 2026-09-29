@@ -35,6 +35,7 @@
           "core-features/filters-and-search",
           "features/traffic-insights",
           "features/https-interception",
+          "features/http2",
           "features/ai-assistant",
           "features/ai-web3-inspection",
           "features/websocket",

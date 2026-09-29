@@ -224,6 +224,8 @@ extension RequestListRow {
             lhs.smartBadgeText.localizedCompare(rhs.smartBadgeText)
         case "queryName":
             compareQueryName(lhs, rhs)
+        case "version":
+            lhs.httpVersion.localizedStandardCompare(rhs.httpVersion)
         case "client":
             (lhs.clientApp ?? "").localizedCompare(rhs.clientApp ?? "")
         case "row":
@@ -445,6 +447,18 @@ extension RequestListRow {
         let lhsVal = resolveHeaderValue(for: columnID, row: lhs)
         let rhsVal = resolveHeaderValue(for: columnID, row: rhs)
         return lhsVal.localizedCompare(rhsVal)
+    }
+
+    /// Normalizes captured versions (`1.1`, `HTTP/1.1`, `2.0`) to `HTTP/1.1` or `HTTP/2`.
+    static func displayVersion(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let number = trimmed.uppercased().hasPrefix("HTTP/") ? String(trimmed.dropFirst(5)) : trimmed
+        switch number {
+        case "": return ""
+        case "2", "2.0": return "HTTP/2"
+        case "3", "3.0": return "HTTP/3"
+        default: return "HTTP/\(number)"
+        }
     }
 
     static func resolveHeaderValue(for columnID: String, row: RequestListRow) -> String {

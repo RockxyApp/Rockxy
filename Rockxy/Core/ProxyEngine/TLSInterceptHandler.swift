@@ -420,13 +420,16 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         }
     }
 
-    nonisolated static func makeServerTLSConfiguration(identity: CustomTLSIdentity) throws -> TLSConfiguration {
+    nonisolated static func makeServerTLSConfiguration(
+        identity: CustomTLSIdentity,
+        allowsHTTP2: Bool = HTTP2ProxyOptions.isEnabled
+    ) throws -> TLSConfiguration {
         var config = try TLSConfiguration.makeServerConfiguration(
             certificateChain: identity.certificateSources,
             privateKey: identity.privateKeySource
         )
         config.minimumTLSVersion = .tlsv12
-        config.applicationProtocols = ["http/1.1"]
+        config.applicationProtocols = allowsHTTP2 ? HTTP2ProxyOptions.alpnProtocols : ["http/1.1"]
         return config
     }
 
@@ -1064,7 +1067,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     }
 
     nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        if let tlsEvent = event as? TLSUserEvent, case .handshakeCompleted = tlsEvent {
+        if let tlsEvent = event as? TLSUserEvent, case let .handshakeCompleted(negotiatedProtocol) = tlsEvent {
             guard !handshakeResolved else {
                 return
             }
@@ -1081,14 +1084,25 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
                 NotificationCenter.default.post(name: .tlsMitmAccepted, object: nil, userInfo: acceptanceUserInfo)
             }
 
-            let httpHandler = makeRelayHandler(scheme: "https")
-
             let pipeline = context.pipeline
-            pipeline.removeHandler(context: context).flatMap {
-                pipeline.configureHTTPServerPipeline()
-            }.flatMap {
-                pipeline.addHandler(httpHandler)
-            }.whenFailure { error in
+            let channel = context.channel
+            let installRelay: EventLoopFuture<Void>
+            if negotiatedProtocol == HTTP2ProxyOptions.h2 {
+                tlsLogger.info("Client negotiated HTTP/2 for \(self.host)")
+                installRelay = pipeline.removeHandler(context: context).flatMap {
+                    HTTP2ServerPipeline.configure(channel: channel) {
+                        self.makeRelayHandler(scheme: "https")
+                    }
+                }
+            } else {
+                let httpHandler = makeRelayHandler(scheme: "https")
+                installRelay = pipeline.removeHandler(context: context).flatMap {
+                    pipeline.configureHTTPServerPipeline()
+                }.flatMap {
+                    pipeline.addHandler(httpHandler)
+                }
+            }
+            installRelay.whenFailure { error in
                 tlsLogger.error("Post-handshake pipeline setup failed for \(self.host): \(error.localizedDescription)")
                 self.recordTunnelFailure(statusCode: 500, statusMessage: "HTTPS Relay Setup Failed")
                 context.close(promise: nil)

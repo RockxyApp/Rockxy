@@ -44629,6 +44629,46 @@
           }
         }
       }
+    },
+    "Decrypted HTTPS connections offer HTTP/2 to apps and servers, and fall back to HTTP/1.1 when either side does not support it. Applies to new connections, so reload the page or restart the app you are debugging.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已解密的 HTTPS 连接会向应用和服务器提供 HTTP/2，任一方不支持时回退到 HTTP/1.1。此设置仅作用于新连接，请重新加载页面或重启你正在调试的应用。"
+          }
+        }
+      }
+    },
+    "Trailers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尾部"
+          }
+        }
+      }
+    },
+    "Use HTTP/2": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 HTTP/2"
+          }
+        }
+      }
+    },
+    "Version": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

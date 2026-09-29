@@ -432,30 +432,30 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
 
         do {
-            let clientTLSConfig = try Self.makeClientTLSConfiguration(
+            var clientTLSConfig = try Self.makeClientTLSConfiguration(
                 clientIdentity: customCertificateManager.clientIdentity(for: upstreamHost),
                 acceptsUntrustedCertificates: upstreamTrustProvider()
             )
+            let offersHTTP2 = HTTP2ProxyOptions.isEnabled
+            if offersHTTP2 {
+                clientTLSConfig.applicationProtocols = HTTP2ProxyOptions.alpnProtocols
+            }
             let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
-
-            UpstreamProxyConnector.connect(
+            let upstreamProxy = upstreamProxySnapshotProvider()
+            UpstreamHTTPChannelConnector.connect(
                 eventLoop: context.eventLoop,
-                targetScheme: "https",
-                targetHost: host,
-                targetPort: port,
-                configuration: upstreamProxySnapshotProvider()
-            ) { channel in
-                do {
-                    let sslHandler = try NIOSSLClientHandler(
-                        context: sslContext,
-                        serverHostname: self.host
-                    )
-                    return channel.pipeline.addHandler(sslHandler).flatMap {
-                        channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-                    }
-                } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
-                }
+                host: host,
+                sslContext: sslContext,
+                offersHTTP2: offersHTTP2
+            ) { initializer in
+                UpstreamProxyConnector.connect(
+                    eventLoop: context.eventLoop,
+                    targetScheme: "https",
+                    targetHost: upstreamHost,
+                    targetPort: upstreamPort,
+                    configuration: upstreamProxy,
+                    channelInitializer: initializer
+                )
             }
             .whenComplete { result in
                 self.handleUpstreamConnection(

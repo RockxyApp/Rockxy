@@ -307,10 +307,11 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 relayResponseBody(buffer)
             }
 
-        case .end:
+        case let .end(trailers):
             guard !completed else {
                 return
             }
+            responseTrailers = trailers
             if pendingWebSocketUpgrade {
                 completed = true
                 readTimeoutTask?.cancel()
@@ -427,6 +428,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private let onChannelClosed: @Sendable () -> Void
 
     private var responseHead: HTTPResponseHead?
+    /// Trailers sent after the body (HTTP/2, or chunked HTTP/1.1), e.g. `grpc-status`.
+    private var responseTrailers: HTTPHeaders?
     private var pendingWebSocketUpgrade = false
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
@@ -540,6 +543,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         guard clientContext.channel.isActive else {
             return
         }
+        let trailers = responseTrailers
         if let downloadTailFuture {
             self.downloadTailFuture = nil
             downloadTailFuture.whenComplete { [clientContext] _ in
@@ -547,7 +551,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                     return
                 }
                 clientContext.writeAndFlush(
-                    NIOAny(HTTPServerResponsePart.end(nil)),
+                    NIOAny(HTTPServerResponsePart.end(trailers)),
                     promise: nil
                 )
             }
@@ -559,7 +563,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 return
             }
             clientContext.writeAndFlush(
-                NIOAny(HTTPServerResponsePart.end(nil)),
+                NIOAny(HTTPServerResponsePart.end(trailers)),
                 promise: nil
             )
         }
@@ -872,6 +876,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             contentType: contentType
         )
         responseData.bodyTruncated = responseBodyTruncated
+        responseData.trailers = responseTrailers.map { $0.map { HTTPHeader(name: $0.name, value: $0.value) } }
 
         let timing = buildTimingInfo(endTime: endTime)
 

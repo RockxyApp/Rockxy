@@ -87,6 +87,7 @@ struct GeneralSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("proxyPort")) private var proxyPort =
         9_090
     @AppStorage(RockxyIdentity.current.defaultsKey("recordOnLaunch")) private var recordOnLaunch = true
+    @AppStorage(HTTP2ProxyOptions.defaultsKey) private var useHTTP2 = false
     @State private var certSnapshot: RootCAStatusSnapshot?
     @State private var certLoading = false
     @State private var showResetConfirmation = false
@@ -125,6 +126,27 @@ struct GeneralSettingsTab: View {
                     Text(
                         String(
                             localized: "Start capturing network traffic as soon as the app launches.",
+                            bundle: RockxyLocalization.bundle
+                        )
+                    )
+                    .font(settingsMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            SettingsIndentedContent {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(String(localized: "Use HTTP/2", bundle: RockxyLocalization.bundle), isOn: $useHTTP2)
+                        .toggleStyle(.checkbox)
+                        .accessibilityIdentifier("settings.useHTTP2")
+                    Text(
+                        String(
+                            localized: """
+                            Decrypted HTTPS connections offer HTTP/2 to apps and servers, and fall back to \
+                            HTTP/1.1 when either side does not support it. Applies to new connections, so \
+                            reload the page or restart the app you are debugging.
+                            """,
                             bundle: RockxyLocalization.bundle
                         )
                     )

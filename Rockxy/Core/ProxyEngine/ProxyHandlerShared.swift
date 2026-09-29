@@ -221,8 +221,10 @@ enum ProxyHandlerShared {
             headers.remove(name: "Content-Length")
         }
 
+        // HTTP/2 requests are forwarded as HTTP/1.1 on an HTTP/1.1 origin connection; an
+        // HTTP/2 origin stream ignores the version, so 1.1 is correct either way.
         return HTTPRequestHead(
-            version: originalHead.version,
+            version: originalHead.version.major >= 2 ? .http1_1 : originalHead.version,
             method: resolvedMethod,
             uri: uri,
             headers: headers

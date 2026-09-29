@@ -162,6 +162,12 @@ struct RequestTableView: NSViewRepresentable {
                 width: 110,
                 minWidth: 70
             ),
+            ColumnSpec(
+                id: "version",
+                title: String(localized: "Version", bundle: RockxyLocalization.bundle),
+                width: 64,
+                minWidth: 48
+            ),
         ]
 
         return specs.map { spec in
@@ -206,7 +212,7 @@ struct RequestTableView: NSViewRepresentable {
         guard columnIDs.count >= legacyBuiltInOrder.count,
               Array(columnIDs.prefix(legacyBuiltInOrder.count)) == legacyBuiltInOrder,
               columnIDs.dropFirst(legacyBuiltInOrder.count).allSatisfy({ columnID in
-                  columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.")
+                  columnID == "version" || columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.")
               }),
               let protocolIndex = columnIDs.firstIndex(of: "ai"),
               let rowIndex = columnIDs.firstIndex(of: "row") else
@@ -925,6 +931,9 @@ extension RequestTableView {
                 case "responseSize":
                     text = rowData.responseSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
+                case "version":
+                    text = RequestListRow.displayVersion(rowData.httpVersion)
+                    font = metrics.appKitFont()
                 case "queryName":
                     // Unified display: WS rows show frame count, Web3 rows show RPC method, GraphQL rows show operation
                     // name.
@@ -2146,6 +2155,7 @@ extension RequestTableView {
                 ("responseSize", String(localized: "Response", bundle: RockxyLocalization.bundle)),
                 ("ssl", String(localized: "SSL", bundle: RockxyLocalization.bundle)),
                 ("queryName", String(localized: "Operation", bundle: RockxyLocalization.bundle)),
+                ("version", String(localized: "Version", bundle: RockxyLocalization.bundle)),
             ]
 
             for col in builtInColumns {
@@ -2828,6 +2838,11 @@ extension RequestTableView {
                 }
                 cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
+
+            case "version":
+                cell.stringValue = RequestListRow.displayVersion(rowData.httpVersion)
+                cell.textColor = .secondaryLabelColor
+                cell.toolTip = nil
 
             case "queryName":
                 if rowData.isWebSocket {

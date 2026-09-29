@@ -444,12 +444,26 @@ struct ResponseInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(
-                    headers: response.headers,
-                    highlightContext: highlightContext,
-                    source: .response,
-                    coordinator: coordinator
-                )
+                VStack(alignment: .leading, spacing: 12) {
+                    HeaderKeyValueTable(
+                        headers: response.headers,
+                        highlightContext: highlightContext,
+                        source: .response,
+                        coordinator: coordinator
+                    )
+                    if let trailers = response.trailers, !trailers.isEmpty {
+                        Text(String(localized: "Trailers", bundle: RockxyLocalization.bundle))
+                            .font(.system(size: metrics.secondaryFontSize, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.isHeader)
+                        HeaderKeyValueTable(
+                            headers: trailers,
+                            highlightContext: highlightContext,
+                            source: .response,
+                            coordinator: coordinator
+                        )
+                    }
+                }
                 .padding()
             }
         }

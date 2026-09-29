@@ -12,11 +12,13 @@ struct CustomTLSSelectionTests {
     @Test("server TLS configuration accepts custom server identity")
     func serverTLSConfigurationUsesCustomIdentity() throws {
         let identity = try makeIdentity(host: "pinned.example.com")
-        let config = try TLSInterceptHandler.makeServerTLSConfiguration(identity: identity)
+        let config = try TLSInterceptHandler.makeServerTLSConfiguration(identity: identity, allowsHTTP2: false)
+        let http2Config = try TLSInterceptHandler.makeServerTLSConfiguration(identity: identity, allowsHTTP2: true)
 
         #expect(config.certificateChain.count == 1)
         #expect(config.privateKey != nil)
         #expect(config.applicationProtocols == ["http/1.1"])
+        #expect(http2Config.applicationProtocols == ["h2", "http/1.1"])
     }
 
     @Test("generated server identity includes the exact root issuer")
