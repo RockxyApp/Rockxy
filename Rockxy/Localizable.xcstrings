@@ -46439,6 +46439,316 @@
           }
         }
       }
+    },
+    "Add them to your current settings, or replace your current rules and switches with the backup.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可以将它们添加到当前设置，或用备份替换当前的规则和开关。"
+          }
+        }
+      }
+    },
+    "Add to Current Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到当前设置"
+          }
+        }
+      }
+    },
+    "Export Enabled Rules Only…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅导出已启用的规则…"
+          }
+        }
+      }
+    },
+    "Export Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出设置"
+          }
+        }
+      }
+    },
+    "Import / Export Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入/导出设置"
+          }
+        }
+      }
+    },
+    "Import Settings…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入设置…"
+          }
+        }
+      }
+    },
+    "Import settings from “%@”?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要从“%@”导入设置吗？"
+          }
+        }
+      }
+    },
+    "Imported Script": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入的脚本"
+          }
+        }
+      }
+    },
+    "Imported scripts are added turned off. Review each script before you turn it on.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入的脚本会以关闭状态添加。请先检查每个脚本，再将其打开。"
+          }
+        }
+      }
+    },
+    "Replace Current Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换当前设置"
+          }
+        }
+      }
+    },
+    "Rockxy Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 设置"
+          }
+        }
+      }
+    },
+    "Save the rules and switches of every debugging tool.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存所有调试工具的规则和开关。"
+          }
+        }
+      }
+    },
+    "Save the rules that are turned on in every debugging tool.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存所有调试工具中已启用的规则。"
+          }
+        }
+      }
+    },
+    "Settings Imported": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置已导入"
+          }
+        }
+      }
+    },
+    "The backup contains %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该备份包含 %@。"
+          }
+        }
+      }
+    },
+    "The backup contains no rules.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该备份不包含任何规则。"
+          }
+        }
+      }
+    },
+    "The backup file is damaged or incomplete.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份文件已损坏或不完整。"
+          }
+        }
+      }
+    },
+    "The backup file is too large to import.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备份文件过大，无法导入。"
+          }
+        }
+      }
+    },
+    "The settings could not be exported.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导出设置。"
+          }
+        }
+      }
+    },
+    "The settings could not be imported.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导入设置。"
+          }
+        }
+      }
+    },
+    "This backup was made by a newer version of Rockxy. Update Rockxy to import it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此备份由更新版本的 Rockxy 创建。请更新 Rockxy 后再导入。"
+          }
+        }
+      }
+    },
+    "This file is not a Rockxy settings backup.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件不是 Rockxy 设置备份。"
+          }
+        }
+      }
+    },
+    "^[%lld Allow List rule](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条允许列表规则"
+          }
+        }
+      }
+    },
+    "^[%lld DNS Spoofing rule](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条 DNS 欺骗规则"
+          }
+        }
+      }
+    },
+    "^[%lld HTTPS decryption entry](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个 HTTPS 解密条目"
+          }
+        }
+      }
+    },
+    "^[%lld bypassed domain](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个绕过的域名"
+          }
+        }
+      }
+    },
+    "^[%lld entry](inflect: true) skipped because it was invalid or conflicted with a current setting.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过 %lld 个条目，因为它们无效或与当前设置冲突。"
+          }
+        }
+      }
+    },
+    "^[%lld reverse proxy](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个反向代理"
+          }
+        }
+      }
+    },
+    "^[%lld rule](inflect: true) imported.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入 %lld 条规则。"
+          }
+        }
+      }
+    },
+    "^[%lld script](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个脚本"
+          }
+        }
+      }
+    },
+    "^[%lld script](inflect: true) added, turned off.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 个脚本（处于关闭状态）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

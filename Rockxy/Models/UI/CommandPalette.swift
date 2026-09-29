@@ -21,6 +21,8 @@ enum CommandPaletteAction: Hashable {
     case importHAR
     case exportHAR
     case exportCSV
+    case exportSettings
+    case importSettings
     case exportRockxySession
     case exportOpenAPIYAML
     case exportOpenAPIHTML
@@ -87,6 +89,22 @@ enum CommandPaletteCatalog {
                 nil,
                 ["rockxysession", "selected", "share"],
                 .exportRockxySession
+            ),
+            command(
+                "tools.exportSettings",
+                "Export Settings…",
+                tools,
+                nil,
+                ["backup", "rules", "config", "configuration"],
+                .exportSettings
+            ),
+            command(
+                "tools.importSettings",
+                "Import Settings…",
+                tools,
+                nil,
+                ["backup", "restore", "rules", "config", "configuration"],
+                .importSettings
             ),
             command("file.openAPIYAML", "Export OpenAPI YAML…", file, nil, ["swagger", "spec"], .exportOpenAPIYAML),
             command("file.openAPIHTML", "Export OpenAPI HTML…", file, nil, ["swagger", "docs"], .exportOpenAPIHTML),

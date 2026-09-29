@@ -1,0 +1,57 @@
+---
+title: "Import and Export Settings"
+description: "Save every debugging tool's rules in one file and bring them to another Mac or a teammate."
+---
+
+# Import and Export Settings
+
+One file holds the rules and switches of every debugging tool, so you can back them up, move
+them to another Mac, or share a setup with a teammate.
+
+## Entry points
+
+| Action | How to Access |
+|--------|---------------|
+| Export everything | **Tools > Import / Export Settings > Export Settings…** |
+| Export only rules that are turned on | **Tools > Import / Export Settings > Export Enabled Rules Only…** |
+| Import a file | **Tools > Import / Export Settings > Import Settings…** |
+| Command Palette | `⇧⌘P`, then type "backup" |
+
+## What the file contains
+
+- Breakpoint, Map Local, Map Remote, Block List, Modify Headers, and Network Conditions rules,
+  and whether each of those tools is on
+- The response bodies of Map Local rules that Rockxy created. A Map Local rule that points to a
+  file you chose elsewhere keeps only its path.
+- The HTTPS decryption list, including app entries and bypass domains
+- The Allow List and the Bypass Proxy list
+- Reverse Proxy and DNS Spoofing rules
+- Scripts, with their source
+- The No Caching switch
+
+Captured traffic, certificates, and app preferences are not included.
+
+<Warning>
+The file can contain header values, such as tokens set by Modify Headers, and Map Local response
+bodies. Rockxy saves it readable only by you. Share it only with people who should see those
+values.
+</Warning>
+
+## Import
+
+After you choose a file, Rockxy lists what it contains and asks how to import it:
+
+- **Add to Current Settings** keeps everything you have and adds the file's rules. Entries you
+  already have are not added twice, and a Reverse Proxy whose local port is taken is skipped.
+- **Replace Current Settings** makes each tool match the file, including the tool switches.
+
+Either way:
+
+- Scripts are added **turned off**. Review each one in **Scripting > Script List…** before you
+  turn it on.
+- Rules whose URL pattern is not valid are skipped.
+- Per-tool limits still apply; rules beyond a limit are imported turned off.
+- Only one Network Conditions profile stays on.
+
+When the import finishes, Rockxy reports how many rules and scripts it added and how many entries
+it skipped.

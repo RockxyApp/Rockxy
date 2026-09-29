@@ -176,6 +176,14 @@ final class ReverseProxyStore {
         persistAndNotify()
     }
 
+    /// Replaces every rule, as a settings import does.
+    func replaceAll(_ newRules: [ReverseProxyRule]) {
+        let kept = Set(newRules.map(\.id))
+        statuses = statuses.filter { kept.contains($0.key) }
+        rules = newRules
+        persistAndNotify()
+    }
+
     /// Records the outcome of reconciling listeners with the running proxy.
     func applyListenerResult(targets: [ReverseProxyTarget], failures: [UUID: ReverseProxyBindFailure]) {
         var next: [UUID: ReverseProxyRuleStatus] = [:]

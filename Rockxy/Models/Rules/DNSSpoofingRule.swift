@@ -124,6 +124,12 @@ final class DNSSpoofingStore {
         persist()
     }
 
+    /// Replaces every rule, as a settings import does.
+    func replaceAll(_ newRules: [DNSSpoofingRule]) {
+        rules = newRules
+        persist()
+    }
+
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "DNSSpoofingStore")

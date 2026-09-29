@@ -190,6 +190,10 @@ struct CommandPaletteSheet: ViewModifier {
             actions.exportHAR()
         case .exportCSV:
             actions.exportCSV()
+        case .exportSettings:
+            SettingsBackupFlow.exportSettings(onlyEnabledRules: false)
+        case .importSettings:
+            SettingsBackupFlow.importSettings(proxyPort: AppSettingsManager.shared.settings.proxyPort)
         case .exportRockxySession:
             actions.exportRockxySession()
         case .exportOpenAPIYAML:

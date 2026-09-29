@@ -30,11 +30,16 @@ struct CommandPaletteTests {
         let source = try projectFile("Rockxy/RockxyApp.swift")
             + projectFile("Rockxy/Views/Settings/SettingsWindowScene.swift")
             + projectFile("Rockxy/Views/Rules/ReverseProxyWindowView.swift")
+            + projectFile("Rockxy/Views/Rules/DNSSpoofingWindowView.swift")
+            + projectFile("Rockxy/Views/Rules/TLSKeyLogWindowView.swift")
         for command in CommandPaletteCatalog.commands {
             guard case let .openWindow(id) = command.action else {
                 continue
             }
-            #expect(source.contains("id: \"\(id)\""), "Missing window scene for \(id)")
+            #expect(
+                source.contains("Window(") && source.contains(", id: \"\(id)\")"),
+                "Missing window scene for \(id)"
+            )
         }
     }
 

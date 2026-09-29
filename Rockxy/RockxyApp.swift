@@ -1186,15 +1186,7 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Network Conditions…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "networkConditions")
             }
-            Button(String(localized: "Reverse Proxy…", bundle: RockxyLocalization.bundle)) {
-                openWindow(id: "reverseProxy")
-            }
-            Button(String(localized: "DNS Spoofing…", bundle: RockxyLocalization.bundle)) {
-                openWindow(id: "dnsSpoofing")
-            }
-            Button(String(localized: "TLS Key Log…", bundle: RockxyLocalization.bundle)) {
-                openWindow(id: "tlsKeyLog")
-            }
+            ConnectionToolsMenuItems()
 
             Divider()
 
