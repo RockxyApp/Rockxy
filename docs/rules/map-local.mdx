@@ -36,6 +36,17 @@ For GraphQL, every operation shares one endpoint. Set **GraphQL Operation** to m
 operation (for example `GetUser`) while the rest of the app keeps talking to the server. Rules
 created from a captured GraphQL request prefill the operation name.
 
+## Organize rules in folders
+
+Group related rules — one app, one environment, one test case — into folders:
+
+- Select rules and choose **New Folder with Selection** from the context menu or the **More** menu, or create an empty **New Folder** and use **Move to Folder**.
+- The folder's checkbox turns every rule inside it on or off. It shows a mixed state when only some are on, and the active-rule limit still applies.
+- **Rename Folder…** and **Delete Folder** are on the folder's context menu. Deleting a folder keeps its rules; they move back to the top level.
+- Press ⌘F to search by name, method, or matching rule. While searching, matches are listed without folders.
+
+Folders only organize the list. Rules keep their place in Rockxy's first-match order, and folders are saved between launches.
+
 ## What to watch for
 
 - The file content becomes the response body.

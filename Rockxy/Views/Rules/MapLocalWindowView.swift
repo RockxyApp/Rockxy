@@ -11,8 +11,9 @@ import SwiftUI
 final class MapLocalViewModel {
     // MARK: Lifecycle
 
-    init(isToolEnabled: Bool? = nil) {
+    init(isToolEnabled: Bool? = nil, folderStore: RuleFolderStore = .mapLocal) {
         self.isToolEnabled = isToolEnabled ?? Self.defaultToolEnabled
+        self.folderStore = folderStore
     }
 
     // MARK: Internal
@@ -22,6 +23,63 @@ final class MapLocalViewModel {
     var selectedRuleIDs: Set<UUID> = []
     var isToolEnabled: Bool
     var errorMessage: String?
+    let folderStore: RuleFolderStore
+
+    /// Folder-grouped rows; flat while searching so every match shows.
+    var rows: [RuleListRow] {
+        let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return RuleListRow.rows(rules: filteredRules, folders: folderStore.folders, flat: searching)
+    }
+
+    /// Selected rules, including every rule inside a selected folder.
+    var selectedRuleIDsIncludingFolders: Set<UUID> {
+        var ids = Set(mapLocalRules.map(\.id)).intersection(selectedRuleIDs)
+        for folder in folderStore.folders where selectedRuleIDs.contains(folder.id) {
+            ids.formUnion(folder.ruleIDs)
+        }
+        return ids
+    }
+
+    func rules(in folder: RuleFolder) -> [ProxyRule] {
+        let members = Set(folder.ruleIDs)
+        return mapLocalRules.filter { members.contains($0.id) }
+    }
+
+    /// Enables or disables several rules through the quota gate; reports rules the limit refused.
+    func setRulesEnabled(_ ids: [UUID], enabled: Bool) {
+        for index in allRules.indices where ids.contains(allRules[index].id) {
+            allRules[index].isEnabled = enabled
+        }
+        Task {
+            var refused = false
+            for id in ids {
+                if await !RulePolicyGate.shared.setRuleEnabled(id: id, enabled: enabled) {
+                    refused = true
+                }
+            }
+            allRules = await RuleEngine.shared.allRules
+            if refused {
+                errorMessage = String(
+                    localized: "Some rules stayed off because the active Map Local rule limit was reached.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+        }
+    }
+
+    func newFolderWithSelection() {
+        let ids = mapLocalRules.map(\.id).filter { selectedRuleIDs.contains($0) }
+        let id = folderStore.createFolder(
+            named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
+            containing: ids
+        )
+        selectedRuleIDs = [id]
+    }
+
+    func moveSelectedRules(toFolder folderID: UUID?) {
+        let ids = Set(mapLocalRules.map(\.id)).intersection(selectedRuleIDs)
+        folderStore.move(ruleIDs: ids, toFolder: folderID)
+    }
 
     var mapLocalRules: [ProxyRule] {
         allRules.filter {
@@ -111,14 +169,17 @@ final class MapLocalViewModel {
 
     func refreshFromEngine() async {
         allRules = await RuleEngine.shared.allRules
+        folderStore.reconcile(existingRuleIDs: Set(mapLocalRules.map(\.id)))
     }
 
     func handleRulesDidChange(_ notification: Notification) {
         if let rules = notification.object as? [ProxyRule] {
             allRules = rules
+            let folderIDs = Set(folderStore.folders.map(\.id))
             selectedRuleIDs = selectedRuleIDs.filter { id in
-                rules.contains { $0.id == id }
+                folderIDs.contains(id) || rules.contains { $0.id == id }
             }
+            folderStore.reconcile(existingRuleIDs: Set(mapLocalRules.map(\.id)))
         }
     }
 
@@ -168,8 +229,13 @@ final class MapLocalViewModel {
     }
 
     func removeSelectedRules() {
-        let idsToRemove = selectedRuleIDs
+        // Deleting a folder keeps its rules; they move back to the top level.
+        for folder in folderStore.folders where selectedRuleIDs.contains(folder.id) {
+            folderStore.deleteFolder(id: folder.id)
+        }
+        let idsToRemove = Set(mapLocalRules.map(\.id)).intersection(selectedRuleIDs)
         guard !idsToRemove.isEmpty else {
+            selectedRuleIDs.removeAll()
             return
         }
         allRules.removeAll { idsToRemove.contains($0.id) }
@@ -316,6 +382,12 @@ struct MapLocalWindowView: View {
             minWidth: max(860, toolMetrics.bodyFontSize * 28 + 496),
             minHeight: max(620, toolMetrics.bodyFontSize * 18 + 386)
         )
+        .background {
+            Button("") { searchIsFocused = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .hidden()
+                .accessibilityHidden(true)
+        }
         .task {
             // Ensure persisted rules are loaded even when macOS restored ONLY this
             // tool window (no main window ran its startup task). Idempotent and
@@ -355,12 +427,15 @@ struct MapLocalWindowView: View {
                 Text(error)
             }
         }
+        .ruleFolderRenameAlert(store: viewModel.folderStore, folder: $renamingFolder)
     }
 
     // MARK: Private
 
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
+    @State private var renamingFolder: RuleFolder?
+    @FocusState private var searchIsFocused: Bool
 
     private var isSearching: Bool {
         !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -409,6 +484,7 @@ struct MapLocalWindowView: View {
             Spacer()
 
             TextField(String(localized: "Search rules", bundle: RockxyLocalization.bundle), text: $viewModel.searchText)
+                .focused($searchIsFocused)
                 .textFieldStyle(.roundedBorder)
                 .font(toolMetrics.font())
                 .controlSize(.regular)
@@ -441,50 +517,63 @@ struct MapLocalWindowView: View {
     }
 
     private var tableContent: some View {
-        Table(viewModel.filteredRules, selection: $viewModel.selectedRuleIDs) {
-            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { rule in
-                Toggle("", isOn: Binding(
-                    get: { rule.isEnabled },
-                    set: { _ in viewModel.toggleRule(id: rule.id) }
-                ))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
+        Table(viewModel.rows, children: \.children, selection: $viewModel.selectedRuleIDs) {
+            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { row in
+                enabledCell(for: row)
             }
             .width(62)
 
-            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { rule in
-                Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(rule.name)
+            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { row in
+                switch row.kind {
+                case let .folder(folder):
+                    RuleFolderNameLabel(folder: folder, ruleCount: viewModel.rules(in: folder).count)
+                case let .rule(rule):
+                    Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(rule.name)
+                }
             }
             .width(min: 150, ideal: 190)
 
-            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.methodLabel(for: rule))
-                    .lineLimit(1)
+            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.methodLabel(for: rule))
+                        .lineLimit(1)
+                }
             }
             .width(76)
 
-            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.matchingRuleLabel(for: rule))
-                    .font(toolMetrics.font(monospaced: true))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(viewModel.matchingRuleLabel(for: rule))
+            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.matchingRuleLabel(for: rule))
+                        .font(toolMetrics.font(monospaced: true))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(viewModel.matchingRuleLabel(for: rule))
+                } else if let folder = row.folder {
+                    Text(String(AttributedString(
+                        localized: "^[\(viewModel.rules(in: folder).count) rule](inflect: true)",
+                        bundle: RockxyLocalization.bundle,
+                        locale: RockxyLocalization.locale
+                    ).characters))
+                        .foregroundStyle(.secondary)
+                }
             }
             .width(min: 220, ideal: 300)
 
-            TableColumn(String(localized: "Local Response", bundle: RockxyLocalization.bundle)) { rule in
-                HStack(spacing: 6) {
-                    Text(viewModel.mapFromLabel(for: rule))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(viewModel.filePath(for: rule))
-                    if !viewModel.delayLabel(for: rule).isEmpty {
-                        Text(viewModel.delayLabel(for: rule))
-                            .font(toolMetrics.metadataFont(weight: .semibold))
-                            .foregroundStyle(.secondary)
+            TableColumn(String(localized: "Local Response", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    HStack(spacing: 6) {
+                        Text(viewModel.mapFromLabel(for: rule))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(viewModel.filePath(for: rule))
+                        if !viewModel.delayLabel(for: rule).isEmpty {
+                            Text(viewModel.delayLabel(for: rule))
+                                .font(toolMetrics.metadataFont(weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -627,6 +716,11 @@ struct MapLocalWindowView: View {
             .keyboardShortcut(.space, modifiers: [])
             .disabled(viewModel.selectedRule == nil)
             Divider()
+            Button(String(localized: "New Folder", bundle: RockxyLocalization.bundle)) {
+                viewModel.newFolderWithSelection()
+            }
+            folderMenuItems(selection: viewModel.selectedRuleIDs)
+            Divider()
             Button(String(localized: "Move Up", bundle: RockxyLocalization.bundle)) {
                 viewModel.moveSelectedRule(by: -1)
             }
@@ -653,9 +747,41 @@ struct MapLocalWindowView: View {
         .fixedSize()
     }
 
+    /// Rules toggle themselves; a folder's checkbox shows mixed when only some rules are on and
+    /// turns all of them on or off.
+    @ViewBuilder
+    private func enabledCell(for row: RuleListRow) -> some View {
+        switch row.kind {
+        case let .rule(rule):
+            Toggle("", isOn: Binding(
+                get: { rule.isEnabled },
+                set: { _ in viewModel.toggleRule(id: rule.id) }
+            ))
+            .toggleStyle(.checkbox)
+            .labelsHidden()
+        case let .folder(folder):
+            RuleFolderToggle(folder: folder, rules: viewModel.rules(in: folder)) { ids, enabled in
+                viewModel.setRulesEnabled(ids, enabled: enabled)
+            }
+        }
+    }
+
+    private func folderMenuItems(selection ids: Set<UUID>) -> some View {
+        RuleFolderMenuItems(
+            store: viewModel.folderStore,
+            ruleIDs: viewModel.mapLocalRules.map(\.id).filter { ids.contains($0) }
+        ) { folderID in
+            viewModel.selectedRuleIDs = [folderID]
+        }
+    }
+
     @ViewBuilder
     private func tableContextMenu(ids: Set<UUID>) -> some View {
-        if let id = ids.first {
+        if let folderID = ids.first,
+           let folder = viewModel.folderStore.folders.first(where: { $0.id == folderID })
+        {
+            RuleFolderContextItems(store: viewModel.folderStore, folder: folder) { renamingFolder = $0 }
+        } else if let id = ids.first {
             Button(String(localized: "Edit Rule", bundle: RockxyLocalization.bundle)) {
                 if let rule = viewModel.allRules.first(where: { $0.id == id }) {
                     openEditor(for: rule)
@@ -676,6 +802,8 @@ struct MapLocalWindowView: View {
                 viewModel.moveSelectedRule(by: 1)
             }
             .disabled(!canMoveRule(id: id, by: 1))
+            Divider()
+            folderMenuItems(selection: ids.count > 1 ? ids : [id])
             Divider()
             Button(String(localized: "Delete Rule", bundle: RockxyLocalization.bundle), role: .destructive) {
                 viewModel.removeRule(id: id)

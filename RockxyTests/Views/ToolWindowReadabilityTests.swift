@@ -941,7 +941,8 @@ struct ToolWindowReadabilityTests {
         #expect(!source.contains("api.proxyman.com"))
         #expect(!source.contains("Test your Rule"))
         #expect(!source.contains("Auto-Save"))
-        #expect(!source.contains("New Folder"))
+        // Folders are a real feature now: the list offers them through the shared folder controls.
+        #expect(source.contains("RuleFolderMenuItems(") && source.contains("ruleFolderRenameAlert("))
         #expect(!source.contains("Support Status Code, Headers and Body"))
         #expect(!source.contains("Map Response Body with a local file (Saved)"))
     }
@@ -1046,7 +1047,7 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains(#"TextField(String(localized: "Search rules", bundle: RockxyLocalization.bundle)"#))
         #expect(source.contains(#".keyboardShortcut("f", modifiers: .command)"#))
         #expect(source.contains(".focused($searchIsFocused)"))
-        #expect(source.contains("Table(viewModel.filteredBreakpointRules"))
+        #expect(source.contains(#"Table(viewModel.rows, children: \.children"#))
         #expect(source.contains(#"TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle))"#))
 
         // Info banner + status capsule + native empty state.
@@ -1061,12 +1062,12 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains("RoundedRectangle(cornerRadius: 6)"))
         #expect(source.contains(".stroke(Color(nsColor: .separatorColor), lineWidth: 1)"))
 
-        // Forbidden legacy markers: hidden filter bar, New Folder, Test your Rule,
-        // bare Space shortcut, fixed shell.
+        // Forbidden legacy markers: hidden filter bar, Test your Rule, bare Space shortcut,
+        // fixed shell. Folders are real and use the shared folder controls.
         #expect(!source.contains("BreakpointFilterBar"))
         #expect(!source.contains("isFilterBarVisible"))
         #expect(!source.contains("filterColumn"))
-        #expect(!source.contains("New Folder"))
+        #expect(source.contains("RuleFolderMenuItems(") && source.contains("ruleFolderRenameAlert("))
         #expect(!source.contains("Test your Rule"))
         #expect(!source.contains(".keyboardShortcut(.space, modifiers: [])"))
     }

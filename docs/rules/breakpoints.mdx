@@ -73,6 +73,17 @@ After the transaction completes, select it in the main request list. The inspect
 
 The [live response debugging walkthrough](/use-cases/live-response-debugging-with-breakpoints) uses a localhost origin that always returns `plan: free`. A response breakpoint changes only the proxied result to `plan: pro`, then verifies continue-original, abort, and disabled-rule behavior.
 
+## Organize rules in folders
+
+Group related rules — one app, one environment, one test case — into folders:
+
+- Select rules and choose **New Folder with Selection** from the context menu or the **More** menu, or create an empty **New Folder** and use **Move to Folder**.
+- The folder's checkbox turns every rule inside it on or off. It shows a mixed state when only some are on, and the active-rule limit still applies.
+- **Rename Folder…** and **Delete Folder** are on the folder's context menu. Deleting a folder keeps its rules; they move back to the top level.
+- Press ⌘F to search by name, method, or matching rule. While searching, matches are listed without folders.
+
+Folders only organize the list. Rules keep their place in Rockxy's first-match order, and folders are saved between launches.
+
 ## Related pages
 
 <CardGroup cols={2}>
