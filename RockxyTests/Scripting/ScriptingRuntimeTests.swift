@@ -535,6 +535,7 @@ struct ScriptingRuntimeTests {
         #expect(!stringBody(postsResponse).contains("Mocked"))
         #expect(stringBody(userResponse).contains(#""name":"Mocked""#))
         #expect(harness.manager.executionLedger.scriptNames(for: getUser.flowID) == ["script.graphql-mock"])
+        #expect(harness.manager.executionLedger.scriptNames(for: listPosts.flowID).isEmpty)
         #expect(harness.manager.executionLedger.scriptNames(for: UUID()).isEmpty)
     }
 

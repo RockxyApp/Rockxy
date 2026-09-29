@@ -130,6 +130,14 @@ struct AndroidEmulatorProxyController: Sendable {
                 ])
                 if let certificateFile {
                     _ = try await adb(["-s", emulator.serial, "push", certificateFile.path, Self.deviceCertificatePath])
+                } else if certificatePEM != nil {
+                    throw AndroidEmulatorError.commandFailed(
+                        status: -1,
+                        message: String(
+                            localized: "The proxy was set, but the certificate file could not be prepared.",
+                            bundle: RockxyLocalization.bundle
+                        )
+                    )
                 }
                 results[emulator] = .success(())
             } catch {

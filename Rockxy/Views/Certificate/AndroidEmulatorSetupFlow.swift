@@ -28,7 +28,17 @@ enum AndroidEmulatorSetupFlow {
         ) else {
             return
         }
-        let pem = try? await verifiedRootCertificatePEM()
+        let pem: String?
+        do {
+            pem = try await verifiedRootCertificatePEM()
+        } catch {
+            present(
+                title: String(localized: "Certificate Unavailable", bundle: RockxyLocalization.bundle),
+                message: error.localizedDescription,
+                style: .warning
+            )
+            return
+        }
         let results = await controller.routeThroughRockxy(emulators, proxyPort: proxyPort, certificatePEM: pem)
         let failures = summarize(emulators, results)
         if failures.isEmpty {

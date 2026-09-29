@@ -66,7 +66,7 @@ struct ReverseProxyTarget: Equatable, Hashable, Sendable {
 /// request line into an absolute-form request for the configured remote server,
 /// which the proxy handler then captures and relays like any proxied request.
 /// CONNECT is refused: a reverse listener only serves its one remote server.
-final class ReverseProxyRequestRewriter: ChannelInboundHandler, @unchecked Sendable {
+final class ReverseProxyRequestRewriter: ChannelInboundHandler, RemovableChannelHandler, @unchecked Sendable {
     // MARK: Lifecycle
 
     init(target: ReverseProxyTarget) {

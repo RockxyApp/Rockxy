@@ -1280,6 +1280,16 @@
         }
       }
     },
+    "The proxy was set, but the certificate file could not be prepared.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已设置代理，但无法准备证书文件。"
+          }
+        }
+      }
+    },
     "The session is too large for nearby transfer.": {
       "localizations": {
         "zh-Hans": {

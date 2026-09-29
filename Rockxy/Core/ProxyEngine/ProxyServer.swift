@@ -483,7 +483,9 @@ actor ProxyServer {
                 clientHost: channel.remoteAddress?.ipAddress,
                 clientPort: channel.remoteAddress?.port.flatMap { UInt16(exactly: $0) },
                 proxyHost: channel.localAddress?.ipAddress,
-                proxyPort: reverseTarget?.localPort ?? proxyPort
+                // The port this connection actually reached (main, reverse, or SOCKS listener),
+                // which identity resolution matches against the client's socket.
+                proxyPort: channel.localAddress?.port ?? reverseTarget?.localPort ?? proxyPort
             )
             let identityHandle = identityProvider(descriptor)
             identityHandle?.startResolution()
@@ -565,6 +567,23 @@ actor ProxyServer {
         )
     }
 
+    /// Reverse proxy and SOCKS reconciliation run one at a time; overlapping updates
+    /// would otherwise race to bind the same port and report a stale status.
+    private func beginListenerReconcile() async {
+        if isReconcilingListeners {
+            await withCheckedContinuation { listenerReconcileWaiters.append($0) }
+        }
+        isReconcilingListeners = true
+    }
+
+    private func endListenerReconcile() {
+        if listenerReconcileWaiters.isEmpty {
+            isReconcilingListeners = false
+        } else {
+            listenerReconcileWaiters.removeFirst().resume()
+        }
+    }
+
     /// Keeps the upstream proxy snapshot and live tunnels in step with settings changes.
     private func installPolicyObservers(tunnelRegistry: LiveTunnelRegistry) {
         upstreamProxyObserver = NotificationCenter.default.addObserver(
@@ -615,6 +634,9 @@ actor ProxyServer {
     /// port could not be bound, keyed by target id. Requires a running proxy.
     @discardableResult
     func updateReverseProxies(_ targets: [ReverseProxyTarget]) async -> [UUID: ReverseProxyBindFailure] {
+        await beginListenerReconcile()
+        defer { endListenerReconcile() }
+        let generation = listenerGeneration
         let wanted = Set(targets)
         for (target, channel) in reverseListeners where !wanted.contains(target) {
             try? await channel.close().get()
@@ -638,7 +660,13 @@ actor ProxyServer {
                 }
                 .childChannelOption(.maxMessagesPerRead, value: 16)
             do {
-                reverseListeners[target] = try await bootstrap.bind(host: "127.0.0.1", port: target.localPort).get()
+                let channel = try await bootstrap.bind(host: "127.0.0.1", port: target.localPort).get()
+                guard generation == listenerGeneration, serverChannel != nil else {
+                    try? await channel.close().get()
+                    failures[target.id] = .proxyNotRunning
+                    continue
+                }
+                reverseListeners[target] = channel
                 Self.logger.info("Reverse proxy listening on 127.0.0.1:\(target.localPort)")
             } catch {
                 let inUse = (error as? IOError)?.errnoCode == EADDRINUSE
@@ -653,6 +681,9 @@ actor ProxyServer {
     /// Pass `nil` to stop it. Requires a running proxy.
     @discardableResult
     func updateSOCKSListener(port: Int?) async -> ReverseProxyBindFailure? {
+        await beginListenerReconcile()
+        defer { endListenerReconcile() }
+        let generation = listenerGeneration
         let host = configuration.listenAddress
         if let current = socksListener, current.port != port || current.host != host {
             try? await current.channel.close().get()
@@ -681,6 +712,10 @@ actor ProxyServer {
             .childChannelOption(.maxMessagesPerRead, value: 16)
         do {
             let channel = try await bootstrap.bind(host: host, port: port).get()
+            guard generation == listenerGeneration, serverChannel != nil else {
+                try? await channel.close().get()
+                return .proxyNotRunning
+            }
             socksListener = (channel, host, port)
             Self.logger.info("SOCKS5 listener on \(host):\(port)")
             return nil
@@ -697,6 +732,7 @@ actor ProxyServer {
         isStopping = true
         defer { isStopping = false }
         serverChannel = nil
+        listenerGeneration &+= 1
         removePolicyObservers()
         for listener in reverseListeners.values {
             try? await listener.close().get()
@@ -768,6 +804,10 @@ actor ProxyServer {
     private var childPipeline: (@Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void>)?
     private var reverseListeners: [ReverseProxyTarget: Channel] = [:]
     private var socksListener: (channel: Channel, host: String, port: Int)?
+    /// Bumped by every stop so a listener bind that finishes after the proxy stopped is discarded.
+    private var listenerGeneration: UInt64 = 0
+    private var isReconcilingListeners = false
+    private var listenerReconcileWaiters: [CheckedContinuation<Void, Never>] = []
     private var serverChannel: Channel?
     private var isStopping = false
     private var upstreamProxyObserver: NSObjectProtocol?

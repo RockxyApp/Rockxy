@@ -265,6 +265,15 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
                         return
+                    case let .networkCondition(preset, _) where preset.isOffline:
+                        ProxyHandlerShared.simulateOffline(
+                            context: context,
+                            requestData: requestData,
+                            elapsed: self.requestElapsedDuration(),
+                            sourcePort: self.clientSourcePort,
+                            callback: callback
+                        )
+                        return
                     case .throttle,
                          .networkCondition,
                          .mapLocal,
@@ -781,6 +790,58 @@ extension HTTPProxyHandler {
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
             proxyHandlerLogger.info("CONNECT tunnel for \(host):\(port)")
             self.beginTunnel(context: context, host: host, port: port, captureContext: requestData.captureContext)
+        }
+    }
+
+    /// Outcome of applying CONNECT policy to a tunnel requested outside HTTP (SOCKS5).
+    enum TunnelAdmission: Equatable {
+        case allowed
+        case blocked
+        case unreachable
+    }
+
+    /// Applies the same policy an HTTP CONNECT gets — the listener loop guard, Block
+    /// rules, and the Offline network condition — to a SOCKS5 destination, recording
+    /// refused tunnels like refused CONNECTs.
+    nonisolated func admitTunnel(context: ChannelHandlerContext, host: String, port: Int) -> EventLoopFuture<TunnelAdmission> {
+        if let descriptor = clientConnectionDescriptor,
+           ProxyLoopGuard.targetsOwnListener(
+               host: EmulatorHostAlias.connectHost(for: host, clientHost: descriptor.clientHost),
+               port: port,
+               proxyPort: descriptor.proxyPort,
+               proxyHost: descriptor.proxyHost
+           )
+        {
+            proxyHandlerLogger.warning("SECURITY: Refused SOCKS tunnel that targets the proxy listener itself")
+            return context.eventLoop.makeSucceededFuture(.blocked)
+        }
+        let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        var headers = HTTPHeaders()
+        headers.add(name: "Host", value: authority)
+        let requestData = buildRequestData(from: HTTPRequestHead(
+            version: .http1_1,
+            method: .CONNECT,
+            uri: authority,
+            headers: headers
+        ))
+        let ruleEngine = self.ruleEngine
+        return context.eventLoop.makeFutureWithTask {
+            await ProxyHandlerShared.evaluateRules(ruleEngine, request: requestData, graphQLOperationName: nil)
+        }.map { evaluation in
+            guard let rule = evaluation.matched else {
+                return .allowed
+            }
+            let callback = self.makeTransactionCallback(for: rule)
+            switch rule.action {
+            case .block:
+                callback(HTTPTransaction(request: requestData, response: nil, state: .blocked))
+                return .blocked
+            case let .networkCondition(preset, _) where preset.isOffline:
+                callback(HTTPTransaction(request: requestData, response: nil, state: .failed))
+                return .unreachable
+            default:
+                return .allowed
+            }
         }
     }
 

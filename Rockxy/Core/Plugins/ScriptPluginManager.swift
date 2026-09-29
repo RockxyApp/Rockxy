@@ -289,7 +289,9 @@ actor ScriptPluginManager {
                     behavior: behavior,
                     originalRequest: current
                 )
-                executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                if Self.changes(outcome, from: current) {
+                    executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                }
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onRequest failed: \(error.localizedDescription)")
                 markPluginErrored(id: plugin.id, reason: error.localizedDescription)
@@ -348,7 +350,9 @@ actor ScriptPluginManager {
                     originalRequest: request,
                     originalResponse: current
                 )
-                executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                if Self.differs(mutated, from: current) {
+                    executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                }
                 if chain {
                     current = mutated
                     continue
@@ -361,6 +365,24 @@ actor ScriptPluginManager {
             }
         }
         return current
+    }
+
+    /// Whether a request hook changed anything the client or server will see; a script
+    /// that only observed the request is not attributed as having modified it.
+    nonisolated static func changes(_ outcome: RequestHookOutcome, from request: HTTPRequestData) -> Bool {
+        guard case let .forward(forwarded) = outcome else {
+            return true
+        }
+        return forwarded.method != request.method
+            || forwarded.url != request.url
+            || forwarded.headers != request.headers
+            || forwarded.body != request.body
+    }
+
+    nonisolated static func differs(_ response: HTTPResponseData, from original: HTTPResponseData) -> Bool {
+        response.statusCode != original.statusCode
+            || response.headers != original.headers
+            || response.body != original.body
     }
 
     /// Nonisolated snapshot used by proxy handlers (NIO event-loop threads) to

@@ -62,7 +62,8 @@ nonisolated enum ProxyPipeline {
             }
         }
 
-        return removeIfPresent(HTTPServerProtocolErrorHandler.self)
+        return removeIfPresent(ReverseProxyRequestRewriter.self)
+            .flatMap { removeIfPresent(HTTPServerProtocolErrorHandler.self) }
             .flatMap { removeIfPresent(NIOHTTPResponseHeadersValidator.self) }
             .flatMap { removeIfPresent(HTTPServerPipelineHandler.self) }
             .flatMap { removeIfPresent(ByteToMessageHandler<HTTPRequestDecoder>.self) }
@@ -145,7 +146,10 @@ nonisolated enum ProxyPipeline {
             }
         }
 
-        return removeIfPresent(HTTPProxyHandler.self)
+        // The reverse/SOCKS request rewriter only understands HTTP request parts; it must
+        // leave with the HTTP layer or raw WebSocket bytes would reach it after an upgrade.
+        return removeIfPresent(ReverseProxyRequestRewriter.self)
+            .flatMap { removeIfPresent(HTTPProxyHandler.self) }
             .flatMap { removeIfPresent(HTTPSProxyRelayHandler.self) }
             .flatMap { removeIfPresent(HTTPServerProtocolErrorHandler.self) }
             .flatMap { removeIfPresent(NIOHTTPResponseHeadersValidator.self) }

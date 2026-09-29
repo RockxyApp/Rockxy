@@ -35,6 +35,8 @@ enum SOCKS5Parser {
     static let noAcceptableMethods: UInt8 = 0xFF
     static let replySucceeded: UInt8 = 0x00
     static let replyGeneralFailure: UInt8 = 0x01
+    static let replyNotAllowed: UInt8 = 0x02
+    static let replyNetworkUnreachable: UInt8 = 0x03
     static let replyCommandNotSupported: UInt8 = 0x07
     static let replyAddressTypeNotSupported: UInt8 = 0x08
 
@@ -129,6 +131,8 @@ final class SOCKS5ServerHandler: ChannelInboundHandler, RemovableChannelHandler,
 
     /// Upper bound for the greeting plus request (a domain name is at most 255 bytes).
     static let maxHandshakeBytes = 600
+    /// Upper bound for client bytes held while the connection is admitted and routed.
+    static let maxBufferedPayloadBytes = 256 * 1_024
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var incoming = unwrapInboundIn(data)
@@ -136,9 +140,13 @@ final class SOCKS5ServerHandler: ChannelInboundHandler, RemovableChannelHandler,
             context.fireChannelRead(data)
             return
         }
+        guard stage != .closing else {
+            return
+        }
         pending.writeBuffer(&incoming)
-        guard stage == .awaitingFirstPayload || pending.readableBytes <= Self.maxHandshakeBytes else {
-            socksLogger.warning("SECURITY: SOCKS handshake exceeded size limit")
+        let limit = stage == .greeting || stage == .request ? Self.maxHandshakeBytes : Self.maxBufferedPayloadBytes
+        guard pending.readableBytes <= limit else {
+            socksLogger.warning("SECURITY: SOCKS client exceeded the buffered byte limit")
             context.close(promise: nil)
             return
         }
@@ -150,8 +158,14 @@ final class SOCKS5ServerHandler: ChannelInboundHandler, RemovableChannelHandler,
     private enum Stage {
         case greeting
         case request
+        /// Destination parsed; waiting for CONNECT policy. Client bytes are held.
+        case admitting
         case awaitingFirstPayload
+        /// Tunnel or HTTP relay being installed. Client bytes are held.
+        case routing
         case routed
+        /// A refusal reply is being flushed; further client bytes are dropped.
+        case closing
     }
 
     private var stage = Stage.greeting
@@ -187,69 +201,88 @@ final class SOCKS5ServerHandler: ChannelInboundHandler, RemovableChannelHandler,
                 pending.moveReaderIndex(forwardBy: consumed)
                 pending.discardReadBytes()
                 destination = request
-                stage = .awaitingFirstPayload
-                write(SOCKS5Parser.reply(SOCKS5Parser.replySucceeded), context: context, thenClose: false)
-                if pending.readableBytes > 0 {
-                    route(context: context)
-                }
+                stage = .admitting
+                admit(request, context: context)
             }
         case .awaitingFirstPayload:
             route(context: context)
-        case .routed:
+        case .admitting,
+             .routing,
+             .routed,
+             .closing:
             return
         }
     }
 
-    /// Routes the connection once the client's first payload bytes are known.
+    /// Applies CONNECT policy before telling the client the tunnel is open.
+    private func admit(_ request: SOCKS5Request, context: ChannelHandlerContext) {
+        context.pipeline.handler(type: HTTPProxyHandler.self).flatMap { proxyHandler in
+            proxyHandler.admitTunnel(context: context, host: request.host, port: request.port)
+        }.whenComplete { result in
+            switch result {
+            case .success(.allowed):
+                self.stage = .awaitingFirstPayload
+                self.write(SOCKS5Parser.reply(SOCKS5Parser.replySucceeded), context: context, thenClose: false)
+                if self.pending.readableBytes > 0 {
+                    self.route(context: context)
+                }
+            case .success(.blocked):
+                self.write(SOCKS5Parser.reply(SOCKS5Parser.replyNotAllowed), context: context, thenClose: true)
+            case .success(.unreachable):
+                self.write(SOCKS5Parser.reply(SOCKS5Parser.replyNetworkUnreachable), context: context, thenClose: true)
+            case .failure:
+                self.write(SOCKS5Parser.reply(SOCKS5Parser.replyGeneralFailure), context: context, thenClose: true)
+            }
+        }
+    }
+
+    /// Routes the connection once the client's first payload bytes are known. Bytes
+    /// that arrive while the route is being installed stay in `pending` and are
+    /// delivered together once the next handler is in place.
     private func route(context: ChannelHandlerContext) {
         guard let destination, pending.readableBytes > 0 else {
             return
         }
-        stage = .routed
-        let firstBytes = pending
-        pending = ByteBuffer()
+        stage = .routing
         let pipeline = context.pipeline
-        let looksLikeTLS = firstBytes.getInteger(at: firstBytes.readerIndex, as: UInt8.self) == 0x16
+        let looksLikeTLS = pending.getInteger(at: pending.readerIndex, as: UInt8.self) == 0x16
 
+        let installed: EventLoopFuture<Void>
         if looksLikeTLS {
-            pipeline.context(handlerType: HTTPProxyHandler.self).whenComplete { result in
-                guard case let .success(proxyContext) = result,
-                      let proxyHandler = proxyContext.handler as? HTTPProxyHandler else
-                {
-                    context.close(promise: nil)
-                    return
+            installed = pipeline.context(handlerType: HTTPProxyHandler.self).flatMap { proxyContext in
+                guard let proxyHandler = proxyContext.handler as? HTTPProxyHandler else {
+                    return context.eventLoop.makeFailedFuture(ChannelPipelineError.notFound)
                 }
-                // The tunnel handler is installed asynchronously; deliver the ClientHello
-                // only once it is in place, then step out of the pipeline.
-                proxyHandler.beginTunnel(
+                return proxyHandler.beginTunnel(
                     context: proxyContext,
                     host: destination.host,
                     port: destination.port,
                     captureContext: nil
-                ).whenSuccess {
-                    context.fireChannelRead(self.wrapInboundOut(firstBytes))
-                    pipeline.removeHandler(self, promise: nil)
-                }
+                )
             }
-            return
+        } else {
+            let target = ReverseProxyTarget(
+                id: UUID(),
+                localPort: 0,
+                scheme: .http,
+                host: destination.host,
+                port: destination.port,
+                preserveHostHeader: true
+            )
+            installed = pipeline.context(handlerType: HTTPProxyHandler.self).flatMap { proxyContext in
+                pipeline.addHandler(ReverseProxyRequestRewriter(target: target), position: .before(proxyContext.handler))
+            }
         }
 
-        let target = ReverseProxyTarget(
-            id: UUID(),
-            localPort: 0,
-            scheme: .http,
-            host: destination.host,
-            port: destination.port,
-            preserveHostHeader: true
-        )
-        pipeline.context(handlerType: HTTPProxyHandler.self).flatMap { proxyContext in
-            pipeline.addHandler(ReverseProxyRequestRewriter(target: target), position: .before(proxyContext.handler))
-        }.whenComplete { result in
+        installed.whenComplete { result in
             guard case .success = result else {
                 context.close(promise: nil)
                 return
             }
-            context.fireChannelRead(self.wrapInboundOut(firstBytes))
+            self.stage = .routed
+            let buffered = self.pending
+            self.pending = ByteBuffer()
+            context.fireChannelRead(self.wrapInboundOut(buffered))
             pipeline.removeHandler(self, promise: nil)
         }
     }
@@ -259,7 +292,7 @@ final class SOCKS5ServerHandler: ChannelInboundHandler, RemovableChannelHandler,
         buffer.writeBytes(bytes)
         let written = context.writeAndFlush(NIOAny(buffer))
         if thenClose {
-            stage = .routed
+            stage = .closing
             written.whenComplete { _ in
                 context.close(promise: nil)
             }

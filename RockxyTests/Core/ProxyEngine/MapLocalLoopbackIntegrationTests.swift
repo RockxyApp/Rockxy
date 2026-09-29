@@ -179,6 +179,29 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("SOCKS5 destinations honor Block rules and the listener loop guard")
+    func socks5AppliesConnectPolicy() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+            let originPort = harness.originPort
+            await harness.addRule(ProxyRule(
+                name: "Block origin",
+                matchCondition: RuleMatchCondition(urlPattern: ".*127\\.0\\.0\\.1:\(originPort).*"),
+                action: .block(statusCode: 403)
+            ))
+
+            let blocked = try await Task.detached {
+                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: originPort)
+            }.value
+            #expect(blocked.count >= 2 && blocked[1] == 0x02)
+
+            let loop = try await Task.detached {
+                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: socksPort)
+            }.value
+            #expect(loop.count >= 2 && loop[1] == 0x02)
+        }
+    }
+
     @Test("A SOCKS5 client that offers no usable method is refused")
     func socks5RefusesUnsupportedMethods() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -1134,6 +1157,15 @@ private enum MapLocalLoopbackError: Error, CustomStringConvertible {
 
 /// Blocking POSIX SOCKS5 client used only by the loopback tests.
 private enum SOCKS5TestClient {
+    static func connectReply(socksPort: Int, destinationIPv4: [UInt8], destinationPort: Int) throws -> [UInt8] {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, 0x01, 0x00])
+        _ = try receive(fd, count: 2)
+        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        return try receive(fd, count: 10)
+    }
+
     static func greetingReply(socksPort: Int, methods: [UInt8]) throws -> [UInt8] {
         let fd = try connect(port: socksPort)
         defer { close(fd) }
