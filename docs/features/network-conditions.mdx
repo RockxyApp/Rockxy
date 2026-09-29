@@ -32,7 +32,12 @@ Each preset maps to a fixed latency value applied before the request is forwarde
 | LTE | 50 ms | Typical mobile latency |
 | Very Bad Network | 2000 ms | Timeout and retry logic |
 | WiFi | 2 ms | Baseline with minimal overhead |
+| Offline | — | Lost-connection handling: matching requests fail immediately |
 | Custom | User-defined | Specific latency requirements |
+
+**Offline** never contacts the server. Rockxy closes the client connection the way a device
+with no network would, and the request appears in the list as failed with no response. Use a
+narrow host or path so the rest of the app keeps working, and disable the rule afterwards.
 
 ## One-Active Enforcement
 
