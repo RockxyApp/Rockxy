@@ -84,7 +84,9 @@ If you choose **My own Terminal**, Rockxy copies the setup command for you so yo
 
 ## Why the generated script exists
 
-Rockxy writes a setup script under Rockxy's Application Support directory. The script is generated from the current app state, including the active proxy host, proxy port, and exported root certificate path when available. The root path is exposed as `ROCKXY_ROOT_CA_PATH`, and Node receives the additive `NODE_EXTRA_CA_CERTS` hint. Replacement-style variables such as `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `GIT_SSL_CAINFO` are left untouched so existing public or corporate trust anchors are not discarded.
+Rockxy writes a setup script under Rockxy's Application Support directory. The script is generated from the current app state, including the active proxy host, proxy port, and exported root certificate path when available. The root path is exposed as `ROCKXY_ROOT_CA_PATH`, and Node receives the additive `NODE_EXTRA_CA_CERTS` hint.
+
+Runtimes that only accept a replacement CA file (Python `requests` and `httpx`, Ruby `net/http`, curl, Perl LWP, and Cargo) get a combined bundle instead of the bare Rockxy root. When the script is sourced it writes `rockxy-ca-bundle.pem` to your private `$TMPDIR`: the anchors the shell already trusted (your existing `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `CURL_CA_BUNDLE`, or the macOS `/etc/ssl/cert.pem` bundle) followed by the Rockxy root. `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `PERL_LWP_SSL_CA_FILE`, and `CARGO_HTTP_CAINFO` then point at that file, so hosts Rockxy tunnels without decrypting still validate against their public or corporate certificates. The original values are kept in `ROCKXY_ORIGINAL_*` variables, and sourcing the script again rebuilds the bundle from them instead of nesting it.
 
 The prepared terminal sources that script before you run your own server or command. That keeps the setup repeatable while avoiding permanent shell changes.
 

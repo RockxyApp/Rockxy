@@ -182,6 +182,50 @@ struct RockxySetupScriptContext: Equatable {
 enum RockxySetupScriptBuilder {
     static let relativeScriptPath = "setup/rockxy_env_setup.sh"
 
+    /// Points the replacement-style CA variables (Python, Ruby, curl, Perl, Cargo) at a
+    /// combined bundle instead of the bare Rockxy root: the anchors this shell already
+    /// trusted come first, then the Rockxy root, so public and corporate certificates keep
+    /// validating for hosts Rockxy tunnels without decrypting. The originals are captured
+    /// once, so sourcing the script again never nests an earlier combined bundle.
+    static let combinedTrustBundleLines: [String] = [
+        "",
+        "# Combined trust bundle: existing anchors plus the Rockxy root.",
+        "if [ -z \"${ROCKXY_CA_BUNDLE_PATH:-}\" ]; then",
+        "  export ROCKXY_ORIGINAL_SSL_CERT_FILE=\"${SSL_CERT_FILE:-}\"",
+        "  export ROCKXY_ORIGINAL_REQUESTS_CA_BUNDLE=\"${REQUESTS_CA_BUNDLE:-}\"",
+        "  export ROCKXY_ORIGINAL_CURL_CA_BUNDLE=\"${CURL_CA_BUNDLE:-}\"",
+        "fi",
+        "rockxy_bundle_dir=\"${TMPDIR:-/tmp}\"",
+        "rockxy_bundle_dir=\"${rockxy_bundle_dir%/}\"",
+        "if [ -r \"$ROCKXY_ROOT_CA_PATH\" ]; then",
+        "  rockxy_base=\"${ROCKXY_ORIGINAL_SSL_CERT_FILE:-/etc/ssl/cert.pem}\"",
+        "  rockxy_requests=\"$ROCKXY_ORIGINAL_REQUESTS_CA_BUNDLE\"",
+        "  rockxy_curl=\"$ROCKXY_ORIGINAL_CURL_CA_BUNDLE\"",
+        "  [ \"$rockxy_requests\" = \"$rockxy_base\" ] && rockxy_requests=\"\"",
+        "  { [ \"$rockxy_curl\" = \"$rockxy_base\" ] || [ \"$rockxy_curl\" = \"$rockxy_requests\" ]; } && rockxy_curl=\"\"",
+        "  rockxy_tmp=\"$(umask 077; mktemp \"$rockxy_bundle_dir/rockxy-ca-bundle.XXXXXX\" 2>/dev/null)\"",
+        "  if [ -n \"$rockxy_tmp\" ]; then",
+        "    {",
+        "      for rockxy_source in \"$rockxy_base\" \"$rockxy_requests\" \"$rockxy_curl\"; do",
+        "        if [ -n \"$rockxy_source\" ] && [ -f \"$rockxy_source\" ] && [ -r \"$rockxy_source\" ]; then",
+        "          cat \"$rockxy_source\"; echo",
+        "        fi",
+        "      done",
+        "      cat \"$ROCKXY_ROOT_CA_PATH\"; echo",
+        "    } > \"$rockxy_tmp\"",
+        "    if mv -f \"$rockxy_tmp\" \"$rockxy_bundle_dir/rockxy-ca-bundle.pem\"; then",
+        "      export ROCKXY_CA_BUNDLE_PATH=\"$rockxy_bundle_dir/rockxy-ca-bundle.pem\"",
+        "      export SSL_CERT_FILE=\"$ROCKXY_CA_BUNDLE_PATH\"",
+        "      export REQUESTS_CA_BUNDLE=\"$ROCKXY_CA_BUNDLE_PATH\"",
+        "      export CURL_CA_BUNDLE=\"$ROCKXY_CA_BUNDLE_PATH\"",
+        "      export PERL_LWP_SSL_CA_FILE=\"$ROCKXY_CA_BUNDLE_PATH\"",
+        "      export CARGO_HTTP_CAINFO=\"$ROCKXY_CA_BUNDLE_PATH\"",
+        "    fi",
+        "  fi",
+        "fi",
+        "unset rockxy_bundle_dir rockxy_base rockxy_requests rockxy_curl rockxy_tmp rockxy_source",
+    ]
+
     static func generatedScriptURL(
         identity: RockxyIdentity = .current,
         fileManager: FileManager = .default
@@ -251,9 +295,8 @@ enum RockxySetupScriptBuilder {
             lines.append(contentsOf: [
                 "export ROCKXY_ROOT_CA_PATH=\(shellDoubleQuoted(certificatePath))",
                 "export NODE_EXTRA_CA_CERTS=\"$ROCKXY_ROOT_CA_PATH\"",
-                "# Replacement-style CA variables are not changed: setting them to one Rockxy root",
-                "# would discard the runtime's existing public or corporate trust anchors.",
             ])
+            lines.append(contentsOf: combinedTrustBundleLines)
         } else {
             lines.append("# Export or trust the Rockxy root certificate to enable certificate environment hints.")
         }
