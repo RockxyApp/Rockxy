@@ -5,13 +5,13 @@ import Testing
 // MARK: - ProtobufWindowReadabilityTests
 
 /// Source-level contracts for the redesigned Protobuf mapping and local-schema tool windows.
-/// These assert truthful local-only copy, native adaptive surfaces, honest action routing, and
-/// the absence of the old dead controls, fake console, and pinned legacy frames.
+/// These assert truthful copy about where schemas apply, native adaptive surfaces, honest action
+/// routing, and the absence of the old dead controls, fake console, and pinned legacy frames.
 @MainActor
 struct ProtobufWindowReadabilityTests {
     // MARK: Internal
 
-    @Test("Protobuf windows use the approved native, honest local-only structure")
+    @Test("Protobuf windows use the approved native structure and describe where schemas apply")
     func protobufWindowsUseApprovedNativeStructure() throws {
         let mapping = try readProjectFile("Rockxy/Views/Rules/ProtobufSettingsWindowView.swift")
         let schema = try readProjectFile("Rockxy/Views/Rules/ProtobufSchemaListWindowView.swift")
@@ -27,8 +27,9 @@ struct ProtobufWindowReadabilityTests {
         }
 
         require(mapping, [
-            "not applied to captured traffic", "stored locally",
-            "minWidth: max(860, toolMetrics.bodyFontSize * 28 + 496)", "Not applied",
+            "open in the Protobuf tab decoded as its", "stored locally",
+            "minWidth: max(860, toolMetrics.bodyFontSize * 28 + 496)", "runtimeStatus(for: rule)",
+            "Type not found", "messageTypeMenu(",
             "focused($focusedField", "inlineError", "footerButtonLabel", ".keyboardShortcut(.cancelAction)",
             ".keyboardShortcut(.defaultAction)", "withEditedFields", "Missing Schema", "ViewThatFits",
             ".accessibilityLabel(String(localized: \"HTTP method\", bundle: RockxyLocalization.bundle))",
@@ -42,9 +43,10 @@ struct ProtobufWindowReadabilityTests {
         ])
 
         require(schema, [
-            "Schema-aware decoding is unavailable", "minWidth: max(760,", "minHeight: max(520,",
+            "Rockxy uses them to name fields", "minWidth: max(760,", "minHeight: max(520,",
             "importAvailability", "policyUnavailable", "limitReached", "storageUnavailable",
-            "UTType(filenameExtension: \"proto\")", "ProtobufSchemaSourceValidator.loadValidatedSource",
+            "ProtobufDescriptorSetParser.fileExtensions", "ProtobufSchemaSourceValidator.loadValidatedSource",
+            "schemaStore.messageNames(for: schema)",
             "Schema Import Unavailable", "Schema Limit Reached", "Schema Storage Unavailable",
             "No Local Schemas", "Local schema import is unavailable", #"Click \"+\" or press ⌘N to import"#,
             ".confirmationDialog(", "referenceCount(forSchema:", "detachSchema(id:",
@@ -56,14 +58,16 @@ struct ProtobufWindowReadabilityTests {
         ])
 
         require(grpc, [
-            "This view uses heuristic Protobuf decoding", "not applied to gRPC traffic",
-            "onOpenToolWindow(\"protobufSettings\")", "Wire-format heuristic",
-            "Field numbers are inferred heuristically",
+            "ProtobufPayloadInspectorView", "onOpenToolWindow(\"protobufSettings\")",
+            "onOpenToolWindow(\"protobufSchemaList\")", "Wire-format heuristic", "Schema decoded",
+            "field numbers and values are inferred from the wire format",
         ])
-        forbid(
-            grpc,
-            ["Add Descriptor", "protobufSchemaList", "Schema: heuristic fallback", "Schema needed for field names"]
-        )
+        forbid(grpc, [
+            "Add Descriptor", "Schema: heuristic fallback", "Schema needed for field names",
+            "not applied to gRPC traffic",
+        ])
+        forbid(mapping, ["not applied to captured traffic", "\"Not applied\""])
+        forbid(schema, ["Schema-aware decoding is unavailable", "\"Not applied\""])
 
         require(app, [".defaultSize(width: 940, height: 620)", ".defaultSize(width: 820, height: 560)"])
     }

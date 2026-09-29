@@ -12,7 +12,7 @@ struct ProtobufTreeView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 header
                 ForEach(tree.fields) { field in
-                    ProtobufFieldRow(field: field, depth: 0)
+                    ProtobufFieldRow(field: field, depth: 0, fieldColumnWidth: fieldColumnWidth)
                 }
             }
         }
@@ -23,13 +23,30 @@ struct ProtobufTreeView: View {
 
     @Environment(\.appUIDisplayMetrics) private var metrics
 
+    /// Schema-decoded trees carry field names and declared types instead of wire guesses.
+    private var isSchemaDecoded: Bool {
+        tree.fields.contains { $0.name != nil }
+    }
+
+    private var fieldColumnWidth: CGFloat {
+        isSchemaDecoded ? 200 : 120
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
             Text(String(localized: "Field", bundle: RockxyLocalization.bundle))
-                .frame(width: 120, alignment: .leading)
-            Text(String(localized: "Wire Type", bundle: RockxyLocalization.bundle))
-                .frame(width: 130, alignment: .leading)
-            Text(String(localized: "Best Guess Value", bundle: RockxyLocalization.bundle))
+                .frame(width: fieldColumnWidth, alignment: .leading)
+            Text(
+                isSchemaDecoded
+                    ? String(localized: "Type", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Wire Type", bundle: RockxyLocalization.bundle)
+            )
+            .frame(width: isSchemaDecoded ? 180 : 130, alignment: .leading)
+            Text(
+                isSchemaDecoded
+                    ? String(localized: "Value", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Best Guess Value", bundle: RockxyLocalization.bundle)
+            )
             Spacer()
         }
         .font(.system(size: metrics.metadataFontSize, weight: .semibold))
@@ -47,6 +64,7 @@ private struct ProtobufFieldRow: View {
 
     let field: ProtobufDecodedField
     let depth: Int
+    let fieldColumnWidth: CGFloat
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -59,16 +77,29 @@ private struct ProtobufFieldRow: View {
                     } else {
                         Color.clear.frame(width: 10)
                     }
-                    Text("\(field.fieldNumber)")
-                        .font(.system(size: metrics.secondaryFontSize, weight: .medium, design: .monospaced))
+                    if let name = field.name {
+                        Text(name)
+                            .font(.system(size: metrics.secondaryFontSize, weight: .medium, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Text("\(field.fieldNumber)")
+                            .font(.system(size: metrics.metadataFontSize, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Text("\(field.fieldNumber)")
+                            .font(.system(size: metrics.secondaryFontSize, weight: .medium, design: .monospaced))
+                    }
                 }
                 .padding(.leading, CGFloat(depth) * 16)
-                .frame(width: 120, alignment: .leading)
+                .frame(width: fieldColumnWidth, alignment: .leading)
 
-                Text(field.wireType.displayName)
+                Text(field.typeName ?? field.wireType.displayName)
                     .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                     .foregroundStyle(.secondary)
-                    .frame(width: 130, alignment: .leading)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                    .help(field.typeName ?? field.wireType.displayName)
+                    .frame(width: field.typeName == nil && fieldColumnWidth <= 120 ? 130 : 180, alignment: .leading)
 
                 Text(valuePreview)
                     .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
@@ -92,7 +123,7 @@ private struct ProtobufFieldRow: View {
 
             if isExpanded, let nestedTree {
                 ForEach(nestedTree.fields) { child in
-                    ProtobufFieldRow(field: child, depth: depth + 1)
+                    ProtobufFieldRow(field: child, depth: depth + 1, fieldColumnWidth: fieldColumnWidth)
                 }
             }
         }
@@ -111,7 +142,10 @@ private struct ProtobufFieldRow: View {
     }
 
     private var valuePreview: String {
-        switch field.value {
+        if let displayValue = field.displayValue {
+            return displayValue
+        }
+        return switch field.value {
         case let .varint(value):
             "\(value)"
         case let .fixed64(value):

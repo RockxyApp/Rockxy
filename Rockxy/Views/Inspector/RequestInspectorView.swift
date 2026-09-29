@@ -28,6 +28,9 @@ struct RequestInspectorView: View {
             if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction) {
                 selectedTab = .body
             }
+            if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
+                selectedTab = .body
+            }
         }
         .onChange(of: previewTabStore.requestTabs.map(\.id)) { _, availableTabIDs in
             selectedPreviewTab = InspectorPreviewSelectionReconciler.retainedSelection(
@@ -73,10 +76,13 @@ struct RequestInspectorView: View {
         return descriptors
     }
 
-    /// The Multipart tab appears only for requests that declare a multipart body.
+    /// The Multipart and Protobuf tabs appear only for bodies they can decode.
     private var visibleNativeTabs: [RequestInspectorTab] {
         let showsMultipart = MultipartInspectorView.isApplicable(to: transaction)
-        return RequestInspectorTab.allCases.filter { $0 != .multipart || showsMultipart }
+        let showsProtobuf = ProtobufBodyInspection.isApplicable(to: transaction, direction: .request)
+        return RequestInspectorTab.allCases.filter {
+            ($0 != .multipart || showsMultipart) && ($0 != .protobuf || showsProtobuf)
+        }
     }
 
     private var inspectorTabBar: some View {
@@ -129,6 +135,16 @@ struct RequestInspectorView: View {
         case .multipart:
             if MultipartInspectorView.isApplicable(to: transaction) {
                 MultipartInspectorView(transaction: transaction)
+            } else {
+                requestBodyView
+            }
+        case .protobuf:
+            if ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
+                ProtobufPayloadInspectorView(
+                    payload: ProtobufBodyInspection.payload(of: transaction, direction: .request),
+                    context: ProtobufBodyInspection.context(of: transaction, direction: .request),
+                    payloadID: "\(transaction.id.uuidString)-request"
+                )
             } else {
                 requestBodyView
             }

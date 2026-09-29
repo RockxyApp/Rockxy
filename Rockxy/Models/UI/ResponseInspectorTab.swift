@@ -6,16 +6,18 @@ enum ResponseInspectorTab: String, CaseIterable {
     case headers
     case body
     case events
+    case protobuf
     case setCookie
     case auth
     case timeline
 
     // MARK: Internal
 
-    /// The Events tab is conditional: pass `includesEvents` for text/event-stream responses.
-    static func availableTabs(includesEvents: Bool = false) -> [ResponseInspectorTab] {
+    /// The Events and Protobuf tabs are conditional: pass `includesEvents` for
+    /// text/event-stream responses and `includesProtobuf` for decodable Protobuf bodies.
+    static func availableTabs(includesEvents: Bool = false, includesProtobuf: Bool = false) -> [ResponseInspectorTab] {
         allCases.filter { tab in
-            tab != .ai && (tab != .events || includesEvents)
+            tab != .ai && (tab != .events || includesEvents) && (tab != .protobuf || includesProtobuf)
         }
     }
 
@@ -26,6 +28,7 @@ enum ResponseInspectorTab: String, CaseIterable {
         case .headers: String(localized: "Headers", bundle: RockxyLocalization.bundle)
         case .body: String(localized: "Body", bundle: RockxyLocalization.bundle)
         case .events: String(localized: "Events", bundle: RockxyLocalization.bundle)
+        case .protobuf: "Protobuf"
         case .setCookie: "Set-Cookie"
         case .auth: String(localized: "Auth", bundle: RockxyLocalization.bundle)
         case .timeline: String(localized: "Timeline", bundle: RockxyLocalization.bundle)

@@ -49,14 +49,30 @@ struct WebSocketInspectorView: View {
             selectedFrameID = nil
         }
         .onChange(of: selectedFrameID) { _, _ in
-            payloadMode = selectedFrame
-                .map { ProtobufDetector.isLikelyProtobuf($0.payload) } == true ? .protobuf : .payload
+            payloadMode = selectedFrame.map(prefersProtobufView) == true ? .protobuf : .payload
         }
     }
 
     // MARK: Private
 
     private static let maxPayloadPreviewBytes = 512
+
+    /// Opens the Protobuf view for binary frames that look like Protobuf or that a mapping
+    /// definition or gRPC method assigns a message type to.
+    private func prefersProtobufView(_ frame: WebSocketFrameData) -> Bool {
+        guard frame.opcode == .binary || !frame.payload.isProbablyUTF8Text else {
+            return false
+        }
+        if ProtobufDetector.isLikelyProtobuf(frame.payload) {
+            return true
+        }
+        let context = protobufContext(for: frame)
+        return ProtobufDecodeResolver.automaticChoice(
+            url: context.url,
+            method: context.method,
+            direction: context.direction
+        ) != .bestGuess
+    }
     /// Bounds for the frame list inside the scrolling tab: a few rows minimum so the selection
     /// context never vanishes, and a cap so long sessions scroll within the list.
     private static let frameRowHeight: CGFloat = 26
@@ -412,22 +428,22 @@ struct WebSocketInspectorView: View {
         }
     }
 
-    @ViewBuilder
     private func protobufPayloadView(_ frame: WebSocketFrameData) -> some View {
-        if let tree = frame.protobufHeuristicTree(), !tree.fields.isEmpty {
-            ProtobufTreeView(tree: tree)
-                .frame(maxHeight: 220)
-        } else {
-            InspectorEmptyStateView(
-                String(localized: "No Protobuf Fields", bundle: RockxyLocalization.bundle),
-                systemImage: "curlybraces",
-                description: String(
-                    localized: "This frame does not look like a valid Protobuf wire-format payload.",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-            .frame(maxHeight: 160)
-        }
+        ProtobufPayloadInspectorView(
+            payload: frame.payload,
+            context: protobufContext(for: frame),
+            payloadID: frame.id.uuidString
+        )
+        .frame(height: 240)
+    }
+
+    /// Client frames decode with a mapping's request type, server frames with its response type.
+    private func protobufContext(for frame: WebSocketFrameData) -> ProtobufPayloadContext {
+        ProtobufPayloadContext(
+            url: transaction.request.url,
+            method: transaction.request.method,
+            direction: frame.direction == .sent ? .request : .response
+        )
     }
 
     private func totalSize(_ frames: [WebSocketFrameData]) -> String {

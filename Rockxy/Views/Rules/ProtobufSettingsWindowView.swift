@@ -14,8 +14,7 @@ struct ProtobufRuleEditorSession: Identifiable {
 
 // MARK: - ProtobufLocalOnlyNotice
 
-/// Truthful capability banner shared by the Protobuf mapping and schema windows: heuristic wire
-/// decoding works today, but saved mappings and schemas are not applied to captured traffic.
+/// Capability banner shared by the Protobuf mapping and schema windows.
 struct ProtobufLocalOnlyNotice: View {
     // MARK: Internal
 
@@ -82,8 +81,9 @@ struct ProtobufSettingsWindowView: View {
         String(
             localized:
             """
-            These mapping definitions are stored locally on this Mac. This build decodes Protobuf with \
-            heuristics only — saved mappings and schemas are not applied to captured traffic.
+            Requests whose URL matches an enabled definition open in the Protobuf tab decoded as its \
+            message type. Client WebSocket frames use the request type and server frames the response \
+            type. Definitions and schemas are stored locally on this Mac.
             """, bundle: RockxyLocalization.bundle
         )
     }
@@ -105,6 +105,25 @@ struct ProtobufSettingsWindowView: View {
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    /// Whether a definition takes effect: disabled, missing a type, naming a type that no
+    /// imported schema defines, or active.
+    private func runtimeStatus(for rule: ProtobufMappingRule) -> (title: String, color: Color) {
+        guard rule.isEnabled else {
+            return (String(localized: "Disabled", bundle: RockxyLocalization.bundle), .secondary)
+        }
+        let names = [rule.messageType, rule.requestMessageType ?? "", rule.responseMessageType ?? ""]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !names.isEmpty else {
+            return (String(localized: "Best guess", bundle: RockxyLocalization.bundle), .secondary)
+        }
+        let known = schemaStore.combinedSchema().messages
+        guard names.allSatisfy({ known[$0] != nil }) else {
+            return (String(localized: "Type not found", bundle: RockxyLocalization.bundle), .orange)
+        }
+        return (String(localized: "Active", bundle: RockxyLocalization.bundle), .green)
     }
 
     private var header: some View {
@@ -129,12 +148,14 @@ struct ProtobufSettingsWindowView: View {
 
     private var rulesTable: some View {
         Table(mappingStore.rules, selection: $mappingStore.selectedRuleID) {
-            TableColumn(String(localized: "Runtime", bundle: RockxyLocalization.bundle)) { _ in
-                Text(String(localized: "Not applied", bundle: RockxyLocalization.bundle))
+            TableColumn(String(localized: "Status", bundle: RockxyLocalization.bundle)) { rule in
+                let status = runtimeStatus(for: rule)
+                Text(status.title)
                     .font(toolMetrics.secondaryFont())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(status.color)
+                    .help(status.title)
             }
-            .width(min: 94, ideal: 110)
+            .width(min: 94, ideal: 120)
 
             TableColumn(String(localized: "URL", bundle: RockxyLocalization.bundle)) { rule in
                 Text(rule.urlPattern)
@@ -408,7 +429,7 @@ private struct ProtobufRuleEditorSheet: View {
                         .font(toolMetrics.font(weight: .medium))
                     Text(
                         String(
-                            localized: "This saved definition is not applied to captured traffic in this build.",
+                            localized: "Matching requests and WebSocket frames decode as this message type in the Protobuf tab.",
                             bundle: RockxyLocalization.bundle
                         )
                     )
@@ -467,6 +488,33 @@ private struct ProtobufRuleEditorSheet: View {
         case .edit:
             String(localized: "Save", bundle: RockxyLocalization.bundle)
         }
+    }
+
+    /// Message types from the chosen schema, or from every imported schema when none is chosen.
+    private var availableMessageTypes: [String] {
+        let store = ProtobufSchemaStore.shared
+        if let schemaID, let schema = schemas.first(where: { $0.id == schemaID }) {
+            return store.messageNames(for: schema)
+        }
+        return store.combinedSchema().messageNames
+    }
+
+    private func messageTypeMenu(_ binding: Binding<String>) -> some View {
+        Menu {
+            ForEach(availableMessageTypes, id: \.self) { name in
+                Button(name) {
+                    binding.wrappedValue = name
+                }
+            }
+        } label: {
+            Image(systemName: "list.bullet")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(availableMessageTypes.isEmpty)
+        .help(String(localized: "Choose a message type from the imported schemas", bundle: RockxyLocalization.bundle))
+        .accessibilityLabel(String(localized: "Choose message type", bundle: RockxyLocalization.bundle))
     }
 
     private var schemaReference: ProtobufSchemaReference {
@@ -613,11 +661,14 @@ private struct ProtobufRuleEditorSheet: View {
                 }
 
                 fieldGroup(String(localized: "Message type", bundle: RockxyLocalization.bundle)) {
-                    TextField("package.Message", text: $messageType)
-                        .textFieldStyle(.roundedBorder)
-                        .font(toolMetrics.font(monospaced: true))
-                        .focused($focusedField, equals: .messageType)
-                        .accessibilityLabel(String(localized: "Message type", bundle: RockxyLocalization.bundle))
+                    HStack(spacing: 4) {
+                        TextField("package.Message", text: $messageType)
+                            .textFieldStyle(.roundedBorder)
+                            .font(toolMetrics.font(monospaced: true))
+                            .focused($focusedField, equals: .messageType)
+                            .accessibilityLabel(String(localized: "Message type", bundle: RockxyLocalization.bundle))
+                        messageTypeMenu($messageType)
+                    }
                 }
 
                 Toggle(
@@ -633,24 +684,30 @@ private struct ProtobufRuleEditorSheet: View {
                 if useDifferentMessageTypes {
                     HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
                         fieldGroup(String(localized: "Request", bundle: RockxyLocalization.bundle)) {
-                            TextField("package.Request", text: $requestMessageType)
-                                .textFieldStyle(.roundedBorder)
-                                .font(toolMetrics.font(monospaced: true))
-                                .focused($focusedField, equals: .requestMessageType)
-                                .accessibilityLabel(String(
-                                    localized: "Request message type",
-                                    bundle: RockxyLocalization.bundle
-                                ))
+                            HStack(spacing: 4) {
+                                TextField("package.Request", text: $requestMessageType)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(toolMetrics.font(monospaced: true))
+                                    .focused($focusedField, equals: .requestMessageType)
+                                    .accessibilityLabel(String(
+                                        localized: "Request message type",
+                                        bundle: RockxyLocalization.bundle
+                                    ))
+                                messageTypeMenu($requestMessageType)
+                            }
                         }
                         fieldGroup(String(localized: "Response", bundle: RockxyLocalization.bundle)) {
-                            TextField("package.Response", text: $responseMessageType)
-                                .textFieldStyle(.roundedBorder)
-                                .font(toolMetrics.font(monospaced: true))
-                                .focused($focusedField, equals: .responseMessageType)
-                                .accessibilityLabel(String(
-                                    localized: "Response message type",
-                                    bundle: RockxyLocalization.bundle
-                                ))
+                            HStack(spacing: 4) {
+                                TextField("package.Response", text: $responseMessageType)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(toolMetrics.font(monospaced: true))
+                                    .focused($focusedField, equals: .responseMessageType)
+                                    .accessibilityLabel(String(
+                                        localized: "Response message type",
+                                        bundle: RockxyLocalization.bundle
+                                    ))
+                                messageTypeMenu($responseMessageType)
+                            }
                         }
                     }
                 }

@@ -138,7 +138,10 @@ struct ResponseInspectorView: View {
 
     private var tabDescriptors: [InspectorTabDescriptor] {
         var descriptors: [InspectorTabDescriptor] = ResponseInspectorTab
-            .availableTabs(includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction))
+            .availableTabs(
+                includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction),
+                includesProtobuf: ProtobufBodyInspection.isApplicable(to: transaction, direction: .response)
+            )
             .map { tab in
                 InspectorTabDescriptor(
                     id: "native.\(tab.rawValue)",
@@ -397,6 +400,16 @@ struct ResponseInspectorView: View {
                 } else {
                     responseBodyView(response: response)
                 }
+            case .protobuf:
+                if ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
+                    ProtobufPayloadInspectorView(
+                        payload: ProtobufBodyInspection.payload(of: transaction, direction: .response),
+                        context: ProtobufBodyInspection.context(of: transaction, direction: .response),
+                        payloadID: "\(transaction.id.uuidString)-response"
+                    )
+                } else {
+                    responseBodyView(response: response)
+                }
             case .setCookie:
                 SetCookieInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .auth:
@@ -553,6 +566,9 @@ struct ResponseInspectorView: View {
 
     private func syncInspectorStateForTransaction() {
         if selectedTab == .events, !ServerSentEventsInspectorView.isApplicable(to: transaction) {
+            selectedTab = .body
+        }
+        if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
             selectedTab = .body
         }
         if let selectedPreviewTab,

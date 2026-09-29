@@ -1508,16 +1508,6 @@
         }
       }
     },
-    "Choose a fully quit developer application to open with Rockxy's scoped proxy and certificate environment. Rockxy also prepares recognized app-level proxy settings to follow the active macOS System Proxy at %@. Containers, emulators, devices, and already-running processes remain separate capture boundaries.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择一个已完全退出的开发者应用，使用 Rockxy 的作用域代理和证书环境打开。Rockxy 还会准备已识别的应用级代理设置，使其使用当前的 macOS 系统代理 %@。容器、模拟器、设备和已运行的进程仍是独立的捕获边界。"
-          }
-        }
-      }
-    },
     "Choose a valid macOS application.": {
       "localizations": {
         "zh-Hans": {
@@ -3005,17 +2995,6 @@
         }
       }
     },
-    "%@  %lld": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@  %2$lld"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
     "%@ — %@": {
       "localizations": {
         "en": {
@@ -4486,35 +4465,8 @@
     "↑ %@": {
       "shouldTranslate": false
     },
-    "↑ %@ (%lld)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "↑ %1$@ (%2$lld)"
-          }
-        }
-      },
-      "shouldTranslate": false
-    },
     "↓ %@": {
       "shouldTranslate": false
-    },
-    "↓ %@ (%lld)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "↓ %1$@ (%2$lld)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "↓ %1$@（%2$lld）"
-          }
-        }
-      }
     },
     "+%lld": {
       "shouldTranslate": false
@@ -9523,16 +9475,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "点按“+”或按 ⌘N 创建规则。"
-          }
-        }
-      }
-    },
-    "Click \"+\" or press ⌘N to import a .proto file.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "点按“+”或按 ⌘N 以导入 .proto 文件。"
           }
         }
       }
@@ -15608,16 +15550,6 @@
         }
       }
     },
-    "Field numbers are inferred heuristically; saved schemas are not applied in this build.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "字段编号是通过启发式推断的；此版本不会应用已保存的架构。"
-          }
-        }
-      }
-    },
     "File": {
       "localizations": {
         "zh-Hans": {
@@ -18107,16 +18039,6 @@
         }
       }
     },
-    "Import a local .proto source file.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入本地 .proto 源文件。"
-          }
-        }
-      }
-    },
     "Import Failed": {
       "localizations": {
         "zh-Hans": {
@@ -18309,16 +18231,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "导入…"
-          }
-        }
-      }
-    },
-    "Imported .proto files are stored locally on this Mac. Schema-aware decoding is unavailable in this build — captured Protobuf traffic is decoded with heuristics only.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导入的 .proto 文件存储在这台 Mac 本地。此构建无法进行架构感知解码，捕获的 Protobuf 流量仅使用启发式方法解码。"
           }
         }
       }
@@ -24162,16 +24074,6 @@
         }
       }
     },
-    "Not applied": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未应用"
-          }
-        }
-      }
-    },
     "Not assigned": {
       "localizations": {
         "zh-Hans": {
@@ -27581,16 +27483,6 @@
         }
       }
     },
-    "Raw Protobuf Payload": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "原始 Protobuf 有效载荷"
-          }
-        }
-      }
-    },
     "Raw Request": {
       "localizations": {
         "zh-Hans": {
@@ -30500,16 +30392,6 @@
         }
       }
     },
-    "Rockxy captured the gRPC frame, but heuristic Protobuf decoding could not infer a safe tree.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rockxy 已捕获该 gRPC 帧，但启发式 Protobuf 解码无法推断出安全的树结构。"
-          }
-        }
-      }
-    },
     "Rockxy captured the local validation probe and can reveal it in the main window.": {
       "localizations": {
         "zh-Hans": {
@@ -32254,16 +32136,6 @@
         }
       }
     },
-    "Runtime": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "运行时"
-          }
-        }
-      }
-    },
     "Runtime Events": {
       "localizations": {
         "zh-Hans": {
@@ -32816,16 +32688,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "架构存储不可用"
-          }
-        }
-      }
-    },
-    "Schema-based Protobuf decoding is not implemented in this build.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此构建尚未实现基于架构的 Protobuf 解码。"
           }
         }
       }
@@ -33396,16 +33258,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "选择一个项目"
-          }
-        }
-      }
-    },
-    "Select a Protocol Buffers schema file with a .proto extension.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择一个扩展名为 .proto 的 Protocol Buffers 架构文件。"
           }
         }
       }
@@ -36007,16 +35859,6 @@
         }
       }
     },
-    "Store .proto source files on this Mac.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "将 .proto 源文件存储在这台 Mac 上。"
-          }
-        }
-      }
-    },
     "Stream": {
       "localizations": {
         "zh-Hans": {
@@ -38164,16 +38006,6 @@
         }
       }
     },
-    "These mapping definitions are stored locally on this Mac. This build decodes Protobuf with heuristics only — saved mappings and schemas are not applied to captured traffic.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "这些映射定义存储在这台 Mac 本地。此版本仅使用启发式方法解码 Protobuf — 已保存的映射和架构不会应用于已捕获的流量。"
-          }
-        }
-      }
-    },
     "These platforms reuse the iOS device and simulator setup: a reachable listen address plus the Rockxy root certificate trusted inside the runtime.": {
       "localizations": {
         "zh-Hans": {
@@ -38382,26 +38214,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此焦点集已启用。点击可重新应用。"
-          }
-        }
-      }
-    },
-    "This frame does not look like a valid Protobuf wire-format payload.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此帧看起来不是有效的 Protobuf 线格式有效载荷。"
-          }
-        }
-      }
-    },
-    "This gRPC message is compressed. Rockxy preserves the frame boundary but does not decode compressed message payloads yet.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此 gRPC 消息已压缩。Rockxy 会保留帧边界，但尚未解码压缩的消息有效载荷。"
           }
         }
       }
@@ -38746,16 +38558,6 @@
         }
       }
     },
-    "This saved definition is not applied to captured traffic in this build.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在此构建中，这个已保存的定义不会应用于捕获的流量。"
-          }
-        }
-      }
-    },
     "this script": {
       "localizations": {
         "zh-Hans": {
@@ -38802,16 +38604,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "此版本的 Rockxy 不允许导入新的本地架构。现有文件仍可移除。"
-          }
-        }
-      }
-    },
-    "This view uses heuristic Protobuf decoding. Saved schemas and mapping definitions are stored locally and are not applied to gRPC traffic in this build.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "此视图使用启发式 Protobuf 解码。已保存的架构和映射定义存储在本地，且在此版本中不会应用于 gRPC 流量。"
           }
         }
       }
@@ -44433,6 +44225,407 @@
           "stringUnit": {
             "state": "translated",
             "value": "MCP 客户端只能读取。"
+          }
+        }
+      }
+    },
+    "Automatic (%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（%@）"
+          }
+        }
+      }
+    },
+    "Automatic (Best Guess)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（最佳推测）"
+          }
+        }
+      }
+    },
+    "Best Guess (No Schema)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最佳推测（无架构）"
+          }
+        }
+      }
+    },
+    "Best guess": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最佳推测"
+          }
+        }
+      }
+    },
+    "Choose a message type from the imported schemas": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从已导入的架构中选择消息类型"
+          }
+        }
+      }
+    },
+    "Choose message type": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择消息类型"
+          }
+        }
+      }
+    },
+    "Choose the message type used to decode this payload.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择用于解码此负载的消息类型。"
+          }
+        }
+      }
+    },
+    "Click \"+\" or press ⌘N to import a .proto or .desc file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击“+”或按 ⌘N 导入 .proto 或 .desc 文件。"
+          }
+        }
+      }
+    },
+    "Could Not Decode": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法解码"
+          }
+        }
+      }
+    },
+    "Decode As": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解码为"
+          }
+        }
+      }
+    },
+    "Import .proto sources or .desc files from protoc --descriptor_set_out --include_imports.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 .proto 源文件，或由 protoc --descriptor_set_out --include_imports 生成的 .desc 文件。"
+          }
+        }
+      }
+    },
+    "Import a .proto source file or a .desc descriptor set.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 .proto 源文件或 .desc 描述符集。"
+          }
+        }
+      }
+    },
+    "Import this service's .proto or .desc file in Local Protobuf Schemas to see field names. Until then, field numbers and values are inferred from the wire format.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“本地 Protobuf 架构”中导入此服务的 .proto 或 .desc 文件即可查看字段名称。在此之前，字段编号和值将根据线格式推断。"
+          }
+        }
+      }
+    },
+    "Imported %@ · ^[%lld message type](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入 %@ · %lld 个消息类型"
+          }
+        }
+      }
+    },
+    "Manage Schemas…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理架构…"
+          }
+        }
+      }
+    },
+    "Matching requests and WebSocket frames decode as this message type in the Protobuf tab.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配的请求和 WebSocket 帧会在 Protobuf 标签页中按此消息类型解码。"
+          }
+        }
+      }
+    },
+    "Message Types": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息类型"
+          }
+        }
+      }
+    },
+    "Messages decode as %@ and %@ from your imported schemas.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息按你导入的架构解码为 %@ 和 %@。"
+          }
+        }
+      }
+    },
+    "Protobuf schema error on line %@: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protobuf 架构第 %@ 行出错：%@"
+          }
+        }
+      }
+    },
+    "Requests whose URL matches an enabled definition open in the Protobuf tab decoded as its message type. Client WebSocket frames use the request type and server frames the response type. Definitions and schemas are stored locally on this Mac.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL 与已启用定义匹配的请求会在 Protobuf 标签页中按其消息类型解码。客户端 WebSocket 帧使用请求类型，服务器帧使用响应类型。定义和架构都存储在这台 Mac 上。"
+          }
+        }
+      }
+    },
+    "Schema decoded": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已按架构解码"
+          }
+        }
+      }
+    },
+    "Schemas are stored locally on this Mac. Rockxy uses them to name fields in Protobuf bodies, WebSocket frames, and gRPC messages that a mapping definition, a gRPC service, or your Decode As choice points at.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "架构存储在这台 Mac 上。对于映射定义、gRPC 服务或你的“解码为”选择所指向的 Protobuf 正文、WebSocket 帧和 gRPC 消息，Rockxy 会用它们来命名字段。"
+          }
+        }
+      }
+    },
+    "Select a .proto source file or a .desc descriptor set compiled with protoc.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择 .proto 源文件，或由 protoc 编译的 .desc 描述符集。"
+          }
+        }
+      }
+    },
+    "The file is not a valid Protobuf descriptor set. Generate it with protoc --descriptor_set_out --include_imports.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件不是有效的 Protobuf 描述符集。请使用 protoc --descriptor_set_out --include_imports 生成。"
+          }
+        }
+      }
+    },
+    "The imported schemas do not define %@. Import the schema that declares it, including its imports.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已导入的架构中未定义 %@。请导入声明它的架构及其依赖。"
+          }
+        }
+      }
+    },
+    "The payload ends in the middle of a field, so it cannot be decoded with this schema.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负载在字段中途结束，因此无法使用此架构解码。"
+          }
+        }
+      }
+    },
+    "The payload is nested too deeply or has too many fields to decode safely.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负载嵌套过深或字段过多，无法安全解码。"
+          }
+        }
+      }
+    },
+    "The schema does not define any message types.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该架构未定义任何消息类型。"
+          }
+        }
+      }
+    },
+    "This file no longer parses. Delete it and import it again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件已无法解析。请删除后重新导入。"
+          }
+        }
+      }
+    },
+    "This gRPC message uses a compression Rockxy cannot decode, so its fields cannot be shown.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 gRPC 消息使用了 Rockxy 无法解码的压缩方式，因此无法显示其字段。"
+          }
+        }
+      }
+    },
+    "This payload does not look like valid Protobuf wire format.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此负载看起来不是有效的 Protobuf 线格式。"
+          }
+        }
+      }
+    },
+    "This payload does not match %@. Choose the message type for this direction, or check for a length prefix or compression.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此负载与 %@ 不匹配。请选择此方向对应的消息类型，或检查是否存在长度前缀或压缩。"
+          }
+        }
+      }
+    },
+    "Type not found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到类型"
+          }
+        }
+      }
+    },
+    "^[%lld type](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个类型"
+          }
+        }
+      }
+    },
+    "id: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "id：%@"
+          }
+        }
+      }
+    },
+    "#": {
+      "shouldTranslate": false
+    },
+    "↑ %@ (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "↑ %1$@ (%2$@)"
+          }
+        }
+      },
+      "shouldTranslate": false
+    },
+    "↓ %@ (%@)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "↓ %1$@ (%2$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ %1$@（%2$@）"
+          }
+        }
+      }
+    },
+    "%@  %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@  %2$@"
+          }
+        }
+      },
+      "shouldTranslate": false
+    },
+    "Choose a fully quit developer application to open with Rockxy's scoped proxy and certificate environment. When Rockxy detects a supported app-level proxy schema, it temporarily prepares that application to use automatic proxy discovery with the active macOS System Proxy at %@. Containers, emulators, devices, and already-running processes remain separate capture boundaries.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择一个已完全退出的开发者应用，使用 Rockxy 的作用域代理和证书环境打开。当 Rockxy 检测到受支持的应用级代理架构时，会临时让该应用通过当前的 macOS 系统代理 %@ 使用自动代理发现。容器、模拟器、设备和已运行的进程仍是独立的捕获边界。"
           }
         }
       }
