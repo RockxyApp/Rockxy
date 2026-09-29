@@ -108,7 +108,7 @@ struct MCPRuleMutationService: Sendable {
         guard body.utf8.count <= Self.maxMapLocalBodyBytes else {
             return MCPArgumentError(
                 param: "body",
-                message: "body must be at most \(Self.maxMapLocalBodyBytes) bytes"
+                message: "body must be at most 512 KB"
             ).result
         }
         let headers: [HTTPHeader]
