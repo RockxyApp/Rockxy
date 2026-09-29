@@ -764,7 +764,7 @@ extension HTTPProxyHandler {
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: host,
+               host: EmulatorHostAlias.connectHost(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost

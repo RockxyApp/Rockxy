@@ -892,7 +892,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         context.channel.setOption(ChannelOptions.autoRead, value: false).flatMap {
             self.rawTunnelConnector(
                 context.eventLoop,
-                host,
+                EmulatorHostAlias.connectHost(for: host, clientHost: self.clientConnectionDescriptor?.clientHost),
                 port,
                 self.upstreamProxySnapshotProvider()
             )

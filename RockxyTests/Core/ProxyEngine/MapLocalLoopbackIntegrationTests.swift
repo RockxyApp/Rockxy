@@ -206,6 +206,9 @@ struct MapLocalLoopbackIntegrationTests {
             try await Task.sleep(for: .milliseconds(300))
             let captured = await harness.capturedTransactions().first { $0.request.url.host() == "10.0.2.2" }
             #expect(captured?.state == .completed)
+
+            let loop = try await harness.connectToOwnPortViaEmulatorAlias()
+            #expect(loop.status == 508)
         }
     }
 
@@ -732,6 +735,18 @@ private actor MapLocalLoopbackHarness {
             originPort: origin.boundPort,
             proxyHost: "127.0.0.1",
             proxyPort: proxyPort
+        )
+    }
+
+    /// CONNECT to the emulator alias of Rockxy's own port, which must be refused as a loop.
+    func connectToOwnPortViaEmulatorAlias() async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "10.0.2.2:\(proxyPort)",
+            host: "10.0.2.2",
+            originPort: proxyPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            method: .CONNECT
         )
     }
 
