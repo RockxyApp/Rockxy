@@ -44959,6 +44959,26 @@
           }
         }
       }
+    },
+    "Follow Selection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟随选择"
+          }
+        }
+      }
+    },
+    "Show the request selected in the main window instead of keeping this one": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示主窗口中所选的请求，而不是固定显示当前请求"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

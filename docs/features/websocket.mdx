@@ -47,8 +47,10 @@ Click any frame to expand its full payload in the detail pane below the frame li
 
 Rockxy automatically decodes frame payloads based on the opcode and detected content:
 
-- **Text frames** — displayed as text. If the payload is valid JSON, it is automatically pretty-printed with syntax highlighting and a collapsible tree view.
-- **Binary frames** — displayed as a hex dump with an ASCII sidebar. The byte count and offset are shown for each row.
+- **Text frames** — displayed as text. If the payload is valid JSON, **Format JSON** pretty-prints it.
+- **Binary frames** — displayed as a hex dump with an ASCII sidebar. Binary frames that carry JSON are decoded and shown as text instead.
+
+Switch the frame detail between **Payload**, **Tree** (a collapsible JSON tree with JSONPath filtering), **Hex**, and **Protobuf**. **Open with** below the payload opens the frame in an installed editor or reveals it in Finder, and **Save Payload As…** writes its exact bytes to a file.
 
 <Tip>
 Many real-time APIs (Socket.IO, GraphQL subscriptions, Firebase) send JSON over text frames. Rockxy's auto-detection formats these payloads for easy reading without any configuration.
