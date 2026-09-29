@@ -105,6 +105,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         }
     }
 
+    /// Finder double-clicks, "Open With", and Dock drops of HAR or session files.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        ExternalDocumentOpenRouter.shared.open(urls)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }

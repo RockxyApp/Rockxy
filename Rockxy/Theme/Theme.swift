@@ -154,6 +154,14 @@ enum Theme {
 
     // MARK: - JSON Syntax
 
+    enum DropTarget {
+        static let cornerRadius: CGFloat = 10
+        static let inset: CGFloat = 8
+        static let lineWidth: CGFloat = 2
+        static let dash: [CGFloat] = [8, 5]
+        static let fillOpacity = 0.08
+    }
+
     enum JSON {
         static let key = Color(nsColor: keyNS)
         static let string = Color(nsColor: stringNS)

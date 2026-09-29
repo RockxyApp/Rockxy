@@ -96,6 +96,16 @@ struct ContentView: View {
                 toastOverlay
             }
             .animation(.easeOut(duration: 0.18), value: coordinator.activeToast?.id)
+            .overlay {
+                if isCaptureDocumentDropTargeted {
+                    CaptureDocumentDropHighlight()
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                coordinator.openExternalDocuments(urls)
+            } isTargeted: { isTargeted in
+                isCaptureDocumentDropTargeted = isTargeted
+            }
         } inspector: {
             ContextDockView(
                 coordinator: coordinator,
@@ -291,6 +301,7 @@ struct ContentView: View {
     @Bindable private var coordinator: MainContentCoordinator
     @State private var nearbyTransferReceiver = RockxyNearbyTransferReceiver.shared
     @State private var isSidebarPresented = true
+    @State private var isCaptureDocumentDropTargeted = false
 
     private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool

@@ -23,6 +23,12 @@ extension MainContentCoordinator {
             return
         }
 
+        prepareSessionImport(from: url)
+    }
+
+    /// Validates and pre-parses a `.rockxysession` file, then presents the
+    /// import review sheet. Shared by File > Open, Finder opens, and drops.
+    func prepareSessionImport(from url: URL) {
         if case let .failure(sizeError) = ImportSizePolicy.validateFileSize(
             at: url,
             maxSize: ImportSizePolicy.maxSessionFileSize
@@ -88,6 +94,12 @@ extension MainContentCoordinator {
             return
         }
 
+        prepareHARImport(from: url)
+    }
+
+    /// Validates and pre-parses a HAR archive, then presents the import review
+    /// sheet. Shared by File > Import, Finder opens, and drops.
+    func prepareHARImport(from url: URL) {
         if case let .failure(sizeError) = ImportSizePolicy.validateFileSize(
             at: url,
             maxSize: ImportSizePolicy.maxHARFileSize
@@ -131,6 +143,29 @@ extension MainContentCoordinator {
                 )
             )
         }
+    }
+
+    // MARK: - External Documents
+
+    /// Opens a capture document handed to Rockxy from Finder, the Dock, or a
+    /// drop onto the main window. Only the first supported file is reviewed,
+    /// because an import replaces the current session after confirmation.
+    /// Returns `false` when none of the URLs is a supported capture document.
+    @discardableResult
+    func openExternalDocuments(_ urls: [URL]) -> Bool {
+        guard let (url, kind) = urls.lazy
+            .compactMap({ url in ExternalCaptureDocumentKind(url: url).map { (url, $0) } })
+            .first else
+        {
+            return false
+        }
+        switch kind {
+        case .session:
+            prepareSessionImport(from: url)
+        case .har:
+            prepareHARImport(from: url)
+        }
+        return true
     }
 
     // MARK: - Execute Import

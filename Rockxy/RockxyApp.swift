@@ -28,6 +28,7 @@ struct RockxyApp: App {
             : ProjectCatalogRepository()
         let coordinator = MainContentCoordinator(projectCatalogRepository: projectRepository)
         _mainCoordinator = State(initialValue: coordinator)
+        ExternalDocumentOpenRouter.shared.register(coordinator: coordinator)
 
         // Nearby transfer belongs to the app lifecycle, not the main-window
         // lifecycle. macOS can restore Rockxy with no open windows, and the
@@ -598,6 +599,9 @@ private struct MainWindowContent: View {
 
     var body: some View {
         ContentView(coordinator: coordinator)
+            .onAppear {
+                ExternalDocumentOpenRouter.shared.openMainWindow = { openWindow(id: "main") }
+            }
             .sheet(isPresented: Binding(
                 get: { lifecycleState.showWelcome },
                 set: { lifecycleState.showWelcome = $0 }
@@ -650,6 +654,7 @@ private struct MainWindowContent: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("onboardingCompletedOnce")) private var onboardingCompletedOnce =
         false
     @State private var setupChecked = false
+    @Environment(\.openWindow) private var openWindow
 }
 
 // MARK: - ProjectLinks
