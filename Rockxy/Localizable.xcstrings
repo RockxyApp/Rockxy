@@ -90,6 +90,16 @@
         }
       }
     },
+    "Drop a HAR or Rockxy session to open it": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖放 HAR 或 Rockxy 会话以打开"
+          }
+        }
+      }
+    },
     "Failed to create JSContext": {
       "localizations": {
         "zh-Hans": {
