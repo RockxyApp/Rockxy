@@ -96,6 +96,32 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A Map Local rule scoped to a GraphQL operation mocks only that operation")
+    func graphQLOperationScopedMapLocal() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(
+                named: "get-user.json",
+                contents: Data(#"{"data":{"user":{"name":"Mocked"}}}"#.utf8)
+            )
+            var rule = harness.mapLocalRule(name: "GetUser mock", path: "/graphql", filePath: file.path)
+            rule.matchCondition.graphQLOperationName = "GetUser"
+            await harness.addRule(rule)
+
+            let mocked = try await harness.post(
+                "/graphql",
+                json: #"{"operationName":"GetUser","query":"query GetUser { user { name } }"}"#
+            )
+            let live = try await harness.post(
+                "/graphql",
+                json: #"{"query":"query ListPosts { posts { id } }"}"#
+            )
+
+            #expect(mocked.body == Data(#"{"data":{"user":{"name":"Mocked"}}}"#.utf8))
+            #expect(mocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+            #expect(live.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -568,6 +594,18 @@ private actor MapLocalLoopbackHarness {
         )
     }
 
+    func post(_ path: String, json: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: origin.absoluteURLString(path: path),
+            host: origin.host,
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            method: .POST,
+            body: Data(json.utf8)
+        )
+    }
+
     // MARK: Private
 
     private let engine: RuleEngine
@@ -802,7 +840,9 @@ private enum ProxyHTTPClient {
         host: String,
         originPort: Int,
         proxyHost: String,
-        proxyPort: Int
+        proxyPort: Int,
+        method: HTTPMethod = .GET,
+        body: Data? = nil
     )
         async throws -> ProxyHTTPResponse
     {
@@ -811,7 +851,11 @@ private enum ProxyHTTPClient {
         var headers = HTTPHeaders()
         headers.add(name: "Host", value: "\(host):\(originPort)")
         headers.add(name: "Connection", value: "close")
-        let requestHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: absoluteURL, headers: headers)
+        if let body {
+            headers.add(name: "Content-Type", value: "application/json")
+            headers.add(name: "Content-Length", value: String(body.count))
+        }
+        let requestHead = HTTPRequestHead(version: .http1_1, method: method, uri: absoluteURL, headers: headers)
 
         let promise = group.next().makePromise(of: ProxyHTTPResponse.self)
         let bootstrap = ClientBootstrap(group: group)
@@ -819,7 +863,7 @@ private enum ProxyHTTPClient {
             .channelInitializer { channel in
                 channel.pipeline.addHTTPClientHandlers().flatMap {
                     channel.pipeline.addHandler(
-                        ProxyClientResponseHandler(requestHead: requestHead, promise: promise)
+                        ProxyClientResponseHandler(requestHead: requestHead, body: body, promise: promise)
                     )
                 }
             }
@@ -858,8 +902,9 @@ private enum ProxyHTTPClient {
 private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(requestHead: HTTPRequestHead, promise: EventLoopPromise<ProxyHTTPResponse>) {
+    init(requestHead: HTTPRequestHead, body: Data? = nil, promise: EventLoopPromise<ProxyHTTPResponse>) {
         self.requestHead = requestHead
+        requestBody = body
         self.promise = promise
     }
 
@@ -870,6 +915,11 @@ private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecke
 
     func channelActive(context: ChannelHandlerContext) {
         context.write(wrapOutboundOut(.head(requestHead)), promise: nil)
+        if let requestBody {
+            var buffer = context.channel.allocator.buffer(capacity: requestBody.count)
+            buffer.writeBytes(requestBody)
+            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+        }
         context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
     }
 
@@ -896,6 +946,7 @@ private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecke
     // MARK: Private
 
     private let requestHead: HTTPRequestHead
+    private let requestBody: Data?
     private let promise: EventLoopPromise<ProxyHTTPResponse>
     private var status = 0
     private var headers = HTTPHeaders()

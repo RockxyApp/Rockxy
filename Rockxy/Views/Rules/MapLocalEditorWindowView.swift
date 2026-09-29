@@ -219,6 +219,23 @@ struct MapLocalEditorWindowView: View {
                     .toggleStyle(.checkbox)
                 }
 
+                inlineField(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {
+                    TextField(
+                        String(localized: "Any operation", bundle: RockxyLocalization.bundle),
+                        text: $viewModel.graphQLOperationName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: max(220, toolMetrics.fieldWidth(220)))
+                    .accessibilityLabel(String(
+                        localized: "GraphQL operation name to match",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .help(String(
+                        localized: "Serve this response only for GraphQL requests with this exact operation name. Leave empty to match every request to the URL.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
+
                 if let validationMessage = viewModel.directoryRegexValidationMessage {
                     Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(toolMetrics.secondaryFont())

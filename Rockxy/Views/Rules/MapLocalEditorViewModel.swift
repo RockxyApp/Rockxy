@@ -40,6 +40,8 @@ final class MapLocalEditorViewModel {
     var method: MapLocalHTTPMethod = .any
     var matchType: MapLocalMatchType = .wildcard
     var includeSubpaths = false
+    /// Optional exact GraphQL operation name; empty matches every request to the URL.
+    var graphQLOperationName = ""
     var delayPreset: MapLocalDelayPreset = .none
     var customDelaySeconds = 15
     var targetMode: MapLocalTargetMode = .localFile
@@ -299,6 +301,7 @@ final class MapLocalEditorViewModel {
             matchType: matchType == .regex ? .regex : .wildcard,
             includeSubpaths: matchType == .wildcard ? includeSubpaths : false
         )
+        // The tester checks URL and method only; the operation filter is shown beside it.
         let runtimePattern = condition.runtimeURLPattern ?? urlPatternForSaving()
         switch RegexValidator.compile(runtimePattern) {
         case let .failure(error):
@@ -362,6 +365,8 @@ final class MapLocalEditorViewModel {
         condition.sourceURLPattern = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
         condition.matchType = matchType == .regex ? .regex : .wildcard
         condition.includeSubpaths = matchType == .wildcard ? includeSubpaths : false
+        let operationName = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        condition.graphQLOperationName = operationName.isEmpty ? nil : operationName
 
         let parsedResponse = MapLocalHTTPMessage.parse(actionResponseMessageForSaving)
 
@@ -515,6 +520,7 @@ final class MapLocalEditorViewModel {
         method = .any
         matchType = .wildcard
         includeSubpaths = false
+        graphQLOperationName = ""
         delayPreset = .none
         customDelaySeconds = 15
         targetMode = .localFile
@@ -534,6 +540,7 @@ final class MapLocalEditorViewModel {
         method = MapLocalHTTPMethod(ruleMethod: draft.sourceMethod)
         matchType = .wildcard
         includeSubpaths = draft.origin == .domainQuickCreate
+        graphQLOperationName = draft.graphQLOperationName ?? ""
         if let sourceURL = draft.sourceURL {
             urlText = sourceURL.absoluteString
         } else {
@@ -593,6 +600,7 @@ final class MapLocalEditorViewModel {
         name = rule.name.isEmpty ? "Untitled" : rule.name
         loadURLMetadata(from: rule.matchCondition)
         method = MapLocalHTTPMethod(ruleMethod: rule.matchCondition.method)
+        graphQLOperationName = rule.matchCondition.requiredGraphQLOperationName ?? ""
         if case let .mapLocal(path, statusCode, isDirectory, delayMs, responseHeaders) = rule.action {
             targetMode = isDirectory ? .localDirectory : .localFile
             filePath = isDirectory ? "" : path

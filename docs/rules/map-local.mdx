@@ -32,6 +32,10 @@ Map Local is most reliable when the match is specific. Start with:
 - one method,
 - and only widen it if the intended flow requires it.
 
+For GraphQL, every operation shares one endpoint. Set **GraphQL Operation** to mock a single
+operation (for example `GetUser`) while the rest of the app keeps talking to the server. Rules
+created from a captured GraphQL request prefill the operation name.
+
 ## What to watch for
 
 - The file content becomes the response body.

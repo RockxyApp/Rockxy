@@ -670,6 +670,16 @@
         }
       }
     },
+    "Serve this response only for GraphQL requests with this exact operation name. Leave empty to match every request to the URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅对具有此确切操作名称的 GraphQL 请求返回此响应。留空则匹配发往该 URL 的所有请求。"
+          }
+        }
+      }
+    },
     "Server-sent events": {
       "localizations": {
         "zh-Hans": {
