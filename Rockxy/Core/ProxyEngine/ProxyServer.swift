@@ -356,13 +356,6 @@ actor ProxyServer {
         }
     }
 
-    /// Wraps a transaction callback so every emitted transaction — raw CONNECT, TLS failure,
-    /// intercepted HTTP, WebSocket — inherits the connection's resolved application identity
-    /// and a matching `clientApp` label. Stamping is a non-blocking read of the retained
-    /// identity. When it is unresolved, the request's `User-Agent` supplies the same label
-    /// the upstream relay derives, so a locally served response (Map Local, block, breakpoint
-    /// abort) is attributed to the same client as the rest of its traffic instead of showing
-    /// up as an unknown app; anything still unresolved is left for port-map enrichment.
     /// Stamps the scripts that ran for the transaction's flow, so a request a script
     /// changed is never presented as untouched.
     static func makeScriptAttributionCallback(
@@ -383,6 +376,13 @@ actor ProxyServer {
         }
     }
 
+    /// Wraps a transaction callback so every emitted transaction — raw CONNECT, TLS failure,
+    /// intercepted HTTP, WebSocket — inherits the connection's resolved application identity
+    /// and a matching `clientApp` label. Stamping is a non-blocking read of the retained
+    /// identity. When it is unresolved, the request's `User-Agent` supplies the same label
+    /// the upstream relay derives, so a locally served response (Map Local, block, breakpoint
+    /// abort) is attributed to the same client as the rest of its traffic instead of showing
+    /// up as an unknown app; anything still unresolved is left for port-map enrichment.
     static func makeIdentityStampingCallback(
         handle: ClientIdentityHandle?,
         downstream: @escaping @Sendable (HTTPTransaction) -> Void
