@@ -154,6 +154,7 @@ actor ScriptRuntime {
         exceptionLocks[info.id] = exceptionLock
         onRequestHandlers[info.id] = onRequestFn
         onResponseHandlers[info.id] = onResponseFn
+        flowStateStores[info.id] = ScriptFlowStateStore()
         onRequestArity[info.id] = ScriptMultiArgBridge.functionLength(onRequestFn) ?? 1
         onResponseArity[info.id] = ScriptMultiArgBridge.functionLength(onResponseFn) ?? 1
         Self.logger.info("Loaded script plugin: \(info.id)")
@@ -167,6 +168,7 @@ actor ScriptRuntime {
         onResponseHandlers.removeValue(forKey: id)
         onRequestArity.removeValue(forKey: id)
         onResponseArity.removeValue(forKey: id)
+        flowStateStores.removeValue(forKey: id)
         Self.logger.info("Unloaded script plugin: \(id)")
     }
 
@@ -202,6 +204,7 @@ actor ScriptRuntime {
 
         let runAsMock = behavior.runAsMock
         let arity = onRequestArity[pluginID] ?? 1
+        let flowStates = flowStateStores[pluginID]
 
         return try await withCheckedThrowingContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -216,7 +219,7 @@ actor ScriptRuntime {
                    let triplet = ScriptMultiArgBridge.buildRequestArgs(
                        in: jsContext,
                        request: originalRequest,
-                       sharedState: nil,
+                       sharedState: flowStates?.beginFlow(originalRequest.flowID, in: jsContext),
                        env: nil,
                        configs: nil
                    )
@@ -360,6 +363,7 @@ actor ScriptRuntime {
         }
 
         let arity = onResponseArity[pluginID] ?? 1
+        let flowStates = flowStateStores[pluginID]
 
         return try await withCheckedThrowingContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -373,7 +377,7 @@ actor ScriptRuntime {
                        in: jsContext,
                        request: originalRequest,
                        response: originalResponse,
-                       sharedState: nil,
+                       sharedState: flowStates?.endFlow(originalRequest.flowID, in: jsContext),
                        env: nil,
                        configs: nil
                    )
@@ -484,6 +488,7 @@ actor ScriptRuntime {
     private var onResponseHandlers: [String: JSValue] = [:]
     private var onRequestArity: [String: Int] = [:]
     private var onResponseArity: [String: Int] = [:]
+    private var flowStateStores: [String: ScriptFlowStateStore] = [:]
 
     private static func clearException(in context: JSContext, lock: OSAllocatedUnfairLock<String?>?) {
         context.exception = nil

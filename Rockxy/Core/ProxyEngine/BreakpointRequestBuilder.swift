@@ -154,7 +154,8 @@ enum BreakpointRequestBuilder {
             headers: resolvedHeaders,
             body: body,
             contentType: ContentTypeDetector.detect(headers: resolvedHeaders, body: body),
-            captureContext: originalRequestData.captureContext
+            captureContext: originalRequestData.captureContext,
+            flowID: originalRequestData.flowID
         )
 
         return Result(head: head, requestData: requestData)

@@ -44,6 +44,31 @@ async function onResponse(context, url, request, response) {
 
 `request.headers` and `request.queries` are plain JS dictionaries — assign directly. `response.statusCode` accepts any integer in `[100, 599]`. `response.bodyFilePath` accepts a path under `~`; the file is loaded with the same size cap as captured response bodies.
 
+### Sharing state between the request and response of one flow
+
+`context.sharedState` is an object that starts empty for every request and is handed to
+the same flow's `onResponse`. Use it when the response decision depends on something only
+the request carries — for example, mocking a single GraphQL operation on a shared endpoint:
+
+```javascript
+function onRequest(context, url, request) {
+  context.sharedState.operation = JSON.parse(request.body || "{}").operationName;
+  return request;
+}
+
+function onResponse(context, url, request, response) {
+  if (context.sharedState.operation === "GetUser") {
+    response.bodyFilePath = "~/Mocks/get-user.json";
+  }
+  return response;
+}
+```
+
+State is private to each script and each flow; concurrent requests never see each other's
+values. It is released when the response hook runs, and state for flows that never receive a
+response (blocked, mocked, or failed requests) is discarded after newer flows replace it.
+Use `$rockxy.storage` for values that must outlive a single flow.
+
 ### Single-arg API (legacy)
 
 Scripts define one or both of these functions, exported either as direct globals or via CommonJS `module.exports`:

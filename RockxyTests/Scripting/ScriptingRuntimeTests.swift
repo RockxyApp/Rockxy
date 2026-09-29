@@ -502,6 +502,50 @@ struct ScriptingRuntimeTests {
     }
     """
 
+    @Test("sharedState set in onRequest reaches the same flow's onResponse only")
+    func sharedStateFollowsItsOwnFlow() async throws {
+        let harness = try makeHarness()
+        try writePlugin(
+            id: "script.graphql-mock",
+            script: """
+            function onRequest(context, url, request) {
+              context.sharedState.operation = JSON.parse(request.body).operationName;
+              return request;
+            }
+            function onResponse(context, url, request, response) {
+              if (context.sharedState.operation === "GetUser") {
+                response.body = JSON.stringify({ data: { user: { name: "Mocked" } } });
+              }
+              return response;
+            }
+            """,
+            into: harness,
+            behavior: ScriptBehavior(matchCondition: nil, runOnRequest: true, runOnResponse: true, runAsMock: false)
+        )
+        await harness.manager.loadAllPlugins()
+
+        let getUser = graphQLRequest(operation: "GetUser")
+        let listPosts = graphQLRequest(operation: "ListPosts")
+        _ = await harness.manager.runRequestHook(on: getUser)
+        _ = await harness.manager.runRequestHook(on: listPosts)
+
+        let postsResponse = await harness.manager.runResponseHook(request: listPosts, response: pricingResponse())
+        let userResponse = await harness.manager.runResponseHook(request: getUser, response: pricingResponse())
+
+        #expect(!stringBody(postsResponse).contains("Mocked"))
+        #expect(stringBody(userResponse).contains(#""name":"Mocked""#))
+    }
+
+    private func graphQLRequest(operation: String) -> HTTPRequestData {
+        HTTPRequestData(
+            method: "POST",
+            url: URL(string: "https://api.example.com/graphql")!,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"operationName":"\#(operation)","query":"query \#(operation) { id }"}"#.utf8)
+        )
+    }
+
     private func makeHarness(
         settingsProvider: (@Sendable () -> AppSettings)? = nil
     )

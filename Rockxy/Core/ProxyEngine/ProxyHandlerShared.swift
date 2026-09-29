@@ -251,7 +251,8 @@ enum ProxyHandlerShared {
             headers: modifiedHead.headers.map { HTTPHeader(name: $0.name, value: $0.value) },
             body: requestData.body,
             contentType: requestData.contentType,
-            captureContext: requestData.captureContext
+            captureContext: requestData.captureContext,
+            flowID: requestData.flowID
         )
 
         return MapRemoteRewrite(
