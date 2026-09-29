@@ -45259,6 +45259,166 @@
           }
         }
       }
+    },
+    "DNS Spoofing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 欺骗"
+          }
+        }
+      }
+    },
+    "No DNS Spoofing Rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有 DNS 欺骗规则"
+          }
+        }
+      }
+    },
+    "Add a rule to connect to another address for a host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加规则，为某个主机连接到其他地址。"
+          }
+        }
+      }
+    },
+    "Add Rule…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加规则…"
+          }
+        }
+      }
+    },
+    "Connects To": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接到"
+          }
+        }
+      }
+    },
+    "An exact host name, or *.example.com for every subdomain.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确切的主机名，或 *.example.com 以匹配所有子域名。"
+          }
+        }
+      }
+    },
+    "Connect To": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接到"
+          }
+        }
+      }
+    },
+    "The IP address or host name Rockxy connects to instead. The port stays the same.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 改为连接的 IP 地址或主机名。端口保持不变。"
+          }
+        }
+      }
+    },
+    "Enter the host name to spoof.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入要欺骗的主机名。"
+          }
+        }
+      }
+    },
+    "Enter only a host name, such as api.example.com or *.example.com, without a scheme, port, or path.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请仅输入主机名，例如 api.example.com 或 *.example.com，不要包含协议、端口或路径。"
+          }
+        }
+      }
+    },
+    "Enter the address to connect to.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入要连接的地址。"
+          }
+        }
+      }
+    },
+    "Enter an IP address or a host name, without a scheme, port, or path.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入 IP 地址或主机名，不要包含协议、端口或路径。"
+          }
+        }
+      }
+    },
+    "The address is the same as the host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该地址与主机相同。"
+          }
+        }
+      }
+    },
+    "Another rule already spoofs this host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有其他规则欺骗此主机。"
+          }
+        }
+      }
+    },
+    "DNS Spoofing…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 欺骗…"
+          }
+        }
+      }
+    },
+    "Each rule sends connections for a host to another address, like an /etc/hosts entry that applies only to traffic through Rockxy. Unlike Map Remote, the URL, the Host header, and the certificate check keep the original host, so a staging server that serves the production name can be tested as is.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每条规则会将某个主机的连接发送到其他地址，类似仅对经过 Rockxy 的流量生效的 /etc/hosts 条目。与远程映射不同，URL、Host 标头和证书检查都保留原始主机，因此可以直接测试使用生产域名的预发布服务器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

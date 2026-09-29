@@ -1,0 +1,146 @@
+import Foundation
+import os
+
+// Persisted DNS Spoofing rules.
+
+// MARK: - DNSSpoofingRule
+
+struct DNSSpoofingRule: Codable, Identifiable, Equatable, Hashable {
+    var id = UUID()
+    var isEnabled = true
+    /// Host name to match: `api.example.com` or `*.example.com`.
+    var host: String
+    /// IP address or host name to connect to instead.
+    var address: String
+
+    var entry: DNSSpoofingEntry {
+        DNSSpoofingEntry(
+            hostPattern: host.trimmingCharacters(in: .whitespacesAndNewlines),
+            address: address.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        )
+    }
+}
+
+// MARK: - DNSSpoofingRuleValidator
+
+enum DNSSpoofingRuleValidator {
+    /// First problem with `rule`, or `nil` when it can be saved.
+    static func problem(with rule: DNSSpoofingRule, among rules: [DNSSpoofingRule]) -> String? {
+        let host = rule.host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let address = rule.address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !host.isEmpty else {
+            return String(localized: "Enter the host name to spoof.", bundle: RockxyLocalization.bundle)
+        }
+        guard isBareName(host), HostPatternMatcher.isValid(pattern: host) else {
+            return String(
+                localized: "Enter only a host name, such as api.example.com or *.example.com, without a scheme, port, or path.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+        guard !address.isEmpty else {
+            return String(localized: "Enter the address to connect to.", bundle: RockxyLocalization.bundle)
+        }
+        let bareAddress = address.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        guard RemoteAccessAddressRange.addressBytes(bareAddress) != nil
+            || (isBareName(bareAddress) && !bareAddress.contains("*") && !bareAddress.contains("?")) else
+        {
+            return String(
+                localized: "Enter an IP address or a host name, without a scheme, port, or path.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+        guard bareAddress.lowercased() != host else {
+            return String(localized: "The address is the same as the host.", bundle: RockxyLocalization.bundle)
+        }
+        guard !rules.contains(where: { $0.id != rule.id && $0.host.lowercased() == host }) else {
+            return String(localized: "Another rule already spoofs this host.", bundle: RockxyLocalization.bundle)
+        }
+        return nil
+    }
+
+    private static func isBareName(_ value: String) -> Bool {
+        !value.contains("/") && !value.contains(where: \.isWhitespace)
+            && (value.contains("::") || !value.contains(":"))
+    }
+}
+
+// MARK: - DNSSpoofingStore
+
+/// Owns DNS Spoofing rules (persisted in user defaults) and keeps `DNSSpoofingTable`
+/// in step, so a running proxy uses a change on its next upstream connection.
+@MainActor @Observable
+final class DNSSpoofingStore {
+    // MARK: Lifecycle
+
+    init(defaults: UserDefaults = .standard, table: DNSSpoofingTable = .shared) {
+        self.defaults = defaults
+        self.table = table
+        load()
+        publish()
+    }
+
+    // MARK: Internal
+
+    static let shared = DNSSpoofingStore()
+
+    private(set) var rules: [DNSSpoofingRule] = []
+
+    var enabledCount: Int {
+        rules.count(where: \.isEnabled)
+    }
+
+    func upsert(_ rule: DNSSpoofingRule) {
+        if let index = rules.firstIndex(where: { $0.id == rule.id }) {
+            rules[index] = rule
+        } else {
+            rules.append(rule)
+        }
+        persist()
+    }
+
+    func setEnabled(_ isEnabled: Bool, id: UUID) {
+        guard let index = rules.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        rules[index].isEnabled = isEnabled
+        persist()
+    }
+
+    func remove(ids: Set<UUID>) {
+        rules.removeAll { ids.contains($0.id) }
+        persist()
+    }
+
+    // MARK: Private
+
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "DNSSpoofingStore")
+    private static let storageKey = RockxyIdentity.current.defaultsKey("dnsSpoofingRules")
+
+    private let defaults: UserDefaults
+    private let table: DNSSpoofingTable
+
+    private func load() {
+        guard let data = defaults.data(forKey: Self.storageKey) else {
+            return
+        }
+        do {
+            rules = try JSONDecoder().decode([DNSSpoofingRule].self, from: data)
+        } catch {
+            Self.logger.error("Failed to decode DNS spoofing rules: \(error.localizedDescription)")
+        }
+    }
+
+    private func persist() {
+        do {
+            try defaults.set(JSONEncoder().encode(rules), forKey: Self.storageKey)
+        } catch {
+            Self.logger.error("Failed to save DNS spoofing rules: \(error.localizedDescription)")
+        }
+        publish()
+    }
+
+    private func publish() {
+        table.update(rules.filter(\.isEnabled).map(\.entry))
+    }
+}

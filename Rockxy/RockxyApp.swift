@@ -102,6 +102,7 @@ struct RockxyApp: App {
         settingsWindow
 
         ReverseProxyWindowScene()
+        DNSSpoofingWindowScene()
 
         macCertificateSetupGuideWindow
 
@@ -1186,6 +1187,9 @@ struct RockxyMenuCommands: Commands {
             }
             Button(String(localized: "Reverse Proxy…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "reverseProxy")
+            }
+            Button(String(localized: "DNS Spoofing…", bundle: RockxyLocalization.bundle)) {
+                openWindow(id: "dnsSpoofing")
             }
 
             Divider()

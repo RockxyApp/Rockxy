@@ -157,6 +157,14 @@ enum CommandPaletteCatalog {
                 .openWindow("reverseProxy")
             ),
             command(
+                "tools.dnsSpoofing",
+                "DNS Spoofing…",
+                tools,
+                nil,
+                ["hosts", "resolve", "ip", "staging", "dns"],
+                .openWindow("dnsSpoofing")
+            ),
+            command(
                 "tools.scripts",
                 "Script List…",
                 tools,

@@ -689,7 +689,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 onTransactionComplete: callback,
                 onBreakpointHit: breakpointHit,
                 breakpointBridgeTracker: self.breakpointBridgeTracker,
-                upstreamConnectHost: EmulatorHostAlias.connectHost(
+                upstreamConnectHost: UpstreamConnectHost.resolve(
                     for: host,
                     clientHost: self.clientConnectionDescriptor?.clientHost
                 )
@@ -857,7 +857,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             onTransactionComplete: onTransactionComplete,
             onBreakpointHit: onBreakpointHit,
             breakpointBridgeTracker: breakpointBridgeTracker,
-            connectHost: EmulatorHostAlias.connectHost(for: host, clientHost: clientConnectionDescriptor?.clientHost)
+            connectHost: UpstreamConnectHost.resolve(for: host, clientHost: clientConnectionDescriptor?.clientHost)
         )
         let pipeline = context.pipeline
         let replay = bufferedData
@@ -900,7 +900,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         context.channel.setOption(ChannelOptions.autoRead, value: false).flatMap {
             self.rawTunnelConnector(
                 context.eventLoop,
-                EmulatorHostAlias.connectHost(for: host, clientHost: self.clientConnectionDescriptor?.clientHost),
+                UpstreamConnectHost.resolve(for: host, clientHost: self.clientConnectionDescriptor?.clientHost),
                 port,
                 self.upstreamProxySnapshotProvider()
             )

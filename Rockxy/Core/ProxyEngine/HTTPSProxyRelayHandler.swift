@@ -1171,7 +1171,7 @@ extension HTTPSProxyRelayHandler {
                 UpstreamProxyConnector.connect(
                     eventLoop: context.eventLoop,
                     targetScheme: "https",
-                    targetHost: remoteHost,
+                    targetHost: DNSSpoofingTable.shared.address(for: remoteHost) ?? remoteHost,
                     targetPort: remotePort,
                     configuration: upstreamProxySnapshotProvider()
                 ) { channel in
@@ -1218,7 +1218,7 @@ extension HTTPSProxyRelayHandler {
             UpstreamProxyConnector.connect(
                 eventLoop: context.eventLoop,
                 targetScheme: scheme,
-                targetHost: remoteHost,
+                targetHost: DNSSpoofingTable.shared.address(for: remoteHost) ?? remoteHost,
                 targetPort: remotePort,
                 configuration: upstreamProxySnapshotProvider()
             ) { channel in

@@ -76,6 +76,7 @@
           "features/custom-certificates",
           "features/upstream-proxy",
           "features/reverse-proxy",
+          "features/dns-spoofing",
           "features/mcp"
         ]
       },

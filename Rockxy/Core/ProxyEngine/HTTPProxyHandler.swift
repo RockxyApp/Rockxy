@@ -777,7 +777,7 @@ extension HTTPProxyHandler {
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: EmulatorHostAlias.connectHost(for: host, clientHost: descriptor.clientHost),
+               host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost
@@ -816,7 +816,7 @@ extension HTTPProxyHandler {
     {
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: EmulatorHostAlias.connectHost(for: host, clientHost: descriptor.clientHost),
+               host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost
@@ -976,7 +976,7 @@ extension HTTPProxyHandler {
         }
 
         let port: Int = requestData.url.port ?? (requestData.url.scheme == "https" ? 443 : 80)
-        let connectHost = EmulatorHostAlias.connectHost(for: host, clientHost: clientConnectionDescriptor?.clientHost)
+        let connectHost = UpstreamConnectHost.resolve(for: host, clientHost: clientConnectionDescriptor?.clientHost)
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(

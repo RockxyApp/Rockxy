@@ -266,6 +266,23 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("DNS Spoofing connects to another address and keeps the request's host")
+    func dnsSpoofingKeepsHost() async throws {
+        let host = "spoof-\(UUID().uuidString.prefix(8).lowercased()).rockxy.test"
+        DNSSpoofingTable.shared.update([DNSSpoofingEntry(hostPattern: host, address: "127.0.0.1")])
+        defer { DNSSpoofingTable.shared.update([]) }
+        try await MapLocalLoopbackHarness.run { harness in
+            let response = try await harness.get(host: host, path: "/live")
+
+            #expect(response.status == 200)
+            #expect(response.body == Data("origin:/live".utf8))
+            #expect(response.headerValue("X-Rockxy-Origin-Host") == "\(host):\(harness.originPort)")
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.host() == host }
+            #expect(captured?.state == .completed)
+        }
+    }
+
     @Test("Non-matching URL passes through the proxy to the origin")
     func nonMatchingURLReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -804,6 +821,17 @@ private actor MapLocalLoopbackHarness {
         )
     }
 
+    /// Sends `GET http://<host>:<originPort><path>`, for a host only DNS Spoofing can reach.
+    func get(host: String, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://\(host):\(origin.boundPort)\(path)",
+            host: host,
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
+        )
+    }
+
     func post(_ path: String, json: String) async throws -> ProxyHTTPResponse {
         try await ProxyHTTPClient.get(
             absoluteURL: origin.absoluteURLString(path: path),
@@ -987,6 +1015,7 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
         switch unwrapInboundIn(data) {
         case let .head(head):
             requestPath = URLComponents(string: head.uri)?.path ?? head.uri
+            receivedHost = head.headers.first(name: "Host")
         case .body:
             break
         case .end:
@@ -999,6 +1028,7 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
 
     private let markerHeader: String
     private var requestPath: String?
+    private var receivedHost: String?
 
     private func respond(context: ChannelHandlerContext) {
         let path = requestPath ?? "/"
@@ -1017,6 +1047,7 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
         headers.add(name: markerHeader, value: "true")
+        headers.add(name: "X-Rockxy-Origin-Host", value: receivedHost ?? "")
         headers.add(name: "Content-Length", value: "\(buffer.readableBytes)")
         headers.add(name: "Connection", value: "close")
 
