@@ -68,6 +68,30 @@ enum ProxyHandlerShared {
         currentBufferSize + incomingChunkSize > maxSize
     }
 
+    /// Evaluates the breakpoint rule (which may pause before any other tool) and the
+    /// first matching rule for a request, including its GraphQL operation name.
+    nonisolated static func evaluateRules(
+        _ ruleEngine: RuleEngine,
+        request: HTTPRequestData,
+        graphQLOperationName: String?
+    )
+        async -> (breakpoint: ProxyRule?, matched: ProxyRule?)
+    {
+        let breakpointRule = await ruleEngine.evaluateBreakpointRule(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName
+        )
+        let matchedRule = await ruleEngine.evaluateRule(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName
+        )
+        return (breakpointRule, matchedRule)
+    }
+
     /// Network Conditions "Offline": drops the client connection without contacting
     /// the server, the way a device with no network fails, and records the request
     /// as failed with no response.

@@ -237,17 +237,11 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         let ruleEngine = self.ruleEngine
 
         eventLoop.makeFutureWithTask {
-            let breakpointRule = await ruleEngine.evaluateBreakpointRule(
-                method: head.method.rawValue,
-                url: requestData.url,
-                headers: requestData.headers
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: graphQLInfo?.operationName
             )
-            let matchedRule = await ruleEngine.evaluateRule(
-                method: head.method.rawValue,
-                url: requestData.url,
-                headers: requestData.headers
-            )
-            return (breakpointRule, matchedRule)
         }.whenComplete { [weak self] result in
             guard let self else {
                 return

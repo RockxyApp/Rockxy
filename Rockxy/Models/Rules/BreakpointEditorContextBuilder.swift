@@ -26,7 +26,8 @@ enum BreakpointEditorContextBuilder {
             httpMethod: httpMethod,
             includeSubpaths: false,
             breakpointRequest: true,
-            breakpointResponse: true
+            breakpointResponse: true,
+            graphQLOperationName: transaction.graphQLInfo?.operationName
         )
     }
 

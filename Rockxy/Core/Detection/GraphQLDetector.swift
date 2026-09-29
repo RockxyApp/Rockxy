@@ -22,7 +22,8 @@ enum GraphQLDetector {
             return nil
         }
 
-        let operationName = json["operationName"] as? String
+        let declaredName = (json["operationName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let operationName = declaredName?.isEmpty == false ? declaredName : operationName(inQuery: query)
         let variables = (json["variables"] as? [String: Any])
             .flatMap { try? JSONSerialization.data(withJSONObject: $0) }
             .flatMap { String(data: $0, encoding: .utf8) }
@@ -40,6 +41,19 @@ enum GraphQLDetector {
     // MARK: Private
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "GraphQLDetector")
+
+    /// Name of the first operation in the document (`query GetUser { … }` → `GetUser`),
+    /// used when the client omits `operationName`. Anonymous operations return `nil`.
+    static func operationName(inQuery query: String) -> String? {
+        let pattern = #"^\s*(?:#[^\n]*\n\s*)*(?:query|mutation|subscription)\s+([_A-Za-z][_0-9A-Za-z]*)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
+              let range = Range(match.range(at: 1), in: query) else
+        {
+            return nil
+        }
+        return String(query[range])
+    }
 
     /// GraphQL defaults to `query` when no keyword prefix is present (shorthand syntax).
     private static func parseOperationType(from query: String) -> GraphQLOperationType {

@@ -231,11 +231,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Rule evaluation is async (actor-isolated), so bridge to NIO's EventLoopFuture world
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
+        let operationName = GraphQLDetector.detect(request: requestData)?.operationName
 
         eventLoop.makeFutureWithTask {
-            let breakpointRule = await ruleEngine.evaluateBreakpointRule(method: method, url: url, headers: headers)
-            let matchedRule = await ruleEngine.evaluateRule(method: method, url: url, headers: headers)
-            return (breakpointRule, matchedRule)
+            await ProxyHandlerShared.evaluateRules(ruleEngine, request: requestData, graphQLOperationName: operationName)
         }.whenComplete { [weak self] result in
             guard let self else {
                 return

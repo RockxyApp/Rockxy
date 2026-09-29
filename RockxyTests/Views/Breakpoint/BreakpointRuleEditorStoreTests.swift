@@ -16,7 +16,7 @@ struct BreakpointRuleEditorStoreTests {
         let context = BreakpointEditorContextBuilder.fromDomain("example.com")
         var didSave = false
 
-        store.openNew(context: context) { _, _, _, _, _, _, _ in
+        store.openNew(context: context) { _, _, _, _, _, _, _, _ in
             didSave = true
             return true
         }
@@ -28,7 +28,7 @@ struct BreakpointRuleEditorStoreTests {
         let capturedVersion = store.draftVersion
         let handler = store.onSave
 
-        let accepted = await handler?("", "", .any, .wildcard, true, true, true)
+        let accepted = await handler?("", "", .any, .wildcard, true, true, true, nil)
 
         #expect(capturedHost == "example.com")
         #expect(capturedEditingRule == nil)
@@ -47,7 +47,7 @@ struct BreakpointRuleEditorStoreTests {
             action: .breakpoint(phase: .both)
         )
 
-        store.openExisting(rule) { _, _, _, _, _, _, _ in true }
+        store.openExisting(rule) { _, _, _, _, _, _, _, _ in true }
 
         #expect(store.editingRule?.id == rule.id)
         #expect(store.editorContext == nil)
@@ -62,10 +62,10 @@ struct BreakpointRuleEditorStoreTests {
             matchCondition: RuleMatchCondition(urlPattern: "/old"),
             action: .breakpoint(phase: .both)
         )
-        store.openExisting(rule) { _, _, _, _, _, _, _ in true }
+        store.openExisting(rule) { _, _, _, _, _, _, _, _ in true }
         let baseline = store.draftVersion
 
-        store.openNew { _, _, _, _, _, _, _ in true }
+        store.openNew { _, _, _, _, _, _, _, _ in true }
 
         #expect(store.editorContext == nil)
         #expect(store.editingRule == nil)
@@ -78,6 +78,7 @@ struct BreakpointRuleEditorStoreTests {
         var captured: CapturedSave?
 
         store.openNew {
+            _ = $7
             captured = CapturedSave(
                 name: $0,
                 pattern: $1,
@@ -89,7 +90,7 @@ struct BreakpointRuleEditorStoreTests {
             )
             return false
         }
-        let accepted = await store.onSave?("API", "/v1/*", .patch, .wildcard, true, false, false)
+        let accepted = await store.onSave?("API", "/v1/*", .patch, .wildcard, true, false, false, nil)
 
         let saved = try #require(captured)
         #expect(saved.name == "API")
@@ -109,16 +110,16 @@ struct BreakpointRuleEditorStoreTests {
         var firstHandlerCalled = false
         var secondHandlerCalled = false
 
-        store.openNew(context: BreakpointEditorContextBuilder.fromDomain("first.example.com")) { _, _, _, _, _, _, _ in
+        store.openNew(context: BreakpointEditorContextBuilder.fromDomain("first.example.com")) { _, _, _, _, _, _, _, _ in
             firstHandlerCalled = true
             return true
         }
-        store.openNew(context: BreakpointEditorContextBuilder.fromDomain("second.example.com")) { _, _, _, _, _, _, _ in
+        store.openNew(context: BreakpointEditorContextBuilder.fromDomain("second.example.com")) { _, _, _, _, _, _, _, _ in
             secondHandlerCalled = true
             return true
         }
 
-        _ = await store.onSave?("", "", .any, .wildcard, true, true, true)
+        _ = await store.onSave?("", "", .any, .wildcard, true, true, true, nil)
 
         #expect(store.editorContext?.sourceHost == "second.example.com")
         #expect(store.editingRule == nil)
@@ -135,7 +136,7 @@ struct BreakpointRuleEditorStoreTests {
             matchCondition: RuleMatchCondition(urlPattern: "/x"),
             action: .breakpoint(phase: .both)
         )
-        store.openExisting(rule) { _, _, _, _, _, _, _ in true }
+        store.openExisting(rule) { _, _, _, _, _, _, _, _ in true }
 
         store.reset()
 
@@ -155,17 +156,17 @@ struct BreakpointRuleEditorStoreTests {
         var editHandlerCalled = false
         var newHandlerCalled = false
 
-        store.openExisting(rule) { _, _, _, _, _, _, _ in
+        store.openExisting(rule) { _, _, _, _, _, _, _, _ in
             editHandlerCalled = true
             return true
         }
         let baseline = store.draftVersion
 
-        store.openNew { _, _, _, _, _, _, _ in
+        store.openNew { _, _, _, _, _, _, _, _ in
             newHandlerCalled = true
             return true
         }
-        _ = await store.onSave?("", "", .any, .wildcard, true, true, true)
+        _ = await store.onSave?("", "", .any, .wildcard, true, true, true, nil)
 
         #expect(store.editingRule == nil)
         #expect(store.editorContext == nil)

@@ -30,6 +30,15 @@ The fastest path starts from traffic you have already captured:
 
 To author a rule without a captured transaction, open **Breakpoint Rules** with `⇧⌘B`, then press `⌘N`.
 
+### Pause one GraphQL operation
+
+GraphQL clients send every operation to the same endpoint, so a URL pattern alone pauses all
+of them. Fill in **GraphQL Operation** to pause only requests whose operation name matches
+exactly (names are case-sensitive). When you create the rule from a captured GraphQL request,
+Rockxy prefills the operation name for you; clear the field to match every request to the URL.
+Rockxy reads the name from the request's `operationName`, or from the document itself
+(`query GetUser { … }`) when the client omits it. Anonymous operations never match a named rule.
+
 ## Resolve paused traffic
 
 When an enabled rule matches, Rockxy opens the Breakpoint Queue. The main-window footer also shows how many transactions are waiting, so closing the queue never hides an active pause.

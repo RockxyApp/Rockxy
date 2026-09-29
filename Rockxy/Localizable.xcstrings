@@ -94,6 +94,16 @@
         }
       }
     },
+    "Any operation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意操作"
+          }
+        }
+      }
+    },
     "Binary Part": {
       "localizations": {
         "zh-Hans": {
@@ -340,6 +350,16 @@
         }
       }
     },
+    "GraphQL operation name to match": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要匹配的 GraphQL 操作名称"
+          }
+        }
+      }
+    },
     "Hide Advanced Filters": {
       "localizations": {
         "zh-Hans": {
@@ -476,6 +496,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "也可以使用 simctl 直接安装到每个已启动的模拟器中。Rockxy 会在更改模拟器信任设置前征得你的同意。"
+          }
+        }
+      }
+    },
+    "Pause only GraphQL requests with this exact operation name. Leave empty to match every request to the URL.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅暂停具有此确切操作名称的 GraphQL 请求。留空则匹配发往该 URL 的所有请求。"
           }
         }
       }

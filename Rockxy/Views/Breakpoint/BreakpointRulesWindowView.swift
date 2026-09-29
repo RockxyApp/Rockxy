@@ -157,6 +157,7 @@ final class BreakpointRulesViewModel {
         phaseRequest: Bool,
         phaseResponse: Bool,
         includeSubpaths: Bool,
+        graphQLOperationName: String? = nil,
         using gate: RulePolicyGate = .shared
     )
         async -> Bool
@@ -169,7 +170,8 @@ final class BreakpointRulesViewModel {
             matchType: matchType,
             phaseRequest: phaseRequest,
             phaseResponse: phaseResponse,
-            includeSubpaths: includeSubpaths
+            includeSubpaths: includeSubpaths,
+            graphQLOperationName: graphQLOperationName
         )
 
         guard syncsChanges else {
@@ -792,7 +794,8 @@ struct BreakpointRulesWindowView: View {
                 matchType: $3,
                 phaseRequest: $4,
                 phaseResponse: $5,
-                includeSubpaths: $6
+                includeSubpaths: $6,
+                graphQLOperationName: $7
             )
         }
         openWindow(id: "breakpointRuleEditor")
@@ -808,7 +811,8 @@ struct BreakpointRulesWindowView: View {
                 matchType: $3,
                 phaseRequest: $4,
                 phaseResponse: $5,
-                includeSubpaths: $6
+                includeSubpaths: $6,
+                graphQLOperationName: $7
             )
         }
         openWindow(id: "breakpointRuleEditor")

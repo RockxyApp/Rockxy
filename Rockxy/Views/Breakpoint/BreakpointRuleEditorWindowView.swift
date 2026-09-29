@@ -17,7 +17,8 @@ final class BreakpointRuleEditorStore {
         RuleMatchType,
         Bool,
         Bool,
-        Bool
+        Bool,
+        String?
     )
     async -> Bool
 
@@ -138,6 +139,7 @@ struct BreakpointRuleEditorWindowView: View {
     @State private var includeSubpaths = true
     @State private var breakpointRequest = true
     @State private var breakpointResponse = true
+    @State private var graphQLOperationName = ""
     @State private var isSaving = false
     @State private var saveError: String?
 
@@ -258,6 +260,23 @@ struct BreakpointRuleEditorWindowView: View {
 
                     Spacer(minLength: 0)
                 }
+
+                fieldGroup(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {
+                    TextField(
+                        String(localized: "Any operation", bundle: RockxyLocalization.bundle),
+                        text: $graphQLOperationName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel(String(
+                        localized: "GraphQL operation name to match",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .help(String(
+                        localized: "Pause only GraphQL requests with this exact operation name. Leave empty to match every request to the URL.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
+                .frame(width: max(250, toolMetrics.fieldWidth(250)))
 
                 if let patternValidationMessage {
                     validationLabel(patternValidationMessage)
@@ -501,6 +520,7 @@ struct BreakpointRuleEditorWindowView: View {
             includeSubpaths = decoded.includeSubpaths
             breakpointRequest = decoded.breakpointRequest
             breakpointResponse = decoded.breakpointResponse
+            graphQLOperationName = decoded.graphQLOperationName
         } else if let context = store.editorContext {
             ruleName = context.suggestedName.isEmpty ? "Untitled" : context.suggestedName
             urlPattern = context.defaultPattern
@@ -509,6 +529,7 @@ struct BreakpointRuleEditorWindowView: View {
             includeSubpaths = context.includeSubpaths
             breakpointRequest = context.breakpointRequest
             breakpointResponse = context.breakpointResponse
+            graphQLOperationName = context.graphQLOperationName ?? ""
         } else {
             ruleName = "Untitled"
             urlPattern = ""
@@ -517,6 +538,7 @@ struct BreakpointRuleEditorWindowView: View {
             includeSubpaths = true
             breakpointRequest = true
             breakpointResponse = true
+            graphQLOperationName = ""
         }
     }
 
@@ -534,7 +556,8 @@ struct BreakpointRuleEditorWindowView: View {
             matchType,
             breakpointRequest,
             breakpointResponse,
-            includeSubpaths
+            includeSubpaths,
+            graphQLOperationName
         )
         isSaving = false
         guard accepted else {

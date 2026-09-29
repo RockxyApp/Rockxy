@@ -14,7 +14,8 @@ struct RuleMatchCondition: Codable, Equatable {
         headerName: String? = nil,
         headerValue: String? = nil,
         matchType: RuleMatchType? = nil,
-        includeSubpaths: Bool? = nil
+        includeSubpaths: Bool? = nil,
+        graphQLOperationName: String? = nil
     ) {
         self.urlPattern = urlPattern
         self.sourceURLPattern = sourceURLPattern
@@ -23,6 +24,7 @@ struct RuleMatchCondition: Codable, Equatable {
         self.headerValue = headerValue
         self.matchType = matchType
         self.includeSubpaths = includeSubpaths
+        self.graphQLOperationName = graphQLOperationName
     }
 
     // MARK: Internal
@@ -36,6 +38,20 @@ struct RuleMatchCondition: Codable, Equatable {
     var headerValue: String?
     var matchType: RuleMatchType?
     var includeSubpaths: Bool?
+    /// When set, the rule only fires for GraphQL requests whose operation name
+    /// matches exactly (GraphQL names are case-sensitive). Lets one rule target a
+    /// single operation on an endpoint that serves every operation.
+    var graphQLOperationName: String?
+
+    /// The trimmed operation name, or `nil` when the rule does not filter by operation.
+    var requiredGraphQLOperationName: String? {
+        guard let name = graphQLOperationName?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else
+        {
+            return nil
+        }
+        return name
+    }
 
     /// The regex source the runtime should compile and match against. When the editor
     /// persisted authoring metadata (`matchType`/`sourceURLPattern`/`includeSubpaths`)
@@ -69,10 +85,16 @@ struct RuleMatchCondition: Codable, Equatable {
         method requestMethod: String,
         url: URL,
         headers: [HTTPHeader],
-        compiledPattern: NSRegularExpression? = nil
+        compiledPattern: NSRegularExpression? = nil,
+        graphQLOperationName requestOperationName: String? = nil
     )
         -> Bool
     {
+        if let requiredOperation = requiredGraphQLOperationName {
+            guard requestOperationName == requiredOperation else {
+                return false
+            }
+        }
         if let regex = compiledPattern {
             let urlString = String(url.absoluteString.prefix(ProxyLimits.maxURILength))
             let range = NSRange(urlString.startIndex..., in: urlString)
