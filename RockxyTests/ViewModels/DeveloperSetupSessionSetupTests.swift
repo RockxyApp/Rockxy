@@ -1087,7 +1087,8 @@ struct DeveloperSetupSessionSetupTests {
         #expect(userJS.contains("user_pref(\"network.proxy.type\", 1);"))
         #expect(userJS.contains("user_pref(\"network.proxy.http\", \"127.0.0.1\");"))
         #expect(userJS.contains("user_pref(\"network.proxy.ssl_port\", 9090);"))
-        #expect(userJS.contains("user_pref(\"network.proxy.no_proxies_on\", \"localhost, 127.0.0.1, ::1\");"))
+        #expect(userJS.contains("user_pref(\"network.proxy.no_proxies_on\", \"\");"))
+        #expect(userJS.contains("user_pref(\"network.proxy.allow_hijacking_localhost\", true);"))
     }
 
     // MARK: Private

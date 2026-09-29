@@ -130,6 +130,12 @@ Some local tools bypass proxies for `localhost`, `127.0.0.1`, or `::1`. Rockxy's
 
 If your target call is to a local server and you want that request to pass through Rockxy, test with an address and client configuration that does not bypass the proxy, or use the target-specific validation flow in Developer Setup Hub first.
 
+Browsers are the common case. The dedicated **Chrome (new profile)** and **Firefox** windows that
+Automatic Setup opens route `localhost` through Rockxy, so a page served by a local dev server
+(for example `http://localhost:3000`) is captured without editing `/etc/hosts`. Your everyday
+browser profile keeps its normal loopback bypass. For a command-line client, point it at a
+[reverse proxy](/features/reverse-proxy) port instead.
+
 ## A specific library still bypasses Rockxy
 
 Some libraries ignore standard proxy environment variables or use custom networking stacks.

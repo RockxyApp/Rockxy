@@ -399,6 +399,9 @@ enum RockxySetupSessionLauncher {
         }
     }
 
+    /// Proxy preferences for the dedicated Firefox profile. Like the new Chrome profile,
+    /// it also routes localhost through Rockxy so a local dev server's traffic is captured;
+    /// Firefox otherwise never proxies loopback addresses.
     static func firefoxUserJS(proxyHost: String, proxyPort: Int) -> String {
         """
         user_pref("network.proxy.type", 1);
@@ -406,7 +409,8 @@ enum RockxySetupSessionLauncher {
         user_pref("network.proxy.http_port", \(proxyPort));
         user_pref("network.proxy.ssl", "\(proxyHost)");
         user_pref("network.proxy.ssl_port", \(proxyPort));
-        user_pref("network.proxy.no_proxies_on", "localhost, 127.0.0.1, ::1");
+        user_pref("network.proxy.no_proxies_on", "");
+        user_pref("network.proxy.allow_hijacking_localhost", true);
         """
     }
 
