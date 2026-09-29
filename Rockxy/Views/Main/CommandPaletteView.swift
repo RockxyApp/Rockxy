@@ -125,3 +125,83 @@ struct CommandPaletteView: View {
         onRun(command)
     }
 }
+
+// MARK: - CommandPaletteSheet
+
+/// Presents the Command Palette over the main window and runs the chosen command
+/// once the sheet has closed.
+struct CommandPaletteSheet: ViewModifier {
+    // MARK: Internal
+
+    let lifecycleState: AppLifecycleState
+    let coordinator: MainContentCoordinator
+
+    func body(content: Content) -> some View {
+        content.sheet(isPresented: Binding(
+            get: { lifecycleState.showCommandPalette },
+            set: { lifecycleState.showCommandPalette = $0 }
+        )) {
+            CommandPaletteView(commands: CommandPaletteCatalog.commands) { command in
+                lifecycleState.showCommandPalette = false
+                // Run after the sheet closes so panels and windows the command
+                // opens are not presented over a dismissing sheet.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(200))
+                    perform(command.action)
+                }
+            }
+        }
+    }
+
+    // MARK: Private
+
+    @Environment(\.openWindow) private var openWindow
+
+    private func perform(_ action: CommandPaletteAction) {
+        let actions = MainContentCommandActions(coordinator: coordinator)
+        switch action {
+        case let .openWindow(id):
+            openWindow(id: id)
+        case .startProxy:
+            actions.startProxy()
+        case .stopProxy:
+            actions.stopProxy()
+        case .toggleRecording:
+            actions.toggleRecording()
+        case .toggleSystemProxy:
+            actions.toggleSystemProxyOverride()
+        case .clearSession:
+            actions.clearSession()
+        case .clearSessionAndFilters:
+            actions.clearCaptureAndFilters()
+        case .compose:
+            actions.composeFreshRequest()
+        case .openSession:
+            actions.openSession()
+        case .saveSession:
+            actions.saveSession()
+        case .importHAR:
+            actions.importHAR()
+        case .exportHAR:
+            actions.exportHAR()
+        case .exportCSV:
+            actions.exportCSV()
+        case .exportOpenAPIYAML:
+            actions.exportOpenAPIYAML()
+        case .exportOpenAPIHTML:
+            actions.exportOpenAPIHTML()
+        case .toggleAdvancedFilters:
+            actions.toggleFilterBar()
+        case .findInCapture:
+            actions.focusSearchField()
+        case .searchAppsAndDomains:
+            actions.focusSidebarSearchField()
+        case .toggleTrafficInsights:
+            actions.toggleTrafficInsights()
+        case .newTab:
+            actions.newWorkspaceTab()
+        case .showKeyboardShortcuts:
+            lifecycleState.showKeyboardShortcuts = true
+        }
+    }
+}

@@ -600,9 +600,6 @@ private struct MainWindowContent: View {
 
     var body: some View {
         ContentView(coordinator: coordinator)
-            .onAppear {
-                ExternalDocumentOpenRouter.shared.openMainWindow = { openWindow(id: "main") }
-            }
             .sheet(isPresented: Binding(
                 get: { lifecycleState.showWelcome },
                 set: { lifecycleState.showWelcome = $0 }
@@ -617,20 +614,7 @@ private struct MainWindowContent: View {
             )) {
                 KeyboardShortcutsView()
             }
-            .sheet(isPresented: Binding(
-                get: { lifecycleState.showCommandPalette },
-                set: { lifecycleState.showCommandPalette = $0 }
-            )) {
-                CommandPaletteView(commands: CommandPaletteCatalog.commands) { command in
-                    lifecycleState.showCommandPalette = false
-                    // Run after the sheet closes so panels and windows the command
-                    // opens are not presented over a dismissing sheet.
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(200))
-                        perform(command.action)
-                    }
-                }
-            }
+            .modifier(CommandPaletteSheet(lifecycleState: lifecycleState, coordinator: coordinator))
             .task {
                 guard !setupChecked else {
                     return
@@ -668,56 +652,7 @@ private struct MainWindowContent: View {
     @AppStorage("showWelcomeOnLaunch") private var showWelcomeOnLaunch = true
     @AppStorage(RockxyIdentity.current.defaultsKey("onboardingCompletedOnce")) private var onboardingCompletedOnce =
         false
-    private func perform(_ action: CommandPaletteAction) {
-        let actions = MainContentCommandActions(coordinator: coordinator)
-        switch action {
-        case let .openWindow(id):
-            openWindow(id: id)
-        case .startProxy:
-            actions.startProxy()
-        case .stopProxy:
-            actions.stopProxy()
-        case .toggleRecording:
-            actions.toggleRecording()
-        case .toggleSystemProxy:
-            actions.toggleSystemProxyOverride()
-        case .clearSession:
-            actions.clearSession()
-        case .clearSessionAndFilters:
-            actions.clearCaptureAndFilters()
-        case .compose:
-            actions.composeFreshRequest()
-        case .openSession:
-            actions.openSession()
-        case .saveSession:
-            actions.saveSession()
-        case .importHAR:
-            actions.importHAR()
-        case .exportHAR:
-            actions.exportHAR()
-        case .exportCSV:
-            actions.exportCSV()
-        case .exportOpenAPIYAML:
-            actions.exportOpenAPIYAML()
-        case .exportOpenAPIHTML:
-            actions.exportOpenAPIHTML()
-        case .toggleAdvancedFilters:
-            actions.toggleFilterBar()
-        case .findInCapture:
-            actions.focusSearchField()
-        case .searchAppsAndDomains:
-            actions.focusSidebarSearchField()
-        case .toggleTrafficInsights:
-            actions.toggleTrafficInsights()
-        case .newTab:
-            actions.newWorkspaceTab()
-        case .showKeyboardShortcuts:
-            lifecycleState.showKeyboardShortcuts = true
-        }
-    }
-
     @State private var setupChecked = false
-    @Environment(\.openWindow) private var openWindow
 }
 
 // MARK: - ProjectLinks
@@ -951,11 +886,7 @@ struct RockxyMenuCommands: Commands {
 
     private var viewMenu: some Commands {
         CommandGroup(after: .toolbar) {
-            Button(
-                proxyActions.isFilterBarVisible
-                    ? String(localized: "Hide Advanced Filters", bundle: RockxyLocalization.bundle)
-                    : String(localized: "Show Advanced Filters", bundle: RockxyLocalization.bundle)
-            ) {
+            Button(proxyActions.advancedFiltersMenuTitle) {
                 proxyActions.toggleFilterBar()
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])

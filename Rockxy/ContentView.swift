@@ -150,6 +150,7 @@ struct ContentView: View {
             guard managesLifecycle, !ProcessInfo.processInfo.isTestHost else {
                 return
             }
+            ExternalDocumentOpenRouter.shared.openMainWindow = { openWindow(id: "main") }
             coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
             coordinator.attachToMCPServer(MCPServerCoordinator.shared)

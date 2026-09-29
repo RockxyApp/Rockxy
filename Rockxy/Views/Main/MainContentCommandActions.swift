@@ -227,6 +227,12 @@ struct MainContentCommandActions {
         coordinator.isFilterBarVisible
     }
 
+    var advancedFiltersMenuTitle: String {
+        isFilterBarVisible
+            ? String(localized: "Hide Advanced Filters", bundle: RockxyLocalization.bundle)
+            : String(localized: "Show Advanced Filters", bundle: RockxyLocalization.bundle)
+    }
+
     /// Reveals the sidebar if needed and moves keyboard focus to its app/domain search field.
     func focusSidebarSearchField() {
         NotificationCenter.default.post(name: .focusSidebarSearchField, object: nil)
