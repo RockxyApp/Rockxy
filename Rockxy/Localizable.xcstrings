@@ -190,6 +190,36 @@
         }
       }
     },
+    "Filter Frames": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选帧"
+          }
+        }
+      }
+    },
+    "Filter frames by payload text": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按负载文本筛选帧"
+          }
+        }
+      }
+    },
+    "Format JSON": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "格式化 JSON"
+          }
+        }
+      }
+    },
     "GraphQL Operation": {
       "localizations": {
         "zh-Hans": {

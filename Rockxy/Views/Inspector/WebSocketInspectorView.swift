@@ -72,6 +72,8 @@ struct WebSocketInspectorView: View {
     @State private var directionFilterValue: FrameDirection?
     @State private var showDetail = true
     @State private var payloadMode: WebSocketPayloadInspectorMode = .payload
+    @State private var frameSearchText = ""
+    @State private var formatsJSONPayloads = true
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var selectedFrame: WebSocketFrameData? {
@@ -236,6 +238,18 @@ struct WebSocketInspectorView: View {
         }
         .pickerStyle(.segmented)
         .controlSize(.small)
+        .fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .trailing) {
+            TextField(
+                String(localized: "Filter Frames", bundle: RockxyLocalization.bundle),
+                text: $frameSearchText
+            )
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .frame(width: 180)
+            .accessibilityLabel(String(localized: "Filter frames by payload text", bundle: RockxyLocalization.bundle))
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
     }
@@ -329,6 +343,15 @@ struct WebSocketInspectorView: View {
                     .controlSize(.small)
                     .frame(width: 190)
 
+                    if payloadMode == .payload, frame.opcode == .text {
+                        Toggle(
+                            String(localized: "Format JSON", bundle: RockxyLocalization.bundle),
+                            isOn: $formatsJSONPayloads
+                        )
+                        .toggleStyle(.checkbox)
+                        .controlSize(.small)
+                    }
+
                     if ProtobufDetector.isLikelyProtobuf(frame.payload) {
                         Label(
                             String(localized: "Likely Protobuf", bundle: RockxyLocalization.bundle),
@@ -361,11 +384,12 @@ struct WebSocketInspectorView: View {
            frame.payload.isProbablyUTF8Text
         {
             let payload = frame.payload
+            let formatsJSON = formatsJSONPayloads
             AsyncInspectorTextEditor(
-                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)"
+                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)-\(formatsJSON)"
             ) {
                 if let text = String(data: payload, encoding: .utf8) {
-                    return .text(text)
+                    return .text(formatsJSON ? WebSocketFrameSearch.prettyJSON(text) ?? text : text)
                 }
                 return .unavailable(
                     title: String(localized: "Binary Payload", bundle: RockxyLocalization.bundle),
@@ -413,10 +437,13 @@ struct WebSocketInspectorView: View {
     }
 
     private func filteredFrames(_ connection: WebSocketConnection) -> [WebSocketFrameData] {
-        guard let filter = directionFilterValue else {
-            return connection.frames
+        let query = frameSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return connection.frames.filter { frame in
+            if let filter = directionFilterValue, frame.direction != filter {
+                return false
+            }
+            return query.isEmpty || WebSocketFrameSearch.matches(frame.payload, query: query)
         }
-        return connection.frames.filter { $0.direction == filter }
     }
 
     private func opcodeInfo(_ opcode: FrameOpcode) -> (String, Color) {
@@ -483,5 +510,39 @@ private enum WebSocketPayloadInspectorMode {
 private extension Data {
     var isProbablyUTF8Text: Bool {
         String(data: prefix(512), encoding: .utf8) != nil
+    }
+}
+
+// MARK: - WebSocketFrameSearch
+
+/// Text search and JSON formatting for WebSocket frame payloads. Only the first
+/// `maxScannedBytes` of a payload are searched so very large frames stay cheap.
+enum WebSocketFrameSearch {
+    static let maxScannedBytes = 65_536
+
+    static func matches(_ payload: Data, query: String) -> Bool {
+        guard !query.isEmpty else {
+            return true
+        }
+        guard let text = String(data: payload.prefix(maxScannedBytes), encoding: .utf8) else {
+            return false
+        }
+        return text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    /// Pretty-printed JSON for an object or array payload, or `nil` when the text is not JSON.
+    static func prettyJSON(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(
+                  withJSONObject: object,
+                  options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+              ) else
+        {
+            return nil
+        }
+        return String(data: pretty, encoding: .utf8)
     }
 }
