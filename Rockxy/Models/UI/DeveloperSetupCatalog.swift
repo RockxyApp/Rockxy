@@ -304,8 +304,10 @@ extension SetupTarget {
                 """, bundle: RockxyLocalization.bundle
             ),
             currentSupportSummary: String(
-                localized: "Rockxy does not drive simctl or inject the certificate into a simulator; reinstall or cold-launch the target app after the certificate is trusted.",
-                bundle: RockxyLocalization.bundle
+                localized: """
+                Rockxy can install the root certificate into booted simulators with simctl after you confirm; \
+                reinstall or cold-launch the target app after the certificate is trusted.
+                """, bundle: RockxyLocalization.bundle
             )
         )
     }

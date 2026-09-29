@@ -143,8 +143,8 @@ enum DeveloperSetupGuideCatalog {
                 ),
                 tip(
                     "ios-sim-simctl",
-                    "Command-line install remains manual",
-                    "If you prefer Terminal, export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> for a prepared simulator."
+                    "Install into booted simulators in one step",
+                    "Use Install in Booted Simulators under Device certificate, or export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> yourself."
                 ),
             ],
             validationTips: [

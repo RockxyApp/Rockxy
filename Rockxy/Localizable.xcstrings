@@ -104,6 +104,16 @@
         }
       }
     },
+    "Boot an iOS, watchOS, or visionOS simulator from Xcode or the Simulator app, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
     "CSV files list full URLs with query strings, client apps, and notes. Headers and bodies are not included. Review the file before sharing.": {
       "localizations": {
         "zh-Hans": {
@@ -126,6 +136,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法读取 %1$@：%2$@"
+          }
+        }
+      }
+    },
+    "Certificate Installed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书已安装"
+          }
+        }
+      }
+    },
+    "Certificate Unavailable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书不可用"
           }
         }
       }
@@ -310,6 +340,36 @@
         }
       }
     },
+    "Install in Booted Simulators…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装到已启动的模拟器…"
+          }
+        }
+      }
+    },
+    "Install into booted simulators in one step": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一步安装到已启动的模拟器"
+          }
+        }
+      }
+    },
+    "Install the Rockxy root certificate in ^[%lld booted simulator](inflect: true)?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 %lld 个已启动的模拟器中安装 Rockxy 根证书吗？"
+          }
+        }
+      }
+    },
     "JS exception: %@": {
       "localizations": {
         "zh-Hans": {
@@ -336,6 +396,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "多部分列表"
+          }
+        }
+      }
+    },
+    "No Booted Simulators": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已启动的模拟器"
           }
         }
       }
@@ -380,6 +450,16 @@
         }
       }
     },
+    "Or install it directly into every booted simulator with simctl. Rockxy asks before changing a simulator's trust.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也可以使用 simctl 直接安装到每个已启动的模拟器中。Rockxy 会在更改模拟器信任设置前征得你的同意。"
+          }
+        }
+      }
+    },
     "Plugin not loaded: %@": {
       "localizations": {
         "zh-Hans": {
@@ -406,6 +486,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法加载项目，因此 Rockxy 未导入传输的会话。"
+          }
+        }
+      }
+    },
+    "Relaunch the app in the simulator, then enable HTTPS decryption for its hosts.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在模拟器中重新启动 App，然后为其主机启用 HTTPS 解密。"
+          }
+        }
+      }
+    },
+    "Rockxy can install the root certificate into booted simulators with simctl after you confirm; reinstall or cold-launch the target app after the certificate is trusted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "确认后，Rockxy 可使用 simctl 将根证书安装到已启动的模拟器中；证书受信任后，请重新安装或冷启动目标 App。"
           }
         }
       }
@@ -540,6 +640,26 @@
         }
       }
     },
+    "Simulators Unavailable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器不可用"
+          }
+        }
+      }
+    },
+    "Some Simulators Were Not Updated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分模拟器未更新"
+          }
+        }
+      }
+    },
     "The body does not contain any parts for its declared boundary.": {
       "localizations": {
         "zh-Hans": {
@@ -610,6 +730,16 @@
         }
       }
     },
+    "The simulator list could not be read.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取模拟器列表。"
+          }
+        }
+      }
+    },
     "The stream has not delivered a complete event yet.": {
       "localizations": {
         "zh-Hans": {
@@ -640,6 +770,16 @@
         }
       }
     },
+    "These simulators will trust HTTPS certificates that Rockxy issues. Erasing a simulator removes the certificate.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些模拟器将信任 Rockxy 签发的 HTTPS 证书。抹掉模拟器会移除该证书。"
+          }
+        }
+      }
+    },
     "Unexpected networksetup output: %@": {
       "localizations": {
         "zh-Hans": {
@@ -656,6 +796,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "未命名部分"
+          }
+        }
+      }
+    },
+    "Use Install in Booted Simulators under Device certificate, or export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> yourself.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用“设备证书”下的“安装到已启动的模拟器”，或导出公开 PEM 后自行运行 xcrun simctl keychain <udid> add-root-cert <path-to-pem>。"
+          }
+        }
+      }
+    },
+    "Xcode is not installed or selected. Install Xcode, then choose it with xcode-select.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装或未选择 Xcode。请安装 Xcode，然后使用 xcode-select 选择它。"
           }
         }
       }
@@ -1944,6 +2104,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "隧道传输应用"
+          }
+        }
+      }
+    },
+    "simctl did not finish in time.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simctl 未能及时完成。"
+          }
+        }
+      }
+    },
+    "simctl exited with status %d.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "simctl 以状态 %d 退出。"
           }
         }
       }
@@ -9506,16 +9686,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "命令栏"
-          }
-        }
-      }
-    },
-    "Command-line install remains manual": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "命令行安装仍需手动完成"
           }
         }
       }
@@ -17253,16 +17423,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "如果应用对自己的证书启用了固定，则在构建应用时放宽该策略之前，Rockxy 无法解密其流量。"
-          }
-        }
-      }
-    },
-    "If you prefer Terminal, export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> for a prepared simulator.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "如果你更喜欢使用“终端”，请导出公开 PEM，然后为已准备的模拟器运行 xcrun simctl keychain <udid> add-root-cert <path-to-pem>。"
           }
         }
       }
@@ -30016,16 +30176,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 不收集分析或崩溃报告。捕获的流量会留在你这台 Mac 上，除非你明确导出、共享或发布。"
-          }
-        }
-      }
-    },
-    "Rockxy does not drive simctl or inject the certificate into a simulator; reinstall or cold-launch the target app after the certificate is trusted.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rockxy 不会驱动 simctl，也不会将证书注入模拟器；信任证书后，请重新安装或冷启动目标 App。"
           }
         }
       }

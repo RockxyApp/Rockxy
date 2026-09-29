@@ -511,9 +511,34 @@ struct DeveloperSetupWindowView: View {
                     openWindow(id: "certificateSetup")
                 }
             }
+
+            if viewModel.selectedTarget.id == .iosSimulator {
+                simulatorInstallRow
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
+    }
+
+    private var simulatorInstallRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(
+                String(
+                    localized: "Or install it directly into every booted simulator with simctl. Rockxy asks before changing a simulator's trust.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(setupMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Button(String(localized: "Install in Booted Simulators…", bundle: RockxyLocalization.bundle)) {
+                Task { @MainActor in
+                    await SimulatorCertificateInstallFlow.run()
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     // MARK: Snippets
