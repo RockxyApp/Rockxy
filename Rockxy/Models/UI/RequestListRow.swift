@@ -47,6 +47,7 @@ struct RequestListRow: Identifiable {
         isGRPC = GRPCDetector.isGRPC(transaction: transaction)
         webSocketFrameCount = transaction.webSocketConnection?.frameCount ?? 0
         sourcePort = transaction.sourcePort
+        modificationSummary = Self.modificationSummary(for: transaction)
         sequenceNumber = transaction.sequenceNumber
         requestHeaders = transaction.request.headers
         responseHeaders = transaction.response?.headers
@@ -67,6 +68,17 @@ struct RequestListRow: Identifiable {
             isWebSocket: isWebSocket,
             scheme: scheme
         )
+    }
+
+    static func modificationSummary(for transaction: HTTPTransaction) -> String? {
+        var lines: [String] = []
+        if let ruleName = transaction.matchedRuleName {
+            lines.append(transaction.matchedRuleActionSummary.map { "\(ruleName) — \($0)" } ?? ruleName)
+        }
+        if !transaction.appliedScriptNames.isEmpty {
+            lines.append(transaction.appliedScriptNames.joined(separator: ", "))
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
     // MARK: Internal
@@ -112,6 +124,8 @@ struct RequestListRow: Identifiable {
     let isGRPC: Bool
     let webSocketFrameCount: Int
     let sourcePort: UInt16?
+    /// Which rule or scripts changed this exchange, for the list's modified marker.
+    let modificationSummary: String?
 
     /// Request-list ordering metadata. Tracks the order transactions were received by the
     /// coordinator, independent of `timestamp`. This must not be used by unrelated features

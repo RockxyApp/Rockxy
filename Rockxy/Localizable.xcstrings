@@ -630,6 +630,16 @@
         }
       }
     },
+    "Modified by a rule": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已被规则修改"
+          }
+        }
+      }
+    },
     "Multipart": {
       "localizations": {
         "zh-Hans": {

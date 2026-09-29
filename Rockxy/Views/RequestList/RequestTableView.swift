@@ -2739,10 +2739,18 @@ extension RequestTableView {
                 cell.textColor = .secondaryLabelColor
 
             case "url":
-                cell.stringValue = rowData.host + rowData.path
-                cell.toolTip = cell.stringValue
+                let address = rowData.host + rowData.path
                 cell.font = metrics.appKitFont(monospaced: true)
                 cell.textColor = .labelColor
+                if let summary = rowData.modificationSummary {
+                    cell.attributedStringValue = Self.modifiedURLString(address, font: cell.font)
+                    cell.toolTip = address + "\n" + summary
+                    cell.setAccessibilityValue(address + ", " + summary)
+                } else {
+                    cell.stringValue = address
+                    cell.toolTip = address
+                    cell.setAccessibilityValue(nil)
+                }
 
             case "ai":
                 cell.alignment = .center
@@ -2873,6 +2881,32 @@ extension RequestTableView {
             default:
                 .secondaryLabelColor
             }
+        }
+
+        /// URL text led by a small marker for exchanges a rule or script changed.
+        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            let configuration = NSImage.SymbolConfiguration(pointSize: (font?.pointSize ?? 12) - 1, weight: .semibold)
+            if let symbol = NSImage(
+                systemSymbolName: "wand.and.rays",
+                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle)
+            )?.withSymbolConfiguration(configuration) {
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                result.append(NSAttributedString(attachment: attachment))
+                result.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.systemOrange,
+                    range: NSRange(location: 0, length: result.length)
+                )
+                result.append(NSAttributedString(string: " "))
+            }
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
+            if let font {
+                attributes[.font] = font
+            }
+            result.append(NSAttributedString(string: address, attributes: attributes))
+            return result
         }
 
         private func methodColor(for method: String) -> NSColor {
