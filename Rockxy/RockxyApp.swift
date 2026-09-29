@@ -793,6 +793,11 @@ struct RockxyMenuCommands: Commands {
             }
             .disabled(!proxyActions.hasVisibleTransactions)
 
+            Button(String(localized: "Export Rockxy Session…", bundle: RockxyLocalization.bundle)) {
+                proxyActions.exportRockxySession()
+            }
+            .disabled(!proxyActions.hasVisibleTransactions)
+
             Button(String(localized: "Export OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.exportOpenAPIYAML()
             }
@@ -1003,32 +1008,7 @@ struct RockxyMenuCommands: Commands {
 
             Divider()
 
-            Menu(String(localized: "Export", bundle: RockxyLocalization.bundle)) {
-                Button(String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportHAR()
-                }
-
-                Button(String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportCSV()
-                }
-
-                Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportOpenAPIYAML()
-                }
-                .disabled(!proxyActions.canExportOpenAPI)
-
-                Button(String(localized: "Export as OpenAPI HTML…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportOpenAPIHTML()
-                }
-                .disabled(!proxyActions.canExportOpenAPI)
-
-                Divider()
-
-                Button(String(localized: "Publish Selected to Gist…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.publishSelectedToGist()
-                }
-                .disabled(!proxyActions.canPublishGist)
-            }
+            FlowExportMenu(actions: proxyActions)
 
             Divider()
 

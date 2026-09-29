@@ -765,89 +765,42 @@ extension MainContentCoordinator {
         exportTransactionsForDomain(domain, pathPrefix: nil)
     }
 
-    func exportTransactionsForDomain(_ domain: String, pathPrefix: String?) {
-        let domainTransactions = transactions.filter {
-            DomainGrouping.host($0.request.host, matchesDomain: domain)
-                && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
-        }
+    func exportTransactionsForDomain(
+        _ domain: String,
+        pathPrefix: String?,
+        format: TrafficExportFormat = .har
+    ) {
+        let domainTransactions = sidebarDomainExportTransactions(domain, pathPrefix: pathPrefix)
         guard !domainTransactions.isEmpty else {
             return
         }
-
-        let exporter = HARExporter()
-        let data: Data
-        do {
-            data = try exporter.export(transactions: domainTransactions)
-        } catch {
-            Self.logger.error("Failed to serialize HAR for domain \(domain): \(error.localizedDescription)")
-            showSidebarExportError(error)
-            return
-        }
-
-        let panel = NSSavePanel()
         let suffix = pathPrefix?
             .replacingOccurrences(of: "/", with: "-")
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        let fileName = suffix.map { "\(domain)-\($0).har" } ?? "\(domain).har"
-        panel.nameFieldStringValue = fileName
-        panel.allowedContentTypes = [.har]
-
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-
-        do {
-            try data.write(to: url)
-            Self.logger.info("Exported \(domainTransactions.count) transactions for \(domain)")
-        } catch {
-            Self.logger.error("Failed to export transactions: \(error.localizedDescription)")
-            showSidebarExportError(error)
-        }
+        exportTransactions(
+            domainTransactions,
+            format: format,
+            defaultStem: suffix.map { "\(domain)-\($0)" } ?? domain
+        )
     }
 
-    func exportTransactionsForApp(_ appName: String) {
-        let appTransactions = transactions.filter { $0.clientApp == appName }
+    func exportTransactionsForApp(_ appName: String, format: TrafficExportFormat = .har) {
+        let appTransactions = sidebarAppExportTransactions(appName)
         guard !appTransactions.isEmpty else {
             return
         }
+        exportTransactions(appTransactions, format: format, defaultStem: "\(appName)-traffic")
+    }
 
-        let exporter = HARExporter()
-        let data: Data
-        do {
-            data = try exporter.export(transactions: appTransactions)
-        } catch {
-            Self.logger.error("Failed to serialize HAR for app \(appName): \(error.localizedDescription)")
-            showSidebarExportError(error)
-            return
-        }
-
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(appName)-traffic.har"
-        panel.allowedContentTypes = [.har]
-
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-
-        do {
-            try data.write(to: url)
-            Self.logger.info("Exported \(appTransactions.count) transactions for app \(appName)")
-        } catch {
-            Self.logger.error("Failed to export transactions: \(error.localizedDescription)")
-            showSidebarExportError(error)
+    func sidebarDomainExportTransactions(_ domain: String, pathPrefix: String?) -> [HTTPTransaction] {
+        transactions.filter {
+            DomainGrouping.host($0.request.host, matchesDomain: domain)
+                && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
         }
     }
 
-    private func showSidebarExportError(_ error: Error) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "Export Failed", bundle: RockxyLocalization.bundle)
-        alert.informativeText = String(
-            localized: "Could not export HAR file.\n\n\(error.localizedDescription)",
-            bundle: RockxyLocalization.bundle
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "OK", bundle: RockxyLocalization.bundle))
-        alert.runModal()
+    func sidebarAppExportTransactions(_ appName: String) -> [HTTPTransaction] {
+        transactions.filter { $0.clientApp == appName }
     }
 
     // MARK: - Delete / Remove

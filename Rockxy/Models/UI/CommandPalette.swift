@@ -20,6 +20,7 @@ enum CommandPaletteAction: Hashable {
     case importHAR
     case exportHAR
     case exportCSV
+    case exportRockxySession
     case exportOpenAPIYAML
     case exportOpenAPIHTML
     case toggleAdvancedFilters
@@ -77,6 +78,14 @@ enum CommandPaletteCatalog {
             command("file.importHAR", "Import HAR…", file, "⇧⌘I", ["archive", "browser"], .importHAR),
             command("file.exportHAR", "Export HAR…", file, "⇧⌘E", ["archive", "share"], .exportHAR),
             command("file.exportCSV", "Export CSV…", file, nil, ["spreadsheet", "share"], .exportCSV),
+            command(
+                "file.exportSession",
+                "Export Rockxy Session…",
+                file,
+                nil,
+                ["rockxysession", "selected", "share"],
+                .exportRockxySession
+            ),
             command("file.openAPIYAML", "Export OpenAPI YAML…", file, nil, ["swagger", "spec"], .exportOpenAPIYAML),
             command("file.openAPIHTML", "Export OpenAPI HTML…", file, nil, ["swagger", "docs"], .exportOpenAPIHTML),
             command(

@@ -543,6 +543,10 @@ struct TrafficCommandBar: View {
                 .disabled(coordinator.transactions.isEmpty)
             Button(String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle)) { actions.exportCSV() }
                 .disabled(coordinator.transactions.isEmpty)
+            Button(String(localized: "Export as Rockxy Session…", bundle: RockxyLocalization.bundle)) {
+                actions.exportRockxySession()
+            }
+            .disabled(coordinator.transactions.isEmpty)
             Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 actions.exportOpenAPIYAML()
             }

@@ -9,6 +9,7 @@ import Foundation
 
 /// User-facing traffic export formats available from the main capture workspace.
 enum TrafficExportFormat: String, CaseIterable {
+    case rockxySession
     case har
     case csv
     case openAPIYAML
@@ -18,6 +19,8 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var title: String {
         switch self {
+        case .rockxySession:
+            String(localized: "Export as Rockxy Session", bundle: RockxyLocalization.bundle)
         case .har:
             String(localized: "Export as HAR", bundle: RockxyLocalization.bundle)
         case .csv:
@@ -31,7 +34,8 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var isOpenAPI: Bool {
         switch self {
-        case .har,
+        case .rockxySession,
+             .har,
              .csv:
             false
         case .openAPIYAML,
@@ -42,6 +46,11 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var privacyNote: String {
         switch self {
+        case .rockxySession:
+            String(
+                localized: "Rockxy sessions keep full URLs, headers, cookies, bodies, timing, notes, and highlights. Review the file before sharing.",
+                bundle: RockxyLocalization.bundle
+            )
         case .har:
             String(
                 localized: "HAR files can include captured URLs, headers, cookies, authorization and query values, and request/response bodies. Review the file before sharing.",
@@ -65,6 +74,11 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var subtitle: String {
         switch self {
+        case .rockxySession:
+            String(
+                localized: "Choose which captured transactions to save in a session file that Rockxy can reopen.",
+                bundle: RockxyLocalization.bundle
+            )
         case .har:
             String(
                 localized: "Choose which captured transactions to save in this HAR archive.",
@@ -86,6 +100,8 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var defaultFileName: String {
         switch self {
+        case .rockxySession:
+            "rockxy-export.rockxysession"
         case .har:
             "rockxy-export.har"
         case .csv:
@@ -99,6 +115,8 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var successLabel: String {
         switch self {
+        case .rockxySession:
+            String(localized: "Rockxy Session", bundle: RockxyLocalization.bundle)
         case .har:
             "HAR"
         case .csv:
@@ -111,11 +129,12 @@ enum TrafficExportFormat: String, CaseIterable {
     }
 
     /// Whether a single captured transaction can appear in this format's output.
-    /// HAR carries every transaction verbatim; OpenAPI only accepts requests it
-    /// can infer a schema from.
+    /// Sessions, HAR, and CSV carry every transaction verbatim; OpenAPI only
+    /// accepts requests it can infer a schema from.
     func isEligible(_ transaction: HTTPTransaction) -> Bool {
         switch self {
-        case .har,
+        case .rockxySession,
+             .har,
              .csv:
             true
         case .openAPIYAML,

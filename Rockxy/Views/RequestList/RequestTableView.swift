@@ -1297,18 +1297,28 @@ extension RequestTableView {
         }
 
         @objc
+        func handleExportRockxySession(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .rockxySession) }
+        }
+
+        @objc
         func handleExportHAR(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportTransactionAsHAR($1) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .har) }
+        }
+
+        @objc
+        func handleExportCSV(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .csv) }
         }
 
         @objc
         func handleExportOpenAPIYAML(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportOpenAPIContextSelection(clicked: $1, format: .openAPIYAML) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .openAPIYAML) }
         }
 
         @objc
         func handleExportOpenAPIHTML(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportOpenAPIContextSelection(clicked: $1, format: .openAPIHTML) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .openAPIHTML) }
         }
 
         @objc
@@ -1933,11 +1943,29 @@ extension RequestTableView {
 
         private func buildExportGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
             let exportSubmenu = NSMenu()
+            let exportsSelection = exportContextTransactions(for: transaction).count > 1
             exportSubmenu.addItem(menuItem(
-                String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle),
+                exportsSelection
+                    ? String(localized: "Export Selected as Rockxy Session…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as Rockxy Session…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportRockxySession(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as HAR…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleExportHAR(_:)),
                 transaction: transaction
             ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as CSV…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportCSV(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(.separator())
 
             let openAPITitle = openAPIExportTitle(for: transaction)
             let openAPIYAMLItem = menuItem(
@@ -1950,7 +1978,7 @@ extension RequestTableView {
                 action: #selector(handleExportOpenAPIHTML(_:)),
                 transaction: transaction
             )
-            let hasEligibleOpenAPI = openAPIContextTransactions(for: transaction)
+            let hasEligibleOpenAPI = exportContextTransactions(for: transaction)
                 .contains(where: OpenAPIExporter.isEligible)
             openAPIYAMLItem.isEnabled = hasEligibleOpenAPI
             openAPIHTMLItem.isEnabled = hasEligibleOpenAPI
@@ -2058,7 +2086,7 @@ extension RequestTableView {
             }
         }
 
-        private func openAPIContextTransactions(for transaction: HTTPTransaction) -> [HTTPTransaction] {
+        private func exportContextTransactions(for transaction: HTTPTransaction) -> [HTTPTransaction] {
             MainActor.assumeIsolated {
                 guard let coordinator = mainCoordinator,
                       coordinator.selectedTransactionIDs.contains(transaction.id),

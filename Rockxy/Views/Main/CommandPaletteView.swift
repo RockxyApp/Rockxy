@@ -187,6 +187,8 @@ struct CommandPaletteSheet: ViewModifier {
             actions.exportHAR()
         case .exportCSV:
             actions.exportCSV()
+        case .exportRockxySession:
+            actions.exportRockxySession()
         case .exportOpenAPIYAML:
             actions.exportOpenAPIYAML()
         case .exportOpenAPIHTML:

@@ -285,45 +285,6 @@ extension MainContentCoordinator {
         refreshRowsAfterMutation()
     }
 
-    func exportTransactionAsHAR(_ transaction: HTTPTransaction) {
-        let exporter = HARExporter()
-        let data: Data
-        do {
-            data = try exporter.export(transactions: [transaction])
-        } catch {
-            Self.logger.error("Failed to serialize HAR: \(error.localizedDescription)")
-            showExportError(
-                title: String(localized: "Export Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not create HAR data.\n\n\(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-            return
-        }
-        let safeName = transaction.request.host
-            + transaction.request.path.replacingOccurrences(of: "/", with: "-")
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(safeName).har"
-        panel.allowedContentTypes = [.har]
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-        do {
-            try data.write(to: url)
-            Self.logger.info("Saved request to \(url.path())")
-        } catch {
-            Self.logger.error("Failed to export request as HAR: \(error.localizedDescription)")
-            showExportError(
-                title: String(localized: "Export Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not save HAR file.\n\n\(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-        }
-    }
-
     func openFavoriteTransactionInNewTab(
         _ transaction: HTTPTransaction,
         from section: FavoriteTransactionSection

@@ -155,6 +155,10 @@ struct MainContentCommandActions {
         coordinator.exportCSV()
     }
 
+    func exportRockxySession() {
+        coordinator.exportRockxySession()
+    }
+
     func exportOpenAPIYAML() {
         coordinator.exportOpenAPIYAML()
     }

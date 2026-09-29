@@ -11434,16 +11434,6 @@
         }
       }
     },
-    "Could not create HAR data.\n\n%@": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法创建 HAR 数据。\n\n%@"
-          }
-        }
-      }
-    },
     "Could not create the script. %@": {
       "localizations": {
         "zh-Hans": {
@@ -11500,16 +11490,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法启用脚本。%@"
-          }
-        }
-      }
-    },
-    "Could not export HAR file.\n\n%@": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法导出 HAR 文件。\n\n%@"
           }
         }
       }
@@ -11578,16 +11558,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法读取文件：%@"
-          }
-        }
-      }
-    },
-    "Could not save HAR file.\n\n%@": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法保存 HAR 文件。\n\n%@"
           }
         }
       }
@@ -15271,16 +15241,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "导出 Rockxy 根证书以添加证书环境提示。"
-          }
-        }
-      }
-    },
-    "Export Transactions": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "导出交易"
           }
         }
       }
@@ -44796,6 +44756,86 @@
           "stringUnit": {
             "state": "translated",
             "value": "未命名文件夹"
+          }
+        }
+      }
+    },
+    "Choose which captured transactions to save in a session file that Rockxy can reopen.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要保存到 Rockxy 可重新打开的会话文件中的捕获事务。"
+          }
+        }
+      }
+    },
+    "Export Rockxy Session…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出 Rockxy 会话…"
+          }
+        }
+      }
+    },
+    "Export Selected as CSV…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选项导出为 CSV…"
+          }
+        }
+      }
+    },
+    "Export Selected as HAR…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选项导出为 HAR…"
+          }
+        }
+      }
+    },
+    "Export Selected as Rockxy Session…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选项导出为 Rockxy 会话…"
+          }
+        }
+      }
+    },
+    "Export as Rockxy Session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 Rockxy 会话"
+          }
+        }
+      }
+    },
+    "Export as Rockxy Session…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 Rockxy 会话…"
+          }
+        }
+      }
+    },
+    "Rockxy sessions keep full URLs, headers, cookies, bodies, timing, notes, and highlights. Review the file before sharing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 会话会保留完整的 URL、标头、Cookie、正文、时间、备注和高亮。分享前请检查文件内容。"
           }
         }
       }

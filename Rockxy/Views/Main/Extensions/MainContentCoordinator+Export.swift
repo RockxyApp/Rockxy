@@ -16,6 +16,10 @@ extension MainContentCoordinator {
         presentExport(format: .har)
     }
 
+    func exportRockxySession() {
+        presentExport(format: .rockxySession)
+    }
+
     func exportCSV() {
         presentExport(format: .csv)
     }
@@ -100,6 +104,10 @@ extension MainContentCoordinator {
         let skippedCount: Int
         do {
             switch format {
+            case .rockxySession:
+                data = try Self.sessionExportData(plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = 0
             case .har:
                 data = try HARExporter().export(transactions: plan.eligibleTransactions)
                 exportedCount = plan.eligibleTransactions.count
@@ -282,7 +290,8 @@ extension MainContentCoordinator {
         -> [HTTPTransaction]
     {
         switch format {
-        case .har,
+        case .rockxySession,
+             .har,
              .csv:
             source
         case .openAPIYAML,
@@ -291,14 +300,36 @@ extension MainContentCoordinator {
         }
     }
 
-    func exportOpenAPIContextSelection(
+    /// Exports the right-clicked row, or the whole selection when the clicked
+    /// row is part of it, so a multi-row selection is never silently narrowed
+    /// to the row under the pointer.
+    func exportContextSelection(
         clicked transaction: HTTPTransaction,
         format: TrafficExportFormat
     ) {
-        let selected = selectedTransactionIDs.contains(transaction.id)
-            ? resolveSelectedTransactions()
-            : [transaction]
-        exportTransactions(selected, format: format, defaultStem: exportFileStem(for: transaction))
+        let selected = contextExportTransactions(clicked: transaction)
+        let stem = selected.count > 1 ? "rockxy-export" : exportFileStem(for: transaction)
+        exportTransactions(selected, format: format, defaultStem: stem)
+    }
+
+    func contextExportTransactions(clicked transaction: HTTPTransaction) -> [HTTPTransaction] {
+        guard selectedTransactionIDs.contains(transaction.id) else {
+            return [transaction]
+        }
+        let selected = resolveSelectedTransactions()
+        return selected.isEmpty ? [transaction] : selected
+    }
+
+    /// Serializes transactions as a `.rockxysession` document, spanning the
+    /// earliest to latest capture time of the exported rows.
+    static func sessionExportData(_ transactions: [HTTPTransaction]) throws -> Data {
+        let timestamps = transactions.map(\.timestamp)
+        let metadata = SessionSerializer.makeMetadata(
+            transactionCount: transactions.count,
+            captureStartDate: timestamps.min(),
+            captureEndDate: timestamps.max()
+        )
+        return try SessionSerializer.serialize(transactions: transactions, metadata: metadata)
     }
 
     func exportTransactions(
@@ -310,7 +341,9 @@ extension MainContentCoordinator {
         guard !transactionsToExport.isEmpty else {
             activeToast = ToastMessage(
                 style: .error,
-                text: String(localized: "No OpenAPI-eligible requests to export", bundle: RockxyLocalization.bundle)
+                text: format.isOpenAPI
+                    ? String(localized: "No OpenAPI-eligible requests to export", bundle: RockxyLocalization.bundle)
+                    : String(localized: "No transactions to export", bundle: RockxyLocalization.bundle)
             )
             return
         }
@@ -319,6 +352,9 @@ extension MainContentCoordinator {
         let skippedCount: Int
         do {
             switch format {
+            case .rockxySession:
+                data = try Self.sessionExportData(transactionsToExport)
+                skippedCount = 0
             case .har:
                 data = try HARExporter().export(transactions: transactionsToExport)
                 skippedCount = 0
@@ -402,6 +438,8 @@ extension MainContentCoordinator {
 
     private func allowedContentTypes(for format: TrafficExportFormat) -> [UTType] {
         switch format {
+        case .rockxySession:
+            [.rockxySession]
         case .har:
             [.har]
         case .csv:
@@ -415,6 +453,8 @@ extension MainContentCoordinator {
 
     private func fileExtension(for format: TrafficExportFormat) -> String {
         switch format {
+        case .rockxySession:
+            "rockxysession"
         case .har:
             "har"
         case .csv:

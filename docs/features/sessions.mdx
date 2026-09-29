@@ -80,7 +80,16 @@ Import errors (invalid format, oversized file, deserialization failure) are show
 3. Click **Export...** to open the save dialog.
 4. Pick a location and filename. Rockxy writes a standard HAR 1.2 file.
 
-You can also export individual requests via right-click > **Export > Export as HAR...** in the request list.
+You can also export from the request list: right-click a request and choose **Export > Export as HAR...**. When the clicked request is part of a multi-row selection, the menu reads **Export Selected as HAR...** and writes every selected request.
+
+### Exporting Part of a Session
+
+**Save Session** always writes the whole capture, including logs. To share only some requests with full fidelity (headers, bodies, timing, notes, and highlights):
+
+1. Select the requests, then right-click and choose **Export > Export Selected as Rockxy Session...**; or choose **File > Export Rockxy Session...** and pick **Selected** or **Visible / Filtered** in the Export Scope sheet.
+2. Pick a location. The recipient opens the `.rockxysession` file by double-clicking it or dropping it onto Rockxy.
+
+In the sidebar, right-click a domain or an app and choose **Export > as Rockxy Session...** or **Export > as HAR (HTTP Archive)...** to export only its requests. **Export > Export as CSV...** in the request list works the same way for a one-row-per-request summary.
 
 <Note>
   Exported HAR files may contain request bodies, cookies, and authorization headers. Review exports before sharing.

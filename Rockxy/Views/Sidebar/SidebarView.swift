@@ -812,28 +812,13 @@ struct SidebarView: View {
             Label(String(localized: "Tools", bundle: RockxyLocalization.bundle), systemImage: "wrench")
         }
 
-        Menu {
-            Button {
-                coordinator.copyDomainToClipboard(pathPrefix.map { "\(domain)\($0)" } ?? domain)
-            } label: {
-                Label(
-                    pathPrefix == nil
-                        ? String(localized: "Copy Domain", bundle: RockxyLocalization.bundle)
-                        : String(localized: "Copy Path Filter", bundle: RockxyLocalization.bundle),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            Button {
-                coordinator.exportTransactionsForDomain(domain, pathPrefix: pathPrefix)
-            } label: {
-                Label(
-                    String(localized: "Export Transactions", bundle: RockxyLocalization.bundle),
-                    systemImage: "square.and.arrow.up"
-                )
-            }
-        } label: {
-            Label(String(localized: "Export", bundle: RockxyLocalization.bundle), systemImage: "square.and.arrow.up")
-        }
+        SidebarExportMenu(
+            copyTitle: pathPrefix == nil
+                ? String(localized: "Copy Domain", bundle: RockxyLocalization.bundle)
+                : String(localized: "Copy Path Filter", bundle: RockxyLocalization.bundle),
+            copy: { coordinator.copyDomainToClipboard(pathPrefix.map { "\(domain)\($0)" } ?? domain) },
+            export: { coordinator.exportTransactionsForDomain(domain, pathPrefix: pathPrefix, format: $0) }
+        )
 
         Divider()
 
@@ -1073,23 +1058,11 @@ struct SidebarView: View {
 
         Divider()
 
-        Menu {
-            Button {
-                coordinator.copyDomainToClipboard(app.name)
-            } label: {
-                Label(String(localized: "Copy App Name", bundle: RockxyLocalization.bundle), systemImage: "doc.on.doc")
-            }
-            Button {
-                coordinator.exportTransactionsForApp(app.name)
-            } label: {
-                Label(
-                    String(localized: "Export Transactions", bundle: RockxyLocalization.bundle),
-                    systemImage: "square.and.arrow.up"
-                )
-            }
-        } label: {
-            Label(String(localized: "Export", bundle: RockxyLocalization.bundle), systemImage: "square.and.arrow.up")
-        }
+        SidebarExportMenu(
+            copyTitle: String(localized: "Copy App Name", bundle: RockxyLocalization.bundle),
+            copy: { coordinator.copyDomainToClipboard(app.name) },
+            export: { coordinator.exportTransactionsForApp(app.name, format: $0) }
+        )
 
         Divider()
 
