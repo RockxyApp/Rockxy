@@ -46869,6 +46869,66 @@
           }
         }
       }
+    },
+    "The filter ends before it is complete.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器尚未写完。"
+          }
+        }
+      }
+    },
+    "Unexpected string in the filter.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "过滤器中出现意外的字符串。"
+          }
+        }
+      }
+    },
+    "No Columns": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有列"
+          }
+        }
+      }
+    },
+    "Click + to show a query parameter as a column.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击 + 将查询参数显示为列。"
+          }
+        }
+      }
+    },
+    "Click + to show a value from the JSON body as a column.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点击 + 将 JSON 正文中的值显示为列。"
+          }
+        }
+      }
+    },
+    "Add Column": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加列"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

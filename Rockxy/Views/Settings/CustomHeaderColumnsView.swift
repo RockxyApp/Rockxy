@@ -435,6 +435,16 @@ struct CustomHeaderColumnsView: View {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 
+    private var nameColumnTitle: String {
+        switch model.source {
+        case .request,
+             .response: String(localized: "Header Name", bundle: RockxyLocalization.bundle)
+        case .query: String(localized: "Parameter", bundle: RockxyLocalization.bundle)
+        case .requestBody,
+             .responseBody: String(localized: "Expression", bundle: RockxyLocalization.bundle)
+        }
+    }
+
     private var infoBannerText: String {
         let discovered = String(
             localized: "Discovered names are cached suggestions from captured traffic.",
@@ -546,7 +556,7 @@ struct CustomHeaderColumnsView: View {
             }
             .width(60)
 
-            TableColumn(String(localized: "Header Name", bundle: RockxyLocalization.bundle)) { row in
+            TableColumn(nameColumnTitle) { row in
                 Text(row.displayName)
                     .font(toolMetrics.font(monospaced: true))
                     .lineLimit(1)
@@ -582,16 +592,29 @@ struct CustomHeaderColumnsView: View {
         let query = model.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if model.visibleRows.isEmpty {
             if query.isEmpty {
-                ContentUnavailableView(
-                    String(localized: "No Header Columns", bundle: RockxyLocalization.bundle),
-                    systemImage: "tablecells.badge.ellipsis",
-                    description: Text(
-                        String(
-                            localized: "Add a header name, or capture some traffic to see suggested headers here.",
-                            bundle: RockxyLocalization.bundle
+                if model.source.isHeader {
+                    ContentUnavailableView(
+                        String(localized: "No Header Columns", bundle: RockxyLocalization.bundle),
+                        systemImage: "tablecells.badge.ellipsis",
+                        description: Text(
+                            String(
+                                localized: "Add a header name, or capture some traffic to see suggested headers here.",
+                                bundle: RockxyLocalization.bundle
+                            )
                         )
                     )
-                )
+                } else {
+                    ContentUnavailableView(
+                        String(localized: "No Columns", bundle: RockxyLocalization.bundle),
+                        systemImage: "tablecells.badge.ellipsis",
+                        description: Text(model.source == .query
+                            ? String(localized: "Click + to show a query parameter as a column.", bundle: RockxyLocalization.bundle)
+                            : String(
+                                localized: "Click + to show a value from the JSON body as a column.",
+                                bundle: RockxyLocalization.bundle
+                            ))
+                    )
+                }
             } else {
                 ContentUnavailableView(
                     String(localized: "No Matching Headers", bundle: RockxyLocalization.bundle),
@@ -800,7 +823,9 @@ private struct AddHeaderColumnSheet: View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: toolMetrics.formRowSpacing + 2) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(String(localized: "Add Header Column", bundle: RockxyLocalization.bundle))
+                    Text(source.isHeader
+                        ? String(localized: "Add Header Column", bundle: RockxyLocalization.bundle)
+                        : String(localized: "Add Column", bundle: RockxyLocalization.bundle))
                         .font(toolMetrics.font(weight: .semibold))
                     Text(sourceExplanation)
                         .font(toolMetrics.secondaryFont())

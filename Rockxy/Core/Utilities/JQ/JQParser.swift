@@ -490,7 +490,13 @@ struct JQParser {
     }
 
     private func unexpected() -> String {
-        String(localized: "Unexpected “\(spelling(current))” in the filter.", bundle: RockxyLocalization.bundle)
+        if current == .end {
+            return String(localized: "The filter ends before it is complete.", bundle: RockxyLocalization.bundle)
+        }
+        if case .string = current {
+            return String(localized: "Unexpected string in the filter.", bundle: RockxyLocalization.bundle)
+        }
+        return String(localized: "Unexpected “\(spelling(current))” in the filter.", bundle: RockxyLocalization.bundle)
     }
 
     private mutating func enter() throws {

@@ -116,6 +116,7 @@ struct JQFilterTests {
     func failures() throws {
         #expect(throws: JQError.self) { try JQFilter(".a[") }
         #expect(throws: JQError.self) { try JQFilter("def f: 1; f") }
+        #expect(throws: JQError.syntax("The filter ends before it is complete.")) { try JQFilter(".a | select(") }
         #expect(throws: (any Error).self) { try run(".store | .[0]") }
         #expect(throws: (any Error).self) { try run("{} | length | .foo") }
         let limits = JQLimits(maxSteps: 10_000, maxOutputs: 10_000, maxDepth: 256, maxRegexPatternLength: 64)
