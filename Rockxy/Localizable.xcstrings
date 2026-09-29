@@ -45499,6 +45499,26 @@
           }
         }
       }
+    },
+    "Allowed devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许的设备"
+          }
+        }
+      }
+    },
+    "No devices are listed yet, so only this Mac can connect.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "尚未列出任何设备，因此只有本 Mac 可以连接。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

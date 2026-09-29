@@ -138,6 +138,13 @@ final class RemoteAccessSettings {
 // MARK: - RemoteAccessSettingsSection
 
 struct RemoteAccessSettingsSection: View {
+    // MARK: Lifecycle
+
+    init(listensOnlyOnLocalhost: Bool, settings: RemoteAccessSettings = .shared) {
+        self.listensOnlyOnLocalhost = listensOnlyOnLocalhost
+        _settings = State(initialValue: settings)
+    }
+
     // MARK: Internal
 
     let listensOnlyOnLocalhost: Bool
@@ -185,7 +192,7 @@ struct RemoteAccessSettingsSection: View {
 
     // MARK: Private
 
-    @State private var settings = RemoteAccessSettings.shared
+    @State private var settings: RemoteAccessSettings
     @State private var newEntry = ""
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
@@ -203,6 +210,16 @@ struct RemoteAccessSettingsSection: View {
 
     private var allowedList: some View {
         VStack(alignment: .leading, spacing: 4) {
+            Text(String(localized: "Allowed devices", bundle: RockxyLocalization.bundle))
+                .font(toolMetrics.font(weight: .medium))
+            if settings.allowedEntries.isEmpty {
+                Text(String(
+                    localized: "No devices are listed yet, so only this Mac can connect.",
+                    bundle: RockxyLocalization.bundle
+                ))
+                .font(toolMetrics.secondaryFont())
+                .foregroundStyle(.secondary)
+            }
             ForEach(settings.allowedEntries, id: \.self) { entry in
                 HStack(spacing: toolMetrics.controlSpacing) {
                     Text(entry)

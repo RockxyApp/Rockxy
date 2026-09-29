@@ -64,6 +64,31 @@ struct UseCaseViewSnapshotTests {
         try await render(SOCKSListenerSettingsSection().padding(), name: "socks-settings", size: CGSize(width: 560, height: 200))
     }
 
+    @Test("Access Control settings")
+    func accessControl() async throws {
+        let defaults = UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard
+        let settings = RemoteAccessSettings(defaults: defaults, gate: RemoteAccessGate())
+        settings.setMode(.listedDevices)
+        settings.addEntry("192.168.1.20")
+        settings.addEntry("10.0.0.0/8")
+        settings.recordRefused("192.168.1.44")
+        try await render(
+            RemoteAccessSettingsSection(listensOnlyOnLocalhost: false, settings: settings).padding(),
+            name: "access-control",
+            size: CGSize(width: 560, height: 360)
+        )
+    }
+
+    @Test("DNS Spoofing window")
+    func dnsSpoofing() async throws {
+        try await render(DNSSpoofingWindowView(), name: "dns-spoofing", size: CGSize(width: 720, height: 400))
+    }
+
+    @Test("TLS key log window")
+    func tlsKeyLog() async throws {
+        try await render(TLSKeyLogWindowView(), name: "tls-key-log", size: CGSize(width: 520, height: 320))
+    }
+
     @Test("Advanced filter bar")
     func advancedFilterBar() async throws {
         let rules = [
