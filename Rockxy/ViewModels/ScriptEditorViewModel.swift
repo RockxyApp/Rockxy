@@ -174,7 +174,8 @@ struct ScriptEditorDraft: Equatable {
         runOnRequest: true,
         runOnResponse: true,
         runAsMock: false,
-        code: ScriptTemplates.defaultSource
+        code: ScriptTemplates.defaultSource,
+        graphQLOperationName: ""
     )
 
     var name: String
@@ -186,6 +187,7 @@ struct ScriptEditorDraft: Equatable {
     var runOnResponse: Bool
     var runAsMock: Bool
     var code: String
+    var graphQLOperationName: String
 }
 
 // MARK: - ScriptEditorViewModel
@@ -217,6 +219,8 @@ final class ScriptEditorViewModel {
     var method: ScriptMatchMethod = .any
     var patternMode: ScriptMatchPatternMode = .wildcard
     var includeSubpaths: Bool = false
+    /// Limits the script to GraphQL requests with this operation name; empty matches any.
+    var graphQLOperationName: String = ""
 
     // Run-on row + status
     var runOnRequest: Bool = true
@@ -268,7 +272,8 @@ final class ScriptEditorViewModel {
             runOnRequest: runOnRequest,
             runOnResponse: runOnResponse,
             runAsMock: runAsMock,
-            code: code
+            code: code,
+            graphQLOperationName: graphQLOperationName
         )
     }
 
@@ -848,6 +853,7 @@ final class ScriptEditorViewModel {
         method = .any
         patternMode = .wildcard
         includeSubpaths = false
+        graphQLOperationName = ""
         runOnRequest = true
         runOnResponse = true
         runAsMock = false
@@ -879,6 +885,7 @@ final class ScriptEditorViewModel {
             patternMode = editorPattern.mode
             includeSubpaths = editorPattern.includeSubpaths
             method = ScriptMatchMethod(persisted: behavior.matchCondition?.method)
+            graphQLOperationName = behavior.matchCondition?.graphQLOperationName ?? ""
             runOnRequest = behavior.runOnRequest
             runOnResponse = behavior.runOnResponse
             runAsMock = behavior.runAsMock
@@ -946,7 +953,8 @@ final class ScriptEditorViewModel {
     private func buildMatchCondition(from draft: ScriptEditorDraft) -> RuleMatchCondition? {
         let trimmedPattern = draft.urlPattern.trimmingCharacters(in: .whitespacesAndNewlines)
         let methodValue = draft.method.persistedValue
-        if trimmedPattern.isEmpty, methodValue == nil {
+        let operation = draft.graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedPattern.isEmpty, methodValue == nil, operation.isEmpty {
             return nil
         }
         let pattern = trimmedPattern.isEmpty ? nil : trimmedPattern
@@ -965,7 +973,8 @@ final class ScriptEditorViewModel {
             urlPattern: pattern,
             method: methodValue,
             matchType: matchType,
-            includeSubpaths: matchType == .wildcard ? draft.includeSubpaths : nil
+            includeSubpaths: matchType == .wildcard ? draft.includeSubpaths : nil,
+            graphQLOperationName: operation.isEmpty ? nil : operation
         )
     }
 

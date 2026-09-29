@@ -157,7 +157,7 @@ Each script-type plugin's `plugin.json` may include an optional `scriptBehavior`
 
 | Field | Meaning | Default if missing |
 |-------|---------|--------------------|
-| `matchCondition` | Reuses the rule-engine match condition (URL regex, method, optional header). | `null` (match every request) |
+| `matchCondition` | Reuses the rule-engine match condition (URL regex, method, optional header, optional `graphQLOperationName`). The editor's **GraphQL Operation** field sets the operation name so the script runs for one GraphQL operation only. | `null` (match every request) |
 | `runOnRequest` | Whether `onRequest(ctx)` runs for matching traffic. | `true` |
 | `runOnResponse` | Whether `onResponse(ctx)` runs for matching traffic. | `true` |
 | `runAsMock` | Treat the request-hook return value as a mock response; never go upstream. | `false` |

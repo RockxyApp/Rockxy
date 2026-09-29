@@ -40,4 +40,6 @@ struct BlockRuleEditorContext {
     let defaultAction: BlockActionType
     let httpMethod: HTTPMethodFilter
     let includeSubpaths: Bool
+    /// Prefilled for GraphQL requests so the rule blocks one operation, not the whole endpoint.
+    var graphQLOperationName: String?
 }

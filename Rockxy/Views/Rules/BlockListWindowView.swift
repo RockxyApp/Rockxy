@@ -107,7 +107,8 @@ final class BlockListViewModel {
         httpMethod: HTTPMethodFilter,
         matchType: BlockMatchType,
         blockAction: BlockActionType,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String = ""
     ) {
         let rule = makeRule(
             ruleName: ruleName,
@@ -115,7 +116,8 @@ final class BlockListViewModel {
             httpMethod: httpMethod,
             matchType: matchType,
             blockAction: blockAction,
-            includeSubpaths: includeSubpaths
+            includeSubpaths: includeSubpaths,
+            graphQLOperationName: graphQLOperationName
         )
         allRules.append(rule)
         selectedRuleID = rule.id
@@ -139,7 +141,8 @@ final class BlockListViewModel {
         httpMethod: HTTPMethodFilter,
         matchType: BlockMatchType,
         blockAction: BlockActionType,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String = ""
     ) {
         guard let index = allRules.firstIndex(where: { $0.id == id }) else {
             return
@@ -151,7 +154,8 @@ final class BlockListViewModel {
             httpMethod: httpMethod,
             matchType: matchType,
             blockAction: blockAction,
-            includeSubpaths: includeSubpaths
+            includeSubpaths: includeSubpaths,
+            graphQLOperationName: graphQLOperationName
         )
         updated.isEnabled = allRules[index].isEnabled
         updated.priority = allRules[index].priority
@@ -245,10 +249,12 @@ final class BlockListViewModel {
         httpMethod: HTTPMethodFilter,
         matchType: BlockMatchType,
         blockAction: BlockActionType,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String = ""
     )
         -> ProxyRule
     {
+        let operation = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
         let escapedPattern = RulePatternBuilder.regexSource(
             rawPattern: urlPattern,
             matchType: matchType,
@@ -266,7 +272,8 @@ final class BlockListViewModel {
                 sourceURLPattern: urlPattern,
                 method: httpMethod.methodValue,
                 matchType: matchType,
-                includeSubpaths: includeSubpaths
+                includeSubpaths: includeSubpaths,
+                graphQLOperationName: operation.isEmpty ? nil : operation
             ),
             action: .block(statusCode: blockAction.statusCode)
         )
@@ -319,7 +326,7 @@ struct BlockListWindowView: View {
             viewModel.handleRulesDidChange(notification)
         }
         .sheet(item: $viewModel.editorSession) { session in
-            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths in
+            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths, operation in
                 switch session.mode {
                 case .create:
                     viewModel.addBlockRule(
@@ -328,7 +335,8 @@ struct BlockListWindowView: View {
                         httpMethod: method,
                         matchType: matchType,
                         blockAction: action,
-                        includeSubpaths: includeSubpaths
+                        includeSubpaths: includeSubpaths,
+                        graphQLOperationName: operation
                     )
                 case let .edit(rule):
                     viewModel.updateBlockRule(
@@ -338,7 +346,8 @@ struct BlockListWindowView: View {
                         httpMethod: method,
                         matchType: matchType,
                         blockAction: action,
-                        includeSubpaths: includeSubpaths
+                        includeSubpaths: includeSubpaths,
+                        graphQLOperationName: operation
                     )
                 }
                 viewModel.dismissEditor()
@@ -757,7 +766,7 @@ private struct AddBlockRuleSheet: View {
 
     init(
         session: BlockListEditorSession,
-        onSave: @escaping (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool) -> Void
+        onSave: @escaping (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String) -> Void
     ) {
         self.session = session
         self.onSave = onSave
@@ -769,8 +778,10 @@ private struct AddBlockRuleSheet: View {
             _matchType = State(initialValue: context?.defaultMatchType ?? .wildcard)
             _blockAction = State(initialValue: context?.defaultAction ?? .returnForbidden)
             _includeSubpaths = State(initialValue: context?.includeSubpaths ?? true)
+            _graphQLOperationName = State(initialValue: context?.graphQLOperationName ?? "")
         case let .edit(rule):
             _ruleName = State(initialValue: rule.name)
+            _graphQLOperationName = State(initialValue: rule.matchCondition.graphQLOperationName ?? "")
             let normalizedMethod = rule.matchCondition.method?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .uppercased()
@@ -797,7 +808,7 @@ private struct AddBlockRuleSheet: View {
     // MARK: Internal
 
     let session: BlockListEditorSession
-    let onSave: (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool) -> Void
+    let onSave: (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -840,7 +851,8 @@ private struct AddBlockRuleSheet: View {
                         httpMethod,
                         matchType,
                         blockAction,
-                        matchType == .wildcard ? includeSubpaths : false
+                        matchType == .wildcard ? includeSubpaths : false,
+                        graphQLOperationName
                     )
                     dismiss()
                 } label: {
@@ -868,6 +880,7 @@ private struct AddBlockRuleSheet: View {
     @State private var matchType: BlockMatchType
     @State private var blockAction: BlockActionType
     @State private var includeSubpaths: Bool
+    @State private var graphQLOperationName: String
 
     private var isEditing: Bool {
         if case .edit = session.mode {
@@ -1042,6 +1055,22 @@ private struct AddBlockRuleSheet: View {
             )
             .toggleStyle(.checkbox)
             .font(toolMetrics.font())
+        }
+        inlineField(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {
+            TextField(
+                String(localized: "Any operation", bundle: RockxyLocalization.bundle),
+                text: $graphQLOperationName
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: max(220, toolMetrics.fieldWidth(220)))
+            .accessibilityLabel(String(
+                localized: "GraphQL operation name to match",
+                bundle: RockxyLocalization.bundle
+            ))
+            .help(String(
+                localized: "Block only GraphQL requests with this exact operation name. Leave empty to block every request to the URL.",
+                bundle: RockxyLocalization.bundle
+            ))
         }
     }
 

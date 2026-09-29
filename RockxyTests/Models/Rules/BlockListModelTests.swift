@@ -791,3 +791,53 @@ private struct BlockQuotaPolicy: AppPolicy {
     let maxEnabledScripts = 10
     let maxLiveHistoryEntries = 1_000
 }
+
+// MARK: - BlockGraphQLOperationTests
+
+@MainActor
+struct BlockGraphQLOperationTests {
+    @Test("A GraphQL request prefills its operation so the Block rule targets one operation")
+    func graphQLContextPrefillsOperation() {
+        let transaction = TestFixtures.makeGraphQLTransaction()
+        let context = BlockRuleEditorContextBuilder.fromTransaction(transaction)
+        #expect(context.graphQLOperationName == transaction.graphQLInfo?.operationName)
+        #expect(context.graphQLOperationName != nil)
+        #expect(BlockRuleEditorContextBuilder.fromDomain("example.com").graphQLOperationName == nil)
+    }
+    @Test("Saving a Block rule with an operation stores it in the match condition")
+    func blockRuleStoresOperation() {
+        let vm = BlockListViewModel()
+        vm.addBlockRule(
+            ruleName: "Block op",
+            urlPattern: "*api.example.com/graphql",
+            httpMethod: .post,
+            matchType: .wildcard,
+            blockAction: .returnForbidden,
+            includeSubpaths: false,
+            graphQLOperationName: "  DeleteUser "
+        )
+        #expect(vm.blockRules.first?.matchCondition.graphQLOperationName == "DeleteUser")
+    }
+}
+
+// MARK: - ScriptGraphQLOperationMatchTests
+
+struct ScriptGraphQLOperationMatchTests {
+    @Test("Scripts limited to a GraphQL operation run only for that operation")
+    func scriptOperationFilter() {
+        let request = TestFixtures.makeGraphQLTransaction(operationName: "GetUsers").request
+        func behavior(_ operation: String?) -> ScriptBehavior {
+            ScriptBehavior(matchCondition: RuleMatchCondition(
+                urlPattern: "*api.example.com/graphql",
+                sourceURLPattern: "*api.example.com/graphql",
+                matchType: .wildcard,
+                includeSubpaths: false,
+                graphQLOperationName: operation
+            ))
+        }
+
+        #expect(ScriptPluginManager.matches(behavior: behavior("GetUsers"), request: request))
+        #expect(!ScriptPluginManager.matches(behavior: behavior("DeleteUser"), request: request))
+        #expect(ScriptPluginManager.matches(behavior: behavior(nil), request: request))
+    }
+}

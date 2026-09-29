@@ -18,6 +18,10 @@ Good candidates:
 - known-noisy background polling,
 - third-party calls that distract from your main debugging session.
 
+For GraphQL, set **GraphQL Operation** to block one operation (for example `DeleteUser`) while
+every other operation on the same endpoint keeps working. Block rules created from a captured
+GraphQL request prefill the operation name.
+
 ## Allow List
 
 Use Allow List when you want to restrict attention to a specific subset of traffic.

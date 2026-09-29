@@ -424,14 +424,19 @@ actor ScriptPluginManager {
     private var loadOnceTask: Task<Void, Never>?
     private var inFlightDiscoveryTask: Task<Void, Never>?
 
-    private static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
+    static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
         guard let condition = behavior.matchCondition else {
             return true
         }
+        // Parse the body for an operation name only when the script filters by one.
+        let operation = condition.requiredGraphQLOperationName == nil
+            ? nil
+            : GraphQLDetector.detect(request: request)?.operationName
         return condition.matches(
             method: request.method,
             url: request.url,
-            headers: request.headers
+            headers: request.headers,
+            graphQLOperationName: operation
         )
     }
 
