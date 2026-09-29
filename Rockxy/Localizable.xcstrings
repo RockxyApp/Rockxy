@@ -44899,6 +44899,26 @@
           }
         }
       }
+    },
+    "^[%lld active Block List rule](inflect: true) blocking matching requests. Open Block List.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条已启用的阻止列表规则正在阻止匹配的请求。打开阻止列表。"
+          }
+        }
+      }
+    },
+    "^[%lld active Modify Headers rule](inflect: true) rewriting matching headers. Open Modify Headers.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 条已启用的修改标头规则正在改写匹配的标头。打开修改标头。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

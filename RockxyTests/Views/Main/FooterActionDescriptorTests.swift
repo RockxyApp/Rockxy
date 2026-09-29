@@ -344,9 +344,41 @@ struct FooterMutationIndicatorBuilderTests {
             breakpointToolEnabled: true
         )
 
-        #expect(indicators.map(\.id) == [.mapLocal, .mapRemote])
+        #expect(indicators.map(\.id) == [.mapLocal, .mapRemote, .block])
         #expect(indicators.first { $0.id == .mapLocal }?.count == 2)
         #expect(indicators.first { $0.id == .mapRemote }?.count == 1)
+    }
+
+    @Test("Active Block List and Modify Headers rules surface and respect their tool switches")
+    func blockAndModifyHeaderIndicators() {
+        let rules = [
+            makeRule(.block(statusCode: 403)),
+            makeRule(.block(statusCode: 0)),
+            makeRule(.modifyHeader(operations: [
+                HeaderOperation(type: .add, headerName: "X-Debug", headerValue: "1"),
+            ])),
+        ]
+
+        let indicators = FooterMutationIndicatorBuilder.indicators(
+            rules: rules,
+            mapLocalToolEnabled: true,
+            mapRemoteToolEnabled: true,
+            breakpointToolEnabled: true
+        )
+        #expect(indicators.map(\.id) == [.block, .modifyHeader])
+        #expect(indicators.first?.count == 2)
+        #expect(indicators.map(\.windowID) == ["blockList", "modifyHeaders"])
+        #expect(indicators.first?.help.contains("2 active Block List rules") == true)
+
+        let switchedOff = FooterMutationIndicatorBuilder.indicators(
+            rules: rules,
+            mapLocalToolEnabled: true,
+            mapRemoteToolEnabled: true,
+            breakpointToolEnabled: true,
+            blockListToolEnabled: false,
+            modifyHeaderToolEnabled: false
+        )
+        #expect(switchedOff.isEmpty)
     }
 
     @Test("An active Network Conditions profile surfaces last and respects its tool switch")

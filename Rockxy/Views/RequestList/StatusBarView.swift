@@ -135,6 +135,8 @@ struct FooterMutationIndicator: Identifiable, Equatable {
         case mapLocal
         case mapRemote
         case breakpoint
+        case block
+        case modifyHeader
         case networkCondition
 
         // MARK: Internal
@@ -145,6 +147,8 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "mapLocal"
             case .mapRemote: "mapRemote"
             case .breakpoint: "breakpoint"
+            case .block: "block"
+            case .modifyHeader: "modifyHeader"
             case .networkCondition: "networkCondition"
             }
         }
@@ -155,6 +159,8 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "mapLocal"
             case .mapRemote: "mapRemote"
             case .breakpoint: "breakpointRules"
+            case .block: "blockList"
+            case .modifyHeader: "modifyHeaders"
             case .networkCondition: "networkConditions"
             }
         }
@@ -164,6 +170,8 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: String(localized: "Map Local", bundle: RockxyLocalization.bundle)
             case .mapRemote: String(localized: "Map Remote", bundle: RockxyLocalization.bundle)
             case .breakpoint: String(localized: "Breakpoints", bundle: RockxyLocalization.bundle)
+            case .block: String(localized: "Block List", bundle: RockxyLocalization.bundle)
+            case .modifyHeader: String(localized: "Modify Headers", bundle: RockxyLocalization.bundle)
             case .networkCondition: String(localized: "Network Conditions", bundle: RockxyLocalization.bundle)
             }
         }
@@ -173,6 +181,8 @@ struct FooterMutationIndicator: Identifiable, Equatable {
             case .mapLocal: "folder.badge.gearshape"
             case .mapRemote: "arrow.triangle.branch"
             case .breakpoint: "pause.circle"
+            case .block: "nosign"
+            case .modifyHeader: "list.bullet.rectangle"
             case .networkCondition: "tortoise"
             }
         }
@@ -225,6 +235,18 @@ struct FooterMutationIndicator: Identifiable, Equatable {
                 localized: "\(count) active Breakpoint rules. Open Breakpoint Rules.",
                 bundle: RockxyLocalization.bundle
             )
+        case .block:
+            return String(AttributedString(
+                localized: "^[\(count) active Block List rule](inflect: true) blocking matching requests. Open Block List.",
+                bundle: RockxyLocalization.bundle,
+                locale: RockxyLocalization.locale
+            ).characters)
+        case .modifyHeader:
+            return String(AttributedString(
+                localized: "^[\(count) active Modify Headers rule](inflect: true) rewriting matching headers. Open Modify Headers.",
+                bundle: RockxyLocalization.bundle,
+                locale: RockxyLocalization.locale
+            ).characters)
         case .networkCondition:
             return String(
                 localized: "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.",
@@ -245,15 +267,17 @@ struct FooterMutationIndicator: Identifiable, Equatable {
 // MARK: - FooterMutationIndicatorBuilder
 
 /// Pure builder that derives the ordered footer mutation indicators from the
-/// current rule set and the three tool-level master switches. A category is
-/// surfaced only when its master switch is enabled AND it has at least one
-/// enabled rule. Order is always Map Local, Map Remote, then Breakpoint.
+/// current rule set and the tool-level master switches. A category is surfaced
+/// only when its master switch is enabled AND it has at least one enabled rule.
+/// Order follows `Category` declaration order.
 enum FooterMutationIndicatorBuilder {
     static func indicators(
         rules: [ProxyRule],
         mapLocalToolEnabled: Bool,
         mapRemoteToolEnabled: Bool,
         breakpointToolEnabled: Bool,
+        blockListToolEnabled: Bool = true,
+        modifyHeaderToolEnabled: Bool = true,
         networkConditionsToolEnabled: Bool = true
     )
         -> [FooterMutationIndicator]
@@ -267,11 +291,12 @@ enum FooterMutationIndicatorBuilder {
             .mapLocal: mapLocalToolEnabled,
             .mapRemote: mapRemoteToolEnabled,
             .breakpoint: breakpointToolEnabled,
+            .block: blockListToolEnabled,
+            .modifyHeader: modifyHeaderToolEnabled,
             .networkCondition: networkConditionsToolEnabled,
         ]
 
-        let order: [FooterMutationIndicator.Category] = [.mapLocal, .mapRemote, .breakpoint, .networkCondition]
-        return order.compactMap { category in
+        return FooterMutationIndicator.Category.allCases.compactMap { category in
             guard toolSwitches[category] == true else {
                 return nil
             }
@@ -351,8 +376,11 @@ private struct FooterMutationIndicatorButton: View {
     private var indicatorColor: Color {
         switch indicator.id {
         case .mapLocal,
-             .mapRemote:
+             .mapRemote,
+             .modifyHeader:
             Color(nsColor: .systemOrange)
+        case .block:
+            Color(nsColor: .systemRed)
         case .breakpoint:
             Color(nsColor: .systemPurple)
         case .networkCondition:
@@ -519,6 +547,8 @@ struct StatusBarView: View {
     var mapLocalToolEnabled: Bool = true
     var mapRemoteToolEnabled: Bool = true
     var breakpointToolEnabled: Bool = true
+    var blockListToolEnabled: Bool = true
+    var modifyHeaderToolEnabled: Bool = true
     var networkConditionsToolEnabled: Bool = true
     var pausedBreakpointCount: Int = 0
 
@@ -568,6 +598,8 @@ struct StatusBarView: View {
             mapLocalToolEnabled: mapLocalToolEnabled,
             mapRemoteToolEnabled: mapRemoteToolEnabled,
             breakpointToolEnabled: breakpointToolEnabled,
+            blockListToolEnabled: blockListToolEnabled,
+            modifyHeaderToolEnabled: modifyHeaderToolEnabled,
             networkConditionsToolEnabled: networkConditionsToolEnabled
         )
     }
