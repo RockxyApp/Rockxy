@@ -180,6 +180,16 @@
         }
       }
     },
+    "Could Not Save Body": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存正文"
+          }
+        }
+      }
+    },
     "Could Not Save Part": {
       "localizations": {
         "zh-Hans": {
