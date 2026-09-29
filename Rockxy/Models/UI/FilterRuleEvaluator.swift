@@ -66,7 +66,28 @@ enum FilterRuleEvaluator {
             transaction.comment ?? ""
         case .color:
             transaction.highlightColor?.rawValue ?? ""
+        case .graphQLOperation:
+            transaction.graphQLInfo?.operationName ?? ""
+        case .all:
+            allFieldsText(for: transaction)
         }
+    }
+
+    /// URL, method, status, headers, and bodies joined so one rule can search
+    /// "anywhere in the exchange". Each body is still capped at `maxTextScanBytes`.
+    private static func allFieldsText(for transaction: HTTPTransaction) -> String {
+        [
+            fieldValue(for: .url, in: transaction),
+            fieldValue(for: .method, in: transaction),
+            fieldValue(for: .statusCode, in: transaction),
+            fieldValue(for: .graphQLOperation, in: transaction),
+            fieldValue(for: .requestHeader, in: transaction),
+            fieldValue(for: .responseHeader, in: transaction),
+            fieldValue(for: .requestBody, in: transaction),
+            fieldValue(for: .responseBody, in: transaction),
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: "\n")
     }
 
     private static func joinedHeaders(_ headers: [HTTPHeader]) -> String {

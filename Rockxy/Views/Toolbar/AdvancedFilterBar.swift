@@ -14,6 +14,7 @@ struct AdvancedFilterBar: View {
 
     var presetStore: FilterPresetStore
     var onSave: () -> Void = {}
+    var onHide: () -> Void = {}
     var isEmbeddedInControlShelf = false
 
     var body: some View {
@@ -23,6 +24,7 @@ struct AdvancedFilterBar: View {
             }
             shortcutsHint
         }
+        .onExitCommand(perform: onHide)
         .background {
             if !isEmbeddedInControlShelf {
                 Color(nsColor: .windowBackgroundColor)
@@ -38,9 +40,9 @@ struct AdvancedFilterBar: View {
     // MARK: Private
 
     private static let advancedFields: [FilterField] = [
-        .url, .method, .statusCode, .requestHeader, .responseHeader, .requestBody,
+        .all, .url, .method, .statusCode, .requestHeader, .responseHeader, .requestBody,
         .responseBody, .clientApp, .domain, .contentType, .queryString, .cookies,
-        .comment, .color,
+        .graphQLOperation, .comment, .color,
     ]
 
     private static let enableToggleWidth: CGFloat = 22
@@ -50,13 +52,9 @@ struct AdvancedFilterBar: View {
 
     private var shortcutsHint: some View {
         HStack(spacing: 12) {
-            Text(String(localized: "Show: ⌘F", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "New: ⌘N", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "Remove: ⌥⌘N", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "Up: ⌘↑", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "Down: ⌘↓", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "On/Off: ⌘B", bundle: RockxyLocalization.bundle))
-            Text(String(localized: "Hide: ESC", bundle: RockxyLocalization.bundle))
+            Text(String(localized: "Show or Hide: ⇧⌘F", bundle: RockxyLocalization.bundle))
+            Text(String(localized: "Search: ⌘F", bundle: RockxyLocalization.bundle))
+            Text(String(localized: "Hide: Esc", bundle: RockxyLocalization.bundle))
         }
         .font(.system(size: max(10.5, metrics.secondaryFontSize - 0.5)))
         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))

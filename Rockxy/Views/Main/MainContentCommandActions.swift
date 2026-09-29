@@ -219,6 +219,15 @@ struct MainContentCommandActions {
         coordinator.recomputeFilteredTransactions()
     }
 
+    var isFilterBarVisible: Bool {
+        coordinator.isFilterBarVisible
+    }
+
+    /// Reveals the sidebar if needed and moves keyboard focus to its app/domain search field.
+    func focusSidebarSearchField() {
+        NotificationCenter.default.post(name: .focusSidebarSearchField, object: nil)
+    }
+
     func focusSearchField() {
         coordinator.filterCriteria.isSearchEnabled = true
         NotificationCenter.default.post(name: .focusMainSearchField, object: nil)

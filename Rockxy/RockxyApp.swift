@@ -883,10 +883,19 @@ struct RockxyMenuCommands: Commands {
 
     private var viewMenu: some Commands {
         CommandGroup(after: .toolbar) {
-            Button(String(localized: "Filter Domain or App", bundle: RockxyLocalization.bundle)) {
+            Button(
+                proxyActions.isFilterBarVisible
+                    ? String(localized: "Hide Advanced Filters", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Show Advanced Filters", bundle: RockxyLocalization.bundle)
+            ) {
                 proxyActions.toggleFilterBar()
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
+
+            Button(String(localized: "Search Apps and Domains", bundle: RockxyLocalization.bundle)) {
+                proxyActions.focusSidebarSearchField()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .option])
 
             Divider()
 

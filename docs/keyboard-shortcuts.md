@@ -26,6 +26,9 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⇧⌘K` | Clear session and filters |
 | `⌥⌘R` | Pause or resume recording without stopping the proxy |
 | `⌘L` | Focus the search bar |
+| `⇧⌘F` | Show or hide Advanced Filters (Esc hides them) |
+| `⌥⌘F` | Search apps and domains in the sidebar |
+| `⌥⌘N` | Compose a new request |
 | `⇧⌘L` | Follow the newest visible request in the active workspace tab |
 | `⌘↑` | Jump to the first visible row when the request table has focus |
 | `⌘↓` | Jump to the last visible row when the request table has focus |

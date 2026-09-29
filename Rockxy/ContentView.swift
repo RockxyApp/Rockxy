@@ -129,6 +129,18 @@ struct ContentView: View {
             .frame(width: 0, height: 0)
         }
         .focusedSceneValue(\.commandActions, MainContentCommandActions(coordinator: coordinator))
+        .onReceive(NotificationCenter.default.publisher(for: .focusSidebarSearchField)) { _ in
+            guard !isSidebarPresented else {
+                return
+            }
+            // The search field does not exist while the sidebar is collapsed; ask
+            // again once the sidebar has been laid out.
+            isSidebarPresented = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                NotificationCenter.default.post(name: .focusSidebarSearchField, object: nil)
+            }
+        }
         .modifier(ConditionalContentWindowNotificationHandlers(
             isEnabled: managesLifecycle,
             coordinator: coordinator,

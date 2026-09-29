@@ -19,6 +19,8 @@ enum FilterField: String, CaseIterable, Codable, Hashable {
     case contentType
     case comment
     case color
+    case graphQLOperation
+    case all
 
     // MARK: Internal
 
@@ -41,6 +43,8 @@ enum FilterField: String, CaseIterable, Codable, Hashable {
         case .contentType: String(localized: "Content Type", bundle: RockxyLocalization.bundle)
         case .comment: String(localized: "Note", bundle: RockxyLocalization.bundle)
         case .color: String(localized: "Color", bundle: RockxyLocalization.bundle)
+        case .graphQLOperation: String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)
+        case .all: String(localized: "All Fields", bundle: RockxyLocalization.bundle)
         }
     }
 }

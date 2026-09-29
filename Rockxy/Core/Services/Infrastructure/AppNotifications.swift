@@ -46,6 +46,7 @@ extension Notification.Name {
     static let openScriptingListWindow = identity.notificationName("openScriptingListWindow")
     static let openScriptEditorWindow = identity.notificationName("openScriptEditorWindow")
     static let focusMainSearchField = identity.notificationName("focusMainSearchField")
+    static let focusSidebarSearchField = identity.notificationName("focusSidebarSearchField")
     static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")

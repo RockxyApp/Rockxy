@@ -54,6 +54,16 @@
         }
       }
     },
+    "All Fields": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有字段"
+          }
+        }
+      }
+    },
     "Another running Rockxy instance owns the current system proxy session": {
       "localizations": {
         "zh-Hans": {
@@ -106,6 +116,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法创建 JSContext"
+          }
+        }
+      }
+    },
+    "GraphQL Operation": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GraphQL 操作"
+          }
+        }
+      }
+    },
+    "Hide Advanced Filters": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏高级筛选"
+          }
+        }
+      }
+    },
+    "Hide: Esc": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏：Esc"
           }
         }
       }
@@ -226,6 +266,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "脚本加载失败：%@"
+          }
+        }
+      }
+    },
+    "Search Apps and Domains": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索应用和域名"
+          }
+        }
+      }
+    },
+    "Search: ⌘F": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索：⌘F"
+          }
+        }
+      }
+    },
+    "Show Advanced Filters": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示高级筛选"
+          }
+        }
+      }
+    },
+    "Show or Hide: ⇧⌘F": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏：⇧⌘F"
           }
         }
       }
@@ -12272,16 +12352,6 @@
         }
       }
     },
-    "Down: ⌘↓": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下移：⌘↓"
-          }
-        }
-      }
-    },
     "Download": {
       "localizations": {
         "zh-Hans": {
@@ -14624,16 +14694,6 @@
         }
       }
     },
-    "Filter Domain or App": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "过滤域名或 App"
-          }
-        }
-      }
-    },
     "Filter muted sources": {
       "localizations": {
         "zh-Hans": {
@@ -16271,16 +16331,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "匹配任一条件时隐藏"
-          }
-        }
-      }
-    },
-    "Hide: ESC": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "隐藏：ESC"
           }
         }
       }
@@ -21216,16 +21266,6 @@
         }
       }
     },
-    "New: ⌘N": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新建：⌘N"
-          }
-        }
-      }
-    },
     "New…": {
       "localizations": {
         "zh-Hans": {
@@ -23451,16 +23491,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Android 上，发布版本通常不信任用户 CA；请使用其 network-security-config 允许用户 CA 的调试版本进行验证。"
-          }
-        }
-      }
-    },
-    "On/Off: ⌘B": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "开/关：⌘B"
           }
         }
       }
@@ -27556,16 +27586,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "从资料库中移除所选请求。"
-          }
-        }
-      }
-    },
-    "Remove: ⌥⌘N": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移除：⌥⌘N"
           }
         }
       }
@@ -33785,16 +33805,6 @@
         }
       }
     },
-    "Show: ⌘F": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "显示：⌘F"
-          }
-        }
-      }
-    },
     "Showing %lld of %lld. Search to find more.": {
       "localizations": {
         "en": {
@@ -39333,16 +39343,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "未命名模板"
-          }
-        }
-      }
-    },
-    "Up: ⌘↑": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上移：⌘↑"
           }
         }
       }
