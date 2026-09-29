@@ -515,9 +515,44 @@ struct DeveloperSetupWindowView: View {
             if viewModel.selectedTarget.id == .iosSimulator {
                 simulatorInstallRow
             }
+            if viewModel.selectedTarget.id == .androidEmulator {
+                androidEmulatorRow
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
+    }
+
+    private var androidEmulatorRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(
+                String(
+                    localized: """
+                    Or let Rockxy use adb to point running emulators at this Mac and copy the certificate \
+                    to them. Revert when you finish so the emulator keeps its connection after Rockxy quits.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(setupMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Route Emulators Through Rockxy…", bundle: RockxyLocalization.bundle)) {
+                    let port = viewModel.snapshot.activePort
+                    Task { @MainActor in
+                        await AndroidEmulatorSetupFlow.route(proxyPort: port)
+                    }
+                }
+                Button(String(localized: "Revert Emulator Proxy", bundle: RockxyLocalization.bundle)) {
+                    Task { @MainActor in
+                        await AndroidEmulatorSetupFlow.revert()
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
     }
 
     private var simulatorInstallRow: some View {

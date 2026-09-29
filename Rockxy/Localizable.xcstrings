@@ -360,6 +360,36 @@
         }
       }
     },
+    "Emulator Proxy Reverted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器代理已恢复"
+          }
+        }
+      }
+    },
+    "Emulators Unavailable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器不可用"
+          }
+        }
+      }
+    },
+    "Emulators Use Rockxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟器已使用 Rockxy"
+          }
+        }
+      }
+    },
     "Enter only the host name, without a scheme or path.": {
       "localizations": {
         "zh-Hans": {
@@ -670,6 +700,16 @@
         }
       }
     },
+    "No Running Emulators": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有正在运行的模拟器"
+          }
+        }
+      }
+    },
     "No script entry point defined": {
       "localizations": {
         "zh-Hans": {
@@ -696,6 +736,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "也可以使用 simctl 直接安装到每个已启动的模拟器中。Rockxy 会在更改模拟器信任设置前征得你的同意。"
+          }
+        }
+      }
+    },
+    "Or let Rockxy use adb to point running emulators at this Mac and copy the certificate to them. Revert when you finish so the emulator keeps its connection after Rockxy quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也可以让 Rockxy 使用 adb 将正在运行的模拟器指向这台 Mac，并将证书拷贝到模拟器中。完成后请恢复设置，以便 Rockxy 退出后模拟器仍能联网。"
           }
         }
       }
@@ -820,12 +870,32 @@
         }
       }
     },
+    "Revert Emulator Proxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复模拟器代理"
+          }
+        }
+      }
+    },
     "Rockxy can install the root certificate into booted simulators with simctl after you confirm; reinstall or cold-launch the target app after the certificate is trusted.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "确认后，Rockxy 可使用 simctl 将根证书安装到已启动的模拟器中；证书受信任后，请重新安装或冷启动目标 App。"
+          }
+        }
+      }
+    },
+    "Rockxy can set running emulators' proxy with adb, copy the certificate to them, and revert afterwards; app-level TLS still depends on a debug network-security-config.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 可使用 adb 设置正在运行的模拟器的代理、拷贝证书并在之后恢复；App 级 TLS 仍取决于调试用的 network-security-config。"
           }
         }
       }
@@ -886,6 +956,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法验证附近设备的密钥。"
+          }
+        }
+      }
+    },
+    "Rockxy sets each emulator's HTTP proxy to %@:%@ and copies the root certificate to its Download folder. Revert the proxy before quitting Rockxy, or the emulator loses its connection.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 会将每个模拟器的 HTTP 代理设置为 %@:%@，并将根证书拷贝到其 Download 文件夹。退出 Rockxy 前请恢复代理设置，否则模拟器将失去网络连接。"
+          }
+        }
+      }
+    },
+    "Route Emulators": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "路由模拟器"
+          }
+        }
+      }
+    },
+    "Route Emulators Through Rockxy…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让模拟器通过 Rockxy 路由…"
+          }
+        }
+      }
+    },
+    "Route ^[%lld running emulator](inflect: true) through Rockxy?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要让 %lld 个正在运行的模拟器通过 Rockxy 路由吗？"
           }
         }
       }
@@ -1050,12 +1160,32 @@
         }
       }
     },
+    "Some Emulators Were Not Updated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分模拟器未更新"
+          }
+        }
+      }
+    },
     "Some Simulators Were Not Updated": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "部分模拟器未更新"
+          }
+        }
+      }
+    },
+    "Start an emulator from Android Studio's Device Manager, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请从 Android Studio 的 Device Manager 启动模拟器，然后重试。"
           }
         }
       }
@@ -1206,6 +1336,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "此规则会转发给自身。请将其指向真实服务器。"
+          }
+        }
+      }
+    },
+    "To decrypt HTTPS, install rockxy-root-ca.pem from Settings > Security > Encryption & credentials > Install a certificate > CA certificate, and trust user certificates in your app's debug network security config.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要解密 HTTPS，请从“设置 > 安全 > 加密与凭据 > 安装证书 > CA 证书”安装 rockxy-root-ca.pem，并在 App 的调试网络安全配置中信任用户证书。"
           }
         }
       }
@@ -1554,6 +1694,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "钥匙串保存失败，状态码：%@"
+          }
+        }
+      }
+    },
+    "adb exited with status %d.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "adb 以状态 %d 退出。"
+          }
+        }
+      }
+    },
+    "adb was not found. Install Android Studio or the Android SDK platform tools.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到 adb。请安装 Android Studio 或 Android SDK platform tools。"
           }
         }
       }
@@ -30935,16 +31095,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 会为 %@ 准备一个指向本地代理的限定范围 Shell。"
-          }
-        }
-      }
-    },
-    "Rockxy provides the Dev Hub guide and temporary certificate share link; app-level TLS still depends on a debug network-security-config.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rockxy 提供 Dev Hub 指南和临时证书共享链接；App 级 TLS 仍依赖调试 network-security-config。"
           }
         }
       }

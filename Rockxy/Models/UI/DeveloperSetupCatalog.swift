@@ -358,8 +358,10 @@ extension SetupTarget {
                 """, bundle: RockxyLocalization.bundle
             ),
             currentSupportSummary: String(
-                localized: "Rockxy provides the Dev Hub guide and temporary certificate share link; app-level TLS still depends on a debug network-security-config.",
-                bundle: RockxyLocalization.bundle
+                localized: """
+                Rockxy can set running emulators' proxy with adb, copy the certificate to them, and revert \
+                afterwards; app-level TLS still depends on a debug network-security-config.
+                """, bundle: RockxyLocalization.bundle
             )
         )
     }
