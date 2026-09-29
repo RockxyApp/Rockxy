@@ -403,7 +403,7 @@ struct WebSocketInspectorView: View {
                         data: frame.payload,
                         renderID: "\(frame.id.uuidString)-payload-hex-\(frame.payload.count)"
                     )
-                    .frame(maxHeight: 240)
+                    .frame(height: 240)
                 case .protobuf:
                     protobufPayloadView(frame)
                 }
@@ -458,13 +458,13 @@ struct WebSocketInspectorView: View {
                     description: SizeFormatter.format(bytes: payload.count)
                 )
             }
-            .frame(maxHeight: 200)
+            .frame(height: 200)
         } else {
             AsyncHexDumpView(
                 data: frame.payload,
                 renderID: "\(frame.id.uuidString)-payload-hex-\(frame.payload.count)"
             )
-            .frame(maxHeight: 200)
+            .frame(height: 200)
         }
     }
 
