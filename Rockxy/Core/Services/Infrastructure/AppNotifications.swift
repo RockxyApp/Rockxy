@@ -48,6 +48,7 @@ extension Notification.Name {
     static let focusMainSearchField = identity.notificationName("focusMainSearchField")
     static let focusSidebarSearchField = identity.notificationName("focusSidebarSearchField")
     static let reverseProxyRulesDidChange = identity.notificationName("reverseProxyRulesDidChange")
+    static let socksListenerSettingsDidChange = identity.notificationName("socksListenerSettingsDidChange")
     static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")

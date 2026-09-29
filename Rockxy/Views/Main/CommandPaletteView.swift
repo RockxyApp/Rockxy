@@ -23,7 +23,7 @@ struct CommandPaletteView: View {
                     text: $query
                 )
                 .textFieldStyle(.plain)
-                .font(.title3)
+                .font(.system(size: metrics.fontSize + 3))
                 .focused($isSearchFocused)
                 .onSubmit(runSelection)
                 .onKeyPress(.downArrow) {
@@ -85,6 +85,7 @@ struct CommandPaletteView: View {
     @State private var selection: CommandPaletteCommand.ID?
     @FocusState private var isSearchFocused: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var results: [CommandPaletteCommand] {
         CommandPaletteMatcher.rank(commands, query: query)
@@ -95,13 +96,13 @@ struct CommandPaletteView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(command.title)
                 Text(command.category)
-                    .font(.caption)
+                    .font(.system(size: metrics.secondaryFontSize))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
             if let shortcut = command.shortcut {
                 Text(verbatim: shortcut)
-                    .font(.system(.callout, design: .monospaced))
+                    .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
         }

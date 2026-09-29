@@ -308,23 +308,23 @@ extension MainContentCoordinator {
         }
     }
 
-    /// Opens, closes, or rebinds reverse proxy listeners to match the saved rules.
+    /// Opens, closes, or rebinds reverse proxy and SOCKS5 listeners to match settings.
     func applyReverseProxies() async {
         let store = ReverseProxyStore.shared
         let targets = store.enabledTargets
         let failures = await proxyServer.updateReverseProxies(targets)
         store.applyListenerResult(targets: targets, failures: failures)
+
+        let socks = SOCKSListenerSettings.shared
+        let socksFailure = await proxyServer.updateSOCKSListener(port: socks.requestedPort)
+        socks.applyListenerResult(socksFailure)
     }
 
     private func installReverseProxyObserver() {
         guard reverseProxyObserver == nil else {
             return
         }
-        reverseProxyObserver = NotificationCenter.default.addObserver(
-            forName: .reverseProxyRulesDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
+        let apply: @Sendable (Notification) -> Void = { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.isProxyRunning else {
                     return
@@ -332,6 +332,18 @@ extension MainContentCoordinator {
                 await self.applyReverseProxies()
             }
         }
+        reverseProxyObserver = NotificationCenter.default.addObserver(
+            forName: .reverseProxyRulesDidChange,
+            object: nil,
+            queue: .main,
+            using: apply
+        )
+        socksListenerObserver = NotificationCenter.default.addObserver(
+            forName: .socksListenerSettingsDidChange,
+            object: nil,
+            queue: .main,
+            using: apply
+        )
     }
 
     private func installEvictionObserver() {
@@ -460,7 +472,12 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(reverseProxyObserver)
                 self.reverseProxyObserver = nil
             }
+            if let socksListenerObserver {
+                NotificationCenter.default.removeObserver(socksListenerObserver)
+                self.socksListenerObserver = nil
+            }
             ReverseProxyStore.shared.markProxyStopped()
+            SOCKSListenerSettings.shared.markProxyStopped()
             probeTracker.cancel()
             await probeServer.stop()
             isSystemProxyConfigured = false

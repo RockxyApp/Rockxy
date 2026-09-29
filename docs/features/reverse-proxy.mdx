@@ -44,6 +44,18 @@ The request appears in the traffic list as `https://api.example.com/v1/users`.
   a different server, and `CONNECT` requests are refused.
 - A port that is already in use shows **Port in use**; pick another port.
 
+## SOCKS5 listener
+
+Some clients ignore HTTP proxy settings but can use SOCKS — for example
+`URLSessionWebSocketTask` or `NWConnection` configured with a SOCKS proxy, and many WebSocket
+libraries. Turn on **Accept SOCKS5 connections** in **Tools > Advanced Proxy Settings…** (default
+port `8889`) and point the client's SOCKS proxy at this Mac. The listener uses the same address as
+the HTTP listener, so it is reachable from other devices only when the HTTP proxy is.
+
+- TLS connections follow your HTTPS decryption rules exactly like an HTTP `CONNECT`.
+- Plain HTTP, including `ws://` upgrades, is captured with the SOCKS destination as its URL.
+- Only the no-authentication method and `CONNECT` are supported.
+
 ## Related pages
 
 - [Map Remote](/rules/map-remote) — redirect traffic that already goes through the proxy.

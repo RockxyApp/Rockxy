@@ -74,6 +74,16 @@
         }
       }
     },
+    "Accept SOCKS5 connections": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接受 SOCKS5 连接"
+          }
+        }
+      }
+    },
     "Add Reverse Proxy…": {
       "localizations": {
         "zh-Hans": {
@@ -446,6 +456,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "按负载文本筛选帧"
+          }
+        }
+      }
+    },
+    "For clients that ignore HTTP proxy settings, such as URLSessionWebSocketTask or NWConnection configured with a SOCKS proxy. Uses the same address as the HTTP listener.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于忽略 HTTP 代理设置的客户端，例如配置了 SOCKS 代理的 URLSessionWebSocketTask 或 NWConnection。使用与 HTTP 监听器相同的地址。"
           }
         }
       }
@@ -866,6 +886,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法验证附近设备的密钥。"
+          }
+        }
+      }
+    },
+    "SOCKS5 Listener": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SOCKS5 监听器"
+          }
+        }
+      }
+    },
+    "SOCKS5 listener port number": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SOCKS5 监听器端口号"
           }
         }
       }

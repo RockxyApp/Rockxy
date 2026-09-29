@@ -206,6 +206,9 @@ final class MainContentCoordinator {
         if let reverseProxyObserver {
             NotificationCenter.default.removeObserver(reverseProxyObserver)
         }
+        if let socksListenerObserver {
+            NotificationCenter.default.removeObserver(socksListenerObserver)
+        }
     }
 
     // MARK: Internal
@@ -324,6 +327,7 @@ final class MainContentCoordinator {
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
     nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
+    nonisolated(unsafe) var socksListenerObserver: NSObjectProtocol?
 
     // MARK: - UI State — Engine Status
 

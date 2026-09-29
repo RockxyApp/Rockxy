@@ -36,7 +36,7 @@ struct ReverseProxyWindowView: View {
                 """,
                 bundle: RockxyLocalization.bundle
             ))
-            .font(.callout)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,6 +87,11 @@ struct ReverseProxyWindowView: View {
     // MARK: Private
 
     @State private var store = ReverseProxyStore.shared
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
     @State private var selection: ReverseProxyRule.ID?
     @State private var editingRule: ReverseProxyRule?
 
@@ -111,12 +116,12 @@ struct ReverseProxyWindowView: View {
             }
             TableColumn(String(localized: "Local Address", bundle: RockxyLocalization.bundle)) { rule in
                 Text(verbatim: rule.localURLString)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
                     .textSelection(.enabled)
             }
             TableColumn(String(localized: "Forwards To", bundle: RockxyLocalization.bundle)) { rule in
                 Text(verbatim: rule.remoteURLString)
-                    .font(.system(.body, design: .monospaced))
+                    .font(toolMetrics.font(monospaced: true))
             }
             TableColumn(String(localized: "Status", bundle: RockxyLocalization.bundle)) { rule in
                 statusLabel(store.status(for: rule))
@@ -283,14 +288,14 @@ private struct ReverseProxyRuleEditor: View {
                 localized: "Clients use \(rule.localURLString) in place of \(rule.remoteURLString).",
                 bundle: RockxyLocalization.bundle
             ))
-            .font(.callout)
+            .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
             .padding(.horizontal, 20)
 
             if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                    .font(.callout)
+                    .font(toolMetrics.secondaryFont())
                     .padding(.horizontal, 20)
             }
 
@@ -314,6 +319,11 @@ private struct ReverseProxyRuleEditor: View {
     // MARK: Private
 
     @State private var rule: ReverseProxyRule
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
 
     private let existingRules: [ReverseProxyRule]
     private let proxyPort: Int
