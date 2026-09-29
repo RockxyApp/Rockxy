@@ -253,7 +253,7 @@ struct MCPRuleMutationService: Sendable {
         }
     }
 
-    private func matchCondition(
+    func matchCondition(
         from args: [String: MCPJSONValue],
         patternKey: String = "url"
     )

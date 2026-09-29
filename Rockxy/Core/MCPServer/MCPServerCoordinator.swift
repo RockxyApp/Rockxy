@@ -134,7 +134,8 @@ final class MCPServerCoordinator {
             ruleService: ruleService,
             changeService: MCPChangeService(
                 serverCoordinator: self,
-                ruleMutations: MCPRuleMutationService(mutator: MCPPolicyGateRuleMutator())
+                ruleMutations: MCPRuleMutationService(mutator: MCPPolicyGateRuleMutator()),
+                scriptCreator: MCPPluginScriptCreator()
             )
         )
 

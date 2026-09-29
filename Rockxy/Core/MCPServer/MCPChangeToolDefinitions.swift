@@ -10,6 +10,7 @@ enum MCPChangeToolDefinitions {
         createMapLocal,
         createMapRemote,
         createBlockRule,
+        createScript,
         setRuleEnabled,
         enableSSLProxying,
         setNoCaching,
@@ -102,6 +103,28 @@ enum MCPChangeToolDefinitions {
                 ]),
             ]) { current, _ in current },
             required: ["url"]
+        )
+    )
+
+    static let createScript = MCPToolDefinition(
+        name: "create_script",
+        description: requiresPermission(
+            "Create a JavaScript script that runs on matching requests and/or responses. The code defines "
+                + "function onRequest(context, url, request) { return request; } and/or "
+                + "function onResponse(context, url, request, response) { return response; }; request and "
+                + "response expose headers, body (string), and statusCode"
+        ),
+        inputSchema: schema(
+            matchProperties(patternKey: "url").merging([
+                "code": .object(["type": "string", "description": "Script source (at most 256 KB)"]),
+                "run_on_request": .object(["type": "boolean", "description": "Run onRequest (default true)"]),
+                "run_on_response": .object(["type": "boolean", "description": "Run onResponse (default true)"]),
+                "enabled": .object([
+                    "type": "boolean",
+                    "description": "Enable the script right away (default true); the enabled-script limit applies",
+                ]),
+            ]) { current, _ in current },
+            required: ["url", "code"]
         )
     )
 

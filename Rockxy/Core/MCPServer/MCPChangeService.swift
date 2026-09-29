@@ -16,11 +16,13 @@ struct MCPChangeService {
     init(
         serverCoordinator: MCPServerCoordinator,
         ruleMutations: MCPRuleMutationService,
+        scriptCreator: (any MCPScriptCreating)? = nil,
         permission: MCPChangePermission = MCPChangePermission(),
         defaults: UserDefaults = .standard
     ) {
         self.serverCoordinator = serverCoordinator
         self.ruleMutations = ruleMutations
+        self.scriptCreator = scriptCreator
         self.permission = permission
         self.defaults = defaults
     }
@@ -32,6 +34,7 @@ struct MCPChangeService {
         "create_map_local",
         "create_map_remote",
         "create_block_rule",
+        "create_script",
         "set_rule_enabled",
         "enable_ssl_proxying",
         "set_no_caching",
@@ -41,6 +44,7 @@ struct MCPChangeService {
 
     let serverCoordinator: MCPServerCoordinator
     let ruleMutations: MCPRuleMutationService
+    let scriptCreator: (any MCPScriptCreating)?
     let permission: MCPChangePermission
     let defaults: UserDefaults
 
@@ -74,6 +78,11 @@ struct MCPChangeService {
             return await ruleMutations.createBlockRule(args)
         case "set_rule_enabled":
             return await ruleMutations.setRuleEnabled(args)
+        case "create_script":
+            guard let scriptCreator else {
+                return MCPToolResultEncoding.error(["error": "Scripting is not available in this host"])
+            }
+            return await MCPScriptToolHandler(creator: scriptCreator, ruleMutations: ruleMutations).createScript(args)
         case "enable_ssl_proxying":
             return await enableSSLProxying(args)
         case "set_no_caching":

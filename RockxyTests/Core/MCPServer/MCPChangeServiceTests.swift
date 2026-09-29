@@ -209,6 +209,85 @@ struct MCPChangeServiceTests {
         #expect(fixture.control.clearCount == 1)
     }
 
+    @Test("create_script validates code and match, then passes the behavior to the creator")
+    func createScriptValidatesAndCreates() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let creator = RecordingScriptCreator(result: .created(id: "abc", isEnabled: true))
+        let handler = MCPScriptToolHandler(creator: creator, ruleMutations: fixture.service.ruleMutations)
+
+        let missing = await handler.createScript(["url": "https://api.example.com/*"])
+        let noHooks = await handler.createScript(["url": "https://api.example.com/*", "code": "var x = 1;"])
+        let neither = await handler.createScript([
+            "url": "https://api.example.com/*",
+            "code": "function onRequest(c, u, r) { return r; }",
+            "run_on_request": false,
+            "run_on_response": false,
+        ])
+        #expect(missing.isError == true)
+        #expect(noHooks.isError == true)
+        #expect(neither.isError == true)
+        #expect(await creator.calls.isEmpty)
+
+        let created = await handler.createScript([
+            "url": "https://api.example.com/users*",
+            "method": "post",
+            "code": "function onResponse(c, u, req, res) { res.statusCode = 201; return res; }",
+            "run_on_request": false,
+            "name": "Force 201",
+        ])
+        #expect(created.isError != true)
+        let call = try #require(await creator.calls.first)
+        #expect(call.name == "Force 201")
+        #expect(call.behavior.runOnRequest == false)
+        #expect(call.behavior.runOnResponse == true)
+        #expect(call.behavior.matchCondition?.method == "POST")
+        #expect(call.behavior.matchCondition?.sourceURLPattern == "https://api.example.com/users*")
+        #expect(call.enable)
+    }
+
+    @Test("create_script reports a saved-but-disabled script when the enabled limit is reached")
+    func createScriptReportsLimit() async throws {
+        let fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        let creator = RecordingScriptCreator(result: .createdButLimitReached(id: "abc", limit: 10))
+        let handler = MCPScriptToolHandler(creator: creator, ruleMutations: fixture.service.ruleMutations)
+
+        let result = await handler.createScript([
+            "url": "https://api.example.com/*",
+            "code": "function onRequest(c, u, r) { return r; }",
+        ])
+
+        #expect(result.isError != true)
+        let json = try decode(result)
+        #expect(json["is_enabled"] as? Bool == false)
+        #expect((json["note"] as? String)?.contains("10") == true)
+    }
+
+    @Test("Script factory writes a loadable manifest with the requested behavior")
+    func scriptFactoryWritesManifest() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("script-factory-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let behavior = ScriptBehavior(
+            matchCondition: RuleMatchCondition(urlPattern: "a", sourceURLPattern: "a"),
+            runOnRequest: false,
+            runOnResponse: true
+        )
+
+        let id = try ScriptPluginFactory.create(name: "Demo", source: "function onResponse() {}", behavior: behavior, in: root)
+
+        let directory = root.appendingPathComponent(id)
+        let manifest = try JSONDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: directory.appendingPathComponent("plugin.json"))
+        )
+        #expect(manifest.name == "Demo")
+        #expect(manifest.scriptBehavior == behavior)
+        #expect(try String(contentsOf: directory.appendingPathComponent("index.js"), encoding: .utf8)
+            == "function onResponse() {}")
+    }
+
     @Test("Registry lists change tools only when a change service is attached")
     func registryListsChangeTools() throws {
         let fixture = try Fixture()
@@ -318,6 +397,32 @@ private actor RecordingMutator: MCPRuleMutating {
     private let addResult: RuleMutationResult
     private var seeded: [UUID: ProxyRule] = [:]
     private var enableAllowed = true
+}
+
+// MARK: - RecordingScriptCreator
+
+private actor RecordingScriptCreator: MCPScriptCreating {
+    struct Call {
+        let name: String
+        let source: String
+        let behavior: ScriptBehavior
+        let enable: Bool
+    }
+
+    init(result: MCPScriptCreationResult) {
+        self.result = result
+    }
+
+    private(set) var calls: [Call] = []
+
+    func createScript(name: String, source: String, behavior: ScriptBehavior, enable: Bool) async
+        -> MCPScriptCreationResult
+    {
+        calls.append(Call(name: name, source: source, behavior: behavior, enable: enable))
+        return result
+    }
+
+    private let result: MCPScriptCreationResult
 }
 
 // MARK: - FakeControl
