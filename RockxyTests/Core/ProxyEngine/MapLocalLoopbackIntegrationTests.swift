@@ -301,6 +301,26 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A Block rule scoped to an application blocks that process only")
+    func blockScopedToClientApplication() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            await harness.addRule(ProxyRule(
+                name: "Block curl",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/ads.*", clientApplication: "curl"),
+                action: .block(statusCode: 403)
+            ))
+
+            // A separate curl process is identified through the OS connection table.
+            let fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            #expect(fromCurl == 403)
+
+            // The test process itself is the proxy's own pid, so it is never identified and
+            // an application-scoped rule does not fire for it.
+            let inProcess = try await harness.get("/ads/banner")
+            #expect(inProcess.status != 403)
+        }
+    }
+
     @Test("SOCKS5 destinations honor Block rules and the listener loop guard")
     func socks5AppliesConnectPolicy() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -761,6 +781,26 @@ private actor MapLocalLoopbackHarness {
 
     func addRule(_ rule: ProxyRule) async {
         await engine.addRule(rule)
+    }
+
+    /// HTTP status curl reports for `path` fetched through the proxy from its own process.
+    func curlStatus(path: String) async throws -> Int {
+        let port = proxyPort
+        let url = origin.absoluteURLString(path: path)
+        return try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+            process.arguments = [
+                "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10",
+                "--proxy", "http://127.0.0.1:\(port)", url,
+            ]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return Int(String(decoding: data, as: UTF8.self)) ?? -1
+        }.value
     }
 
     /// Builds a Map Local rule whose wildcard pattern matches exactly one absolute request URL
