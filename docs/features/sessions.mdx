@@ -64,12 +64,14 @@ HAR is a JSON-based format supported by browser DevTools, Charles Proxy, Proxyma
 ### Importing a HAR File
 
 1. Choose **File > Import HAR...** (`Cmd+Shift+I`).
-2. Select a `.har` or `.json` file.
+2. Select a `.har` or `.json` file, or a Charles JSON session (`.chlsj`, from Charles's **File > Export Session… > JSON Session File**). Charles's binary `.chls` format can't be read outside Charles; export it as JSON first.
 3. Rockxy shows an **Import Review** sheet with file metadata and a destructive warning if you have an active session.
 4. Click **Replace Current** to import, or **Cancel** to abort.
 5. Imported transactions appear in the traffic list. The status bar shows the import source.
 
 Import errors (invalid format, oversized file, deserialization failure) are shown in a dialog with a specific error message.
+
+A Charles JSON session keeps each request's headers, body, response, timings, and — where Charles recorded them — the server address and TLS version, which appear in the [Connection Log](/features/connection-log). You can also drop a `.chlsj` file on the traffic list.
 
 ### Exporting to HAR
 

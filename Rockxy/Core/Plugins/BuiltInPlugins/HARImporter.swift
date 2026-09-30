@@ -30,7 +30,14 @@ struct HARImporter {
     // MARK: Internal
 
     func importData(_ data: Data) throws -> [HTTPTransaction] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        // Charles JSON sessions (.chlsj) are an array of entries rather than a HAR log.
+        if let parsed, CharlesJSONSessionImporter.looksLikeSession(parsed) {
+            let transactions = try CharlesJSONSessionImporter.importEntries(parsed)
+            Self.logger.info("Imported \(transactions.count) transactions from a Charles JSON session")
+            return transactions
+        }
+        guard let root = parsed as? [String: Any] else {
             throw HARImportError.invalidFormat("Root object is not a JSON dictionary")
         }
 

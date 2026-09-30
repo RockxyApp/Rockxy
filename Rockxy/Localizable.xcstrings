@@ -8843,16 +8843,6 @@
         }
       }
     },
-    "Choose a HAR file to import": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择要导入的 HAR 文件"
-          }
-        }
-      }
-    },
     "Choose a local folder where the runtime application can be installed.": {
       "localizations": {
         "zh-Hans": {
@@ -47676,6 +47666,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "此规则阻止的请求不会添加到流量列表中。"
+          }
+        }
+      }
+    },
+    "Choose a HAR file or a Charles JSON session (.chlsj) to import": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要导入的 HAR 文件或 Charles JSON 会话 (.chlsj)"
           }
         }
       }

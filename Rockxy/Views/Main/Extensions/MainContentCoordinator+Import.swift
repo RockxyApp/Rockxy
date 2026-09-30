@@ -87,9 +87,12 @@ extension MainContentCoordinator {
 
     func importHAR() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.har, .json]
+        panel.allowedContentTypes = [.har, .json] + [UTType(filenameExtension: "chlsj")].compactMap(\.self)
         panel.allowsMultipleSelection = false
-        panel.message = String(localized: "Choose a HAR file to import", bundle: RockxyLocalization.bundle)
+        panel.message = String(
+            localized: "Choose a HAR file or a Charles JSON session (.chlsj) to import",
+            bundle: RockxyLocalization.bundle
+        )
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return
