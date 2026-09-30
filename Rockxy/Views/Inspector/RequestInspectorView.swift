@@ -154,6 +154,8 @@ struct RequestInspectorView: View {
             requestRawView
         case .synopsis:
             SynopsisInspectorView(transaction: transaction)
+        case .connectionLog:
+            ConnectionLogInspectorView(transaction: transaction)
         case .comments:
             CommentsTabView(coordinator: coordinator, transaction: transaction)
         }

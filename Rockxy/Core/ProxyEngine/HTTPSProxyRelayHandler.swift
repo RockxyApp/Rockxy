@@ -460,6 +460,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                     upstreamPort: upstreamPort,
                     responseHeaderOperations: responseHeaderOperations,
                     networkConditionProfile: networkConditionProfile,
+                    offeredProtocols: clientTLSConfig.applicationProtocols,
                     callback: callback
                 )
             }
@@ -487,6 +488,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         upstreamPort: Int,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
+        offeredProtocols: [String] = [],
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         let limiter = connectionLimiter
@@ -501,6 +503,12 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 tcpTime: tcpTime,
                 clientContext: context,
                 isHTTPS: true,
+                tlsIntent: requestData.url.scheme == "https"
+                    ? UpstreamTLSIntent(
+                        offeredProtocols: offeredProtocols,
+                        acceptsUntrustedCertificates: upstreamTrustProvider()
+                    )
+                    : nil,
                 sourcePort: self.clientSourcePort,
                 breakpointPhase: self.pendingBreakpointPhase,
                 breakpointRuleName: self.pendingBreakpointRuleName,
@@ -551,7 +559,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         case let .failure(error):
             httpsRelayLogger.error("Upstream connection failed: \(error.localizedDescription)")
             limiter.release(host: upstreamHost, port: upstreamPort)
-            self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
+            self.sendErrorResponse(
+                context: context,
+                status: 502,
+                requestData: requestData,
+                callback: ConnectionLogCapture.attachingFailure(
+                    error,
+                    host: upstreamHost,
+                    port: upstreamPort,
+                    connectHost: upstreamHost == self.host
+                        ? self.connectHost
+                        : DNSSpoofingTable.shared.address(for: upstreamHost) ?? upstreamHost,
+                    to: callback
+                )
+            )
         }
     }
 

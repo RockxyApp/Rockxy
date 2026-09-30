@@ -1,0 +1,37 @@
+---
+title: "Connection Log"
+description: "See how Rockxy reached the server for a request: the address it connected to, the route, the TLS session and certificate, and where a failed connection stopped."
+---
+
+# Connection Log
+
+The **Connection Log** tab shows how Rockxy reached the server for the selected request, in the style of `curl -v`. Use it to find out why a request failed, which address and route were used, and what the server's TLS session and certificate looked like.
+
+## Open it
+
+1. Select a request in the list.
+2. In the **Request** panel, click **Connection Log** (next to **Synopsis**).
+
+The log is read-only text. Select it to copy, or use **Open with** or **Save Log As…** at the bottom of the tab.
+
+## What it shows
+
+Lines starting with `*` are connection events, `>` lines are what Rockxy sent to the server, and `<` lines are what the server returned.
+
+- **Connection**: the host and port the request addressed, the IP address and port Rockxy connected to, how long the TCP connection took, and the local address it used.
+- **Route**: whether Rockxy connected directly or through an [external proxy](/features/upstream-proxy), and whether a PAC script chose that route. When [DNS Spoofing](/features/dns-spoofing) or the Android emulator host alias sends the request to another address, the log says which one.
+- **TLS** (HTTPS only): the server name sent (SNI), the protocols Rockxy offered through ALPN and the one the server accepted, the TLS version, how long the handshake took, and the server certificate's subject, issuer, validity dates and alternative names.
+- **Verification**: `Certificate verification: OK` when the server certificate was checked. If **Accept untrusted upstream certificates** is on, the log shows `Certificate verification disabled` instead. That means Rockxy did not check the certificate, not that the certificate is invalid.
+- **HTTP**: the request line and headers Rockxy forwarded, the response status and headers, body sizes, and HTTP/2 trailers.
+- **Failures**: the stage where the connection stopped: DNS lookup, TCP connection (with every address tried and the reason, such as `Connection refused`), the external proxy, the TLS handshake, or waiting for the response. Rockxy's own 502 or 504 reply is not shown as if the server sent it.
+
+## Timing
+
+Requests that record a Connection Log also have a measured TLS handshake time in the **Timing** view, instead of a share estimated from the connection time.
+
+## Saved sessions and privacy
+
+- The log's facts are saved in `.rockxysession` files and appear again when you open the session.
+- Requests captured before this feature, imported HAR files, and responses served by a rule such as Map Local say that no connection details were recorded, or which rule answered.
+- The certificate's text fields are saved. Full certificates, certificate chains and private keys are not.
+- When traffic is shared with redaction on (for example through MCP), the local IP address and port are removed.

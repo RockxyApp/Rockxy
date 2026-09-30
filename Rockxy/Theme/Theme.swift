@@ -182,6 +182,19 @@ enum Theme {
 
     // MARK: - Filter Pills
 
+    /// Connection Log roles. Semantic system colors keep contrast in Light and Dark.
+    enum ConnectionLog {
+        static let markerNS = NSColor.tertiaryLabelColor
+        static let eventNS = NSColor.labelColor
+        static let hostNS = NSColor.systemTeal
+        static let tlsNS = NSColor.systemPurple
+        static let successNS = NSColor.systemGreen
+        static let warningNS = NSColor.systemOrange
+        static let failureNS = NSColor.systemRed
+        static let headerNameNS = JSON.headerNS
+        static let noteNS = NSColor.secondaryLabelColor
+    }
+
     enum FilterPill {
         static let activeBackground = Color.accentColor.opacity(0.15)
         static let activeForeground = Color.primary

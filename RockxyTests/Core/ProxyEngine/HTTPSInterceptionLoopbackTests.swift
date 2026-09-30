@@ -41,6 +41,36 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
+    @Test("The Connection Log records the upstream TLS session of a decrypted exchange")
+    func connectionLogRecordsUpstreamTLS() async throws {
+        try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
+            let response = try await harness.get("/secure/log")
+            #expect(response.status == 200)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/secure/log" }
+            let log = try #require(row?.connectionLog)
+            #expect(["127.0.0.1", "::1"].contains(log.remoteAddress ?? ""))
+            #expect(log.failure == nil)
+            let tls = try #require(log.tls)
+            #expect(tls.version?.hasPrefix("TLSv1.") == true)
+            #expect(tls.serverName == "localhost")
+            #expect(tls.verification == .disabled)
+            #expect(tls.handshakeDuration != nil)
+            #expect(tls.certificate?.alternativeNames.contains("localhost") == true)
+            #expect(tls.certificate?.notValidAfter != nil)
+            // The handshake is measured, not estimated from the connect time.
+            #expect((row?.timingInfo?.tlsHandshake ?? 0) > 0)
+
+            let text = await MainActor.run {
+                ConnectionLogFormatter.plainText(for: ConnectionLogFormatter.Input(transaction: row!))
+            }
+            #expect(text.contains("* SSL connection using TLSv1."))
+            #expect(text.contains("> GET /secure/log HTTP/1.1"))
+            #expect(text.contains("< HTTP/1.1 200"))
+        }
+    }
+
     @Test("The TLS key log records secrets for both legs of a decrypted connection")
     func tlsKeyLogRecordsBothLegs() async throws {
         let url = FileManager.default.temporaryDirectory
@@ -213,6 +243,8 @@ struct HTTPSInterceptionLoopbackTests {
             #expect(failed?.state == .failed)
             #expect(failed?.response?.statusCode == 502)
             #expect(failed?.response?.statusMessage.contains("TLS") == true)
+            #expect(failed?.connectionLog?.failure?.stage == .tls)
+            #expect(failed?.connectionLog?.tls?.verification == nil)
         }
     }
 }

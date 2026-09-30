@@ -77,6 +77,7 @@ struct CodableTransaction: Codable {
         self.appliedScriptNames = transaction.appliedScriptNames.isEmpty ? nil : transaction.appliedScriptNames
         self.noCachingApplied = transaction.noCachingApplied ? true : nil
         self.serverHTTPVersion = transaction.serverHTTPVersion
+        self.connectionLog = transaction.connectionLog
     }
 
     init(from decoder: Decoder) throws {
@@ -107,6 +108,7 @@ struct CodableTransaction: Codable {
         appliedScriptNames = try container.decodeIfPresent([String].self, forKey: .appliedScriptNames)
         noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
+        connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
     }
 
     // MARK: Internal
@@ -136,6 +138,7 @@ struct CodableTransaction: Codable {
         case appliedScriptNames
         case noCachingApplied
         case serverHTTPVersion
+        case connectionLog
     }
 
     let id: UUID
@@ -164,6 +167,7 @@ struct CodableTransaction: Codable {
     let appliedScriptNames: [String]?
     let noCachingApplied: Bool?
     let serverHTTPVersion: String?
+    let connectionLog: ConnectionLog?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -192,6 +196,7 @@ struct CodableTransaction: Codable {
         transaction.appliedScriptNames = appliedScriptNames ?? []
         transaction.noCachingApplied = noCachingApplied ?? false
         transaction.serverHTTPVersion = serverHTTPVersion
+        transaction.connectionLog = connectionLog
         return transaction
     }
 }

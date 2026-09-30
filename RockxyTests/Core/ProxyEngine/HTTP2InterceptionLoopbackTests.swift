@@ -33,6 +33,12 @@ struct HTTP2InterceptionLoopbackTests {
             #expect(row.serverHTTPVersion == "2")
             #expect(row.response?.statusCode == 200)
             #expect(row.response?.trailers?.contains { $0.name == "grpc-status" && $0.value == "0" } == true)
+            // The stream's Connection Log describes the shared connection it rode on.
+            let tls = try #require(row.connectionLog?.tls)
+            #expect(tls.offeredProtocols == ["h2", "http/1.1"])
+            #expect(tls.negotiatedProtocol == "h2")
+            #expect(tls.handshakeDuration != nil)
+            #expect(tls.version?.hasPrefix("TLSv1.") == true)
         }
     }
 

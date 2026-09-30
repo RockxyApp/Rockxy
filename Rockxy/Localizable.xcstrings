@@ -47259,6 +47259,26 @@
           }
         }
       }
+    },
+    "Connection Log": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接日志"
+          }
+        }
+      }
+    },
+    "Save Log As…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志另存为…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

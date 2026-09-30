@@ -113,6 +113,9 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// Protocol Rockxy used to reach the server (`1.1` or `2`); nil for tunnels, local
     /// responses, and sessions saved before it was recorded.
     var serverHTTPVersion: String?
+    /// How Rockxy reached the server for this exchange; nil when no upstream connection was
+    /// attempted (local responses, imports, sessions saved before it was recorded).
+    var connectionLog: ConnectionLog?
 
     /// Runtime-only ownership. Portable session files intentionally omit this so
     /// an imported capture is assigned to the destination Project chosen by the user.

@@ -64,6 +64,44 @@ struct MapLocalLoopbackIntegrationTests {
             let failed = await harness.capturedTransactions().first { $0.request.url.path == "/close-without-response" }
             #expect(failed?.state == .failed)
             #expect(failed?.response?.statusCode == 502)
+            #expect(failed?.connectionLog?.failure?.stage == .response)
+            #expect(failed?.connectionLog?.remoteAddress == "127.0.0.1")
+        }
+    }
+
+    @Test("The Connection Log records the address Rockxy connected to for plain HTTP")
+    func connectionLogRecordsPlainHTTPAddress() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let response = try await harness.get("/live?log=1")
+            #expect(response.status == 200)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.query == "log=1" }
+            let log = try #require(row?.connectionLog)
+            #expect(log.remoteAddress == "127.0.0.1")
+            #expect(log.remotePort == harness.originPort)
+            #expect(log.route == .direct)
+            #expect(log.connectHost == nil)
+            #expect(log.tls == nil)
+            #expect(log.failure == nil)
+            #expect(log.connectDuration != nil)
+            #expect(log.localAddress == "127.0.0.1")
+        }
+    }
+
+    @Test("The Connection Log names each refused address when the server is unreachable")
+    func connectionLogRecordsRefusedConnection() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let closedPort = try await harness.unusedLoopbackPort()
+            let response = try await harness.get(host: "127.0.0.1", port: closedPort, path: "/refused")
+            #expect(response.status == 502)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/refused" }
+            let failure = try #require(row?.connectionLog?.failure)
+            #expect(failure.stage == .connect)
+            #expect(failure.message.contains("port \(closedPort)"))
+            #expect(failure.attempts.contains { $0.hasPrefix("127.0.0.1 port \(closedPort):") && $0.contains("refused") })
         }
     }
 
@@ -280,6 +318,7 @@ struct MapLocalLoopbackIntegrationTests {
             try await Task.sleep(for: .milliseconds(300))
             let captured = await harness.capturedTransactions().first { $0.request.url.host() == host }
             #expect(captured?.state == .completed)
+            #expect(captured?.connectionLog?.connectHost == "127.0.0.1")
         }
     }
 
@@ -818,6 +857,22 @@ private actor MapLocalLoopbackHarness {
             proxyHost: "127.0.0.1",
             proxyPort: proxyPort,
             method: .CONNECT
+        )
+    }
+
+    /// A loopback port nothing listens on, for connection-failure tests.
+    func unusedLoopbackPort() throws -> Int {
+        try Self.reserveLoopbackPort()
+    }
+
+    /// Sends `GET http://<host>:<port><path>` to an arbitrary port.
+    func get(host: String, port: Int, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://\(host):\(port)\(path)",
+            host: host,
+            originPort: port,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
         )
     }
 

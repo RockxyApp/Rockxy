@@ -1059,7 +1059,18 @@ extension HTTPProxyHandler {
             case let .failure(error):
                 proxyHandlerLogger.error("Connection failed: \(error.localizedDescription)")
                 limiter.release(host: host, port: port)
-                self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
+                self.sendErrorResponse(
+                    context: context,
+                    status: 502,
+                    requestData: requestData,
+                    callback: ConnectionLogCapture.attachingFailure(
+                        error,
+                        host: host,
+                        port: port,
+                        connectHost: connectHost,
+                        to: callback
+                    )
+                )
             }
         }
     }
@@ -1087,6 +1098,9 @@ extension HTTPProxyHandler {
             connectTime: connectTime,
             tcpTime: tcpTime,
             clientContext: context,
+            tlsIntent: requestData.url.scheme == "https"
+                ? UpstreamTLSIntent(offeredProtocols: [], acceptsUntrustedCertificates: upstreamTrustProvider())
+                : nil,
             sourcePort: clientSourcePort,
             breakpointPhase: pendingBreakpointPhase,
             breakpointRuleName: pendingBreakpointRuleName,

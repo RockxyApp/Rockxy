@@ -10,6 +10,7 @@ enum RequestInspectorTab: String, CaseIterable {
     case cookies
     case raw
     case synopsis
+    case connectionLog
     case comments
 
     // MARK: Internal
@@ -24,6 +25,7 @@ enum RequestInspectorTab: String, CaseIterable {
         case .cookies: String(localized: "Cookies", bundle: RockxyLocalization.bundle)
         case .raw: String(localized: "Raw", bundle: RockxyLocalization.bundle)
         case .synopsis: String(localized: "Synopsis", bundle: RockxyLocalization.bundle)
+        case .connectionLog: String(localized: "Connection Log", bundle: RockxyLocalization.bundle)
         case .comments: String(localized: "Notes", bundle: RockxyLocalization.bundle)
         }
     }

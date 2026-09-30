@@ -306,6 +306,13 @@ struct SensitiveDataRedactor {
         redacted.appliedScriptNames = transaction.appliedScriptNames
         redacted.noCachingApplied = transaction.noCachingApplied
         redacted.serverHTTPVersion = transaction.serverHTTPVersion
+        // The local socket address identifies the capturing machine on its network.
+        redacted.connectionLog = transaction.connectionLog.map {
+            var log = $0
+            log.localAddress = nil
+            log.localPort = nil
+            return log
+        }
         redacted.sequenceNumber = transaction.sequenceNumber
         return redacted
     }

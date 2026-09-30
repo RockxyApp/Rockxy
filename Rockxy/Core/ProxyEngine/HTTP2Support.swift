@@ -112,6 +112,12 @@ nonisolated enum UpstreamHTTPChannelConnector {
     )
         -> EventLoopFuture<Void>
     {
+        if let probe = UpstreamConnectionProbe.find(on: channel) {
+            probe.tlsHandshakeCompletedAt = .now()
+            if case let .negotiated(name) = result {
+                probe.negotiatedProtocol = name
+            }
+        }
         guard case .negotiated(HTTP2ProxyOptions.h2) = result else {
             return channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes).map {
                 promise.succeed(Connection(channel: channel, negotiatedProtocol: nil))
