@@ -210,6 +210,14 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                 serverChannel.closeFuture.whenComplete { _ in
                     limiter.release(host: host, port: port)
                 }
+                self.postHandshake.tunnelConnectionLog = ConnectionLogCapture.log(
+                    for: serverChannel,
+                    host: host,
+                    port: port,
+                    tlsIntent: nil,
+                    handshakeDuration: nil,
+                    negotiatedProtocol: nil
+                )
                 let replayClientReads = self.bufferedRawTunnelData
                 self.bufferedRawTunnelData.removeAll(keepingCapacity: false)
                 self.bufferedRawTunnelByteCount = 0
@@ -239,6 +247,12 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
             case let .failure(error):
                 limiter.release(host: host, port: port)
                 tlsLogger.error("Raw tunnel connection failed to \(host):\(port): \(String(describing: error))")
+                self.postHandshake.tunnelConnectionLog = ConnectionLogCapture.failedConnection(
+                    host: host,
+                    port: port,
+                    connectHost: host,
+                    error: error
+                )
                 self.postHandshake.recordTunnelFailure(statusCode: 502, statusMessage: "Upstream Connection Failed")
                 channel.close(promise: nil)
             }

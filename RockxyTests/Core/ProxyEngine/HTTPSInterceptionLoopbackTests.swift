@@ -222,6 +222,10 @@ struct HTTPSInterceptionLoopbackTests {
             let captured = await harness.capturedTransactions()
             #expect(!captured.contains { $0.request.url.path == "/raw/items" })
             #expect(captured.contains { $0.request.method == "CONNECT" && $0.sslCapture == .tunneled })
+            // The tunnel row still says where it connected.
+            let tunnel = captured.first { $0.request.method == "CONNECT" && $0.sslCapture == .tunneled }
+            #expect(["127.0.0.1", "::1"].contains(tunnel?.connectionLog?.remoteAddress ?? ""))
+            #expect(tunnel?.connectionLog?.tls == nil)
         }
     }
 

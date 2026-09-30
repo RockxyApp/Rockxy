@@ -310,74 +310,6 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         return "remote:\(digest)"
     }
 
-    nonisolated static func makeTunnelTransaction(
-        host: String,
-        port: Int,
-        statusCode: Int,
-        statusMessage: String,
-        state: TransactionState,
-        sourcePort: UInt16?,
-        measuredDuration: TimeInterval? = nil,
-        isTLSFailure: Bool = false,
-        sslCapture: HTTPTransaction.SSLCaptureMode? = nil,
-        captureContext: TrafficCaptureContext? = nil,
-        clientIdentifier: String? = nil
-    )
-        -> HTTPTransaction
-    {
-        let hostPart: String = if host.contains(":"), !host.hasPrefix("["), !host.hasSuffix("]") {
-            "[\(host)]"
-        } else {
-            host
-        }
-
-        guard let tunnelURL = URL(string: "https://\(hostPart):\(port)") else {
-            tlsLogger.warning("Failed to build CONNECT tunnel URL for host \(host, privacy: .public):\(port)")
-            var fallbackComponents = URLComponents()
-            fallbackComponents.scheme = "https"
-            fallbackComponents.host = "invalid-tunnel.local"
-            fallbackComponents.port = 443
-            let fallbackURL = fallbackComponents.url ?? URL(fileURLWithPath: "/")
-            return makeTunnelTransaction(
-                host: fallbackURL.host ?? "invalid-tunnel.local",
-                port: fallbackURL.port ?? 443,
-                statusCode: statusCode,
-                statusMessage: statusMessage,
-                state: state,
-                sourcePort: sourcePort,
-                measuredDuration: measuredDuration,
-                isTLSFailure: isTLSFailure,
-                sslCapture: sslCapture,
-                captureContext: captureContext,
-                clientIdentifier: clientIdentifier
-            )
-        }
-        let requestData = HTTPRequestData(
-            method: "CONNECT",
-            url: tunnelURL,
-            httpVersion: "1.1",
-            headers: [],
-            body: nil,
-            contentType: nil,
-            captureContext: captureContext
-        )
-        let transaction = HTTPTransaction(
-            request: requestData,
-            response: HTTPResponseData(
-                statusCode: statusCode,
-                statusMessage: statusMessage,
-                headers: []
-            ),
-            state: state
-        )
-        transaction.measuredDuration = measuredDuration
-        transaction.sourcePort = sourcePort
-        transaction.isTLSFailure = isTLSFailure
-        transaction.sslCapture = sslCapture
-        transaction.tlsClientScopeIdentifier = clientIdentifier
-        return transaction
-    }
-
     /// Central raw-tunnel wiring helper. Successful passthrough capture depends on this
     /// path completing and invoking `onSuccess`, so keep all raw CONNECT success setup in
     /// one place instead of reimplementing the relay chain in multiple handlers.
@@ -470,7 +402,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     /// failure, so it stays visible in the normal request list rather than being filtered
     /// out as one.
     nonisolated func makeTunnelFailureTransaction(statusCode: Int, statusMessage: String) -> HTTPTransaction {
-        Self.makeTunnelTransaction(
+        let transaction = Self.makeTunnelTransaction(
             host: host,
             port: port,
             statusCode: statusCode,
@@ -484,6 +416,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 connectionDescriptor: clientConnectionDescriptor
             )
         )
+        transaction.connectionLog = tunnelConnectionLog
+        return transaction
     }
 
     /// Reports a tunnel that was rejected or could not connect. Called only from terminal
@@ -550,6 +484,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var bufferedData: [ByteBuffer] = []
     private var bufferedByteCount = 0, tunnelOutcomeRecorded = false
+    /// How the raw tunnel reached the server (or why it could not), for the CONNECT row.
+    private var tunnelConnectionLog: ConnectionLog?
     /// Runs once the client's first tunnel bytes arrive (or the sniff timer fires) so a
     /// plain-HTTP tunnel can be relayed even when TLS interception is unavailable.
     private var pendingTunnelSniff: (() -> Void)?
@@ -912,6 +848,14 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 serverChannel.closeFuture.whenComplete { _ in
                     limiter.release(host: host, port: port)
                 }
+                self.tunnelConnectionLog = ConnectionLogCapture.log(
+                    for: serverChannel,
+                    host: host,
+                    port: port,
+                    tlsIntent: nil,
+                    handshakeDuration: nil,
+                    negotiatedProtocol: nil
+                )
                 let clientChannel = context.channel
                 let replayClientReads = self.bufferedData
                 self.bufferedData.removeAll(keepingCapacity: false)
@@ -950,6 +894,12 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 tlsLogger.error(
                     "Raw tunnel connection failed to \(host):\(port): \(error.localizedDescription)"
                 )
+                self.tunnelConnectionLog = ConnectionLogCapture.failedConnection(
+                    host: host,
+                    port: port,
+                    connectHost: UpstreamConnectHost.resolve(for: host, clientHost: self.clientConnectionDescriptor?.clientHost),
+                    error: error
+                )
                 self.recordTunnelFailure(statusCode: 502, statusMessage: "Upstream Connection Failed")
                 context.close(promise: nil)
             }
@@ -962,7 +912,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         }
         tunnelOutcomeRecorded = true
         onTransactionComplete(
-            Self.makeTunnelTransaction(
+            Self.withConnectionLog(tunnelConnectionLog, Self.makeTunnelTransaction(
                 host: host,
                 port: port,
                 statusCode: 200,
@@ -976,7 +926,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     application: clientApplicationIdentity,
                     connectionDescriptor: clientConnectionDescriptor
                 )
-            )
+            ))
         )
     }
 
@@ -1206,12 +1156,15 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     /// Builds the CONNECT row for a raw tunnel established after the handshake pipeline was
     /// torn down (non-TLS data seen inside the tunnel). This is a passthrough, not an
     /// interception, so it is captured as `.tunneled`.
+    /// Set by the protocol detector once its raw tunnel connects or fails.
+    var tunnelConnectionLog: ConnectionLog?
+
     nonisolated func makeSuccessfulTunnelTransaction(
         statusMessage: String = "Connection Established"
     )
         -> HTTPTransaction
     {
-        TLSInterceptHandler.makeTunnelTransaction(
+        TLSInterceptHandler.withConnectionLog(tunnelConnectionLog, TLSInterceptHandler.makeTunnelTransaction(
             host: host,
             port: port,
             statusCode: 200,
@@ -1222,7 +1175,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             sslCapture: .tunneled,
             captureContext: tunnelCaptureContext,
             clientIdentifier: clientIdentifier
-        )
+        ))
     }
 
     /// The HTTP relay for this tunnel. `https` after a completed TLS handshake; `http` when the
@@ -1263,7 +1216,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     /// connect. It is not a TLS handshake failure, so it stays visible in the normal
     /// request list rather than being filtered out as one.
     nonisolated func makeTunnelFailureTransaction(statusCode: Int, statusMessage: String) -> HTTPTransaction {
-        TLSInterceptHandler.makeTunnelTransaction(
+        TLSInterceptHandler.withConnectionLog(tunnelConnectionLog, TLSInterceptHandler.makeTunnelTransaction(
             host: host,
             port: port,
             statusCode: statusCode,
@@ -1273,7 +1226,7 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             measuredDuration: tunnelElapsedDuration(),
             captureContext: tunnelCaptureContext,
             clientIdentifier: clientIdentifier
-        )
+        ))
     }
 
     /// Reports a fallback tunnel that never came up. Called only from terminal paths that

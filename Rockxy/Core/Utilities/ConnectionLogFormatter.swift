@@ -58,6 +58,9 @@ enum ConnectionLogFormatter {
             if log.failure?.stage != .connect, log.failure?.stage != .proxy, !input.isTunnel {
                 lines.append(event("Using \(protocolName(input.serverHTTPVersion))"))
             }
+            if input.isTunnel, log.failure == nil {
+                lines.append(event("Relaying the connection as-is: its contents are not decrypted", role: .note))
+            }
         } else if let responder = input.localResponder, input.response != nil {
             lines.append(event("No connection to the server: the response came from \(responder)", role: .note))
         } else {

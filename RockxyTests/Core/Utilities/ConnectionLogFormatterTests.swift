@@ -197,6 +197,20 @@ struct ConnectionLogFormatterTests {
         }
     }
 
+    @Test("A tunnel row shows its connection without inventing HTTP messages")
+    func tunnelRow() {
+        var log = ConnectionLog(host: "secure.example.com", port: 443)
+        log.remoteAddress = "10.0.0.5"
+        let lines = ConnectionLogFormatter.lines(for: ConnectionLogFormatter.Input(
+            log: log,
+            request: Self.request,
+            response: nil,
+            isTunnel: true
+        ))
+        #expect(lines.contains { $0.text == "Relaying the connection as-is: its contents are not decrypted" })
+        #expect(!lines.contains { $0.marker == ">" || $0.marker == "<" })
+    }
+
     // MARK: Private
 
     private static let request = HTTPRequestData(
