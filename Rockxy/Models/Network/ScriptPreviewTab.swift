@@ -74,7 +74,10 @@ struct ScriptPreviewTab: Codable, Equatable, Hashable, Sendable {
         }
         if value.isObject, let object = value.toObject(),
            JSONSerialization.isValidJSONObject(object),
-           let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+           let data = try? JSONSerialization.data(
+               withJSONObject: object,
+               options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+           )
         {
             return String(data: data, encoding: .utf8)
         }

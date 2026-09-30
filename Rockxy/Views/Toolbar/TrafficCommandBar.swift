@@ -491,6 +491,9 @@ struct TrafficCommandBar: View {
                 Button(String(localized: "Remove Highlight", bundle: RockxyLocalization.bundle)) {
                     actions.setHighlight(nil)
                 }
+                Button(String(localized: "Strikethrough", bundle: RockxyLocalization.bundle)) {
+                    actions.toggleStrikethrough()
+                }
             }
         }
         .disabled(!hasSingleRequestSelection)

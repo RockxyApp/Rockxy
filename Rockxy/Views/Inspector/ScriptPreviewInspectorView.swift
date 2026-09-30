@@ -53,11 +53,12 @@ struct ScriptPreviewInspectorView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 Divider()
-                InspectorBodyTextEditor(
-                    text: tabs[index].text,
-                    editorID: "\(transaction.id.uuidString)-script-\(panel.rawValue)-\(index)",
-                    isEditable: false
-                )
+                let text = tabs[index].text
+                AsyncInspectorTextEditor(
+                    renderID: "\(transaction.id.uuidString)-script-\(panel.rawValue)-\(index)-\(text.count)"
+                ) {
+                    .text(text)
+                }
             }
         }
     }

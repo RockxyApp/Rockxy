@@ -174,7 +174,10 @@ extension MainContentCoordinator {
     /// Strikes through the right-clicked row, or the whole selection when the row is part of it.
     /// Mixed selections are all struck through; only a fully struck selection is cleared.
     func toggleStrikethrough(clicked transaction: HTTPTransaction) {
-        let targets = contextExportTransactions(clicked: transaction)
+        toggleStrikethrough(for: contextExportTransactions(clicked: transaction))
+    }
+
+    func toggleStrikethrough(for targets: [HTTPTransaction]) {
         guard !targets.isEmpty else {
             return
         }

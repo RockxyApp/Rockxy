@@ -232,6 +232,15 @@ struct MainContentCommandActions {
         }
     }
 
+    func toggleStrikethrough() {
+        let selected = coordinator.resolveSelectedTransactions()
+        if selected.isEmpty, let transaction = coordinator.selectedTransaction {
+            coordinator.toggleStrikethrough(for: [transaction])
+        } else {
+            coordinator.toggleStrikethrough(for: selected)
+        }
+    }
+
     func setFollowingLiveTraffic(_ isEnabled: Bool) {
         coordinator.setFollowingLiveTraffic(isEnabled)
     }

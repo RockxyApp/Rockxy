@@ -1046,6 +1046,7 @@ struct RockxyMenuCommands: Commands {
                 Button(String(localized: "Remove Highlight", bundle: RockxyLocalization.bundle)) {
                     proxyActions.setHighlight(nil)
                 }
+                Button(String(localized: "Strikethrough", bundle: RockxyLocalization.bundle), action: proxyActions.toggleStrikethrough)
             }
             .disabled(!proxyActions.canRepeatSelection)
 
