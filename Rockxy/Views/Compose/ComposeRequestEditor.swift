@@ -36,6 +36,8 @@ struct ComposeRequestEditor: View {
     // MARK: Private
 
     @State private var selectedTab: ComposeRequestTab = .headers
+    @State private var rawDraft = ""
+    @State private var rawError: String?
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var toolMetrics: ToolWindowDisplayMetrics {
@@ -226,12 +228,49 @@ struct ComposeRequestEditor: View {
     // MARK: - Raw Tab
 
     private var rawView: some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(viewModel.rawRequestText)
+        VStack(spacing: 0) {
+            TextEditor(text: $rawDraft)
                 .font(toolMetrics.font(monospaced: true))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+                .padding(8)
+                .accessibilityLabel(String(localized: "Raw request", bundle: RockxyLocalization.bundle))
+            Divider()
+            HStack(spacing: toolMetrics.controlSpacing) {
+                if let rawError {
+                    Label(rawError, systemImage: "exclamationmark.triangle")
+                        .font(toolMetrics.secondaryFont())
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                } else {
+                    Text(String(
+                        localized: "Edit the request line, headers, or body, then apply.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .font(toolMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(String(localized: "Revert", bundle: RockxyLocalization.bundle)) {
+                    rawDraft = viewModel.rawRequestText
+                    rawError = nil
+                }
+                .disabled(rawDraft == viewModel.rawRequestText)
+                Button(String(localized: "Apply", bundle: RockxyLocalization.bundle)) {
+                    do {
+                        try viewModel.applyRawRequest(rawDraft)
+                        rawDraft = viewModel.rawRequestText
+                        rawError = nil
+                    } catch {
+                        rawError = error.localizedDescription
+                    }
+                }
+                .disabled(rawDraft == viewModel.rawRequestText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .onAppear {
+            rawDraft = viewModel.rawRequestText
+            rawError = nil
         }
     }
 

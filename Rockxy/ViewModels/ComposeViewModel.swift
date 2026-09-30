@@ -379,7 +379,7 @@ final class ComposeViewModel {
         lines.append("\(method) \(path)\(query) HTTP/1.1")
 
         if let host = parsedURL?.host {
-            lines.append("Host: \(host)")
+            lines.append("Host: \(host)\(parsedURL?.port.map { ":\($0)" } ?? "")")
         }
 
         for header in headers where header.isEnabled && !header.name.isEmpty {
