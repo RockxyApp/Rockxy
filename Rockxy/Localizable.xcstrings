@@ -47639,6 +47639,26 @@
           }
         }
       }
+    },
+    "Open in FileMerge": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 FileMerge 中打开"
+          }
+        }
+      }
+    },
+    "Compare both sides in FileMerge": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 FileMerge 中比较两侧"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

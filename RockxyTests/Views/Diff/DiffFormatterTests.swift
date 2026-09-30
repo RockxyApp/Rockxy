@@ -393,4 +393,18 @@ struct DiffFormatterTests {
 
         """)
     }
+
+    @Test("FileMerge gets a left and right document rebuilt from the comparison")
+    func fileMergeDocuments() {
+        let result = DiffResult(sections: [
+            DiffSection(title: "Headers", lines: [
+                DiffLine(lineNumber: 1, content: "Accept: */*", type: .unchanged),
+                DiffLine(lineNumber: 2, content: "X-Old: 1", type: .removed),
+                DiffLine(lineNumber: 3, content: "X-New: 2", type: .added),
+            ]),
+        ])
+        let documents = DiffFileMerge.documents(for: result)
+        #expect(documents.left == "--- Headers ---\nAccept: */*\nX-Old: 1\n\n")
+        #expect(documents.right == "--- Headers ---\nAccept: */*\nX-New: 2\n\n")
+    }
 }

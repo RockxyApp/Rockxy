@@ -56,6 +56,26 @@ struct DiffWindowView: View {
                 }
                 .disabled(!canExport)
                 .help(String(localized: "Export the comparison as a text file", bundle: RockxyLocalization.bundle))
+
+                if DiffFileMerge.isAvailable {
+                    Button {
+                        do {
+                            try DiffFileMerge.open(viewModel.activeDiffResult)
+                        } catch {
+                            exportErrorMessage = error.localizedDescription
+                        }
+                    } label: {
+                        Label(
+                            String(localized: "Open in FileMerge", bundle: RockxyLocalization.bundle),
+                            systemImage: "rectangle.split.2x1"
+                        )
+                    }
+                    .disabled(!canExport)
+                    .help(String(
+                        localized: "Compare both sides in FileMerge",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
             }
         }
         .alert(
@@ -307,5 +327,64 @@ enum DiffExportFormatter {
         let slug = String(title.lowercased().unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return slug.isEmpty ? "section" : slug
+    }
+}
+
+// MARK: - DiffFileMerge
+
+/// Hands both sides of a comparison to FileMerge, the diff tool that ships with Xcode.
+enum DiffFileMerge {
+    static let bundleIdentifier = "com.apple.FileMerge"
+    static let opendiffPath = "/usr/bin/opendiff"
+
+    static var isAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+            && FileManager.default.isExecutableFile(atPath: opendiffPath)
+    }
+
+    /// The left and right documents, each section introduced by its title, so FileMerge
+    /// aligns the same sections against each other.
+    static func documents(for result: DiffResult) -> (left: String, right: String) {
+        var left = ""
+        var right = ""
+        for section in result.sections {
+            left += "--- \(section.title) ---\n"
+            right += "--- \(section.title) ---\n"
+            for line in section.lines {
+                switch line.type {
+                case .unchanged:
+                    left += line.content + "\n"
+                    right += line.content + "\n"
+                case .removed:
+                    left += line.content + "\n"
+                case .added:
+                    right += line.content + "\n"
+                }
+            }
+            left += "\n"
+            right += "\n"
+        }
+        return (left, right)
+    }
+
+    static func open(_ result: DiffResult) throws {
+        let (left, right) = documents(for: result)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-diff-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let leftURL = directory.appendingPathComponent("left.txt")
+        let rightURL = directory.appendingPathComponent("right.txt")
+        try left.write(to: leftURL, atomically: true, encoding: .utf8)
+        try right.write(to: rightURL, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: opendiffPath)
+        process.arguments = [leftURL.path, rightURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
     }
 }
