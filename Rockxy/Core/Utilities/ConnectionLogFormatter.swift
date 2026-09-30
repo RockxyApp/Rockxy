@@ -53,10 +53,10 @@ enum ConnectionLogFormatter {
         if let log = input.log {
             appendConnection(log, to: &lines)
             if let tls = log.tls {
-                appendTLS(tls, failed: log.failure?.stage == .tls, to: &lines)
+                appendTLS(tls, host: log.host, failed: log.failure?.stage == .tls, to: &lines)
             }
             if log.failure?.stage != .connect, log.failure?.stage != .proxy, !input.isTunnel {
-                lines.append(event("Using \(protocolName(input.serverHTTPVersion))"))
+                lines.append(event("Using \(protocolName(serverVersion(input)))"))
             }
             if input.isTunnel, log.failure == nil {
                 lines.append(event("Relaying the connection as-is: its contents are not decrypted", role: .note))
@@ -116,14 +116,23 @@ enum ConnectionLogFormatter {
         }
     }
 
-    private static func appendTLS(_ tls: ConnectionLog.TLS, failed: Bool, to lines: inout [ConnectionLogLine]) {
+    /// Imported sessions carry only some TLS facts, so each line appears only when its fact
+    /// was recorded (or, for SNI, can be derived from an IP-address host).
+    private static func appendTLS(
+        _ tls: ConnectionLog.TLS,
+        host: String,
+        failed: Bool,
+        to lines: inout [ConnectionLogLine]
+    ) {
         if let serverName = tls.serverName {
             lines.append(event("TLS server name (SNI): \(serverName)", role: .tls))
-        } else {
+        } else if TLSServerName.sni(for: host) == nil {
             lines.append(event("TLS server name (SNI): not sent for an IP address", role: .tls))
         }
         if tls.offeredProtocols.isEmpty {
-            lines.append(event("ALPN: not offered (HTTP/1.1)", role: .tls))
+            if tls.negotiatedProtocol == nil {
+                lines.append(event("ALPN: not offered (HTTP/1.1)", role: .tls))
+            }
         } else {
             lines.append(event("ALPN: offering \(tls.offeredProtocols.joined(separator: ", "))", role: .tls))
         }
@@ -225,8 +234,13 @@ enum ConnectionLogFormatter {
         }
     }
 
+    /// The recorded server protocol, or HTTP/2 when the session only recorded ALPN `h2`.
+    private static func serverVersion(_ input: Input) -> String? {
+        input.serverHTTPVersion ?? (input.log?.tls?.negotiatedProtocol == "h2" ? "2" : nil)
+    }
+
     private static func requestVersion(_ input: Input) -> String {
-        if let server = input.serverHTTPVersion {
+        if let server = serverVersion(input) {
             return server == "2" ? "HTTP/2" : "HTTP/\(server)"
         }
         return input.request.httpVersion

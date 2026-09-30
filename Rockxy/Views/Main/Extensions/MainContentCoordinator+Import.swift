@@ -126,7 +126,7 @@ extension MainContentCoordinator {
 
             let preview = ImportPreview(
                 fileName: url.lastPathComponent,
-                fileType: .har,
+                fileType: Self.isCharlesJSONSession(data) ? .charlesJSON : .har,
                 transactionCount: importedTransactions.count,
                 logEntryCount: 0,
                 fileSize: fileSize,
@@ -151,6 +151,10 @@ extension MainContentCoordinator {
     }
 
     // MARK: - External Documents
+
+    nonisolated static func isCharlesJSONSession(_ data: Data) -> Bool {
+        (try? JSONSerialization.jsonObject(with: data)).map(CharlesJSONSessionImporter.looksLikeSession) ?? false
+    }
 
     /// Opens a capture document handed to Rockxy from Finder, the Dock, or a
     /// drop onto the main window. Only the first supported file is reviewed,
@@ -190,7 +194,8 @@ extension MainContentCoordinator {
                 return
             }
             switch preview.fileType {
-            case .har:
+            case .har,
+                 .charlesJSON:
                 await executeHARImport(from: preview.sourceURL, fileName: preview.fileName)
             case .rockxysession:
                 await executeSessionImport(from: preview.sourceURL, fileName: preview.fileName)

@@ -61,6 +61,8 @@ struct CharlesJSONSessionImporterTests {
         let har = #"{"log":{"version":"1.2","entries":[]}}"#
         #expect(try HARImporter().importData(Data(har.utf8)).isEmpty)
         #expect(ExternalCaptureDocumentKind(url: URL(fileURLWithPath: "/tmp/a.chlsj")) == .har)
+        #expect(MainContentCoordinator.isCharlesJSONSession(Data(Self.session.utf8)))
+        #expect(!MainContentCoordinator.isCharlesJSONSession(Data(har.utf8)))
         #expect(throws: HARImportError.self) { try HARImporter().importData(Data("[1,2]".utf8)) }
     }
 }

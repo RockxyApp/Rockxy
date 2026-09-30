@@ -212,6 +212,23 @@ struct ConnectionLogFormatterTests {
         #expect(!lines.contains { $0.marker == ">" || $0.marker == "<" })
     }
 
+    @Test("Partial TLS facts from an imported session never produce contradicting lines")
+    func importedPartialTLS() {
+        var log = ConnectionLog(host: "api.example.com", port: 443)
+        log.remoteAddress = "93.184.216.34"
+        log.tls = ConnectionLog.TLS(negotiatedProtocol: "h2", version: "TLSv1.3")
+        let text = ConnectionLogFormatter.plainText(for: input(log: log))
+        #expect(!text.contains("SNI"))
+        #expect(!text.contains("not offered"))
+        #expect(text.contains("* ALPN: server accepted h2"))
+        #expect(text.contains("* Using HTTP/2"))
+        #expect(text.contains("> GET /v1/items?page=2 HTTP/2"))
+
+        var ipLog = ConnectionLog(host: "10.0.0.8", port: 443)
+        ipLog.tls = ConnectionLog.TLS(version: "TLSv1.2")
+        #expect(ConnectionLogFormatter.plainText(for: input(log: ipLog)).contains("not sent for an IP address"))
+    }
+
     // MARK: Private
 
     private static let request = HTTPRequestData(

@@ -47749,6 +47749,26 @@
           }
         }
       }
+    },
+    "Charles JSON Session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles JSON 会话"
+          }
+        }
+      }
+    },
+    "Import Charles Session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入 Charles 会话"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

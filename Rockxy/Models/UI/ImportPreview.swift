@@ -6,6 +6,7 @@ import Foundation
 
 enum ImportFileType: String {
     case har
+    case charlesJSON
     case rockxysession
 }
 
