@@ -37,6 +37,7 @@ struct ComposeRequestEditor: View {
 
     @State private var selectedTab: ComposeRequestTab = .headers
     @State private var rawDraft = ""
+    @State private var editsBodyAsForm = true
     @State private var rawError: String?
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
@@ -208,9 +209,27 @@ struct ComposeRequestEditor: View {
 
     private var bodyEditor: some View {
         VStack(spacing: 0) {
-            TextEditor(text: bodyBinding)
-                .font(toolMetrics.font(monospaced: true))
-                .padding(8)
+            if FormURLEncodedBody.isFormContentType(viewModel.headers) {
+                HStack {
+                    Picker(String(localized: "Body Format", bundle: RockxyLocalization.bundle), selection: $editsBodyAsForm) {
+                        Text(String(localized: "Form", bundle: RockxyLocalization.bundle)).tag(true)
+                        Text(String(localized: "Text", bundle: RockxyLocalization.bundle)).tag(false)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+            if editsBodyAsForm, FormURLEncodedBody.isFormContentType(viewModel.headers) {
+                formBodyEditor
+            } else {
+                TextEditor(text: bodyBinding)
+                    .font(toolMetrics.font(monospaced: true))
+                    .padding(8)
+            }
 
             if let message = viewModel.lastFormattingError {
                 Divider()
@@ -223,6 +242,71 @@ struct ComposeRequestEditor: View {
                     .padding(.vertical, 6)
             }
         }
+    }
+
+    // MARK: - Form Body
+
+    private var formBodyEditor: some View {
+        let fields = FormURLEncodedBody.fields(from: viewModel.body)
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                columnHeaders(name: "Name", value: "Value")
+                ForEach(Array(fields.indices), id: \.self) { index in
+                    HStack(spacing: 8) {
+                        Color.clear.frame(width: 24)
+                        TextField(
+                            String(localized: "e.g. email", bundle: RockxyLocalization.bundle),
+                            text: formFieldBinding(index: index, keyPath: \.name)
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        TextField(
+                            String(localized: "Value", bundle: RockxyLocalization.bundle),
+                            text: formFieldBinding(index: index, keyPath: \.value)
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        removeButton {
+                            var updated = FormURLEncodedBody.fields(from: viewModel.body)
+                            if updated.indices.contains(index) {
+                                updated.remove(at: index)
+                            }
+                            viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: updated))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                addButton(String(localized: "Add Field", bundle: RockxyLocalization.bundle)) {
+                    var updated = FormURLEncodedBody.fields(from: viewModel.body)
+                    updated.append(FormURLEncodedBody.Field(name: "", value: ""))
+                    viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: updated))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(12)
+        }
+    }
+
+    private func formFieldBinding(
+        index: Int,
+        keyPath: WritableKeyPath<FormURLEncodedBody.Field, String>
+    )
+        -> Binding<String>
+    {
+        Binding(
+            get: {
+                let fields = FormURLEncodedBody.fields(from: viewModel.body)
+                return fields.indices.contains(index) ? fields[index][keyPath: keyPath] : ""
+            },
+            set: { newValue in
+                var fields = FormURLEncodedBody.fields(from: viewModel.body)
+                guard fields.indices.contains(index) else {
+                    return
+                }
+                fields[index][keyPath: keyPath] = newValue
+                viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: fields))
+            }
+        )
     }
 
     // MARK: - Raw Tab
