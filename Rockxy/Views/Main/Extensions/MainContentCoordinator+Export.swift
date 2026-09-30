@@ -215,6 +215,7 @@ extension MainContentCoordinator {
         do {
             try data.write(to: url, options: .atomic)
             Self.logger.info("Saved session to \(url.path())")
+            RecentCaptureDocuments.shared.note(url)
         } catch {
             Self.logger.error("Failed to save session: \(error.localizedDescription)")
             showExportError(

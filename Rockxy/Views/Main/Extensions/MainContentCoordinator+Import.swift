@@ -61,6 +61,7 @@ extension MainContentCoordinator {
             )
 
             importPreview = preview
+            RecentCaptureDocuments.shared.note(url)
         } catch let error as SessionSerializerError {
             Self.logger.error("Failed to open session: \(error.localizedDescription)")
             showImportError(
@@ -133,6 +134,7 @@ extension MainContentCoordinator {
             )
 
             importPreview = preview
+            RecentCaptureDocuments.shared.note(url)
         } catch {
             Self.logger.error("Failed to pre-parse HAR: \(error.localizedDescription)")
             showImportError(

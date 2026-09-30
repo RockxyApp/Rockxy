@@ -773,6 +773,8 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command])
 
+            OpenRecentCaptureMenu(recents: RecentCaptureDocuments.shared)
+
             Button(String(localized: "Save Session…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.saveSession()
             }
