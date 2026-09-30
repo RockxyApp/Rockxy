@@ -287,6 +287,9 @@ enum RockxySetupScriptBuilder {
             "export all_proxy=\"$ALL_PROXY\"",
             "export npm_config_proxy=\"$HTTP_PROXY\"",
             "export npm_config_https_proxy=\"$HTTPS_PROXY\"",
+            // Node's built-in fetch and http ignore HTTP(S)_PROXY unless this is set (Node 22.21+ / 24.5+;
+            // older versions ignore the variable).
+            "export NODE_USE_ENV_PROXY=\"${NODE_USE_ENV_PROXY:-1}\"",
             "export NO_PROXY=\"${NO_PROXY:-localhost,127.0.0.1,::1}\"",
             "export no_proxy=\"$NO_PROXY\"",
         ]

@@ -104,6 +104,7 @@ struct DeveloperSetupSessionSetupTests {
         #expect(!script.contains("export REQUESTS_CA_BUNDLE=\"$ROCKXY_ROOT_CA_PATH\""))
         #expect(!script.contains("export GIT_SSL_CAINFO="))
         #expect(script.contains("export npm_config_https_proxy=\"$HTTPS_PROXY\""))
+        #expect(script.contains("export NODE_USE_ENV_PROXY=\"${NODE_USE_ENV_PROXY:-1}\""))
         #expect(!script.contains("export NODE_OPTIONS="))
     }
 
@@ -593,6 +594,7 @@ struct DeveloperSetupSessionSetupTests {
         #expect(environment["HTTP_PROXY"] == "http://127.0.0.1:8888")
         #expect(environment["HTTPS_PROXY"] == "http://127.0.0.1:8888")
         #expect(environment["npm_config_https_proxy"] == "http://127.0.0.1:8888")
+        #expect(environment["NODE_USE_ENV_PROXY"] == "1")
         #expect(environment["ROCKXY_SETUP_SESSION"] == "1")
         #expect(environment["NODE_EXTRA_CA_CERTS"] == "/tmp/Rockxy Root.pem")
         #expect(environment["SSL_CERT_FILE"] == nil)
