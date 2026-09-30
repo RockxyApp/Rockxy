@@ -47579,6 +47579,36 @@
           }
         }
       }
+    },
+    "Node.js (axios)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Node.js (axios)"
+          }
+        }
+      }
+    },
+    "Java (HttpClient)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Java (HttpClient)"
+          }
+        }
+      }
+    },
+    "Ruby (Net::HTTP)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruby (Net::HTTP)"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
