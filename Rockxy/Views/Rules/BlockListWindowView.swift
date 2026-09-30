@@ -108,9 +108,10 @@ final class BlockListViewModel {
         matchType: BlockMatchType,
         blockAction: BlockActionType,
         includeSubpaths: Bool,
-        graphQLOperationName: String = ""
+        graphQLOperationName: String = "",
+        hidesMatchedTraffic: Bool = false
     ) {
-        let rule = makeRule(
+        var rule = makeRule(
             ruleName: ruleName,
             urlPattern: urlPattern,
             httpMethod: httpMethod,
@@ -119,6 +120,7 @@ final class BlockListViewModel {
             includeSubpaths: includeSubpaths,
             graphQLOperationName: graphQLOperationName
         )
+        rule.hidesMatchedTraffic = hidesMatchedTraffic
         allRules.append(rule)
         selectedRuleID = rule.id
         Task {
@@ -142,7 +144,8 @@ final class BlockListViewModel {
         matchType: BlockMatchType,
         blockAction: BlockActionType,
         includeSubpaths: Bool,
-        graphQLOperationName: String = ""
+        graphQLOperationName: String = "",
+        hidesMatchedTraffic: Bool = false
     ) {
         guard let index = allRules.firstIndex(where: { $0.id == id }) else {
             return
@@ -157,6 +160,7 @@ final class BlockListViewModel {
             includeSubpaths: includeSubpaths,
             graphQLOperationName: graphQLOperationName
         )
+        updated.hidesMatchedTraffic = hidesMatchedTraffic
         updated.isEnabled = allRules[index].isEnabled
         updated.priority = allRules[index].priority
         allRules[index] = updated
@@ -326,7 +330,7 @@ struct BlockListWindowView: View {
             viewModel.handleRulesDidChange(notification)
         }
         .sheet(item: $viewModel.editorSession) { session in
-            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths, operation in
+            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths, operation, hides in
                 switch session.mode {
                 case .create:
                     viewModel.addBlockRule(
@@ -336,7 +340,8 @@ struct BlockListWindowView: View {
                         matchType: matchType,
                         blockAction: action,
                         includeSubpaths: includeSubpaths,
-                        graphQLOperationName: operation
+                        graphQLOperationName: operation,
+                        hidesMatchedTraffic: hides
                     )
                 case let .edit(rule):
                     viewModel.updateBlockRule(
@@ -347,7 +352,8 @@ struct BlockListWindowView: View {
                         matchType: matchType,
                         blockAction: action,
                         includeSubpaths: includeSubpaths,
-                        graphQLOperationName: operation
+                        graphQLOperationName: operation,
+                        hidesMatchedTraffic: hides
                     )
                 }
                 viewModel.dismissEditor()
@@ -759,6 +765,13 @@ struct BlockListWindowView: View {
     }
 }
 
+// MARK: - BlockRuleSaveHandler
+
+/// Name, pattern, method, match type, action, include subpaths, GraphQL operation, hide.
+private typealias BlockRuleSaveHandler = (
+    String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String, Bool
+) -> Void
+
 // MARK: - AddBlockRuleSheet
 
 private struct AddBlockRuleSheet: View {
@@ -766,7 +779,7 @@ private struct AddBlockRuleSheet: View {
 
     init(
         session: BlockListEditorSession,
-        onSave: @escaping (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String) -> Void
+        onSave: @escaping BlockRuleSaveHandler
     ) {
         self.session = session
         self.onSave = onSave
@@ -779,8 +792,10 @@ private struct AddBlockRuleSheet: View {
             _blockAction = State(initialValue: context?.defaultAction ?? .returnForbidden)
             _includeSubpaths = State(initialValue: context?.includeSubpaths ?? true)
             _graphQLOperationName = State(initialValue: context?.graphQLOperationName ?? "")
+            _hidesMatchedTraffic = State(initialValue: false)
         case let .edit(rule):
             _ruleName = State(initialValue: rule.name)
+            _hidesMatchedTraffic = State(initialValue: rule.hidesMatchedTraffic)
             _graphQLOperationName = State(initialValue: rule.matchCondition.graphQLOperationName ?? "")
             let normalizedMethod = rule.matchCondition.method?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -808,7 +823,7 @@ private struct AddBlockRuleSheet: View {
     // MARK: Internal
 
     let session: BlockListEditorSession
-    let onSave: (String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String) -> Void
+    let onSave: BlockRuleSaveHandler
 
     var body: some View {
         VStack(spacing: 0) {
@@ -866,7 +881,8 @@ private struct AddBlockRuleSheet: View {
                         matchType,
                         blockAction,
                         matchType == .wildcard ? includeSubpaths : false,
-                        graphQLOperationName
+                        graphQLOperationName,
+                        hidesMatchedTraffic
                     )
                     dismiss()
                 } label: {
@@ -890,6 +906,7 @@ private struct AddBlockRuleSheet: View {
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @State private var ruleName: String
     @State private var urlPattern: String
+    @State private var hidesMatchedTraffic: Bool
     @State private var httpMethod: HTTPMethodFilter
     @State private var matchType: BlockMatchType
     @State private var blockAction: BlockActionType
@@ -1117,6 +1134,16 @@ private struct AddBlockRuleSheet: View {
                     .foregroundStyle(.secondary)
 
                 Spacer()
+
+                Toggle(
+                    String(localized: "Hide blocked requests", bundle: RockxyLocalization.bundle),
+                    isOn: $hidesMatchedTraffic
+                )
+                .toggleStyle(.checkbox)
+                .help(String(
+                    localized: "Requests this rule blocks are not added to the traffic list.",
+                    bundle: RockxyLocalization.bundle
+                ))
             }
             .padding(.horizontal, toolMetrics.formHorizontalPadding - 2)
             .padding(.vertical, toolMetrics.formVerticalPadding - 2)

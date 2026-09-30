@@ -47659,6 +47659,26 @@
           }
         }
       }
+    },
+    "Hide blocked requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏被阻止的请求"
+          }
+        }
+      }
+    },
+    "Requests this rule blocks are not added to the traffic list.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此规则阻止的请求不会添加到流量列表中。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

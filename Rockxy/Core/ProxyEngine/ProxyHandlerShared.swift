@@ -112,6 +112,14 @@ enum ProxyHandlerShared {
         callback(transaction)
     }
 
+    /// A Block List rule set to hide what it blocks keeps those requests out of the list.
+    nonisolated static func hidesBlockedTraffic(_ rule: ProxyRule) -> Bool {
+        guard rule.hidesMatchedTraffic, case .block = rule.action else {
+            return false
+        }
+        return true
+    }
+
     /// Wraps a downstream transaction callback with matched-rule metadata injection.
     /// Used by both HTTP and HTTPS handlers to decorate transactions before delivery.
     nonisolated static func makeTransactionCallback(
@@ -120,6 +128,9 @@ enum ProxyHandlerShared {
     )
         -> @Sendable (HTTPTransaction) -> Void
     {
+        if let matchedRule, Self.hidesBlockedTraffic(matchedRule) {
+            return { _ in }
+        }
         let matchedRuleID = matchedRule?.id
         let matchedRuleName = matchedRule?.name
         let matchedRuleActionSummary = matchedRule?.action.matchedRuleActionSummary
