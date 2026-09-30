@@ -15,7 +15,8 @@ struct RuleMatchCondition: Codable, Equatable {
         headerValue: String? = nil,
         matchType: RuleMatchType? = nil,
         includeSubpaths: Bool? = nil,
-        graphQLOperationName: String? = nil
+        graphQLOperationName: String? = nil,
+        clientApplication: String? = nil
     ) {
         self.urlPattern = urlPattern
         self.sourceURLPattern = sourceURLPattern
@@ -25,6 +26,7 @@ struct RuleMatchCondition: Codable, Equatable {
         self.matchType = matchType
         self.includeSubpaths = includeSubpaths
         self.graphQLOperationName = graphQLOperationName
+        self.clientApplication = clientApplication
     }
 
     // MARK: Internal
@@ -42,6 +44,20 @@ struct RuleMatchCondition: Codable, Equatable {
     /// matches exactly (GraphQL names are case-sensitive). Lets one rule target a
     /// single operation on an endpoint that serves every operation.
     var graphQLOperationName: String?
+    /// When set, the rule only fires for requests made by the local application with this
+    /// name or bundle identifier (case-insensitive). Traffic from other devices, or from a
+    /// process that could not be identified, never matches.
+    var clientApplication: String?
+
+    /// The trimmed application name, or `nil` when the rule is not scoped to an application.
+    var requiredClientApplication: String? {
+        guard let name = clientApplication?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !name.isEmpty else
+        {
+            return nil
+        }
+        return name
+    }
 
     /// The trimmed operation name, or `nil` when the rule does not filter by operation.
     var requiredGraphQLOperationName: String? {
@@ -86,10 +102,19 @@ struct RuleMatchCondition: Codable, Equatable {
         url: URL,
         headers: [HTTPHeader],
         compiledPattern: NSRegularExpression? = nil,
-        graphQLOperationName requestOperationName: String? = nil
+        graphQLOperationName requestOperationName: String? = nil,
+        clientApplication requestApplication: ClientApplicationIdentity? = nil
     )
         -> Bool
     {
+        if let requiredApplication = requiredClientApplication {
+            guard let requestApplication,
+                  requestApplication.identifier.caseInsensitiveCompare(requiredApplication) == .orderedSame
+                  || requestApplication.displayName.caseInsensitiveCompare(requiredApplication) == .orderedSame
+            else {
+                return false
+            }
+        }
         if let requiredOperation = requiredGraphQLOperationName {
             guard requestOperationName == requiredOperation else {
                 return false

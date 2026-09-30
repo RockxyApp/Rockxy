@@ -33,6 +33,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         upstreamTrustProvider: @escaping @Sendable () -> Bool = { UpstreamTrustPolicy.acceptsUntrustedCertificates },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
         clientSourcePort: UInt16? = nil,
+        clientApplicationIdentity: ClientApplicationIdentity? = nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
@@ -51,6 +52,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         self.upstreamTrustProvider = upstreamTrustProvider
         self.captureContextProvider = captureContextProvider
         self.clientSourcePort = clientSourcePort
+        self.clientApplicationIdentity = clientApplicationIdentity
         // Every transaction this handler emits was decrypted inside an intercepted tunnel, so
         // stamp capture truth once at the single delivery seam. The request list then reports
         // it as intercepted regardless of how the host policy later changes. The stamp runs on
@@ -152,6 +154,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     private let upstreamTrustProvider: @Sendable () -> Bool
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
     private let clientSourcePort: UInt16?
+    private let clientApplicationIdentity: ClientApplicationIdentity?
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
         BreakpointDecision,
@@ -224,12 +227,14 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
+        let application = self.clientApplicationIdentity
 
         eventLoop.makeFutureWithTask {
             await ProxyHandlerShared.evaluateRules(
                 ruleEngine,
                 request: requestData,
-                graphQLOperationName: graphQLInfo?.operationName
+                graphQLOperationName: graphQLInfo?.operationName,
+                clientApplication: { application }
             )
         }.whenComplete { [weak self] result in
             guard let self else {

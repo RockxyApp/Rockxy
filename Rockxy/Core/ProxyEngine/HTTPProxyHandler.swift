@@ -251,12 +251,14 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
         let operationName = GraphQLDetector.detect(request: requestData)?.operationName
+        let identityHandle = self.clientIdentityHandle
 
         eventLoop.makeFutureWithTask {
             await ProxyHandlerShared.evaluateRules(
                 ruleEngine,
                 request: requestData,
-                graphQLOperationName: operationName
+                graphQLOperationName: operationName,
+                clientApplication: { await identityHandle?.awaitIdentity() }
             )
         }.whenComplete { [weak self] result in
             guard let self else {
@@ -835,8 +837,14 @@ extension HTTPProxyHandler {
             headers: headers
         ))
         let ruleEngine = self.ruleEngine
+        let identityHandle = self.clientIdentityHandle
         return context.eventLoop.makeFutureWithTask {
-            await ProxyHandlerShared.evaluateRules(ruleEngine, request: requestData, graphQLOperationName: nil)
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: nil,
+                clientApplication: { await identityHandle?.awaitIdentity() }
+            )
         }.map { evaluation in
             guard let rule = evaluation.matched else {
                 return .allowed
@@ -872,16 +880,20 @@ extension HTTPProxyHandler {
         }.flatMap {
             ProxyPipeline.removeHTTPServerPipeline(from: context.pipeline, on: context.eventLoop)
         }.flatMap { () -> EventLoopFuture<ClientApplicationIdentity?> in
-            let identityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
+            let sslIdentityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
                 || self.sslProxyingManager.shouldIntercept(host: host, application: nil)
-            guard identityCanAffectDecision else {
-                return context.eventLoop.makeSucceededFuture(nil)
-            }
+            let ruleEngine = self.ruleEngine
             // Start and await bounded resolution only when host or application policy can lead
-            // to interception. autoRead is already false so no client bytes are lost; an
-            // unresolved identity fails closed for application-only rules.
+            // to interception, or an application-scoped rule needs to know the caller.
+            // autoRead is already false so no client bytes are lost; an unresolved identity
+            // fails closed for application-only SSL rules and never matches a rule.
             return context.eventLoop.makeFutureWithTask {
-                await self.clientIdentityHandle?.awaitIdentity()
+                guard sslIdentityCanAffectDecision else {
+                    return await ruleEngine.hasApplicationScopedRules
+                        ? await self.clientIdentityHandle?.awaitIdentity()
+                        : nil
+                }
+                return await self.clientIdentityHandle?.awaitIdentity()
             }
         }.flatMap { clientApplicationIdentity in
             let tlsHandler = TLSInterceptHandler(

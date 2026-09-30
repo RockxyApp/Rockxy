@@ -47799,6 +47799,36 @@
           }
         }
       }
+    },
+    "Client Application": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端应用"
+          }
+        }
+      }
+    },
+    "Client application name to match": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要匹配的客户端应用名称"
+          }
+        }
+      }
+    },
+    "Block only requests made by this app, by name or bundle identifier. Applies to apps on this Mac; leave empty to block every client.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅拦截此应用（按名称或 Bundle ID）发出的请求。仅适用于本机上的应用；留空则拦截所有客户端的请求。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

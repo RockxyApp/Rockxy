@@ -32,7 +32,8 @@ actor RuleEngine {
         method: String,
         url: URL,
         headers: [HTTPHeader],
-        graphQLOperationName: String? = nil
+        graphQLOperationName: String? = nil,
+        clientApplication: ClientApplicationIdentity? = nil
     )
         -> ProxyRule?
     {
@@ -49,7 +50,8 @@ actor RuleEngine {
                 url: url,
                 headers: headers,
                 compiledPattern: compiled,
-                graphQLOperationName: graphQLOperationName
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: clientApplication
             ) {
                 Self.logger.debug("Breakpoint rule matched: \(rule.name, privacy: .private)")
                 return rule
@@ -64,7 +66,8 @@ actor RuleEngine {
         method: String,
         url: URL,
         headers: [HTTPHeader],
-        graphQLOperationName: String? = nil
+        graphQLOperationName: String? = nil,
+        clientApplication: ClientApplicationIdentity? = nil
     )
         -> ProxyRule?
     {
@@ -93,13 +96,20 @@ actor RuleEngine {
                 url: url,
                 headers: headers,
                 compiledPattern: compiled,
-                graphQLOperationName: graphQLOperationName
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: clientApplication
             ) {
                 Self.logger.debug("Rule matched: \(rule.name, privacy: .private)")
                 return rule
             }
         }
         return nil
+    }
+
+    /// Whether any enabled rule is scoped to a client application, so the proxy must resolve
+    /// which process made a connection before it can evaluate rules.
+    var hasApplicationScopedRules: Bool {
+        rules.contains { $0.isEnabled && $0.matchCondition.requiredClientApplication != nil }
     }
 
     func addRule(_ rule: ProxyRule) {

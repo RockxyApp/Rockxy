@@ -109,7 +109,8 @@ final class BlockListViewModel {
         blockAction: BlockActionType,
         includeSubpaths: Bool,
         graphQLOperationName: String = "",
-        hidesMatchedTraffic: Bool = false
+        hidesMatchedTraffic: Bool = false,
+        clientApplication: String = ""
     ) {
         var rule = makeRule(
             ruleName: ruleName,
@@ -118,7 +119,8 @@ final class BlockListViewModel {
             matchType: matchType,
             blockAction: blockAction,
             includeSubpaths: includeSubpaths,
-            graphQLOperationName: graphQLOperationName
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: clientApplication
         )
         rule.hidesMatchedTraffic = hidesMatchedTraffic
         allRules.append(rule)
@@ -145,7 +147,8 @@ final class BlockListViewModel {
         blockAction: BlockActionType,
         includeSubpaths: Bool,
         graphQLOperationName: String = "",
-        hidesMatchedTraffic: Bool = false
+        hidesMatchedTraffic: Bool = false,
+        clientApplication: String = ""
     ) {
         guard let index = allRules.firstIndex(where: { $0.id == id }) else {
             return
@@ -158,7 +161,8 @@ final class BlockListViewModel {
             matchType: matchType,
             blockAction: blockAction,
             includeSubpaths: includeSubpaths,
-            graphQLOperationName: graphQLOperationName
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: clientApplication
         )
         updated.hidesMatchedTraffic = hidesMatchedTraffic
         updated.isEnabled = allRules[index].isEnabled
@@ -254,11 +258,13 @@ final class BlockListViewModel {
         matchType: BlockMatchType,
         blockAction: BlockActionType,
         includeSubpaths: Bool,
-        graphQLOperationName: String = ""
+        graphQLOperationName: String = "",
+        clientApplication: String = ""
     )
         -> ProxyRule
     {
         let operation = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let application = clientApplication.trimmingCharacters(in: .whitespacesAndNewlines)
         let escapedPattern = RulePatternBuilder.regexSource(
             rawPattern: urlPattern,
             matchType: matchType,
@@ -277,7 +283,8 @@ final class BlockListViewModel {
                 method: httpMethod.methodValue,
                 matchType: matchType,
                 includeSubpaths: includeSubpaths,
-                graphQLOperationName: operation.isEmpty ? nil : operation
+                graphQLOperationName: operation.isEmpty ? nil : operation,
+                clientApplication: application.isEmpty ? nil : application
             ),
             action: .block(statusCode: blockAction.statusCode)
         )
@@ -330,7 +337,7 @@ struct BlockListWindowView: View {
             viewModel.handleRulesDidChange(notification)
         }
         .sheet(item: $viewModel.editorSession) { session in
-            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths, operation, hides in
+            AddBlockRuleSheet(session: session) { ruleName, pattern, method, matchType, action, includeSubpaths, operation, hides, application in
                 switch session.mode {
                 case .create:
                     viewModel.addBlockRule(
@@ -341,7 +348,8 @@ struct BlockListWindowView: View {
                         blockAction: action,
                         includeSubpaths: includeSubpaths,
                         graphQLOperationName: operation,
-                        hidesMatchedTraffic: hides
+                        hidesMatchedTraffic: hides,
+                        clientApplication: application
                     )
                 case let .edit(rule):
                     viewModel.updateBlockRule(
@@ -353,7 +361,8 @@ struct BlockListWindowView: View {
                         blockAction: action,
                         includeSubpaths: includeSubpaths,
                         graphQLOperationName: operation,
-                        hidesMatchedTraffic: hides
+                        hidesMatchedTraffic: hides,
+                        clientApplication: application
                     )
                 }
                 viewModel.dismissEditor()
@@ -767,9 +776,9 @@ struct BlockListWindowView: View {
 
 // MARK: - BlockRuleSaveHandler
 
-/// Name, pattern, method, match type, action, include subpaths, GraphQL operation, hide.
+/// Name, pattern, method, match type, action, include subpaths, GraphQL operation, hide, application.
 private typealias BlockRuleSaveHandler = (
-    String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String, Bool
+    String, String, HTTPMethodFilter, BlockMatchType, BlockActionType, Bool, String, Bool, String
 ) -> Void
 
 // MARK: - AddBlockRuleSheet
@@ -793,9 +802,11 @@ private struct AddBlockRuleSheet: View {
             _includeSubpaths = State(initialValue: context?.includeSubpaths ?? true)
             _graphQLOperationName = State(initialValue: context?.graphQLOperationName ?? "")
             _hidesMatchedTraffic = State(initialValue: false)
+            _clientApplication = State(initialValue: "")
         case let .edit(rule):
             _ruleName = State(initialValue: rule.name)
             _hidesMatchedTraffic = State(initialValue: rule.hidesMatchedTraffic)
+            _clientApplication = State(initialValue: rule.matchCondition.clientApplication ?? "")
             _graphQLOperationName = State(initialValue: rule.matchCondition.graphQLOperationName ?? "")
             let normalizedMethod = rule.matchCondition.method?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -854,7 +865,8 @@ private struct AddBlockRuleSheet: View {
                         sourceURLPattern: trimmedPattern,
                         method: httpMethod.methodValue,
                         matchType: matchType,
-                        includeSubpaths: subpaths
+                        includeSubpaths: subpaths,
+                        clientApplication: clientApplication
                     )
                 }
             }
@@ -882,7 +894,8 @@ private struct AddBlockRuleSheet: View {
                         blockAction,
                         matchType == .wildcard ? includeSubpaths : false,
                         graphQLOperationName,
-                        hidesMatchedTraffic
+                        hidesMatchedTraffic,
+                        clientApplication
                     )
                     dismiss()
                 } label: {
@@ -912,6 +925,7 @@ private struct AddBlockRuleSheet: View {
     @State private var blockAction: BlockActionType
     @State private var includeSubpaths: Bool
     @State private var graphQLOperationName: String
+    @State private var clientApplication: String
 
     private var isEditing: Bool {
         if case .edit = session.mode {
@@ -1100,6 +1114,26 @@ private struct AddBlockRuleSheet: View {
             ))
             .help(String(
                 localized: "Block only GraphQL requests with this exact operation name. Leave empty to block every request to the URL.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        applicationField
+    }
+
+    private var applicationField: some View {
+        inlineField(String(localized: "Client Application", bundle: RockxyLocalization.bundle)) {
+            TextField(
+                String(localized: "Any application", bundle: RockxyLocalization.bundle),
+                text: $clientApplication
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: max(220, toolMetrics.fieldWidth(220)))
+            .accessibilityLabel(String(
+                localized: "Client application name to match",
+                bundle: RockxyLocalization.bundle
+            ))
+            .help(String(
+                localized: "Block only requests made by this app, by name or bundle identifier. Applies to apps on this Mac; leave empty to block every client.",
                 bundle: RockxyLocalization.bundle
             ))
         }

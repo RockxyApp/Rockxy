@@ -22,6 +22,11 @@ For GraphQL, set **GraphQL Operation** to block one operation (for example `Dele
 every other operation on the same endpoint keeps working. Block rules created from a captured
 GraphQL request prefill the operation name.
 
+Set **Client Application** to block only what one app on this Mac sends, by name or bundle
+identifier (for example `Safari` or `com.apple.Safari`). Requests from other apps are untouched.
+The rule never matches traffic from another device, or from a process Rockxy could not identify,
+so an unidentified caller is allowed rather than blocked.
+
 ## Allow List
 
 Use Allow List when you want to restrict attention to a specific subset of traffic.

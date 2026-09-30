@@ -73,21 +73,30 @@ enum ProxyHandlerShared {
     nonisolated static func evaluateRules(
         _ ruleEngine: RuleEngine,
         request: HTTPRequestData,
-        graphQLOperationName: String?
+        graphQLOperationName: String?,
+        clientApplication: (@Sendable () async -> ClientApplicationIdentity?)? = nil
     )
         async -> (breakpoint: ProxyRule?, matched: ProxyRule?)
     {
+        // Resolve the calling application only when a rule is scoped to one; identity lookup
+        // is bounded, and an unresolved caller simply never matches an application rule.
+        var application: ClientApplicationIdentity?
+        if let clientApplication, await ruleEngine.hasApplicationScopedRules {
+            application = await clientApplication()
+        }
         let breakpointRule = await ruleEngine.evaluateBreakpointRule(
             method: request.method,
             url: request.url,
             headers: request.headers,
-            graphQLOperationName: graphQLOperationName
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
         )
         let matchedRule = await ruleEngine.evaluateRule(
             method: request.method,
             url: request.url,
             headers: request.headers,
-            graphQLOperationName: graphQLOperationName
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
         )
         return (breakpointRule, matchedRule)
     }
