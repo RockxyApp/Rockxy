@@ -1008,7 +1008,7 @@ struct RockxyMenuCommands: Commands {
                 proxyActions.replayRequest()
             }
             .keyboardShortcut("r", modifiers: [.command])
-            .disabled(!proxyActions.hasSelectedTransaction)
+            .disabled(!proxyActions.canRepeatSelection)
 
             Button(String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.editAndRepeat()

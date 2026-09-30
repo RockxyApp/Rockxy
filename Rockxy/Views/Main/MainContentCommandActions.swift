@@ -32,6 +32,11 @@ struct MainContentCommandActions {
         coordinator.selectedTransaction != nil
     }
 
+    /// Repeat also works on a multi-row selection, which may have no single focused row.
+    var canRepeatSelection: Bool {
+        coordinator.selectedTransaction != nil || !coordinator.selectedTransactionIDs.isEmpty
+    }
+
     var hasVisibleTransactions: Bool {
         !coordinator.filteredTransactions.isEmpty
     }

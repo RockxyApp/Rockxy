@@ -47279,6 +47279,46 @@
           }
         }
       }
+    },
+    "Repeated ^[%lld request](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已重复 ^[%lld 个请求](inflect: true)"
+          }
+        }
+      }
+    },
+    "^[%lld request](inflect: true) failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld 个请求](inflect: true)失败"
+          }
+        }
+      }
+    },
+    "^[%lld request](inflect: true) can't be repeated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld 个请求](inflect: true)无法重复"
+          }
+        }
+      }
+    },
+    "Select at most %lld requests to repeat at once.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次最多选择 %lld 个请求进行重复。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

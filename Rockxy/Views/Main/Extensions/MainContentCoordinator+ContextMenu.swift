@@ -118,8 +118,14 @@ extension MainContentCoordinator {
 
     // MARK: - Replay
 
+    /// Repeats the right-clicked row, or the whole selection when the row is part of it.
     func replayTransaction(_ transaction: HTTPTransaction) {
-        performReplay(for: transaction)
+        let targets = contextExportTransactions(clicked: transaction)
+        if targets.count > 1 {
+            performReplay(for: targets)
+        } else {
+            performReplay(for: transaction)
+        }
     }
 
     func editAndReplayTransaction(_ transaction: HTTPTransaction) {
