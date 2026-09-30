@@ -15,11 +15,14 @@ enum HARImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .invalidFormat(detail):
-            "Invalid HAR format: \(detail)"
+            String(localized: "Invalid HAR format: \(detail)", bundle: RockxyLocalization.bundle)
         case let .unsupportedVersion(version):
-            "Unsupported HAR version: \(version) (expected 1.2)"
+            String(localized: "Unsupported HAR version: \(version) (expected 1.x)", bundle: RockxyLocalization.bundle)
         case let .malformedEntry(index, reason):
-            "Malformed HAR entry at index \(index): \(reason)"
+            String(
+                localized: "Malformed HAR entry at index \(index): \(reason)",
+                bundle: RockxyLocalization.bundle
+            )
         }
     }
 }
@@ -30,12 +33,19 @@ struct HARImporter {
     // MARK: Internal
 
     func importData(_ data: Data) throws -> [HTTPTransaction] {
+        try importReportingSkips(data).transactions
+    }
+
+    /// Imports every entry it can. An entry that cannot be read (a `blob:` URL, a missing
+    /// method) is skipped and counted instead of losing the whole file; the import only
+    /// fails when no entry at all could be read.
+    func importReportingSkips(_ data: Data) throws -> (transactions: [HTTPTransaction], skipped: Int) {
         let parsed = try? JSONSerialization.jsonObject(with: data)
         // Charles JSON sessions (.chlsj) are an array of entries rather than a HAR log.
         if let parsed, CharlesJSONSessionImporter.looksLikeSession(parsed) {
             let transactions = try CharlesJSONSessionImporter.importEntries(parsed)
             Self.logger.info("Imported \(transactions.count) transactions from a Charles JSON session")
-            return transactions
+            return (transactions, 0)
         }
         guard let root = parsed as? [String: Any] else {
             throw HARImportError.invalidFormat("Root object is not a JSON dictionary")
@@ -45,7 +55,7 @@ struct HARImporter {
             throw HARImportError.invalidFormat("Missing 'log' object")
         }
 
-        if let version = log["version"] as? String, version != "1.2" {
+        if let version = log["version"] as? String, !version.hasPrefix("1.") {
             throw HARImportError.unsupportedVersion(version)
         }
 
@@ -55,14 +65,24 @@ struct HARImporter {
 
         var transactions = [HTTPTransaction]()
         transactions.reserveCapacity(entries.count)
+        var firstError: Error?
+        var skipped = 0
 
         for (index, entry) in entries.enumerated() {
-            let transaction = try parseEntry(entry, at: index)
-            transactions.append(transaction)
+            do {
+                transactions.append(try parseEntry(entry, at: index))
+            } catch {
+                firstError = firstError ?? error
+                skipped += 1
+            }
         }
 
-        Self.logger.info("Imported \(transactions.count) transactions from HAR")
-        return transactions
+        if transactions.isEmpty, let firstError {
+            throw firstError
+        }
+
+        Self.logger.info("Imported \(transactions.count) transactions from HAR (\(skipped) skipped)")
+        return (transactions, skipped)
     }
 
     // MARK: Private
@@ -105,7 +125,7 @@ struct HARImporter {
             timestamp: timestamp,
             request: request,
             response: response,
-            state: .completed,
+            state: response == nil ? .failed : .completed,
             timingInfo: timingInfo
         )
     }
@@ -180,7 +200,11 @@ struct HARImporter {
             return []
         }
         return headerArray.compactMap { dict in
-            guard let name = dict["name"] as? String, let value = dict["value"] as? String else {
+            // HTTP/2 pseudo-headers (`:authority`, `:path`, ...) describe the request line,
+            // not header fields; sending one on replay is invalid.
+            guard let name = dict["name"] as? String, !name.hasPrefix(":"),
+                  let value = dict["value"] as? String else
+            {
                 return nil
             }
             return HTTPHeader(name: name, value: value)

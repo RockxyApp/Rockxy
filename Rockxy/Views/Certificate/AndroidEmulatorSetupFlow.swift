@@ -9,7 +9,25 @@ import Foundation
 enum AndroidEmulatorSetupFlow {
     /// Lists running emulators, asks before changing them, sets their proxy to
     /// 10.0.2.2:`proxyPort`, and copies the verified root certificate.
-    static func route(proxyPort: Int, controller: AndroidEmulatorProxyController = AndroidEmulatorProxyController()) async {
+    static func route(
+        proxyPort: Int,
+        proxyRunning: Bool = true,
+        controller: AndroidEmulatorProxyController = AndroidEmulatorProxyController()
+    )
+        async
+    {
+        // A stopped proxy would leave every routed emulator pointing at a dead port.
+        guard proxyRunning else {
+            present(
+                title: String(localized: "Start the Proxy First", bundle: RockxyLocalization.bundle),
+                message: String(
+                    localized: "Emulators lose their connection when routed to a proxy that is not running. Start Rockxy's proxy, then route them.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                style: .warning
+            )
+            return
+        }
         guard let emulators = await runningEmulators(controller) else {
             return
         }
@@ -41,6 +59,9 @@ enum AndroidEmulatorSetupFlow {
         }
         let results = await controller.routeThroughRockxy(emulators, proxyPort: proxyPort, certificatePEM: pem)
         let failures = summarize(emulators, results)
+        if failures.count < emulators.count {
+            hasRoutedEmulators = true
+        }
         if failures.isEmpty {
             present(
                 title: String(localized: "Emulators Use Rockxy", bundle: RockxyLocalization.bundle),
@@ -66,6 +87,7 @@ enum AndroidEmulatorSetupFlow {
         }
         let failures = summarize(emulators, await controller.revertProxy(emulators))
         if failures.isEmpty {
+            hasRoutedEmulators = false
             present(
                 title: String(localized: "Emulator Proxy Reverted", bundle: RockxyLocalization.bundle),
                 message: emulators.map { "✓ \($0.serial)" }.joined(separator: "\n"),
@@ -74,6 +96,22 @@ enum AndroidEmulatorSetupFlow {
         } else {
             presentFailures(failures)
         }
+    }
+
+    /// True while this run of Rockxy has pointed an emulator at its proxy and not reverted it.
+    static var hasRoutedEmulators = false
+
+    /// Clears the emulator proxy without any UI; used while quitting so a routed emulator
+    /// is never left pointing at a proxy that no longer exists.
+    static func revertQuietly(controller: AndroidEmulatorProxyController = AndroidEmulatorProxyController()) async {
+        guard hasRoutedEmulators else {
+            return
+        }
+        hasRoutedEmulators = false
+        guard let emulators = try? await controller.runningEmulators(), !emulators.isEmpty else {
+            return
+        }
+        _ = await controller.revertProxy(emulators)
     }
 
     static func summarize(

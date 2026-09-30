@@ -15,6 +15,7 @@ struct ImportReviewSummary: Equatable {
         fileSize = preview.fileSize
         incomingTransactionCount = preview.transactionCount
         incomingLogEntryCount = preview.logEntryCount
+        skippedEntryCount = preview.skippedEntryCount
         self.currentTransactionCount = currentTransactionCount
         self.currentLogCount = currentLogCount
         rockxyVersion = preview.rockxyVersion.flatMap {
@@ -30,6 +31,7 @@ struct ImportReviewSummary: Equatable {
     let fileSize: Int64
     let incomingTransactionCount: Int
     let incomingLogEntryCount: Int
+    let skippedEntryCount: Int
     let currentTransactionCount: Int
     let currentLogCount: Int
     let rockxyVersion: String?
@@ -82,6 +84,18 @@ struct ImportReviewSummary: Equatable {
     /// Neutral consequence copy for an empty workspace, explicit replacement copy
     /// (naming both current counts) for a populated one.
     var impactSummary: String {
+        let base = baseImpactSummary
+        guard skippedEntryCount > 0 else {
+            return base
+        }
+        let skipped = String(skippedEntryCount)
+        return base + " " + String(
+            localized: "\(skipped) entries could not be read and will be left out.",
+            bundle: RockxyLocalization.bundle
+        )
+    }
+
+    private var baseImpactSummary: String {
         if isSessionEmpty {
             if isRockxySession {
                 return String(

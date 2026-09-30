@@ -86,8 +86,11 @@ struct OpenAPIExporterTests {
 
         #expect(names.contains("q"))
         #expect(names.contains("page"))
-        #expect(!names.contains("token"))
+        #expect(names.contains("token"))
         #expect(schema["type"] as? String == "array")
+        // The credential parameter is documented by name only; its captured value never appears.
+        let serialized = String(data: try JSONSerialization.data(withJSONObject: operation), encoding: .utf8) ?? ""
+        #expect(!serialized.contains("secret"))
     }
 
     @Test("Merges JSON schemas and intersects required keys")
@@ -218,9 +221,9 @@ struct OpenAPIExporterTests {
         let parameters = try #require(operation["parameters"] as? [[String: Any]])
 
         #expect(!serialized.contains("secret-token"))
-        #expect(!serialized.contains("password"))
-        #expect(!serialized.contains("access_token"))
-        #expect(!parameters.contains { $0["name"] as? String == "api_key" })
+        // Credential fields stay in the documented contract; only their values are dropped.
+        #expect(serialized.contains("password"))
+        #expect(parameters.contains { $0["name"] as? String == "api_key" })
         #expect(serialized.contains("bearerAuth"))
     }
 

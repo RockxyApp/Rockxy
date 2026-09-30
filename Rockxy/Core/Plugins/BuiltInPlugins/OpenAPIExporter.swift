@@ -321,8 +321,14 @@ private struct OperationAccumulator {
 
     private mutating func consumeQuery(from url: URL) {
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        for item in queryItems where !MCPRedactionPolicy.sensitiveQueryParams.contains(item.name.lowercased()) {
-            querySamples[item.name, default: []].append(item.value ?? "")
+        for item in queryItems {
+            // A credential parameter is still part of the API contract; document its name
+            // and type but never its captured value.
+            let isSensitive = SensitiveDataRedactor.isSensitiveName(
+                item.name,
+                exact: MCPRedactionPolicy.sensitiveQueryParams
+            )
+            querySamples[item.name, default: []].append(isSensitive ? "" : item.value ?? "")
         }
     }
 
@@ -537,8 +543,8 @@ private enum OpenAPIBodySanitizer {
                 continue
             }
             let key = String(keyPart).removingPercentEncoding ?? String(keyPart)
-            guard !MCPRedactionPolicy.sensitiveBodyKeys.contains(key.lowercased()),
-                  !MCPRedactionPolicy.sensitiveQueryParams.contains(key.lowercased()) else {
+            if isSensitiveKey(key) {
+                result[key] = ""
                 continue
             }
             let value = parts.dropFirst().first.map(String.init)?.removingPercentEncoding ?? ""
@@ -547,14 +553,17 @@ private enum OpenAPIBodySanitizer {
         return result
     }
 
+    private static func isSensitiveKey(_ key: String) -> Bool {
+        MCPRedactionPolicy.sensitiveBodyKeys.contains(key.lowercased())
+            || SensitiveDataRedactor.isSensitiveName(key, exact: MCPRedactionPolicy.sensitiveQueryParams)
+    }
+
     private static func sanitizeJSON(_ object: Any) -> Any {
         if let dictionary = object as? [String: Any] {
             var result: [String: Any] = [:]
-            for key in dictionary.keys.sorted()
-                where !MCPRedactionPolicy.sensitiveBodyKeys.contains(key.lowercased())
-                    && !MCPRedactionPolicy.sensitiveQueryParams.contains(key.lowercased())
-            {
-                result[key] = sanitizeJSON(dictionary[key] as Any)
+            for key in dictionary.keys.sorted() {
+                // Keep the field so the documented schema is complete, without its value.
+                result[key] = isSensitiveKey(key) ? "" : sanitizeJSON(dictionary[key] as Any)
             }
             return result
         }

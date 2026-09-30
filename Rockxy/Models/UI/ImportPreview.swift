@@ -25,4 +25,6 @@ struct ImportPreview: Identifiable {
     let captureEndDate: Date?
     let rockxyVersion: String?
     let sourceURL: URL
+    /// HAR entries that could not be read and would be left out of the import.
+    var skippedEntryCount = 0
 }

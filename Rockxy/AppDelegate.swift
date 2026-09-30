@@ -171,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             } catch {
                 Self.logger.error("Quit: proxy restore failed — \(error.localizedDescription)")
             }
+            await AndroidEmulatorSetupFlow.revertQuietly()
             await RockxyWorkspaceWindowManager.shared.flushProjectStateForTermination()
             await MCPServerCoordinator.shared.stop()
             let fallbackManager = SSLProxyingManager.shared

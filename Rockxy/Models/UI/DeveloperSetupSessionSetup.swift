@@ -431,7 +431,11 @@ enum RockxySetupSessionLauncher {
         case .chromeCurrentProfile:
             try runner.run(
                 executableURL: URL(fileURLWithPath: "/usr/bin/open"),
-                arguments: ["-a", "Google Chrome", "--args", "--proxy-server=\(proxyServer)"]
+                arguments: [
+                    "-a", "Google Chrome", "--args",
+                    "--proxy-server=\(proxyServer)",
+                    "--proxy-bypass-list=<-loopback>",
+                ]
             )
         case .firefox:
             let profileURL = supportDirectory.appendingPathComponent("Firefox Profile", isDirectory: true)
@@ -457,6 +461,7 @@ enum RockxySetupSessionLauncher {
         user_pref("network.proxy.ssl_port", \(proxyPort));
         user_pref("network.proxy.no_proxies_on", "");
         user_pref("network.proxy.allow_hijacking_localhost", true);
+        user_pref("security.enterprise_roots.enabled", true);
         """
     }
 
@@ -603,9 +608,15 @@ final class DeveloperSetupSessionSetupViewModel {
             activePort: coordinator.activeProxyPort,
             configuredPort: settings.proxyPort
         )
+        // Prefer the file the user exported; otherwise use the public root certificate Rockxy
+        // already keeps on disk, so a prepared session works right after Install & Trust
+        // without an export step (Node, Ruby and Python ignore the keychain).
         let certificatePath = settings.lastExportedRootCAPath.flatMap { path -> String? in
             FileManager.default.fileExists(atPath: path) ? path : nil
-        }
+        } ?? {
+            let stored = CertificateStore.rootCACertificateURL.path
+            return FileManager.default.fileExists(atPath: stored) ? stored : nil
+        }()
 
         return RockxySetupScriptContext(
             proxyHost: "127.0.0.1",
@@ -795,6 +806,24 @@ final class DeveloperSetupSessionSetupViewModel {
         guard selectedBrowserApp.isEnabled else {
             statusMessage = String(
                 localized: "\(selectedBrowserApp.title) is not available.",
+                bundle: RockxyLocalization.bundle
+            )
+            return
+        }
+        guard coordinator.isProxyRunning else {
+            statusMessage = String(
+                localized: "Start the Rockxy proxy before opening a prepared browser.",
+                bundle: RockxyLocalization.bundle
+            )
+            return
+        }
+        // macOS hands the launch to a running Chrome and ignores `--proxy-server`, so the
+        // window would open without the proxy and without any error.
+        if selectedBrowserApp == .chromeCurrentProfile,
+           !NSRunningApplication.runningApplications(withBundleIdentifier: "com.google.Chrome").isEmpty
+        {
+            statusMessage = String(
+                localized: "Quit Google Chrome first so it can start with the proxy, or use the New Profile option.",
                 bundle: RockxyLocalization.bundle
             )
             return

@@ -47883,6 +47883,86 @@
           }
         }
       }
+    },
+    "%@ entries could not be read and will be left out.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 个条目无法读取，将不会导入。"
+          }
+        }
+      }
+    },
+    "Invalid HAR format: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HAR 格式无效：%@"
+          }
+        }
+      }
+    },
+    "Unsupported HAR version: %@ (expected 1.x)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持的 HAR 版本：%@（应为 1.x）"
+          }
+        }
+      }
+    },
+    "Malformed HAR entry at index %lld: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "索引 %lld 处的 HAR 条目格式错误：%@"
+          }
+        }
+      }
+    },
+    "Start the Rockxy proxy before opening a prepared browser.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先启动 Rockxy 代理，再打开已配置的浏览器。"
+          }
+        }
+      }
+    },
+    "Quit Google Chrome first so it can start with the proxy, or use the New Profile option.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先退出 Google Chrome，使其能带代理启动，或改用“新配置文件”选项。"
+          }
+        }
+      }
+    },
+    "Start the Proxy First": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先启动代理"
+          }
+        }
+      }
+    },
+    "Emulators lose their connection when routed to a proxy that is not running. Start Rockxy's proxy, then route them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将模拟器指向未运行的代理会使其断网。请先启动 Rockxy 代理，再进行路由。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -116,37 +116,39 @@ extension MainContentCoordinator {
             return
         }
 
-        do {
-            let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            let fileSize = fileAttributes[.size] as? Int64 ?? 0
+        // Reading and parsing a large archive must not block the main actor.
+        Task { @MainActor in
+            do {
+                let parsed = try await Task.detached(priority: .userInitiated) {
+                    let fileSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+                    let data = try Data(contentsOf: url)
+                    let result = try HARImporter().importReportingSkips(data)
+                    return (fileSize, Self.isCharlesJSONSession(data), result)
+                }.value
 
-            let data = try Data(contentsOf: url)
-            let importer = HARImporter()
-            let importedTransactions = try importer.importData(data)
-
-            let preview = ImportPreview(
-                fileName: url.lastPathComponent,
-                fileType: Self.isCharlesJSONSession(data) ? .charlesJSON : .har,
-                transactionCount: importedTransactions.count,
-                logEntryCount: 0,
-                fileSize: fileSize,
-                captureStartDate: nil,
-                captureEndDate: nil,
-                rockxyVersion: nil,
-                sourceURL: url
-            )
-
-            importPreview = preview
-            RecentCaptureDocuments.shared.note(url)
-        } catch {
-            Self.logger.error("Failed to pre-parse HAR: \(error.localizedDescription)")
-            showImportError(
-                title: String(localized: "HAR Import Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not import \"\(url.lastPathComponent)\".\n\nThe file may not be a valid HAR archive. \(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
+                importPreview = ImportPreview(
+                    fileName: url.lastPathComponent,
+                    fileType: parsed.1 ? .charlesJSON : .har,
+                    transactionCount: parsed.2.transactions.count,
+                    logEntryCount: 0,
+                    fileSize: parsed.0,
+                    captureStartDate: nil,
+                    captureEndDate: nil,
+                    rockxyVersion: nil,
+                    sourceURL: url,
+                    skippedEntryCount: parsed.2.skipped
                 )
-            )
+                RecentCaptureDocuments.shared.note(url)
+            } catch {
+                Self.logger.error("Failed to pre-parse HAR: \(error.localizedDescription)")
+                showImportError(
+                    title: String(localized: "HAR Import Failed", bundle: RockxyLocalization.bundle),
+                    message: String(
+                        localized: "Could not import \"\(url.lastPathComponent)\".\n\nThe file may not be a valid HAR archive. \(error.localizedDescription)",
+                        bundle: RockxyLocalization.bundle
+                    )
+                )
+            }
         }
     }
 
@@ -211,9 +213,9 @@ extension MainContentCoordinator {
 
     private func executeHARImport(from url: URL, fileName: String) async {
         do {
-            let data = try Data(contentsOf: url)
-            let importer = HARImporter()
-            let importedTransactions = try importer.importData(data)
+            let importedTransactions = try await Task.detached(priority: .userInitiated) {
+                try HARImporter().importData(try Data(contentsOf: url))
+            }.value
 
             await clearSession()
             let captureContext = activeCaptureContext

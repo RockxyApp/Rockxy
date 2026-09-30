@@ -541,8 +541,9 @@ struct DeveloperSetupWindowView: View {
             HStack(spacing: 8) {
                 Button(String(localized: "Route Emulators Through Rockxy…", bundle: RockxyLocalization.bundle)) {
                     let port = viewModel.snapshot.activePort
+                    let running = viewModel.snapshot.proxyRunning
                     Task { @MainActor in
-                        await AndroidEmulatorSetupFlow.route(proxyPort: port)
+                        await AndroidEmulatorSetupFlow.route(proxyPort: port, proxyRunning: running)
                     }
                 }
                 Button(String(localized: "Revert Emulator Proxy", bundle: RockxyLocalization.bundle)) {

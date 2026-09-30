@@ -36,6 +36,18 @@ struct SensitiveDataRedactor {
         "x-payment-response",
     ]
 
+    /// Name fragments that mark a credential even when the exact name is not listed
+    /// (`X-Refresh-Token`, `id_token`, `session_id`, `x-amz-security-token`).
+    static let sensitiveNameFragments: [String] = [
+        "token", "secret", "password", "passwd", "apikey", "api-key", "api_key",
+        "session", "signature", "credential", "private-key", "private_key",
+    ]
+
+    static func isSensitiveName(_ name: String, exact: Set<String>) -> Bool {
+        let lowered = name.lowercased()
+        return exact.contains(lowered) || sensitiveNameFragments.contains { lowered.contains($0) }
+    }
+
     static let sensitiveQueryParams: Set<String> = [
         "api_key",
         "apikey",
@@ -149,7 +161,7 @@ struct SensitiveDataRedactor {
             return headers
         }
         return headers.map { header in
-            guard Self.sensitiveHeaders.contains(header.name.lowercased()) else {
+            guard Self.isSensitiveName(header.name, exact: Self.sensitiveHeaders) else {
                 return header
             }
             return HTTPHeader(name: header.name, value: redactedPlaceholder)
@@ -173,7 +185,7 @@ struct SensitiveDataRedactor {
 
         if let queryItems = components.queryItems, !queryItems.isEmpty {
             components.queryItems = queryItems.map { item in
-                guard Self.sensitiveQueryParams.contains(item.name.lowercased()) else {
+                guard Self.isSensitiveName(item.name, exact: Self.sensitiveQueryParams) else {
                     return item
                 }
                 didRedact = true
@@ -398,7 +410,7 @@ struct SensitiveDataRedactor {
             }
             let key = String(parts[0])
             let decodedKey = key.removingPercentEncoding ?? key
-            if Self.sensitiveQueryParams.contains(decodedKey.lowercased()) {
+            if Self.isSensitiveName(decodedKey, exact: Self.sensitiveQueryParams) {
                 return "\(key)=\(redactedPlaceholder)"
             }
             return pair

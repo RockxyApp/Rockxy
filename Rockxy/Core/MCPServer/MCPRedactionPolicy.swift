@@ -67,7 +67,7 @@ struct MCPRedactionPolicy {
             return headers
         }
         return headers.map { header in
-            if Self.sensitiveHeaders.contains(header.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(header.name, exact: Self.sensitiveHeaders) {
                 return (name: header.name, value: redactedPlaceholder)
             }
             return header
@@ -79,7 +79,7 @@ struct MCPRedactionPolicy {
             return headers
         }
         return headers.map { header in
-            if Self.sensitiveHeaders.contains(header.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(header.name, exact: Self.sensitiveHeaders) {
                 return CodableHeader(redactedName: header.name)
             }
             return header
@@ -98,7 +98,7 @@ struct MCPRedactionPolicy {
         }
 
         components.queryItems = queryItems.map { item in
-            if Self.sensitiveQueryParams.contains(item.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(item.name, exact: Self.sensitiveQueryParams) {
                 return URLQueryItem(name: item.name, value: redactedPlaceholder)
             }
             return item
@@ -161,7 +161,7 @@ struct MCPRedactionPolicy {
             }
             let key = String(parts[0])
             let decodedKey = key.removingPercentEncoding ?? key
-            if Self.sensitiveQueryParams.contains(decodedKey.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(decodedKey, exact: Self.sensitiveQueryParams) {
                 return "\(key)=\(redactedPlaceholder)"
             }
             return pair

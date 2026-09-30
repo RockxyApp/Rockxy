@@ -94,9 +94,10 @@ enum RequestReplay {
     /// Headers the transport derives itself when a captured request is re-sent directly to the
     /// origin. `Host` and `Content-Length` come from the URL and body (a copied `Host` would
     /// otherwise survive a URL edit and hit the wrong virtual host), and the `Proxy-*` hop
-    /// headers only meant something between the client and Rockxy.
+    /// headers only meant something between the client and Rockxy. HTTP/2 pseudo-headers
+    /// (`:authority`, `:path`, ...) from an imported capture are never valid header fields.
     static func isTransportManagedHeader(_ name: String) -> Bool {
-        Self.transportManagedHeaders.contains(name.lowercased())
+        name.hasPrefix(":") || Self.transportManagedHeaders.contains(name.lowercased())
     }
 
     private static let transportManagedHeaders: Set<String> = [

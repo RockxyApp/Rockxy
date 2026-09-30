@@ -1093,6 +1093,7 @@ struct DeveloperSetupSessionSetupTests {
         #expect(userJS.contains("user_pref(\"network.proxy.ssl_port\", 9090);"))
         #expect(userJS.contains("user_pref(\"network.proxy.no_proxies_on\", \"\");"))
         #expect(userJS.contains("user_pref(\"network.proxy.allow_hijacking_localhost\", true);"))
+        #expect(userJS.contains("user_pref(\"security.enterprise_roots.enabled\", true);"))
     }
 
     // MARK: Private
