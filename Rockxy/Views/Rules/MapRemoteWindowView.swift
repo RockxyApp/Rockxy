@@ -95,10 +95,12 @@ final class MapRemoteWindowViewModel {
 
     func newFolderWithSelection() {
         let ids = mapRemoteRules.map(\.id).filter { selectedRuleIDs.contains($0) }
-        selectedRuleIDs = [folderStore.createFolder(
+        if let id = folderStore.createFolder(
             named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
             containing: ids
-        )]
+        ) {
+            selectedRuleIDs = [id]
+        }
     }
 
     var mapRemoteRules: [ProxyRule] {

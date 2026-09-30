@@ -73,11 +73,12 @@ final class MapLocalViewModel {
 
     func newFolderWithSelection() {
         let ids = mapLocalRules.map(\.id).filter { selectedRuleIDs.contains($0) }
-        let id = folderStore.createFolder(
+        if let id = folderStore.createFolder(
             named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
             containing: ids
-        )
-        selectedRuleIDs = [id]
+        ) {
+            selectedRuleIDs = [id]
+        }
     }
 
     func moveSelectedRules(toFolder folderID: UUID?) {

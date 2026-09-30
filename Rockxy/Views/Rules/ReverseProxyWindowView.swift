@@ -57,7 +57,7 @@ struct ReverseProxyWindowView: View {
                     ))
                 } actions: {
                     Button(String(localized: "Add Reverse Proxy…", bundle: RockxyLocalization.bundle)) {
-                        editingRule = newRuleDraft()
+                        addRule()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,14 +70,25 @@ struct ReverseProxyWindowView: View {
         }
         // Tall enough for the rule editor sheet to show every field without scrolling.
         .frame(minWidth: 720, minHeight: 480)
+        .alert(
+            String(localized: "Reverse Proxy Limit Reached", bundle: RockxyLocalization.bundle),
+            isPresented: $limitReached
+        ) {
+            Button(String(localized: "OK", bundle: RockxyLocalization.bundle)) {}
+        } message: {
+            Text(AppPolicyViolation.reverseProxyLimitReached(limit: store.ruleLimit).errorDescription ?? "")
+        }
         .sheet(item: $editingRule) { draft in
             ReverseProxyRuleEditor(
                 draft: draft,
                 existingRules: store.rules,
                 proxyPort: AppSettingsStorage.load().proxyPort
             ) { saved in
-                store.upsert(saved)
-                selection = saved.id
+                if store.upsert(saved) {
+                    selection = saved.id
+                } else {
+                    limitReached = true
+                }
                 editingRule = nil
             } onCancel: {
                 editingRule = nil
@@ -95,6 +106,16 @@ struct ReverseProxyWindowView: View {
     }
     @State private var selection: ReverseProxyRule.ID?
     @State private var editingRule: ReverseProxyRule?
+    @State private var limitReached = false
+
+    /// Opens the editor for a new rule, or explains the limit when the build allows no more.
+    private func addRule() {
+        if store.canAddRule {
+            editingRule = newRuleDraft()
+        } else {
+            limitReached = true
+        }
+    }
 
     private var selectedRule: ReverseProxyRule? {
         store.rules.first { $0.id == selection }
@@ -156,7 +177,7 @@ struct ReverseProxyWindowView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button {
-                editingRule = newRuleDraft()
+                addRule()
             } label: {
                 Image(systemName: "plus")
             }

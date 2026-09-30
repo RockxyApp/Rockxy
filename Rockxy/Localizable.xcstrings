@@ -48273,6 +48273,66 @@
           }
         }
       }
+    },
+    "Each rule tool is limited to %lld folders in this build.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此版本中，每个规则工具最多可有 %lld 个文件夹。"
+          }
+        }
+      }
+    },
+    "Reverse Proxy is limited to %lld rules in this build.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此版本中，反向代理最多可有 %lld 条规则。"
+          }
+        }
+      }
+    },
+    "DNS Spoofing is limited to %lld rules in this build.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此版本中，DNS 欺骗最多可有 %lld 条规则。"
+          }
+        }
+      }
+    },
+    "Folder Limit Reached": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到文件夹上限"
+          }
+        }
+      }
+    },
+    "Reverse Proxy Limit Reached": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到反向代理上限"
+          }
+        }
+      }
+    },
+    "DNS Spoofing Limit Reached": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到 DNS 欺骗上限"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

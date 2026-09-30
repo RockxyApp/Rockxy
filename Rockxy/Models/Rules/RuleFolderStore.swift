@@ -19,8 +19,13 @@ struct RuleFolder: Codable, Equatable, Identifiable {
 final class RuleFolderStore {
     // MARK: Lifecycle
 
-    init(tool: String, defaults: UserDefaults = .standard) {
+    init(
+        tool: String,
+        defaults: UserDefaults = .standard,
+        maxFolders: @escaping @MainActor () -> Int = { ToolCapacityGate.shared.maxRuleFoldersPerTool }
+    ) {
         self.defaults = defaults
+        self.maxFolders = maxFolders
         key = RockxyIdentity.current.defaultsKey("ruleFolders.\(tool)")
         folders = Self.load(defaults: defaults, key: key)
     }
@@ -44,13 +49,27 @@ final class RuleFolderStore {
 
     private(set) var folders: [RuleFolder]
 
+    /// Set when a folder could not be created because the tool is at its folder limit; the
+    /// window shows it as an alert and clears it.
+    var limitMessage: String?
+
+    /// Folders that may still be created (existing folders are never removed by a lower limit).
+    var canCreateFolder: Bool {
+        folders.count < maxFolders()
+    }
+
     func folder(containing ruleID: UUID) -> RuleFolder? {
         folders.first { $0.ruleIDs.contains(ruleID) }
     }
 
-    /// Creates a folder holding `ruleIDs`, taking them out of any folder they were in.
+    /// Creates a folder holding `ruleIDs`, taking them out of any folder they were in. Returns nil
+    /// (and sets ``limitMessage``) when the tool already has as many folders as the policy allows.
     @discardableResult
-    func createFolder(named name: String, containing ruleIDs: [UUID] = []) -> UUID {
+    func createFolder(named name: String, containing ruleIDs: [UUID] = []) -> UUID? {
+        guard canCreateFolder else {
+            limitMessage = AppPolicyViolation.ruleFolderLimitReached(limit: maxFolders()).errorDescription
+            return nil
+        }
         let id = UUID()
         removeFromFolders(Set(ruleIDs))
         folders.append(RuleFolder(id: id, name: Self.cleanName(name), ruleIDs: ruleIDs))
@@ -117,6 +136,7 @@ final class RuleFolderStore {
 
     private let defaults: UserDefaults
     private let key: String
+    private let maxFolders: @MainActor () -> Int
 
     private static func cleanName(_ name: String) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)

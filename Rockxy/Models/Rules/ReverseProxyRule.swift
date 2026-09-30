@@ -136,8 +136,12 @@ enum ReverseProxyRuleValidator {
 final class ReverseProxyStore {
     // MARK: Lifecycle
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        maxRules: @escaping @MainActor () -> Int = { ToolCapacityGate.shared.maxReverseProxyRules }
+    ) {
         self.defaults = defaults
+        self.maxRules = maxRules
         load()
     }
 
@@ -159,13 +163,28 @@ final class ReverseProxyStore {
         return statuses[rule.id] ?? .proxyStopped
     }
 
-    func upsert(_ rule: ReverseProxyRule) {
+    /// Whether another rule may be added; editing an existing rule is always allowed.
+    var canAddRule: Bool {
+        rules.count < maxRules()
+    }
+
+    var ruleLimit: Int {
+        maxRules()
+    }
+
+    /// Saves the rule. A new rule is refused (returns false) once the policy's limit is reached.
+    @discardableResult
+    func upsert(_ rule: ReverseProxyRule) -> Bool {
         if let index = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[index] = rule
         } else {
+            guard canAddRule else {
+                return false
+            }
             rules.append(rule)
         }
         persistAndNotify()
+        return true
     }
 
     func setEnabled(_ isEnabled: Bool, id: UUID) {
@@ -220,6 +239,7 @@ final class ReverseProxyStore {
     private static let storageKey = RockxyIdentity.current.defaultsKey("reverseProxyRules")
 
     private let defaults: UserDefaults
+    private let maxRules: @MainActor () -> Int
 
     private func load() {
         guard let data = defaults.data(forKey: Self.storageKey) else {

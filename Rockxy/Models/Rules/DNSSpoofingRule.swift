@@ -85,9 +85,14 @@ enum DNSSpoofingRuleValidator {
 final class DNSSpoofingStore {
     // MARK: Lifecycle
 
-    init(defaults: UserDefaults = .standard, table: DNSSpoofingTable = .shared) {
+    init(
+        defaults: UserDefaults = .standard,
+        table: DNSSpoofingTable = .shared,
+        maxRules: @escaping @MainActor () -> Int = { ToolCapacityGate.shared.maxDNSSpoofingRules }
+    ) {
         self.defaults = defaults
         self.table = table
+        self.maxRules = maxRules
         load()
         publish()
     }
@@ -102,13 +107,28 @@ final class DNSSpoofingStore {
         rules.count(where: \.isEnabled)
     }
 
-    func upsert(_ rule: DNSSpoofingRule) {
+    /// Whether another rule may be added; editing an existing rule is always allowed.
+    var canAddRule: Bool {
+        rules.count < maxRules()
+    }
+
+    var ruleLimit: Int {
+        maxRules()
+    }
+
+    /// Saves the rule. A new rule is refused (returns false) once the policy's limit is reached.
+    @discardableResult
+    func upsert(_ rule: DNSSpoofingRule) -> Bool {
         if let index = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[index] = rule
         } else {
+            guard canAddRule else {
+                return false
+            }
             rules.append(rule)
         }
         persist()
+        return true
     }
 
     func setEnabled(_ isEnabled: Bool, id: UUID) {
@@ -137,6 +157,7 @@ final class DNSSpoofingStore {
 
     private let defaults: UserDefaults
     private let table: DNSSpoofingTable
+    private let maxRules: @MainActor () -> Int
 
     private func load() {
         guard let data = defaults.data(forKey: Self.storageKey) else {

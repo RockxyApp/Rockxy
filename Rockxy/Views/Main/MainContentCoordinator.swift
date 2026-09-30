@@ -627,6 +627,7 @@ final class MainContentCoordinator {
     func configureSharedGates() {
         RulePolicyGate.shared = RulePolicyGate(policy: policy)
         ScriptPolicyGate.shared = ScriptPolicyGate(policy: policy)
+        ToolCapacityGate.shared = ToolCapacityGate(policy: policy)
     }
 
     // MARK: - Transaction Lookup (migration seam — O(n), next issue replaces with indexed/store lookup)

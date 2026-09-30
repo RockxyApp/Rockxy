@@ -24,8 +24,8 @@ struct RuleFolderStoreTests {
         let c = UUID()
 
         let store = RuleFolderStore(tool: "test", defaults: defaults)
-        let staging = store.createFolder(named: "  Staging ", containing: [a, b])
-        let prod = store.createFolder(named: "", containing: [b])
+        let staging = try #require(store.createFolder(named: "  Staging ", containing: [a, b]))
+        let prod = try #require(store.createFolder(named: "", containing: [b]))
         store.rename(folderID: prod, to: "Production")
 
         #expect(store.folders.map(\.name) == ["Staging", "Production"])
@@ -69,7 +69,7 @@ struct RuleFolderStoreTests {
             ProxyRule(name: "m\($0)", matchCondition: RuleMatchCondition(), action: .mapLocal(filePath: "/tmp/x"))
         }
         viewModel.allRules = rules
-        let folderID = store.createFolder(named: "Group", containing: [rules[0].id, rules[1].id])
+        let folderID = try #require(store.createFolder(named: "Group", containing: [rules[0].id, rules[1].id]))
 
         viewModel.selectedRuleIDs = [folderID, rules[2].id]
 
@@ -110,7 +110,7 @@ struct RuleFolderDragTests {
             ProxyRule(name: "Rule \(index)", matchCondition: RuleMatchCondition(urlPattern: ".*"), action: .block(statusCode: 403))
         }
         let known = Set(rules.map(\.id))
-        let folderID = store.createFolder(named: "Mocks", containing: [rules[0].id])
+        let folderID = try #require(store.createFolder(named: "Mocks", containing: [rules[0].id]))
         let rows = RuleListRow.rows(rules: rules, folders: store.folders, flat: false)
         let folderRow = try #require(rows.first { $0.folder != nil })
         let looseRow = try #require(rows.first { $0.rule?.id == rules[2].id })

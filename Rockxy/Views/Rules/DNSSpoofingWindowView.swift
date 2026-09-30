@@ -56,7 +56,7 @@ struct DNSSpoofingWindowView: View {
                     ))
                 } actions: {
                     Button(String(localized: "Add Rule…", bundle: RockxyLocalization.bundle)) {
-                        editingRule = DNSSpoofingRule(host: "", address: "")
+                        addRule()
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,10 +68,21 @@ struct DNSSpoofingWindowView: View {
             footer
         }
         .frame(minWidth: 600, minHeight: 360)
+        .alert(
+            String(localized: "DNS Spoofing Limit Reached", bundle: RockxyLocalization.bundle),
+            isPresented: $limitReached
+        ) {
+            Button(String(localized: "OK", bundle: RockxyLocalization.bundle)) {}
+        } message: {
+            Text(AppPolicyViolation.dnsSpoofingLimitReached(limit: store.ruleLimit).errorDescription ?? "")
+        }
         .sheet(item: $editingRule) { draft in
             DNSSpoofingRuleEditor(draft: draft, existingRules: store.rules) { saved in
-                store.upsert(saved)
-                selection = saved.id
+                if store.upsert(saved) {
+                    selection = saved.id
+                } else {
+                    limitReached = true
+                }
                 editingRule = nil
             } onCancel: {
                 editingRule = nil
@@ -84,6 +95,16 @@ struct DNSSpoofingWindowView: View {
     @State private var store = DNSSpoofingStore.shared
     @State private var selection: DNSSpoofingRule.ID?
     @State private var editingRule: DNSSpoofingRule?
+    @State private var limitReached = false
+
+    /// Opens the editor for a new rule, or explains the limit when the build allows no more.
+    private func addRule() {
+        if store.canAddRule {
+            editingRule = DNSSpoofingRule(host: "", address: "")
+        } else {
+            limitReached = true
+        }
+    }
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var toolMetrics: ToolWindowDisplayMetrics {
@@ -141,7 +162,7 @@ struct DNSSpoofingWindowView: View {
     private var footer: some View {
         HStack(spacing: 8) {
             Button {
-                editingRule = DNSSpoofingRule(host: "", address: "")
+                addRule()
             } label: {
                 Image(systemName: "plus")
             }

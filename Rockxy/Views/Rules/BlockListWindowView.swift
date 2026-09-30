@@ -77,10 +77,12 @@ final class BlockListViewModel {
 
     func newFolderWithSelection() {
         let ids = blockRules.map(\.id).filter { $0 == selectedRuleID }
-        selectedRuleID = folderStore.createFolder(
+        if let id = folderStore.createFolder(
             named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
             containing: ids
-        )
+        ) {
+            selectedRuleID = id
+        }
     }
 
     /// Enables or disables several rules through the quota gate; reports rules the limit refused.

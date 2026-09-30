@@ -825,10 +825,12 @@ struct BreakpointRulesWindowView: View {
             Divider()
 
             Button(String(localized: "New Folder", bundle: RockxyLocalization.bundle)) {
-                viewModel.selectedRuleID = viewModel.folderStore.createFolder(
+                if let id = viewModel.folderStore.createFolder(
                     named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
                     containing: viewModel.selectedRule.map { [$0.id] } ?? []
-                )
+                ) {
+                    viewModel.selectedRuleID = id
+                }
             }
             RuleFolderMenuItems(
                 store: viewModel.folderStore,

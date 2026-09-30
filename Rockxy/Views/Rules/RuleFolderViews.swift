@@ -60,10 +60,12 @@ struct RuleFolderMenuItems: View {
 
     var body: some View {
         Button(String(localized: "New Folder with Selection", bundle: RockxyLocalization.bundle)) {
-            onCreated(store.createFolder(
+            if let id = store.createFolder(
                 named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
                 containing: ruleIDs
-            ))
+            ) {
+                onCreated(id)
+            }
         }
         .disabled(ruleIDs.isEmpty)
         if !store.folders.isEmpty {
@@ -136,6 +138,23 @@ struct RuleFolderRenameModifier: ViewModifier {
         }
         .onChange(of: folder?.id) {
             draft = folder?.name ?? ""
+        }
+        .alert(
+            String(localized: "Folder Limit Reached", bundle: RockxyLocalization.bundle),
+            isPresented: Binding(
+                get: { store.limitMessage != nil },
+                set: {
+                    if !$0 {
+                        store.limitMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button(String(localized: "OK", bundle: RockxyLocalization.bundle)) {
+                store.limitMessage = nil
+            }
+        } message: {
+            Text(store.limitMessage ?? "")
         }
     }
 
