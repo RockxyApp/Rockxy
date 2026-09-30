@@ -204,6 +204,10 @@ struct AdvancedSettingsTab: View {
                     title: String(localized: "Show alert when quitting Rockxy", bundle: RockxyLocalization.bundle),
                     isOn: $showAlertOnQuit
                 )
+                checkboxRow(
+                    title: String(localized: "Stay on top of other apps", bundle: RockxyLocalization.bundle),
+                    isOn: $stayOnTop
+                )
             }
         }
         .task {
@@ -237,6 +241,7 @@ struct AdvancedSettingsTab: View {
     @ObservedObject private var updater = AppUpdater.shared
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
+    @AppStorage(StayOnTopController.defaultsKey) private var stayOnTop = false
     @AppStorage(RockxyIdentity.current.defaultsKey("showAlertOnQuit")) private var showAlertOnQuit =
         true // WIRED: AppDelegate.applicationShouldTerminate
 

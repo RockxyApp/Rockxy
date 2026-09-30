@@ -310,8 +310,15 @@ struct MapLocalLoopbackIntegrationTests {
                 action: .block(statusCode: 403)
             ))
 
-            // A separate curl process is identified through the OS connection table.
-            let fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            // A separate curl process is identified through the OS connection table. A very
+            // short-lived process can finish before the table lists its socket, so the lookup
+            // is allowed a few attempts before the test concludes it was not identified.
+            var fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            var attempts = 1
+            while fromCurl != 403, attempts < 4 {
+                attempts += 1
+                fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            }
             #expect(fromCurl == 403)
 
             // The test process itself is the proxy's own pid, so it is never identified and

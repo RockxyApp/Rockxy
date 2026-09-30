@@ -34,6 +34,19 @@ struct BuildForwardHeadTests {
         #expect(forward.headers.contains(name: "Sec-WebSocket-Key"))
     }
 
+    @Test("Mocked responses are marked only when the setting is on")
+    func mapLocalMarkerFollowsSetting() throws {
+        let defaults = try #require(UserDefaults(suiteName: "RockxyMapLocalMarkTests-\(UUID().uuidString)"))
+        let headers = [HTTPHeader(name: "Content-Type", value: "text/plain")]
+        #expect(MapLocalMarkerSetting.markedHeaders(headers, defaults: defaults) == headers)
+
+        defaults.set(true, forKey: MapLocalMarkerSetting.markKey)
+        let marked = MapLocalMarkerSetting.markedHeaders(headers, defaults: defaults)
+        #expect(marked.contains { $0.name == "X-Rockxy-Applied" && $0.value == "Map Local" })
+        // A header the rule already sets is never duplicated.
+        #expect(MapLocalMarkerSetting.markedHeaders(marked, defaults: defaults).count == marked.count)
+    }
+
     @Test("Mutated path + query appear on forwarded URI in origin form")
     func mutatedPathQuery() {
         let req = makeRequest(url: "https://example.com/v2/users?id=42")

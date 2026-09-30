@@ -347,10 +347,7 @@ struct ToolWindowReadabilityTests {
         )
         let diffSceneSource = scenesAfterDiff[..<nextSceneStart.lowerBound]
         #expect(diffSceneSource.contains(".windowToolbarStyle(.unifiedCompact)"))
-        let diffMenuStart = try #require(appSource.range(of: "private var diffMenu: some Commands"))
-        let menusAfterDiff = appSource[diffMenuStart.lowerBound...]
-        let nextMenuStart = try #require(menusAfterDiff.range(of: "private var scriptingMenu: some Commands"))
-        let diffMenuSource = menusAfterDiff[..<nextMenuStart.lowerBound]
+        let diffMenuSource = try readProjectFile("Rockxy/Views/Main/DiffCommands.swift")
         #expect(diffMenuSource.contains(#".keyboardShortcut("y", modifiers: [.command, .option])"#))
         #expect(diffMenuSource.contains(#".keyboardShortcut("d", modifiers: [.command, .option])"#))
 

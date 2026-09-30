@@ -199,7 +199,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         return HTTPResponseData(
             statusCode: payload.statusCode,
             statusMessage: message,
-            headers: payload.headers,
+            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
             body: payload.body
         )
     }

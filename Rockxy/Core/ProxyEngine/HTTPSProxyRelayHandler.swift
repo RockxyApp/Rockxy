@@ -188,7 +188,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         return HTTPResponseData(
             statusCode: payload.statusCode,
             statusMessage: message,
-            headers: payload.headers,
+            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
             body: payload.body
         )
     }

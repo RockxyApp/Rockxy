@@ -1211,20 +1211,7 @@ struct RockxyMenuCommands: Commands {
     }
 
     private var diffMenu: some Commands {
-        CommandMenu(String(localized: "Diff", bundle: RockxyLocalization.bundle)) {
-            Button(String(localized: "Open Diff View…", bundle: RockxyLocalization.bundle)) {
-                openWindow(id: "diff")
-            }
-            .keyboardShortcut("y", modifiers: [.command, .option])
-
-            Divider()
-
-            Button(String(localized: "Compare Selected", bundle: RockxyLocalization.bundle)) {
-                proxyActions.compareSelected()
-            }
-            .keyboardShortcut("d", modifiers: [.command, .option])
-            .disabled(!proxyActions.canCompareSelected)
-        }
+        DiffCommands(proxyActions: proxyActions)
     }
 
     private var scriptingMenu: some Commands {

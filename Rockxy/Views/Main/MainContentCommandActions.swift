@@ -329,6 +329,24 @@ struct MainContentCommandActions {
         coordinator.createBreakpointRule(for: transaction)
     }
 
+    var canSetDiffSide: Bool {
+        coordinator.selectedTransaction != nil
+    }
+
+    /// Puts the selected request on one side of the Diff window and opens it, so a comparison
+    /// can be assembled one request at a time.
+    func setDiffSide(left: Bool) {
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
+        if left {
+            DiffTransactionStore.shared.pendingLeft = transaction
+        } else {
+            DiffTransactionStore.shared.pendingRight = transaction
+        }
+        NotificationCenter.default.post(name: .openDiffWindow, object: nil)
+    }
+
     func compareSelected() {
         let ids = coordinator.selectedTransactionIDs
         guard ids.count == 2 else {

@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                 terminationLogger.error("Termination signal: timed out flushing HTTPS fallback state")
             }
         }
+        if !RockxyIdentity.isRunningTests {
+            StayOnTopController.shared.start()
+        }
         Self.logger.info("Rockxy launched")
         Task {
             // Restore network reachability before any updater or startup service can create a

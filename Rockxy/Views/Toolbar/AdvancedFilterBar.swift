@@ -26,6 +26,23 @@ struct AdvancedFilterBar: View {
             shortcutsHint
         }
         .onExitCommand(perform: onHide)
+        .background {
+            // Keyboard access to the row buttons, active while the bar is on screen. Option-Command
+            // keeps clear of the main menu's New and Delete shortcuts.
+            Group {
+                Button(String(localized: "Add filter below", bundle: RockxyLocalization.bundle)) {
+                    addRule(after: focusedIndex ?? max(0, rules.count - 1))
+                }
+                .keyboardShortcut("=", modifiers: [.command, .option])
+                Button(String(localized: "Remove filter", bundle: RockxyLocalization.bundle)) {
+                    removeRule(at: focusedIndex ?? max(0, rules.count - 1))
+                }
+                .keyboardShortcut("-", modifiers: [.command, .option])
+            }
+            .opacity(0)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+        }
         .onAppear {
             focusedRuleID = rules.last?.id
         }
@@ -60,11 +77,17 @@ struct AdvancedFilterBar: View {
             Text(String(localized: "Show or Hide: ⇧⌘F", bundle: RockxyLocalization.bundle))
             Text(String(localized: "Search: ⌘F", bundle: RockxyLocalization.bundle))
             Text(String(localized: "Hide: Esc", bundle: RockxyLocalization.bundle))
+            Text(String(localized: "Add or Remove Row: ⌥⌘= / ⌥⌘-", bundle: RockxyLocalization.bundle))
         }
         .font(.system(size: max(10.5, metrics.secondaryFontSize - 0.5)))
         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    /// The row whose value field has focus, so the keyboard shortcuts act on it.
+    private var focusedIndex: Int? {
+        focusedRuleID.flatMap { id in rules.firstIndex { $0.id == id } }
     }
 
     private var hasActiveRules: Bool {

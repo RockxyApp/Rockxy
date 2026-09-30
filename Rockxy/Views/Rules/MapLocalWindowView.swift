@@ -328,6 +328,20 @@ final class MapLocalViewModel {
         return prefix + (path.isEmpty ? "<Missing Path>" : abbreviatedPath(path))
     }
 
+    /// True when the file or folder a rule serves from no longer exists, so a request would fall
+    /// through to the real server instead of being mocked.
+    func isTargetMissing(for rule: ProxyRule) -> Bool {
+        let path = filePath(for: rule)
+        guard !path.isEmpty else {
+            return true
+        }
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath, isDirectory: &isFolder) else {
+            return true
+        }
+        return isFolder.boolValue != isDirectory(for: rule)
+    }
+
     func isDirectory(for rule: ProxyRule) -> Bool {
         if case let .mapLocal(_, _, isDirectory, _, _) = rule.action {
             return isDirectory
@@ -576,6 +590,15 @@ struct MapLocalWindowView: View {
             TableColumn(String(localized: "Local Response", bundle: RockxyLocalization.bundle)) { row in
                 if let rule = row.rule {
                     HStack(spacing: 6) {
+                        if viewModel.isTargetMissing(for: rule) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(.red)
+                                .help(String(
+                                    localized: "This file or folder was not found, so matching requests reach the real server.",
+                                    bundle: RockxyLocalization.bundle
+                                ))
+                                .accessibilityLabel(String(localized: "File not found", bundle: RockxyLocalization.bundle))
+                        }
                         Text(viewModel.mapFromLabel(for: rule))
                             .lineLimit(1)
                             .truncationMode(.middle)

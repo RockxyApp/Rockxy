@@ -6,6 +6,20 @@ import Testing
 struct AITrafficDetectorTests {
     // MARK: Internal
 
+    @Test("A stream larger than the size cap is read from its tail")
+    func oversizedStreamIsReadFromItsTail() {
+        var stream = ""
+        while stream.utf8.count < AITrafficDetector.maxBodyBytes * 2 {
+            stream += "data: {\"delta\":\"filler\"}\n\n"
+        }
+        stream += "data: {\"final\":true}\n\ndata: [DONE]\n\n"
+
+        let events = AITrafficDetector.parseSSEEvents(Data(stream.utf8))
+
+        #expect(events.last?.data == "{\"final\":true}")
+        #expect(events.first?.data.hasPrefix("{") == true)
+    }
+
     @Test("OpenAI-compatible streaming traffic exposes model, usage, stream events, and tools")
     func openAIStreamingTrafficExposesInspectionSignals() throws {
         let requestBody = Data(

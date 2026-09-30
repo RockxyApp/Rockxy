@@ -27,6 +27,8 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⌥⌘R` | Pause or resume recording without stopping the proxy |
 | `⌘L` | Focus the search bar |
 | `⇧⌘F` | Show or hide Advanced Filters (Esc hides them) |
+| `⌥⌘=` | Add a row below the focused Advanced Filter row |
+| `⌥⌘-` | Remove the focused Advanced Filter row, or clear the only row |
 | `⌥⌘F` | Search apps and domains in the sidebar |
 | `⇧⌘P` | Search and run any command |
 | `⌘1…⌘9` | Select a traffic tab by position; ⌘9 selects the last tab |

@@ -51,6 +51,11 @@ struct ProtobufPayloadInspectorView: View {
         let schemaVersion: Int
     }
 
+    /// Up to this many message types are listed inline in the menu; larger schemas get a
+    /// searchable picker.
+    private static let inlineMessageLimit = 12
+
+    @State private var showsTypePicker = false
     @State private var manualChoice: ProtobufDecodeChoice?
     @State private var result: Result<ProtobufDecodedTree, Error>?
     @State private var schemaStore = ProtobufSchemaStore.shared
@@ -121,7 +126,12 @@ struct ProtobufPayloadInspectorView: View {
                 Button(String(localized: "Best Guess (No Schema)", bundle: RockxyLocalization.bundle)) {
                     manualChoice = .bestGuess
                 }
-                if !messageNames.isEmpty {
+                if messageNames.count > Self.inlineMessageLimit {
+                    Divider()
+                    Button(String(localized: "Choose Message Type…", bundle: RockxyLocalization.bundle)) {
+                        showsTypePicker = true
+                    }
+                } else if !messageNames.isEmpty {
                     Divider()
                     ForEach(messageNames, id: \.self) { name in
                         Button(name) {
@@ -144,6 +154,12 @@ struct ProtobufPayloadInspectorView: View {
             .menuStyle(.button)
             .fixedSize()
             .accessibilityIdentifier("protobuf.decodeAs")
+            .popover(isPresented: $showsTypePicker, arrowEdge: .bottom) {
+                ProtobufMessageTypePicker(names: messageNames) { name in
+                    manualChoice = .messageType(name, encoding: .auto)
+                    showsTypePicker = false
+                }
+            }
             .help(String(
                 localized: "Choose the message type used to decode this payload.",
                 bundle: RockxyLocalization.bundle
@@ -233,5 +249,40 @@ enum ProtobufBodyInspection {
 
     private static func headerValue(_ name: String, in headers: [HTTPHeader]) -> String? {
         headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+}
+
+// MARK: - ProtobufMessageTypePicker
+
+/// Searchable list of a schema's message types, for descriptor sets too large for a menu.
+private struct ProtobufMessageTypePicker: View {
+    let names: [String]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TextField(String(localized: "Search message types", bundle: RockxyLocalization.bundle), text: $query)
+                .textFieldStyle(.roundedBorder)
+                .padding(8)
+            Divider()
+            List(filteredNames, id: \.self) { name in
+                Button(name) {
+                    onSelect(name)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(name)
+            }
+            .frame(width: 380, height: 280)
+        }
+    }
+
+    @State private var query = ""
+
+    private var filteredNames: [String] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return names
+        }
+        return names.filter { $0.localizedCaseInsensitiveContains(trimmed) }
     }
 }

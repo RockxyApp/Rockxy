@@ -113,6 +113,19 @@ final class DiffViewModel {
 
     /// Consumes pending transactions from DiffTransactionStore and merges into the pool.
     func consumeFromStore() {
+        if transactionStore.hasPendingSide {
+            let sides = transactionStore.consumePendingSides()
+            workspaceMode = .captured
+            if let left = sides.left {
+                appendCandidate(left)
+                assignLeft(left)
+            }
+            if let right = sides.right {
+                appendCandidate(right)
+                assignRight(right)
+            }
+            return
+        }
         guard let (a, b) = transactionStore.consumePending() else {
             return
         }

@@ -18,7 +18,11 @@ extension MainContentCoordinator {
     }
 
     func copyCURL(for transaction: HTTPTransaction) {
-        copyToClipboard(RequestCopyFormatter.curl(for: transaction))
+        copyToClipboard(RequestCopyFormatter.curl(
+            for: transaction,
+            options: .current,
+            proxyPort: activeProxyPort
+        ))
     }
 
     func copyCellValue(for transaction: HTTPTransaction, column: String) {

@@ -90,7 +90,7 @@ struct ImportReviewSummary: Equatable {
         }
         let skipped = CountFormatter.format(skippedEntryCount)
         return base + " " + String(
-            localized: "\(skipped) entries could not be read and will be left out.",
+            localized: "Unreadable entries left out of the import: \(skipped).",
             bundle: RockxyLocalization.bundle
         )
     }

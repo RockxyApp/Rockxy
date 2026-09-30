@@ -455,12 +455,46 @@ struct SidebarView: View {
             ForEach(filteredFavorites, id: \.self) { item in
                 favoriteRow(item)
             }
+            .dropDestination(for: String.self) { payloads, _ in
+                pinDroppedItems(payloads)
+            }
         } header: {
             Text(String(localized: "Favorites", bundle: RockxyLocalization.bundle))
                 .foregroundStyle(Theme.Sidebar.favoritesHeader)
                 .font(.system(size: metrics.sidebarSectionHeaderFontSize, weight: .semibold))
+                .dropDestination(for: String.self) { payloads, _ in
+                    pinDroppedItems(payloads)
+                }
         }
         .headerProminence(.increased)
+    }
+
+    /// Pins a host and turns on its HTTPS decryption in one explicit step; the choice is visible in
+    /// the menu, so decryption is never enabled as a side effect of pinning alone.
+    @ViewBuilder
+    private func pinAndDecryptButton(item: SidebarItem, domain: String, isPinned: Bool, isPathScope: Bool) -> some View {
+        if !isPinned, !isPathScope, !coordinator.isSSLProxyingEnabled(for: domain),
+           coordinator.sslProxyingHostDecryptBlockedReason(for: domain) == nil
+        {
+            Button {
+                coordinator.addFavorite(item)
+                coordinator.enableSSLProxyingForDomain(domain)
+            } label: {
+                Label(
+                    String(localized: "Pin and Decrypt This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "pin.circle"
+                )
+            }
+        }
+    }
+
+    /// Pins the domains and apps dragged onto Favorites. Pinning never changes HTTPS decryption.
+    private func pinDroppedItems(_ payloads: [String]) -> Bool {
+        let items = payloads.compactMap(SidebarPinDragPayload.decode)
+        for item in items {
+            coordinator.addFavorite(item)
+        }
+        return !items.isEmpty
     }
 
     private var allSection: some View {
@@ -483,6 +517,9 @@ struct SidebarView: View {
                         .tag(SidebarItem.app(name: app.name, bundleId: nil))
                         .frame(minHeight: metrics.sidebarRowHeight)
                         .contextMenu { appContextMenu(app) }
+                        .draggable(SidebarPinDragPayload.encode(
+                            .app(name: app.name, bundleId: app.identity?.bundleIdentifier)
+                        ) ?? "")
                     }
                 }
             } label: {
@@ -656,6 +693,7 @@ struct SidebarView: View {
         .tag(sidebarItem(for: node))
         .frame(minHeight: metrics.sidebarRowHeight)
         .contextMenu { domainContextMenu(node.selectionDomain, pathPrefix: node.pathPrefix) }
+        .draggable(SidebarPinDragPayload.encode(sidebarItem(for: node)) ?? "")
         .help(domainHelpText(for: node))
     }
 
@@ -675,6 +713,8 @@ struct SidebarView: View {
                 systemImage: isPinned ? "pin.slash" : "pin"
             )
         }
+
+        pinAndDecryptButton(item: item, domain: domain, isPinned: isPinned, isPathScope: pathPrefix != nil)
 
         Button {
             guard coordinator.workspaceStore.canCreateWorkspace else {

@@ -282,4 +282,11 @@ struct ProxyDisplayStateTests {
         coordinator.isProxyRunning = false
         coordinator.readiness.setCaptureActive(false)
     }
+
+    @Test("The LAN endpoint follows the listen address")
+    func lanAddressFollowsListenAddress() {
+        #expect(CaptureStatusPresentation.lanAddress(forListenAddress: "127.0.0.1") == nil)
+        #expect(CaptureStatusPresentation.lanAddress(forListenAddress: "0.0.0.0", discoverLANAddress: { "192.168.1.20" }) == "192.168.1.20")
+        #expect(CaptureStatusPresentation.lanAddress(forListenAddress: "10.0.0.5") == "10.0.0.5")
+    }
 }

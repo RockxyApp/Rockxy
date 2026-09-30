@@ -20,6 +20,28 @@ struct DiffViewModelTests {
         #expect(vm.activeDiffResult.differenceCount == 0)
     }
 
+    @Test("A pair can be assembled one side at a time")
+    @MainActor
+    func sidesArriveOneAtATime() {
+        let store = DiffTransactionStore()
+        let vm = DiffViewModel(transactionStore: store)
+        let first = TestFixtures.makeTransaction(url: "https://api.example.com/a")
+        let second = TestFixtures.makeTransaction(url: "https://api.example.com/b")
+
+        store.pendingLeft = first
+        vm.consumeFromStore()
+        #expect(vm.leftTransaction?.id == first.id)
+        #expect(vm.rightTransaction == nil)
+        #expect(vm.workspaceMode == .captured)
+        #expect(!store.hasPendingSide)
+
+        store.pendingRight = second
+        vm.consumeFromStore()
+        #expect(vm.leftTransaction?.id == first.id)
+        #expect(vm.rightTransaction?.id == second.id)
+        #expect(vm.workspaceState == .ready)
+    }
+
     @Test("Assign left sets left transaction")
     @MainActor
     func assignLeft() {

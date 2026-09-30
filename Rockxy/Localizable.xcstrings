@@ -47844,16 +47844,6 @@
         }
       }
     },
-    "%@ entries could not be read and will be left out.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ 个条目无法读取，将不会导入。"
-          }
-        }
-      }
-    },
     "Invalid HAR format: %@": {
       "localizations": {
         "zh-Hans": {
@@ -48100,6 +48090,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "已准备好接受新连接。请再次发送请求；WebSocket 和流式连接需要重新连接。"
+          }
+        }
+      }
+    },
+    "Choose Message Type…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择消息类型…"
+          }
+        }
+      }
+    },
+    "Search message types": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索消息类型"
+          }
+        }
+      }
+    },
+    "Use from other devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "供其他设备使用"
+          }
+        }
+      }
+    },
+    "Unreadable entries left out of the import: %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未导入的无法读取的条目：%@。"
+          }
+        }
+      }
+    },
+    "Set Selected as Left Side": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选设为左侧"
+          }
+        }
+      }
+    },
+    "Set Selected as Right Side": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选设为右侧"
+          }
+        }
+      }
+    },
+    "Add --proxy flag to the cURL command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 cURL 命令中添加 --proxy 参数"
+          }
+        }
+      }
+    },
+    "Running the copied command sends the request through Rockxy again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行复制的命令会让请求再次经过 Rockxy。"
+          }
+        }
+      }
+    },
+    "Preserve original headers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留原始请求头"
+          }
+        }
+      }
+    },
+    "Keep Content-Length, Accept-Encoding, and Content-Encoding exactly as captured.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持 Content-Length、Accept-Encoding 和 Content-Encoding 与捕获时完全一致。"
+          }
+        }
+      }
+    },
+    "No Delay": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无延迟"
+          }
+        }
+      }
+    },
+    "Mark mocked responses with an X-Rockxy-Applied header": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为模拟响应添加 X-Rockxy-Applied 响应头"
+          }
+        }
+      }
+    },
+    "Stay on top of other apps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "置于其他应用之上"
+          }
+        }
+      }
+    },
+    "This file or folder was not found, so matching requests reach the real server.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到此文件或文件夹，匹配的请求将直接到达真实服务器。"
+          }
+        }
+      }
+    },
+    "File not found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未找到文件"
+          }
+        }
+      }
+    },
+    "Pin and Decrypt This Host": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定并解密此主机"
+          }
+        }
+      }
+    },
+    "Add or Remove Row: ⌥⌘= / ⌥⌘-": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加或移除行：⌥⌘= / ⌥⌘-"
           }
         }
       }

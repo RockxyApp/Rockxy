@@ -178,7 +178,6 @@ enum ProxyHandlerShared {
     nonisolated static func mapRemoteActionSummary(originalURL: URL) -> String {
         "Map Remote (from \(originalURL.absoluteString))"
     }
-
     /// Rebuild the outbound `HTTPRequestHead` from a (possibly script-mutated)
     /// `HTTPRequestData`, scoped to the safe mutation kinds: method, origin-form
     /// path + query, headers, and a recomputed `Content-Length` when the original
