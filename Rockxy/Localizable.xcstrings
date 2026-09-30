@@ -47609,6 +47609,36 @@
           }
         }
       }
+    },
+    "Enter a URL pattern first.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先输入 URL 模式。"
+          }
+        }
+      }
+    },
+    "Matched — this rule applies to the request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已匹配 — 此规则适用于该请求。"
+          }
+        }
+      }
+    },
+    "Not matched — this rule skips the request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未匹配 — 此规则会跳过该请求。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -657,6 +657,9 @@ struct MapRemoteEditorWindowView: View {
 
                     ruleDetailsSection
                     remoteDestinationSection
+                    RuleURLTesterSection(toolMetrics: toolMetrics) {
+                        viewModel.matchCondition()
+                    }
                 }
                 .padding(.horizontal, toolMetrics.formHorizontalPadding)
                 .padding(.vertical, toolMetrics.formVerticalPadding)

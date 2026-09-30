@@ -219,16 +219,7 @@ final class MapRemoteEditorViewModel {
             return nil
         }
 
-        var condition = originalRule?.matchCondition ?? RuleMatchCondition()
-        condition.urlPattern = urlPatternForSaving()
-        condition.method = method.ruleValue
-        // Retain the authored pattern + match semantics so reopening the rule does
-        // not have to guess (and rewrite) the compiled pattern from a heuristic.
-        condition.sourceURLPattern = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
-        condition.matchType = matchType == .regex ? .regex : .wildcard
-        condition.includeSubpaths = matchType == .wildcard ? includeSubpaths : false
-        let operationName = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
-        condition.graphQLOperationName = operationName.isEmpty ? nil : operationName
+        let condition = matchCondition()
 
         let config = MapRemoteConfiguration(
             scheme: destScheme.isEmpty ? nil : destScheme.lowercased(),
@@ -248,6 +239,21 @@ final class MapRemoteEditorViewModel {
             action: .mapRemote(configuration: config),
             priority: originalRule?.priority ?? 0
         )
+    }
+
+    /// The match condition the current fields describe; also used by the rule tester.
+    func matchCondition() -> RuleMatchCondition {
+        var condition = originalRule?.matchCondition ?? RuleMatchCondition()
+        condition.urlPattern = urlPatternForSaving()
+        condition.method = method.ruleValue
+        // Retain the authored pattern + match semantics so reopening the rule does
+        // not have to guess (and rewrite) the compiled pattern from a heuristic.
+        condition.sourceURLPattern = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        condition.matchType = matchType == .regex ? .regex : .wildcard
+        condition.includeSubpaths = matchType == .wildcard ? includeSubpaths : false
+        let operationName = graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        condition.graphQLOperationName = operationName.isEmpty ? nil : operationName
+        return condition
     }
 
     func urlPatternForSaving() -> String {

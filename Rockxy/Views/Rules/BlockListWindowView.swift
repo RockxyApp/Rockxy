@@ -828,6 +828,20 @@ private struct AddBlockRuleSheet: View {
 
                 ruleDetailsSection
                 decisionSection
+                RuleURLTesterSection(toolMetrics: toolMetrics) {
+                    let subpaths = matchType == .wildcard ? includeSubpaths : false
+                    return RuleMatchCondition(
+                        urlPattern: RulePatternBuilder.regexSource(
+                            rawPattern: trimmedPattern,
+                            matchType: matchType,
+                            includeSubpaths: subpaths
+                        ),
+                        sourceURLPattern: trimmedPattern,
+                        method: httpMethod.methodValue,
+                        matchType: matchType,
+                        includeSubpaths: subpaths
+                    )
+                }
             }
             .padding(.horizontal, toolMetrics.formHorizontalPadding)
             .padding(.top, toolMetrics.formVerticalPadding)

@@ -68,6 +68,19 @@ struct BreakpointRuleEditorWindowView: View {
 
                     ruleDetailsSection
                     breakpointPhasesSection
+                    RuleURLTesterSection(toolMetrics: toolMetrics) {
+                        RuleMatchCondition(
+                            urlPattern: RulePatternBuilder.regexSource(
+                                rawPattern: urlPattern,
+                                matchType: matchType,
+                                includeSubpaths: includeSubpaths
+                            ),
+                            sourceURLPattern: urlPattern,
+                            method: httpMethod.methodValue,
+                            matchType: matchType,
+                            includeSubpaths: includeSubpaths
+                        )
+                    }
                 }
                 .padding(.horizontal, toolMetrics.formHorizontalPadding)
                 .padding(.vertical, toolMetrics.formVerticalPadding)
