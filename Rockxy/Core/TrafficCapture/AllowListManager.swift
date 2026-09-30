@@ -154,7 +154,14 @@ final class AllowListManager {
     /// - When allow list is inactive: always returns `true`.
     /// - When allow list is active: returns `true` only if the request matches
     ///   at least one enabled rule (method + URL pattern + GraphQL operation, when set).
-    nonisolated func isRequestAllowed(method: String, url: URL, graphQLOperationName: String? = nil) -> Bool {
+    nonisolated func isRequestAllowed(
+        method: String,
+        url: URL,
+        graphQLOperationName: String? = nil,
+        clientApplication: ClientApplicationIdentity? = nil
+    )
+        -> Bool
+    {
         let snapshot: [CompiledRule]
         let active: Bool
         lock.lock()
@@ -176,6 +183,14 @@ final class AllowListManager {
             }
             if let ruleOperation = compiled.graphQLOperationName, ruleOperation != graphQLOperationName {
                 continue
+            }
+            if let ruleApplication = compiled.clientApplication {
+                guard let clientApplication,
+                      clientApplication.identifier.caseInsensitiveCompare(ruleApplication) == .orderedSame
+                      || clientApplication.displayName.caseInsensitiveCompare(ruleApplication) == .orderedSame
+                else {
+                    continue
+                }
             }
             if compiled.regex.firstMatch(in: urlString, options: [], range: range) != nil {
                 return true
@@ -274,6 +289,7 @@ final class AllowListManager {
         let regex: NSRegularExpression
         let method: String?
         let graphQLOperationName: String?
+        let clientApplication: String?
     }
 
     private enum CompileError: Error, LocalizedError {
@@ -390,7 +406,8 @@ final class AllowListManager {
                         id: rule.id,
                         regex: regex,
                         method: rule.method?.uppercased(),
-                        graphQLOperationName: rule.graphQLOperationName
+                        graphQLOperationName: rule.graphQLOperationName,
+                        clientApplication: rule.clientApplication
                     )
                 )
             } catch {

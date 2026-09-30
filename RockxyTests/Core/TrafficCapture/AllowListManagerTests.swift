@@ -26,6 +26,41 @@ struct AllowListManagerTests {
         #expect(manager.isRequestAllowed(method: "DELETE", url: self.url("https://nothing.allow.com")))
     }
 
+    // MARK: - Client Application
+
+    @Test
+    func applicationScopedRuleRecordsOnlyThatApplication() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(AllowListRule(
+            name: "curl only",
+            rawPattern: "*example.com*",
+            clientApplication: " Curl "
+        ))
+        manager.setActive(true)
+
+        let curl = ClientApplicationIdentity.bundle(identifier: "com.example.curl", displayName: "curl")
+        let safari = ClientApplicationIdentity.bundle(identifier: "com.apple.Safari", displayName: "Safari")
+        let target = self.url("https://example.com/a")
+
+        #expect(manager.isRequestAllowed(method: "GET", url: target, clientApplication: curl))
+        #expect(!manager.isRequestAllowed(method: "GET", url: target, clientApplication: safari))
+        #expect(!manager.isRequestAllowed(method: "GET", url: target))
+        #expect(manager.rules.first?.clientApplication == "Curl")
+    }
+
+    @Test
+    func applicationMatchesByBundleIdentifier() {
+        let (manager, url) = makeManager()
+        defer { cleanup(url) }
+
+        manager.addRule(AllowListRule(name: "safari", rawPattern: "*", clientApplication: "com.apple.safari"))
+        manager.setActive(true)
+        let safari = ClientApplicationIdentity.bundle(identifier: "com.apple.Safari", displayName: "Safari")
+        #expect(manager.isRequestAllowed(method: "GET", url: self.url("https://x.com/"), clientApplication: safari))
+    }
+
     // MARK: - Wildcard Matching
 
     @Test

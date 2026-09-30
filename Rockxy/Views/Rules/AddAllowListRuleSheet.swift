@@ -17,7 +17,7 @@ struct AddAllowListRuleSheet: View {
 
     init(
         session: AllowListEditorSession,
-        onSave: @escaping (String, String, HTTPMethodFilter, RuleMatchType, Bool, String) -> Void
+        onSave: @escaping (String, String, HTTPMethodFilter, RuleMatchType, Bool, String, String) -> Void
     ) {
         self.session = session
         self.onSave = onSave
@@ -37,6 +37,7 @@ struct AddAllowListRuleSheet: View {
             _matchType = State(initialValue: rule.matchType)
             _includeSubpaths = State(initialValue: rule.includeSubpaths)
             _graphQLOperationName = State(initialValue: rule.graphQLOperationName ?? "")
+            _clientApplication = State(initialValue: rule.clientApplication ?? "")
         case let .create(context):
             _ruleName = State(initialValue: context?.suggestedName ?? "")
             _urlPattern = State(initialValue: context?.defaultPattern ?? "")
@@ -44,13 +45,14 @@ struct AddAllowListRuleSheet: View {
             _matchType = State(initialValue: context?.defaultMatchType ?? .wildcard)
             _includeSubpaths = State(initialValue: context?.includeSubpaths ?? true)
             _graphQLOperationName = State(initialValue: context?.graphQLOperationName ?? "")
+            _clientApplication = State(initialValue: "")
         }
     }
 
     // MARK: Internal
 
     let session: AllowListEditorSession
-    let onSave: (String, String, HTTPMethodFilter, RuleMatchType, Bool, String) -> Void
+    let onSave: (String, String, HTTPMethodFilter, RuleMatchType, Bool, String, String) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,7 +99,8 @@ struct AddAllowListRuleSheet: View {
                         httpMethod,
                         matchType,
                         effectiveIncludeSubpaths,
-                        graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        graphQLOperationName.trimmingCharacters(in: .whitespacesAndNewlines),
+                        clientApplication.trimmingCharacters(in: .whitespacesAndNewlines)
                     )
                     dismiss()
                 } label: {
@@ -125,6 +128,7 @@ struct AddAllowListRuleSheet: View {
     @State private var matchType: RuleMatchType
     @State private var includeSubpaths: Bool
     @State private var graphQLOperationName: String
+    @State private var clientApplication: String
 
     private var isEditing: Bool {
         if case .edit = session.mode {
@@ -315,6 +319,23 @@ struct AddAllowListRuleSheet: View {
             )
             .toggleStyle(.checkbox)
             .font(toolMetrics.font())
+        }
+
+        inlineField(String(localized: "Client Application", bundle: RockxyLocalization.bundle)) {
+            TextField(
+                String(localized: "Any application", bundle: RockxyLocalization.bundle),
+                text: $clientApplication
+            )
+            .textFieldStyle(.roundedBorder)
+            .frame(width: max(220, toolMetrics.fieldWidth(220)))
+            .accessibilityLabel(String(
+                localized: "Client application name to match",
+                bundle: RockxyLocalization.bundle
+            ))
+            .help(String(
+                localized: "Record only requests made by this app, by name or bundle identifier. Applies to apps on this Mac; leave empty to record every client.",
+                bundle: RockxyLocalization.bundle
+            ))
         }
 
         inlineField(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {

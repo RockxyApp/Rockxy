@@ -20,7 +20,8 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         method: String? = nil,
         matchType: RuleMatchType = .wildcard,
         includeSubpaths: Bool = true,
-        graphQLOperationName: String? = nil
+        graphQLOperationName: String? = nil,
+        clientApplication: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -30,6 +31,7 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         self.matchType = matchType
         self.includeSubpaths = includeSubpaths
         self.graphQLOperationName = Self.normalizeOperationName(graphQLOperationName)
+        self.clientApplication = Self.normalizeOperationName(clientApplication)
     }
 
     init(from decoder: Decoder) throws {
@@ -44,6 +46,9 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         includeSubpaths = try container.decode(Bool.self, forKey: .includeSubpaths)
         graphQLOperationName = Self.normalizeOperationName(
             try container.decodeIfPresent(String.self, forKey: .graphQLOperationName)
+        )
+        clientApplication = Self.normalizeOperationName(
+            try container.decodeIfPresent(String.self, forKey: .clientApplication)
         )
     }
 
@@ -63,6 +68,9 @@ struct AllowListRule: Identifiable, Codable, Hashable {
     var includeSubpaths: Bool
     /// Exact GraphQL operation name the request must carry. `nil` matches every request.
     var graphQLOperationName: String?
+    /// Application name or bundle identifier (case-insensitive) the request must come from.
+    /// Only requests from apps on this Mac can match; `nil` matches every client.
+    var clientApplication: String?
 
     // MARK: Private
 
@@ -75,6 +83,7 @@ struct AllowListRule: Identifiable, Codable, Hashable {
         case matchType
         case includeSubpaths
         case graphQLOperationName
+        case clientApplication
     }
 
     /// Normalizes an HTTP method string for storage:

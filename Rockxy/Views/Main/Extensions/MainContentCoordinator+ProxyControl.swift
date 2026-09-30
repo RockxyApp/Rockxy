@@ -1267,7 +1267,8 @@ extension MainContentCoordinator {
             manager.isRequestAllowed(
                 method: $0.request.method,
                 url: $0.request.url,
-                graphQLOperationName: $0.graphQLInfo?.operationName
+                graphQLOperationName: $0.graphQLInfo?.operationName,
+                clientApplication: $0.clientApplicationIdentity
             )
         }
     }
