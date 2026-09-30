@@ -102,7 +102,16 @@ nonisolated enum ProtobufDescriptorSetParser {
         }
     }
 
-    private static func parseMessage(_ data: Data, scope: String, into schema: inout ProtobufSchema) throws {
+    private static func parseMessage(
+        _ data: Data,
+        scope: String,
+        depth: Int = 0,
+        into schema: inout ProtobufSchema
+    ) throws {
+        // A crafted descriptor can nest messages without end; refuse before recursing further.
+        guard depth < ProxyLimits.maxProtobufSchemaNesting else {
+            throw ProtobufSchemaParseError.malformedDescriptorSet
+        }
         var name = ""
         var fieldData: [Data] = []
         var nested: [Data] = []
@@ -135,7 +144,7 @@ nonisolated enum ProtobufDescriptorSetParser {
         }
         schema.messages[fullName] = ProtobufMessageSchema(fullName: fullName, fields: fields, isMapEntry: isMapEntry)
         for message in nested {
-            try parseMessage(message, scope: fullName, into: &schema)
+            try parseMessage(message, scope: fullName, depth: depth + 1, into: &schema)
         }
         for enumeration in nestedEnums {
             try parseEnum(enumeration, scope: fullName, into: &schema)

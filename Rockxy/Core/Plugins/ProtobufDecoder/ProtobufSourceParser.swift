@@ -313,7 +313,10 @@ nonisolated enum ProtobufSourceParser {
             return type
         }
 
-        private mutating func parseMessage(scope: String) throws {
+        private mutating func parseMessage(scope: String, depth: Int = 0) throws {
+            guard depth < ProxyLimits.maxProtobufSchemaNesting else {
+                throw error("Messages are nested too deeply")
+            }
             advance()
             let name = try expectIdentifier()
             let fullName = scope.isEmpty ? name : "\(scope).\(name)"
@@ -322,7 +325,7 @@ nonisolated enum ProtobufSourceParser {
             while let token = current, token.text != "}" {
                 switch token.text {
                 case "message":
-                    try parseMessage(scope: fullName)
+                    try parseMessage(scope: fullName, depth: depth + 1)
                 case "enum":
                     try parseEnum(scope: fullName)
                 case "oneof":
