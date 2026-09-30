@@ -47379,6 +47379,46 @@
           }
         }
       }
+    },
+    "Copy Value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制值"
+          }
+        }
+      }
+    },
+    "Copy Key": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制键"
+          }
+        }
+      }
+    },
+    "Copy Key and Value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制键和值"
+          }
+        }
+      }
+    },
+    "Copy JSONPath": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制 JSONPath"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

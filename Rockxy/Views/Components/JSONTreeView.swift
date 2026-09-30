@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Renders the json tree interface for shared app surfaces.
@@ -545,6 +546,8 @@ private struct JSONTreeNodeView: View {
             }
             .padding(.leading, CGFloat(depth) * Self.indentWidth)
             .background(matchBackground)
+            .contentShape(Rectangle())
+            .contextMenu { copyMenu }
             .id(node.path)
 
             if effectiveExpanded {
@@ -578,7 +581,32 @@ private struct JSONTreeNodeView: View {
         }
         .padding(.leading, CGFloat(depth) * Self.indentWidth)
         .background(matchBackground)
+        .contentShape(Rectangle())
+        .contextMenu { copyMenu }
         .id(node.path)
+    }
+
+    @ViewBuilder private var copyMenu: some View {
+        Button(String(localized: "Copy Value", bundle: RockxyLocalization.bundle)) {
+            Self.copy(node.jsonText(unquotedStrings: true))
+        }
+        if let key = node.key {
+            Button(String(localized: "Copy Key", bundle: RockxyLocalization.bundle)) {
+                Self.copy(key)
+            }
+            Button(String(localized: "Copy Key and Value", bundle: RockxyLocalization.bundle)) {
+                Self.copy("\(JSONPathNode.quoted(key)): \(node.jsonText())")
+            }
+        }
+        Divider()
+        Button(String(localized: "Copy JSONPath", bundle: RockxyLocalization.bundle)) {
+            Self.copy(node.path)
+        }
+    }
+
+    private static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func visibleObjectPairs(_ pairs: [(key: String, value: JSONPathNode)]) -> [(
