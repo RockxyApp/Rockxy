@@ -485,7 +485,7 @@ struct TrafficCommandBar: View {
             Button(String(localized: "Add Note…", bundle: RockxyLocalization.bundle)) { actions.addComment() }
             Menu(String(localized: "Highlight", bundle: RockxyLocalization.bundle)) {
                 ForEach(HighlightColor.allCases, id: \.self) { color in
-                    Button(color.rawValue.capitalized) { actions.setHighlight(color) }
+                    Button(color.displayName) { actions.setHighlight(color) }
                 }
                 Divider()
                 Button(String(localized: "Remove Highlight", bundle: RockxyLocalization.bundle)) {

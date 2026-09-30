@@ -153,7 +153,21 @@ extension MainContentCoordinator {
     }
 
     func setHighlight(_ color: HighlightColor?, for transaction: HTTPTransaction) {
-        transaction.highlightColor = color
+        setHighlight(color, for: [transaction])
+    }
+
+    /// Highlights the right-clicked row, or the whole selection when the row is part of it.
+    func setHighlight(_ color: HighlightColor?, clicked transaction: HTTPTransaction) {
+        setHighlight(color, for: contextExportTransactions(clicked: transaction))
+    }
+
+    func setHighlight(_ color: HighlightColor?, for transactions: [HTTPTransaction]) {
+        guard !transactions.isEmpty else {
+            return
+        }
+        for transaction in transactions {
+            transaction.highlightColor = color
+        }
         refreshRowsAfterMutation()
     }
 

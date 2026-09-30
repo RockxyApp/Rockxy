@@ -1031,7 +1031,7 @@ struct RockxyMenuCommands: Commands {
 
             Menu(String(localized: "Highlight", bundle: RockxyLocalization.bundle)) {
                 ForEach(HighlightColor.allCases, id: \.self) { color in
-                    Button(color.rawValue.capitalized) {
+                    Button(color.displayName) {
                         proxyActions.setHighlight(color)
                     }
                 }
@@ -1040,7 +1040,7 @@ struct RockxyMenuCommands: Commands {
                     proxyActions.setHighlight(nil)
                 }
             }
-            .disabled(!proxyActions.hasSelectedTransaction)
+            .disabled(!proxyActions.canRepeatSelection)
 
             Divider()
 

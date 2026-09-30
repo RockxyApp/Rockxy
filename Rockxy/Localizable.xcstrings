@@ -47369,6 +47369,16 @@
           }
         }
       }
+    },
+    "Gray": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "灰色"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -220,8 +220,21 @@ enum HighlightColor: String, CaseIterable {
     case green
     case blue
     case purple
+    case gray
 
     // MARK: Internal
+
+    var displayName: String {
+        switch self {
+        case .red: String(localized: "Red", bundle: RockxyLocalization.bundle)
+        case .orange: String(localized: "Orange", bundle: RockxyLocalization.bundle)
+        case .yellow: String(localized: "Yellow", bundle: RockxyLocalization.bundle)
+        case .green: String(localized: "Green", bundle: RockxyLocalization.bundle)
+        case .blue: String(localized: "Blue", bundle: RockxyLocalization.bundle)
+        case .purple: String(localized: "Purple", bundle: RockxyLocalization.bundle)
+        case .gray: String(localized: "Gray", bundle: RockxyLocalization.bundle)
+        }
+    }
 
     var nsColor: NSColor {
         switch self {
@@ -231,6 +244,7 @@ enum HighlightColor: String, CaseIterable {
         case .green: Theme.Highlight.greenNS
         case .blue: Theme.Highlight.blueNS
         case .purple: Theme.Highlight.purpleNS
+        case .gray: Theme.Highlight.grayNS
         }
     }
 }

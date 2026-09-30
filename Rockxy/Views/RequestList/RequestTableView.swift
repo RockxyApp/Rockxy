@@ -1244,13 +1244,13 @@ extension RequestTableView {
                 guard tag >= 0, tag < allColors.count else {
                     return
                 }
-                coordinator.setHighlight(allColors[tag], for: transaction)
+                coordinator.setHighlight(allColors[tag], clicked: transaction)
             }
         }
 
         @objc
         func handleRemoveHighlight(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.setHighlight(nil, for: $1) }
+            withCoordinator(sender) { $0.setHighlight(nil, clicked: $1) }
         }
 
         @objc
@@ -1935,17 +1935,9 @@ extension RequestTableView {
             ))
 
             let highlightSubmenu = NSMenu()
-            let colors: [(String, HighlightColor)] = [
-                (String(localized: "Red", bundle: RockxyLocalization.bundle), .red),
-                (String(localized: "Orange", bundle: RockxyLocalization.bundle), .orange),
-                (String(localized: "Yellow", bundle: RockxyLocalization.bundle), .yellow),
-                (String(localized: "Green", bundle: RockxyLocalization.bundle), .green),
-                (String(localized: "Blue", bundle: RockxyLocalization.bundle), .blue),
-                (String(localized: "Purple", bundle: RockxyLocalization.bundle), .purple),
-            ]
-            for (name, color) in colors {
+            for color in HighlightColor.allCases {
                 let item = menuItem(
-                    name, action: #selector(handleHighlight(_:)), transaction: transaction
+                    color.displayName, action: #selector(handleHighlight(_:)), transaction: transaction
                 )
                 item.tag = HighlightColor.allCases.firstIndex(of: color) ?? 0
                 item.image = colorCircleImage(color.nsColor)

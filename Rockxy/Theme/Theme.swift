@@ -380,12 +380,14 @@ enum Theme {
         static let green = Color(nsColor: .systemGreen)
         static let blue = Color(nsColor: .systemBlue)
         static let purple = Color(nsColor: .systemPurple)
+        static let gray = Color(nsColor: .systemGray)
 
         static let redNS: NSColor = .systemRed
         static let orangeNS: NSColor = .systemOrange
         static let yellowNS: NSColor = .systemYellow
         static let greenNS: NSColor = .systemGreen
         static let blueNS: NSColor = .systemBlue
+        static let grayNS: NSColor = .systemGray
         static let purpleNS: NSColor = .systemPurple
     }
 

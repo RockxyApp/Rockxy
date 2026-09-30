@@ -216,10 +216,12 @@ struct MainContentCommandActions {
     }
 
     func setHighlight(_ color: HighlightColor?) {
-        guard let transaction = coordinator.selectedTransaction else {
-            return
+        let selected = coordinator.resolveSelectedTransactions()
+        if selected.isEmpty, let transaction = coordinator.selectedTransaction {
+            coordinator.setHighlight(color, for: [transaction])
+        } else {
+            coordinator.setHighlight(color, for: selected)
         }
-        coordinator.setHighlight(color, for: transaction)
     }
 
     func setFollowingLiveTraffic(_ isEnabled: Bool) {
