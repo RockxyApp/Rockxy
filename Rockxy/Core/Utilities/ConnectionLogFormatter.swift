@@ -88,13 +88,8 @@ enum ConnectionLogFormatter {
 
     // MARK: Private
 
-    private static let certificateDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "GMT")
-        formatter.dateFormat = "MMM d HH:mm:ss yyyy 'GMT'"
-        return formatter
-    }()
+    /// Certificate validity in ISO 8601 UTC, readable in every language like the rest of the log.
+    private static let certificateDateFormatter = ISO8601DateFormatter()
 
     private static func appendConnection(_ log: ConnectionLog, to lines: inout [ConnectionLogLine]) {
         lines.append(event("Host \(log.host) port \(log.port)", role: .host))

@@ -52,7 +52,7 @@ struct ConnectionLogFormatterTests {
         #expect(text.contains("* Response body: "))
     }
 
-    @Test("Certificate dates render in GMT regardless of the user's locale")
+    @Test("Certificate dates render in ISO 8601 UTC regardless of the user's locale")
     func certificateDatesAreGMT() {
         var log = ConnectionLog(host: "a.test", port: 443)
         log.tls = ConnectionLog.TLS(
@@ -67,8 +67,8 @@ struct ConnectionLogFormatterTests {
             )
         )
         let text = ConnectionLogFormatter.plainText(for: input(log: log))
-        #expect(text.contains("*  start date: Jan 1 00:00:00 1970 GMT"))
-        #expect(text.contains("*  expire date: Jan 2 00:00:00 1970 GMT (expired)"))
+        #expect(text.contains("*  start date: 1970-01-01T00:00:00Z"))
+        #expect(text.contains("*  expire date: 1970-01-02T00:00:00Z (expired)"))
     }
 
     @Test("External proxy routes, address overrides and relaxed trust are called out")
@@ -178,7 +178,6 @@ struct ConnectionLogFormatterTests {
     @Test("A refused connection is described with the address tried and the OS reason")
     func refusedConnectionDescribed() async throws {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
-        defer { try? group.syncShutdownGracefully() }
         let port = try Self.closedLoopbackPort()
 
         do {
@@ -195,6 +194,8 @@ struct ConnectionLogFormatterTests {
             #expect(failure.message == "Failed to connect to 127.0.0.1 port \(port)")
             #expect(failure.attempts == ["127.0.0.1 port \(port): Connection refused (errno 61)"])
         }
+        // Awaited, not the blocking sync shutdown, so the test never parks a cooperative thread.
+        try await group.shutdownGracefully()
     }
 
     @Test("A tunnel row shows its connection without inventing HTTP messages")

@@ -155,8 +155,12 @@ struct SizeFormatterTests {
     /// cap in bytes is the useful thing to record there, and no user ever reads it.
     /// `CodeSnippetGenerator` writes a comment into generated source code; an exact byte count is
     /// what a developer pasting that code needs, and it is never localized.
+    /// `CodeSnippetGenerator+MoreLanguages` does the same for more languages, and
+    /// `PostmanCollectionExporter` notes an omitted binary body inside the exported collection.
     private static let interpolatedSizeOwners: Set<String> = [
         "Rockxy/Core/Utilities/CodeSnippetGenerator.swift",
+        "Rockxy/Core/Utilities/CodeSnippetGenerator+MoreLanguages.swift",
+        "Rockxy/Core/Plugins/BuiltInPlugins/PostmanCollectionExporter.swift",
         "Rockxy/Core/Plugins/ScriptResponseBodyLoader.swift",
         "Rockxy/Views/Inspector/GRPCInspectorView.swift",
     ]
