@@ -31,7 +31,9 @@ actor ScriptPluginManager {
     ) {
         self.discovery = discovery
         self.defaults = defaults
-        self.runtime = ScriptRuntime(defaults: defaults)
+        let ledger = ScriptExecutionLedger()
+        self.executionLedger = ledger
+        self.runtime = ScriptRuntime(defaults: defaults, previewLedger: ledger)
         if let settingsProvider {
             self.settingsProviderOverride = settingsProvider
         } else {
@@ -48,7 +50,7 @@ actor ScriptPluginManager {
     private(set) var plugins: [PluginInfo] = []
 
     /// Scripts that actually ran per flow, read by the proxy when it emits a transaction.
-    nonisolated let executionLedger = ScriptExecutionLedger()
+    nonisolated let executionLedger: ScriptExecutionLedger
 
     nonisolated let defaults: UserDefaults
 

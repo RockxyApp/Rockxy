@@ -27,6 +27,10 @@ enum ScriptMultiArgBridge {
         guard let context = JSValue(newObjectIn: jsContext) else {
             return nil
         }
+        // Scripts push `{ title, text }` entries here to publish inspector preview tabs.
+        if let previewTabs = JSValue(newArrayIn: jsContext) {
+            context.setObject(previewTabs, forKeyedSubscript: "previewTabs" as NSString)
+        }
         if let sharedState {
             context.setObject(sharedState, forKeyedSubscript: "sharedState" as NSString)
         }

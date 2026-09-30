@@ -8,6 +8,7 @@ enum ResponseInspectorTab: String, CaseIterable {
     case events
     case protobuf
     case multipart
+    case script
     case setCookie
     case auth
     case timeline
@@ -19,11 +20,12 @@ enum ResponseInspectorTab: String, CaseIterable {
     static func availableTabs(
         includesEvents: Bool = false,
         includesProtobuf: Bool = false,
-        includesMultipart: Bool = false
+        includesMultipart: Bool = false,
+        includesScript: Bool = false
     ) -> [ResponseInspectorTab] {
         allCases.filter { tab in
             tab != .ai && (tab != .events || includesEvents) && (tab != .protobuf || includesProtobuf)
-                && (tab != .multipart || includesMultipart)
+                && (tab != .multipart || includesMultipart) && (tab != .script || includesScript)
         }
     }
 
@@ -36,6 +38,7 @@ enum ResponseInspectorTab: String, CaseIterable {
         case .events: String(localized: "Events", bundle: RockxyLocalization.bundle)
         case .protobuf: "Protobuf"
         case .multipart: String(localized: "Multipart", bundle: RockxyLocalization.bundle)
+        case .script: String(localized: "Script", bundle: RockxyLocalization.bundle)
         case .setCookie: "Set-Cookie"
         case .auth: String(localized: "Auth", bundle: RockxyLocalization.bundle)
         case .timeline: String(localized: "Timeline", bundle: RockxyLocalization.bundle)

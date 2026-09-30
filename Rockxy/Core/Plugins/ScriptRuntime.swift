@@ -47,11 +47,13 @@ actor ScriptRuntime {
 
     init(
         defaults: UserDefaults = .standard,
+        previewLedger: ScriptExecutionLedger? = nil,
         consoleSink: @escaping @Sendable (ScriptConsoleEvent) -> Void = { event in
             NotificationCenter.default.post(name: .scriptConsoleDidAppend, object: event)
         }
     ) {
         self.defaults = defaults
+        self.previewLedger = previewLedger
         self.consoleSink = consoleSink
     }
 
@@ -205,6 +207,7 @@ actor ScriptRuntime {
         let runAsMock = behavior.runAsMock
         let arity = onRequestArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
+        let previewLedger = previewLedger
 
         return try await withCheckedThrowingContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -251,6 +254,14 @@ actor ScriptRuntime {
                         continuation
                             .resume(throwing: ScriptRuntimeError.jsException(message))
                         return
+                    }
+
+                    if let context = multiArgs?.0 {
+                        previewLedger?.recordPreviews(
+                            ScriptPreviewTab.read(from: context, panel: .request),
+                            panel: .request,
+                            flowID: originalRequest.flowID
+                        )
                     }
 
                     if runAsMock {
@@ -364,6 +375,7 @@ actor ScriptRuntime {
 
         let arity = onResponseArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
+        let previewLedger = previewLedger
 
         return try await withCheckedThrowingContinuation { continuation in
             let resumed = OSAllocatedUnfairLock(initialState: false)
@@ -410,6 +422,11 @@ actor ScriptRuntime {
                     }
 
                     if let multiArgs {
+                        previewLedger?.recordPreviews(
+                            ScriptPreviewTab.read(from: multiArgs.0, panel: .response),
+                            panel: .response,
+                            flowID: originalRequest.flowID
+                        )
                         let mutated = ScriptMultiArgBridge.readResponseMutations(
                             original: originalResponse,
                             responseArg: multiArgs.3,
@@ -480,6 +497,7 @@ actor ScriptRuntime {
     private static let timeout: TimeInterval = 5
 
     private let defaults: UserDefaults
+    private let previewLedger: ScriptExecutionLedger?
     private let consoleSink: @Sendable (ScriptConsoleEvent) -> Void
     private var contexts: [String: JSContext] = [:]
     private var queues: [String: DispatchQueue] = [:]

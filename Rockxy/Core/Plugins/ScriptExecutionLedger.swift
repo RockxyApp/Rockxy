@@ -42,9 +42,35 @@ final class ScriptExecutionLedger: @unchecked Sendable {
         lock.withLock { namesByFlow[flowID] ?? [] }
     }
 
+    /// Replaces the preview tabs the scripts published for one panel of a flow. Empty
+    /// input is ignored so a hook that publishes nothing never erases earlier tabs.
+    func recordPreviews(_ tabs: [ScriptPreviewTab], panel: PreviewPanel, flowID: UUID) {
+        guard !tabs.isEmpty else {
+            return
+        }
+        lock.withLock {
+            var existing = previewsByFlow[flowID] ?? []
+            existing.removeAll { $0.panel == panel }
+            existing.append(contentsOf: tabs)
+            if previewsByFlow[flowID] == nil {
+                previewOrder.append(flowID)
+                if previewOrder.count > capacity {
+                    previewsByFlow.removeValue(forKey: previewOrder.removeFirst())
+                }
+            }
+            previewsByFlow[flowID] = existing
+        }
+    }
+
+    func previews(for flowID: UUID) -> [ScriptPreviewTab] {
+        lock.withLock { previewsByFlow[flowID] ?? [] }
+    }
+
     // MARK: Private
 
     private let lock = NSLock()
+    private var previewsByFlow: [UUID: [ScriptPreviewTab]] = [:]
+    private var previewOrder: [UUID] = []
     private var namesByFlow: [UUID: [String]] = [:]
     private var order: [UUID] = []
 }

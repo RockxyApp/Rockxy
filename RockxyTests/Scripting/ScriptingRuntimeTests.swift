@@ -539,6 +539,55 @@ struct ScriptingRuntimeTests {
         #expect(harness.manager.executionLedger.scriptNames(for: UUID()).isEmpty)
     }
 
+    @Test("previewTabs published by request and response hooks are recorded per flow and panel")
+    func previewTabsAreRecordedPerFlow() async throws {
+        let harness = try makeHarness()
+        try writePlugin(
+            id: "script.previews",
+            script: """
+            function onRequest(context, url, request) {
+              context.previewTabs.push({ title: "Operation", text: JSON.parse(request.body).operationName });
+              return request;
+            }
+            function onResponse(context, url, request, response) {
+              context.previewTabs.push({ title: "Decoded", text: { ok: true, n: 2 } });
+              context.previewTabs.push({ title: "Bad" });
+              context.previewTabs.push({ text: "untitled" });
+              return response;
+            }
+            """,
+            into: harness,
+            behavior: ScriptBehavior(matchCondition: nil, runOnRequest: true, runOnResponse: true, runAsMock: false)
+        )
+        await harness.manager.loadAllPlugins()
+
+        let request = graphQLRequest(operation: "GetUser")
+        _ = await harness.manager.runRequestHook(on: request)
+        _ = await harness.manager.runResponseHook(request: request, response: pricingResponse())
+
+        let tabs = harness.manager.executionLedger.previews(for: request.flowID)
+        #expect(tabs.filter { $0.panel == .request }.map(\.title) == ["Operation"])
+        #expect(tabs.first { $0.panel == .request }?.text == "GetUser")
+        let responseTabs = tabs.filter { $0.panel == .response }
+        #expect(responseTabs.map(\.title) == ["Decoded", "Script"])
+        #expect(responseTabs.first?.text.contains("\"n\" : 2") == true)
+        #expect(harness.manager.executionLedger.previews(for: UUID()).isEmpty)
+    }
+
+    @Test("script previews are bounded and survive a session round trip")
+    func previewsAreBoundedAndPersist() throws {
+        let long = String(repeating: "x", count: ScriptPreviewTab.maxTextBytes + 10)
+        let tab = ScriptPreviewTab.normalized(title: String(repeating: "T", count: 90), text: long, panel: .response)
+        #expect(tab.title.count == ScriptPreviewTab.maxTitleLength)
+        #expect(tab.text.utf8.count == ScriptPreviewTab.maxTextBytes)
+
+        let transaction = TestFixtures.makeTransaction()
+        transaction.scriptPreviews = [ScriptPreviewTab(title: "A", text: "B", panel: .request)]
+        let data = try JSONEncoder().encode(CodableTransaction(from: transaction))
+        let decoded = try JSONDecoder().decode(CodableTransaction.self, from: data)
+        #expect(decoded.toLiveModel().scriptPreviews == transaction.scriptPreviews)
+    }
+
     private func graphQLRequest(operation: String) -> HTTPRequestData {
         HTTPRequestData(
             method: "POST",

@@ -374,6 +374,10 @@ actor ProxyServer {
             if !names.isEmpty {
                 transaction.appliedScriptNames = names
             }
+            let previews = ledger.previews(for: transaction.request.flowID)
+            if !previews.isEmpty {
+                transaction.scriptPreviews = previews
+            }
             downstream(transaction)
         }
     }

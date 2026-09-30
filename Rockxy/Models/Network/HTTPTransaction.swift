@@ -108,6 +108,8 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var matchedRulePattern: String?
     /// Names of scripts whose request or response hook ran for this exchange.
     var appliedScriptNames: [String] = []
+    /// Preview tabs scripts published for this exchange (`context.previewTabs`).
+    var scriptPreviews: [ScriptPreviewTab] = []
     /// True when No Caching rewrote this exchange's cache headers.
     var noCachingApplied = false
     /// Protocol Rockxy used to reach the server (`1.1` or `2`); nil for tunnels, local

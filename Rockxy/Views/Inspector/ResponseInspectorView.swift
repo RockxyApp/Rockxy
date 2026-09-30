@@ -141,7 +141,8 @@ struct ResponseInspectorView: View {
             .availableTabs(
                 includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction),
                 includesProtobuf: ProtobufBodyInspection.isApplicable(to: transaction, direction: .response),
-                includesMultipart: MultipartInspectorView.isApplicable(to: transaction, direction: .response)
+                includesMultipart: MultipartInspectorView.isApplicable(to: transaction, direction: .response),
+                includesScript: ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response)
             )
             .map { tab in
                 InspectorTabDescriptor(
@@ -411,6 +412,12 @@ struct ResponseInspectorView: View {
                 } else {
                     responseBodyView(response: response)
                 }
+            case .script:
+                if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response) {
+                    ScriptPreviewInspectorView(transaction: transaction, panel: .response)
+                } else {
+                    responseBodyView(response: response)
+                }
             case .multipart:
                 if MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
                     MultipartInspectorView(transaction: transaction, direction: .response)
@@ -593,6 +600,9 @@ struct ResponseInspectorView: View {
             selectedTab = .body
         }
         if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
+            selectedTab = .body
+        }
+        if selectedTab == .script, !ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response) {
             selectedTab = .body
         }
         if let selectedPreviewTab,

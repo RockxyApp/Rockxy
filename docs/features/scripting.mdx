@@ -69,6 +69,27 @@ values. It is released when the response hook runs, and state for flows that nev
 response (blocked, mocked, or failed requests) is discarded after newer flows replace it.
 Use `$rockxy.storage` for values that must outlive a single flow.
 
+### Showing your own data in the inspector
+
+Push `{ title, text }` entries onto `context.previewTabs` to add a **Script** tab to the
+request or response inspector — useful for a decrypted payload, a signature check, or one
+field of a large body. Nothing is sent differently on the wire.
+
+```javascript
+function onResponse(context, url, request, response) {
+  const payload = JSON.parse(response.body);
+  context.previewTabs.push({ title: "Decoded token", text: atob(payload.token) });
+  context.previewTabs.push({ title: "Summary", text: { id: payload.id, items: payload.items.length } });
+  return response;
+}
+```
+
+`text` may be a string or any JSON value (shown pretty-printed). Hooks run on the request
+side add tabs to the Request inspector, response hooks to the Response inspector; each
+exchange keeps up to 8 tabs per side, titles are cut at 40 characters and text at 256 KB.
+Tabs are saved with the session but left out of redacted MCP output. This requires the
+`(context, url, request[, response])` function shape.
+
 ### Single-arg API (legacy)
 
 Scripts define one or both of these functions, exported either as direct globals or via CommonJS `module.exports`:

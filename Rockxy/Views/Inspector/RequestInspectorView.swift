@@ -31,6 +31,9 @@ struct RequestInspectorView: View {
             if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
                 selectedTab = .body
             }
+            if selectedTab == .script, !ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request) {
+                selectedTab = .body
+            }
         }
         .onChange(of: previewTabStore.requestTabs.map(\.id)) { _, availableTabIDs in
             selectedPreviewTab = InspectorPreviewSelectionReconciler.retainedSelection(
@@ -80,8 +83,10 @@ struct RequestInspectorView: View {
     private var visibleNativeTabs: [RequestInspectorTab] {
         let showsMultipart = MultipartInspectorView.isApplicable(to: transaction)
         let showsProtobuf = ProtobufBodyInspection.isApplicable(to: transaction, direction: .request)
+        let showsScript = ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request)
         return RequestInspectorTab.allCases.filter {
             ($0 != .multipart || showsMultipart) && ($0 != .protobuf || showsProtobuf)
+                && ($0 != .script || showsScript)
         }
     }
 
@@ -135,6 +140,12 @@ struct RequestInspectorView: View {
         case .multipart:
             if MultipartInspectorView.isApplicable(to: transaction) {
                 MultipartInspectorView(transaction: transaction)
+            } else {
+                requestBodyView
+            }
+        case .script:
+            if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request) {
+                ScriptPreviewInspectorView(transaction: transaction, panel: .request)
             } else {
                 requestBodyView
             }

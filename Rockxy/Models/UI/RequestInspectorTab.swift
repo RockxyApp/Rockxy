@@ -7,6 +7,7 @@ enum RequestInspectorTab: String, CaseIterable {
     case body
     case multipart
     case protobuf
+    case script
     case cookies
     case raw
     case synopsis
@@ -22,6 +23,7 @@ enum RequestInspectorTab: String, CaseIterable {
         case .body: String(localized: "Body", bundle: RockxyLocalization.bundle)
         case .multipart: String(localized: "Multipart", bundle: RockxyLocalization.bundle)
         case .protobuf: "Protobuf"
+        case .script: String(localized: "Script", bundle: RockxyLocalization.bundle)
         case .cookies: String(localized: "Cookies", bundle: RockxyLocalization.bundle)
         case .raw: String(localized: "Raw", bundle: RockxyLocalization.bundle)
         case .synopsis: String(localized: "Synopsis", bundle: RockxyLocalization.bundle)

@@ -75,6 +75,7 @@ struct CodableTransaction: Codable {
         self.matchedRuleActionSummary = transaction.matchedRuleActionSummary
         self.matchedRulePattern = transaction.matchedRulePattern
         self.appliedScriptNames = transaction.appliedScriptNames.isEmpty ? nil : transaction.appliedScriptNames
+        self.scriptPreviews = transaction.scriptPreviews.isEmpty ? nil : transaction.scriptPreviews
         self.noCachingApplied = transaction.noCachingApplied ? true : nil
         self.serverHTTPVersion = transaction.serverHTTPVersion
         self.connectionLog = transaction.connectionLog
@@ -106,6 +107,7 @@ struct CodableTransaction: Codable {
         matchedRuleActionSummary = try container.decodeIfPresent(String.self, forKey: .matchedRuleActionSummary)
         matchedRulePattern = try container.decodeIfPresent(String.self, forKey: .matchedRulePattern)
         appliedScriptNames = try container.decodeIfPresent([String].self, forKey: .appliedScriptNames)
+        scriptPreviews = try container.decodeIfPresent([ScriptPreviewTab].self, forKey: .scriptPreviews)
         noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
         connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
@@ -136,6 +138,7 @@ struct CodableTransaction: Codable {
         case matchedRuleActionSummary
         case matchedRulePattern
         case appliedScriptNames
+        case scriptPreviews
         case noCachingApplied
         case serverHTTPVersion
         case connectionLog
@@ -165,6 +168,7 @@ struct CodableTransaction: Codable {
     let matchedRuleActionSummary: String?
     let matchedRulePattern: String?
     let appliedScriptNames: [String]?
+    let scriptPreviews: [ScriptPreviewTab]?
     let noCachingApplied: Bool?
     let serverHTTPVersion: String?
     let connectionLog: ConnectionLog?
@@ -194,6 +198,7 @@ struct CodableTransaction: Codable {
         transaction.matchedRuleActionSummary = matchedRuleActionSummary
         transaction.matchedRulePattern = matchedRulePattern
         transaction.appliedScriptNames = appliedScriptNames ?? []
+        transaction.scriptPreviews = scriptPreviews ?? []
         transaction.noCachingApplied = noCachingApplied ?? false
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog

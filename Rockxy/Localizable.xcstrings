@@ -47829,6 +47829,40 @@
           }
         }
       }
+    },
+    "No Script Preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Script Preview"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有脚本预览"
+          }
+        }
+      }
+    },
+    "No script published a preview tab for this exchange.": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No script published a preview tab for this exchange."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有脚本为此次交换发布预览标签页。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
