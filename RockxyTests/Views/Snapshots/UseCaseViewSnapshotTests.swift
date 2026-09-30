@@ -230,6 +230,12 @@ struct UseCaseViewSnapshotTests {
         try await render(ConnectionLogInspectorView(transaction: refused), name: "connection-log-refused", size: CGSize(width: 640, height: 260))
     }
 
+    @Test("Rule editors with the URL tester")
+    func ruleEditorsWithTester() async throws {
+        try await render(MapRemoteEditorWindowView(), name: "map-remote-editor", size: CGSize(width: 1_000, height: 1_150))
+        try await render(BreakpointRuleEditorWindowView(), name: "breakpoint-editor", size: CGSize(width: 900, height: 700))
+    }
+
     // MARK: Private
 
     private func render(_ view: some View, name: String, size: CGSize) async throws {

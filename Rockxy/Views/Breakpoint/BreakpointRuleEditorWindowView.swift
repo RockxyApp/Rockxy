@@ -291,7 +291,10 @@ struct BreakpointRuleEditorWindowView: View {
                 }
                 .frame(width: max(250, toolMetrics.fieldWidth(250)))
 
-                if let patternValidationMessage {
+                // An untouched empty pattern keeps Add disabled without flagging an error.
+                if let patternValidationMessage,
+                   !urlPattern.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                {
                     validationLabel(patternValidationMessage)
                 }
 
