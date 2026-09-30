@@ -89,7 +89,7 @@ struct AddFavoriteView: View {
                 .font(.system(size: metrics.sidebarSecondaryFontSize))
                 .foregroundStyle(.secondary)
             TextField(
-                String(localized: "Search app or domain (\u{2318}\u{21E7}F)", bundle: RockxyLocalization.bundle),
+                String(localized: "Search app or domain", bundle: RockxyLocalization.bundle),
                 text: $searchText
             )
             .textFieldStyle(.plain)

@@ -166,10 +166,15 @@ extension MainContentCoordinator {
                 )
                 activeToast = ToastMessage(
                     style: .success,
-                    text: String(
-                        localized: "Replay completed — \(response.statusCode)",
-                        bundle: RockxyLocalization.bundle
-                    )
+                    text: captureRecordingGate.allowsCapture()
+                        ? String(
+                            localized: "Replay completed — \(response.statusCode)",
+                            bundle: RockxyLocalization.bundle
+                        )
+                        : String(
+                            localized: "Replay completed — \(response.statusCode). Recording is paused, so it was not added to the session.",
+                            bundle: RockxyLocalization.bundle
+                        )
                 )
             } catch {
                 Self.logger.error("Replay failed: \(error.localizedDescription)")

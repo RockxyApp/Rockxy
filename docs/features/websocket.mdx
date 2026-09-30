@@ -21,6 +21,8 @@ Rockxy detects WebSocket connections by monitoring HTTP upgrade requests. When a
 
 The upgrade request itself appears as a normal HTTP transaction in the traffic list. Once upgraded, the connection switches to the **WebSocket** tab in the inspector, where all frames are displayed in chronological order.
 
+Rockxy forwards the handshake without offering compression extensions such as `permessage-deflate`, so frames arrive uncompressed and stay readable; the connection simply runs without compression. A connection that was already open before capture or before you enabled HTTPS decryption keeps its old state: reconnect the socket (or restart the app) so it goes through Rockxy.
+
 For HTTPS WebSocket connections (`wss://`), Rockxy decrypts frames using the same MITM approach as regular HTTPS traffic — the [HTTPS Interception](/features/https-interception) setup is required.
 
 Plain `ws://` connections are captured whether the client sends the upgrade as an absolute-form request or tunnels it through `CONNECT` (browsers and most WebSocket libraries do the latter). When HTTPS interception is active, Rockxy looks at the first bytes of every tunnel: TLS is decrypted, a plain HTTP request line is relayed as `http://` traffic with its frames, and anything else stays a raw tunnel.

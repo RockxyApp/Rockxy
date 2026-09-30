@@ -68,6 +68,24 @@ final class RuleFolderStore {
         persist()
     }
 
+    /// Applies folders from a settings backup. Replacing swaps the whole set; adding keeps the
+    /// existing folders and only brings in folders it does not already have.
+    func importFolders(_ incoming: [RuleFolder], replacing: Bool) {
+        guard replacing || !incoming.isEmpty else {
+            return
+        }
+        if replacing {
+            folders = incoming
+        } else {
+            let known = Set(folders.map(\.id))
+            for folder in incoming where !known.contains(folder.id) {
+                removeFromFolders(Set(folder.ruleIDs))
+                folders.append(folder)
+            }
+        }
+        persist()
+    }
+
     /// Drops rule ids that no longer exist, e.g. after rules were deleted elsewhere.
     func reconcile(existingRuleIDs: Set<UUID>) {
         var changed = false

@@ -7,22 +7,23 @@ Rockxy detects GraphQL-over-HTTP requests and provides a dedicated inspector tab
 
 ## Automatic Detection
 
-Rockxy's `GraphQLDetector` identifies GraphQL requests by checking two conditions:
+Rockxy's `GraphQLDetector` identifies GraphQL-over-HTTP requests in these shapes:
 
-1. The request is a **POST** to an endpoint whose path contains `graphql` (e.g., `/graphql`, `/api/graphql`, `/v1/graphql`)
-2. The JSON request body contains a **`query`** field with a string value
+1. A **POST** whose JSON body has a **`query`** string, sent to an endpoint whose path contains `graphql` (for example `/graphql`, `/api/graphql`, `/v1/graphql`)
+2. A **POST** to any other path (`/api`, `/gql`, `/query`) whose `query` string is a GraphQL document — it starts with `query`, `mutation`, `subscription`, or an opening brace
+3. A **GET** to a `graphql` path that carries the document, or a persisted-query hash and operation name, in the URL
 
-When both conditions are met, Rockxy marks the request as a GraphQL operation and activates the dedicated GraphQL tab in the inspector.
+When one of these matches, Rockxy marks the request as a GraphQL operation, fills the Operation column, and activates the dedicated GraphQL tab in the inspector.
 
 <Note>
-Detection only covers HTTP POST requests. GraphQL over WebSocket (subscriptions via `graphql-ws` or `subscriptions-transport-ws`) and GET-based persisted queries are not detected. You can still inspect those payloads manually in the Body or WebSocket tabs.
+GraphQL over WebSocket (subscriptions via `graphql-ws` or `subscriptions-transport-ws`) is not detected. You can still inspect those payloads in the Body or WebSocket tabs.
 </Note>
 
 ## What Gets Detected
 
-Rockxy's detection scope is **GraphQL-over-HTTP**: standard POST requests carrying a GraphQL payload. It does not detect GraphQL sent over WebSocket transports (e.g., `graphql-ws` subscriptions), custom binary encodings, or GET-based persisted queries.
+Rockxy's detection scope is **GraphQL-over-HTTP**: requests carrying a GraphQL payload in the body or URL. It does not detect GraphQL sent over WebSocket transports (e.g., `graphql-ws` subscriptions) or custom binary encodings. Batched requests (a JSON array of operations) are left to the generic inspectors.
 
-If your API uses a non-standard endpoint path and does not include `graphql` in the URL, the request will not be detected automatically. You can still inspect the raw JSON body in the Body tab.
+If a request carries a `query` string that does not look like a GraphQL document, or the payload is wrapped in another envelope, it is not detected automatically. You can still inspect the raw JSON body in the Body tab.
 
 ## Operation Types
 

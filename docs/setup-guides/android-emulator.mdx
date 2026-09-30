@@ -10,7 +10,8 @@ Android Emulator uses a manual proxy and user CA setup path, but iteration is us
 ## Support in Rockxy
 
 - Manual setup available
-- No automation entry point today
+- One-click routing: **Developer Setup ▸ Android Emulator ▸ Route Emulators Through Rockxy…** sets each running emulator's proxy to `10.0.2.2:<port>` through `adb` and copies the root certificate to its Download folder
+- **Revert Emulator Proxy** clears the proxy; Rockxy also reverts routed emulators when it quits, and refuses to route while the proxy is stopped
 - Certificate sharing support available
 
 ## What Rockxy currently provides

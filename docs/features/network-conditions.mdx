@@ -84,6 +84,8 @@ Network Conditions rules use the `networkCondition` action type internally, sepa
 
 HTTPS requests are delayed after TLS interception, so the delay applies to the decrypted HTTP traffic inside the tunnel, not to the CONNECT handshake.
 
+For a host whose HTTPS is **not decrypted**, the tunnel is shaped as a byte stream: uploads and downloads are paced to the preset's bandwidth, packet loss stalls the stream, and the latency delays each client-to-server burst. Offline refuses the tunnel. Bytes are never reordered or altered, so the app's TLS session is unaffected.
+
 ## Persistence
 
 Network Conditions rules are persisted alongside all other rules under `~/Library/Application Support/com.amunx.rockxy/` (the directory is bundle-driven via `RockxyIdentity.current.appSupportDirectoryName`). They survive app restarts and can be exported or imported through the standard rule system.

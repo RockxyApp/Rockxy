@@ -35,7 +35,8 @@ struct TrafficCSVExporterTests {
         let lines = text.components(separatedBy: "\r\n").filter { !$0.isEmpty }
 
         #expect(lines.count == 3)
-        #expect(lines[0].hasPrefix("#,Start Time,Method,URL"))
+        // A UTF-8 byte-order mark lets spreadsheet apps read non-ASCII text correctly.
+        #expect(lines[0].hasPrefix("\u{FEFF}#,Start Time,Method,URL"))
         #expect(lines[1].contains(",POST,https://api.example.com/login?next=/home,api.example.com,/login,401,"))
         #expect(lines[1].hasSuffix(",\"token, expired\""))
         #expect(!text.contains("Bearer secret"))

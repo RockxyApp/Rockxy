@@ -369,6 +369,7 @@ enum DiffFileMerge {
 
     static func open(_ result: DiffResult) throws {
         let (left, right) = documents(for: result)
+        Self.purgeStaleDiffDirectories()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("rockxy-diff-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(
@@ -386,5 +387,27 @@ enum DiffFileMerge {
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         try process.run()
+    }
+
+    /// FileMerge keeps reading the comparison files after `opendiff` returns, so they cannot be
+    /// removed right away. Captured requests can hold credentials, so older comparison
+    /// folders are deleted the next time one is created.
+    private static func purgeStaleDiffDirectories() {
+        let fileManager = FileManager.default
+        let temp = fileManager.temporaryDirectory
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: temp,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else {
+            return
+        }
+        for entry in entries where entry.lastPathComponent.hasPrefix("rockxy-diff-") {
+            let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            if let modified, modified < cutoff {
+                try? fileManager.removeItem(at: entry)
+            }
+        }
     }
 }

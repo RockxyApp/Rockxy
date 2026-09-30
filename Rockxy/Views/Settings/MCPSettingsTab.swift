@@ -122,6 +122,7 @@ struct MCPSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.redactSensitiveData")) private var mcpRedactSensitiveData = true
     @AppStorage(MCPChangePermission.defaultsKey) private var mcpAllowChanges = false
     @State private var didCopyConfig = false
+    @State private var didCopyCommand = false
     @State private var copyFeedbackGeneration = UUID()
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
@@ -313,12 +314,16 @@ struct MCPSettingsTab: View {
                 Menu {
                     ForEach(MCPClientSetupCommand.allCases) { client in
                         Button(client.clientName) {
-                            copyToClipboard(client.command(bridgePath: binaryPath))
+                            copyToClipboard(client.command(bridgePath: binaryPath), isCommand: true)
                         }
                     }
                 } label: {
-                    Text(String(localized: "Copy Command", bundle: RockxyLocalization.bundle))
-                        .font(settingsMetrics.secondaryFont(weight: .medium))
+                    Text(
+                        didCopyCommand
+                            ? String(localized: "Copied", bundle: RockxyLocalization.bundle)
+                            : String(localized: "Copy Command", bundle: RockxyLocalization.bundle)
+                    )
+                    .font(settingsMetrics.secondaryFont(weight: .medium))
                 }
                 .fixedSize()
                 .help(String(
@@ -457,19 +462,21 @@ struct MCPSettingsTab: View {
         copyToClipboard(configJSON)
     }
 
-    private func copyToClipboard(_ text: String) {
+    private func copyToClipboard(_ text: String, isCommand: Bool = false) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
         let generation = UUID()
         copyFeedbackGeneration = generation
-        didCopyConfig = true
+        didCopyConfig = !isCommand
+        didCopyCommand = isCommand
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             guard copyFeedbackGeneration == generation else {
                 return
             }
             didCopyConfig = false
+            didCopyCommand = false
         }
     }
 }

@@ -48,6 +48,25 @@ struct OpenAPIExporterTests {
         #expect(yaml.contains(#""openapi": "3.0.3""#))
     }
 
+    @Test("Path parameter names keep singular words and skip version segments")
+    func pathParameterNaming() throws {
+        let status = jsonTransaction(
+            method: "GET",
+            url: "https://api.example.com/status/5",
+            responseBody: ["ok": true]
+        )
+        let versioned = jsonTransaction(
+            method: "GET",
+            url: "https://api.example.com/v1/123",
+            responseBody: ["ok": true]
+        )
+
+        let paths = try paths(from: [status, versioned])
+
+        #expect(paths["/status/{statusId}"] is [String: Any])
+        #expect(paths["/v1/{id}"] is [String: Any])
+    }
+
     @Test("Infers path parameters while preserving static slugs")
     func pathParameterInference() throws {
         let users = jsonTransaction(

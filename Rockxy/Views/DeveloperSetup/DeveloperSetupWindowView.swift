@@ -512,7 +512,7 @@ struct DeveloperSetupWindowView: View {
                 }
             }
 
-            if viewModel.selectedTarget.id == .iosSimulator {
+            if [.iosSimulator, .tvOSWatchOS, .visionPro, .reactNative].contains(viewModel.selectedTarget.id) {
                 simulatorInstallRow
             }
             if viewModel.selectedTarget.id == .androidEmulator {

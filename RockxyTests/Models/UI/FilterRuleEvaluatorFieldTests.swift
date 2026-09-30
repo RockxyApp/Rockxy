@@ -21,6 +21,32 @@ struct FilterRuleEvaluatorFieldTests {
         #expect(!FilterRuleEvaluator.matches(anonymous, rules: [rule]))
     }
 
+    @Test("AND binds tighter than OR when rules are combined")
+    func andBindsTighterThanOr() {
+        // host is example.com AND status is 401 OR status is 403
+        let rules = [
+            FilterRule(field: .domain, filterOperator: .contains, value: "example.com"),
+            FilterRule(connector: .and, field: .statusCode, filterOperator: .is, value: "401"),
+            FilterRule(connector: .or, field: .statusCode, filterOperator: .is, value: "403"),
+        ]
+        let sameHost401 = TestFixtures.makeTransaction(url: "https://example.com/a", statusCode: 401)
+        let otherHost401 = TestFixtures.makeTransaction(url: "https://other.org/a", statusCode: 401)
+        let otherHost403 = TestFixtures.makeTransaction(url: "https://other.org/a", statusCode: 403)
+
+        #expect(FilterRuleEvaluator.matches(sameHost401, rules: rules))
+        #expect(!FilterRuleEvaluator.matches(otherHost401, rules: rules))
+        #expect(FilterRuleEvaluator.matches(otherHost403, rules: rules))
+    }
+
+    @Test("An unfinished regular expression is reported invalid and matches nothing")
+    func invalidRegexIsFlagged() {
+        #expect(!FilterRegexCache.isValid("[a"))
+        #expect(FilterRegexCache.isValid("^api\\."))
+        let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/a")
+        let rule = FilterRule(field: .url, filterOperator: .regex, value: "[a")
+        #expect(!FilterRuleEvaluator.matches(transaction, rules: [rule]))
+    }
+
     @Test("All Fields finds a value in the response body")
     func allFieldsSearchesBodies() {
         let transaction = TestFixtures.makeTransaction(url: "https://api.example.com/profile")

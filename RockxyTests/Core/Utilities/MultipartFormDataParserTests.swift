@@ -57,6 +57,20 @@ struct MultipartFormDataParserTests {
         #expect(parts[0].data.isEmpty)
     }
 
+    @Test("File names may contain semicolons, escaped quotes, and use the RFC 5987 form")
+    func parsesTrickyFileNames() {
+        let body = Data((
+            "--B\r\nContent-Disposition: form-data; name=\"a\"; filename=\"a;b.png\"\r\n\r\nx\r\n"
+                + "--B\r\nContent-Disposition: form-data; name=\"b\"; filename=\"plain.txt\"; "
+                + "filename*=UTF-8''%E2%82%AC%20rates.txt\r\n\r\ny\r\n--B--\r\n"
+        ).utf8)
+        let parts = MultipartFormDataParser.parse(body: body, boundary: "B")
+
+        #expect(parts.count == 2)
+        #expect(parts[0].fileName == "a;b.png")
+        #expect(parts[1].fileName == "€ rates.txt")
+    }
+
     @Test("A truncated body yields only the complete parts")
     func truncatedBodyDropsIncompletePart() {
         let body = Data("--B\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n1\r\n--B\r\nContent-Disposition: form".utf8)

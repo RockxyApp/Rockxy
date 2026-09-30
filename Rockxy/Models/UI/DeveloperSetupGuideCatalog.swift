@@ -262,7 +262,11 @@ enum DeveloperSetupGuideCatalog {
                 tip(
                     "tvos-device",
                     "Physical devices need LAN reachability and manual proxy",
-                    "For a real Apple TV or Apple Watch, use a reachable LAN address and set the manual HTTP proxy in the device settings where available."
+                    """
+                    An Apple TV has its own Wi-Fi proxy setting. An Apple Watch has none: trust the certificate on \
+                    the paired iPhone and the watch, point the iPhone at Rockxy, then turn off the watch's Wi-Fi and \
+                    cellular so its traffic relays through the iPhone.
+                    """
                 ),
             ],
             validationTips: [

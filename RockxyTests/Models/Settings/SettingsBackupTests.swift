@@ -46,6 +46,26 @@ struct SettingsBackupTests {
         #expect(partial.settings.rules.isEmpty)
     }
 
+    @Test("Rule folders round-trip, and importing them replaces or adds without touching other tools")
+    func ruleFoldersRoundTripAndImport() throws {
+        let ruleID = UUID()
+        var snapshot = SettingsBackupSnapshot()
+        snapshot.ruleFolders = ["mapLocal": [RuleFolder(id: UUID(), name: "API mocks", ruleIDs: [ruleID])]]
+        let decoded = try SettingsBackupDocument.decode(SettingsBackupDocument(settings: snapshot).encoded())
+        #expect(decoded.settings.ruleFolders["mapLocal"]?.first?.name == "API mocks")
+        #expect(decoded.settings.ruleFolders["mapLocal"]?.first?.ruleIDs == [ruleID])
+
+        let defaults = UserDefaults(suiteName: "RockxyRuleFolderBackupTests-\(UUID().uuidString)") ?? .standard
+        let store = RuleFolderStore(tool: "test", defaults: defaults)
+        store.importFolders(decoded.settings.ruleFolders["mapLocal"] ?? [], replacing: false)
+        #expect(store.folders.count == 1)
+        // Adding the same folders again does not duplicate them.
+        store.importFolders(decoded.settings.ruleFolders["mapLocal"] ?? [], replacing: false)
+        #expect(store.folders.count == 1)
+        store.importFolders([], replacing: true)
+        #expect(store.folders.isEmpty)
+    }
+
     @Test("Exporting enabled rules only leaves disabled entries out")
     func enabledOnly() {
         let filtered = sampleSettings().enabledOnly()

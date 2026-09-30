@@ -36,6 +36,10 @@ final class BreakpointManager {
     static let shared = BreakpointManager()
 
     private(set) var pausedItems: [PausedBreakpointItem] = []
+
+    /// Whether the Breakpoint Queue window is on screen. A hit that arrives while the window
+    /// is closed (for example dismissed with Esc while items were still waiting) raises it again.
+    var isQueueWindowVisible = false
     var selectedItemId: UUID?
 
     var hasPausedItems: Bool {
@@ -87,9 +91,9 @@ final class BreakpointManager {
                     selectedItemId = itemId
                 }
                 Self.logger.info("Breakpoint paused")
-                // Auto-raise the queue window once per burst: notify only on the
-                // empty → non-empty transition, not on every subsequent hit.
-                if wasEmpty {
+                // Auto-raise the queue window once per burst: notify on the empty → non-empty
+                // transition, or when the window was closed while items were still waiting.
+                if wasEmpty || !isQueueWindowVisible {
                     NotificationCenter.default.post(name: .breakpointHit, object: self)
                 }
             }

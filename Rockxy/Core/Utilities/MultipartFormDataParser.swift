@@ -161,22 +161,63 @@ enum MultipartFormDataParser {
         )
     }
 
-    /// Reads `name="value"` (or an unquoted value) from a Content-Disposition header.
+    /// Reads `name="value"` (or an unquoted value) from a Content-Disposition header. Quoted
+    /// values may contain `;` and escaped quotes, and `filename*=UTF-8''%E2%82%AC.txt`
+    /// (RFC 5987) wins over a plain `filename` when both are present.
     private static func parameter(_ key: String, in disposition: String) -> String? {
-        for segment in disposition.split(separator: ";").dropFirst() {
-            let pair = segment.split(separator: "=", maxSplits: 1).map {
-                $0.trimmingCharacters(in: .whitespaces)
-            }
-            guard pair.count == 2, pair[0].lowercased() == key else {
+        var plain: String?
+        var extended: String?
+        for segment in splitOutsideQuotes(disposition).dropFirst() {
+            guard let equals = segment.firstIndex(of: "=") else {
                 continue
             }
-            var value = pair[1]
-            if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
-                value = String(value.dropFirst().dropLast())
+            let name = segment[..<equals].trimmingCharacters(in: .whitespaces).lowercased()
+            var value = segment[segment.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            if name == key {
+                plain = plain ?? unquote(value)
+            } else if name == key + "*" {
+                // charset'language'percent-encoded-value
+                let parts = value.split(separator: "'", maxSplits: 2, omittingEmptySubsequences: false)
+                if parts.count == 3 {
+                    value = String(parts[2])
+                }
+                extended = extended ?? value.removingPercentEncoding
             }
-            return value
         }
-        return nil
+        return extended ?? plain
+    }
+
+    private static func splitOutsideQuotes(_ text: String) -> [String] {
+        var parts: [String] = []
+        var current = ""
+        var inQuotes = false
+        var escaped = false
+        for character in text {
+            if escaped {
+                current.append(character)
+                escaped = false
+            } else if character == "\\", inQuotes {
+                current.append(character)
+                escaped = true
+            } else if character == "\"" {
+                inQuotes.toggle()
+                current.append(character)
+            } else if character == ";", !inQuotes {
+                parts.append(current)
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        parts.append(current)
+        return parts
+    }
+
+    private static func unquote(_ raw: String) -> String {
+        guard raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") else {
+            return raw
+        }
+        return String(raw.dropFirst().dropLast()).replacingOccurrences(of: "\\\"", with: "\"")
     }
 
     private static func skipLineBreak(in bytes: [UInt8], at index: Int) -> Int {

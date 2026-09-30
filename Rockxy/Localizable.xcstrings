@@ -16002,16 +16002,6 @@
         }
       }
     },
-    "For a real Apple TV or Apple Watch, use a reachable LAN address and set the manual HTTP proxy in the device settings where available.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "对于实体 Apple TV 或 Apple Watch，请使用可访问的局域网地址，并在设备设置中可用的位置设置手动 HTTP 代理。"
-          }
-        }
-      }
-    },
     "For Java, HTTPS interception still needs the Rockxy root CA trusted in the exact JVM or IDE trust store, plus a Decrypt rule for the target application or host under HTTPS Decryption.": {
       "localizations": {
         "zh-Hans": {
@@ -32722,26 +32712,6 @@
         }
       }
     },
-    "Search app or domain (⌘⇧F)": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "搜索应用或域名 (⌘⇧F)"
-          }
-        }
-      }
-    },
-    "Search app or domain (⌘F)": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "搜索 App 或域名（⌘F）"
-          }
-        }
-      }
-    },
     "Search Block List rules": {
       "localizations": {
         "zh-Hans": {
@@ -48000,6 +47970,136 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 P12 文件的密码不正确。"
+          }
+        }
+      }
+    },
+    "Replay completed — %lld. Recording is paused, so it was not added to the session.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重放完成 — %lld。录制已暂停，因此未添加到会话中。"
+          }
+        }
+      }
+    },
+    "An Apple TV has its own Wi-Fi proxy setting. An Apple Watch has none: trust the certificate on the paired iPhone and the watch, point the iPhone at Rockxy, then turn off the watch's Wi-Fi and cellular so its traffic relays through the iPhone.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple TV 有自己的 Wi-Fi 代理设置；Apple Watch 没有。请在配对的 iPhone 和手表上信任证书，将 iPhone 指向 Rockxy，然后关闭手表的 Wi-Fi 和蜂窝网络，使其流量经由 iPhone 中继。"
+          }
+        }
+      }
+    },
+    "Enable filter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用筛选"
+          }
+        }
+      }
+    },
+    "Combine with previous filter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与上一条筛选组合"
+          }
+        }
+      }
+    },
+    "Filter field": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选字段"
+          }
+        }
+      }
+    },
+    "Filter operator": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选运算符"
+          }
+        }
+      }
+    },
+    "Filter value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选值"
+          }
+        }
+      }
+    },
+    "Remove filter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除筛选"
+          }
+        }
+      }
+    },
+    "Add filter below": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在下方添加筛选"
+          }
+        }
+      }
+    },
+    "This regular expression is not valid yet.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此正则表达式尚无效。"
+          }
+        }
+      }
+    },
+    "Expanded": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已展开"
+          }
+        }
+      }
+    },
+    "Collapsed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已折叠"
+          }
+        }
+      }
+    },
+    "QR code for the certificate download link": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证书下载链接的二维码"
           }
         }
       }

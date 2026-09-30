@@ -120,6 +120,9 @@ struct WebSocketInspectorView: View {
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(showDetail
+                ? String(localized: "Expanded", bundle: RockxyLocalization.bundle)
+                : String(localized: "Collapsed", bundle: RockxyLocalization.bundle))
             .padding(.horizontal, 12)
             .padding(.top, 6)
             .padding(.bottom, showDetail ? 4 : 6)
@@ -308,6 +311,9 @@ struct WebSocketInspectorView: View {
                 .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(frame.direction == .sent ? .blue : .green)
                 .frame(width: 16)
+                .accessibilityLabel(frame.direction == .sent
+                    ? String(localized: "Sent", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Received", bundle: RockxyLocalization.bundle))
 
             opcodeBadge(frame.opcode)
                 .frame(width: 42, alignment: .leading)

@@ -50,6 +50,7 @@ Folders only organize the list. Rules keep their place in Rockxy's first-match o
 ## What to watch for
 
 - The file content becomes the response body.
+- If the mapped file is missing or unreadable, Rockxy logs it and forwards the request to the real server instead of failing, so a renamed or deleted mock file shows the live response. Check the rule when a mock stops applying.
 - The client still needs to accept the overall proxy and HTTPS setup.
 - If the match is too broad, you may accidentally replace more traffic than intended.
 

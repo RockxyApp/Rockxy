@@ -43,7 +43,8 @@ enum TrafficCSVExporter {
             ]
             lines.append(row.map(escape).joined(separator: ","))
         }
-        return Data((lines.joined(separator: "\r\n") + "\r\n").utf8)
+        // A UTF-8 byte-order mark makes spreadsheet apps read non-ASCII URLs and notes correctly.
+        return Data(("\u{FEFF}" + lines.joined(separator: "\r\n") + "\r\n").utf8)
     }
 
     static func escape(_ value: String) -> String {

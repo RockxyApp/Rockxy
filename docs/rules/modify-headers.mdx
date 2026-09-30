@@ -25,6 +25,13 @@ Use request header changes when the upstream server should receive different met
 
 Use response header changes when the client should observe a different behavior, such as cache control, content type, or a testing flag.
 
+## Presets
+
+**Presets** in the Modify Headers window add ready-made rules:
+
+- **Add CORS Headers** replaces `Access-Control-Allow-Origin` (`*`), `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers` (`*`), and `Access-Control-Max-Age` on every response. Values are replaced rather than appended, so an origin that already sends CORS headers never ends up with two conflicting values, and a browser preflight (`OPTIONS`) gets the headers it needs. The wildcard origin does not work for requests that send credentials; for those, edit the rule to name the exact origin. A preflight also needs a successful (2xx) status from the server, which a header rule cannot change — use Map Local for that.
+- **Remove Authorization** and **Strip Server Header** remove those headers.
+
 ## Related pages
 
 <CardGroup cols={2}>

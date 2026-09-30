@@ -163,6 +163,9 @@ extension MainContentCoordinator {
 
         do {
             try data.write(to: url, options: .atomic)
+            if format == .rockxySession {
+                RecentCaptureDocuments.shared.note(url)
+            }
             activeToast = ToastMessage(
                 style: .success,
                 text: exportSuccessMessage(

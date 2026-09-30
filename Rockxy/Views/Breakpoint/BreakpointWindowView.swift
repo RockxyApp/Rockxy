@@ -52,7 +52,13 @@ struct BreakpointWindowView: View {
             minWidth: max(1_060, toolMetrics.bodyFontSize * 34 + 618),
             minHeight: max(640, toolMetrics.bodyFontSize * 18 + 406)
         )
-        .onAppear(perform: normalizePersistedLayoutMode)
+        .onAppear {
+            manager.isQueueWindowVisible = true
+            normalizePersistedLayoutMode()
+        }
+        .onDisappear {
+            manager.isQueueWindowVisible = false
+        }
         .onExitCommand {
             dismiss()
         }

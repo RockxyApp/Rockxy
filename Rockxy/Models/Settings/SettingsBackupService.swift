@@ -46,7 +46,11 @@ enum SettingsBackupService {
             bypassDomains: BypassProxyManager.shared.domains,
             reverseProxies: ReverseProxyStore.shared.rules,
             dnsSpoofing: DNSSpoofingStore.shared.rules,
-            noCaching: UserDefaults.standard.bool(forKey: NoCacheHeaderMutator.userDefaultsKey)
+            noCaching: UserDefaults.standard.bool(forKey: NoCacheHeaderMutator.userDefaultsKey),
+            ruleFolders: [
+                "mapLocal": RuleFolderStore.mapLocal.folders,
+                "breakpoint": RuleFolderStore.breakpoint.folders,
+            ]
         )
     }
 
@@ -99,6 +103,12 @@ enum SettingsBackupService {
                 try BypassProxyManager.shared.importDomains(from: data)
             } catch {
                 logger.error("Bypass domains from the backup were not applied: \(error.localizedDescription)")
+            }
+        }
+        // Backups made before folders were recorded have no entry and leave folders untouched.
+        for (tool, store) in [("mapLocal", RuleFolderStore.mapLocal), ("breakpoint", RuleFolderStore.breakpoint)] {
+            if let folders = backup.ruleFolders[tool] {
+                store.importFolders(folders, replacing: mode == .replace)
             }
         }
         ReverseProxyStore.shared.replaceAll(settings.reverseProxies)

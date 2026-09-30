@@ -53,11 +53,40 @@ enum FilterOperator: String, CaseIterable, Codable, Hashable {
         case .doesNotContain: return !lowerField.contains(lowerText)
         case .notEqual: return lowerField != lowerText
         case .regex:
-            guard let pattern = try? NSRegularExpression(pattern: text, options: .caseInsensitive) else {
+            guard let pattern = FilterRegexCache.regex(for: text) else {
                 return false
             }
             let range = NSRange(fieldValue.startIndex..., in: fieldValue)
             return pattern.firstMatch(in: fieldValue, range: range) != nil
         }
     }
+}
+
+// MARK: - FilterRegexCache
+
+/// Compiles each filter pattern once. A regex filter is evaluated for every row on every
+/// recompute, so recompiling per row is the dominant cost on a large capture.
+enum FilterRegexCache {
+    static func regex(for pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = cache[pattern] {
+            return cached
+        }
+        let compiled = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)
+        if cache.count >= maxEntries {
+            cache.removeAll(keepingCapacity: true)
+        }
+        cache[pattern] = .some(compiled)
+        return compiled
+    }
+
+    /// Whether `pattern` compiles; the filter bar uses it to flag an unfinished expression.
+    static func isValid(_ pattern: String) -> Bool {
+        regex(for: pattern) != nil
+    }
+
+    private static let maxEntries = 256
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: NSRegularExpression?] = [:]
 }

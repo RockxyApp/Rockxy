@@ -101,8 +101,10 @@ struct SettingsBackupSnapshot: Codable {
         bypassDomains: [BypassDomain] = [],
         reverseProxies: [ReverseProxyRule] = [],
         dnsSpoofing: [DNSSpoofingRule] = [],
-        noCaching: Bool? = nil
+        noCaching: Bool? = nil,
+        ruleFolders: [String: [RuleFolder]] = [:]
     ) {
+        self.ruleFolders = ruleFolders
         self.rules = rules
         self.toolsEnabled = toolsEnabled
         self.sslProxying = sslProxying
@@ -123,6 +125,7 @@ struct SettingsBackupSnapshot: Codable {
         reverseProxies = try container.decodeIfPresent([ReverseProxyRule].self, forKey: .reverseProxies) ?? []
         dnsSpoofing = try container.decodeIfPresent([DNSSpoofingRule].self, forKey: .dnsSpoofing) ?? []
         noCaching = try container.decodeIfPresent(Bool.self, forKey: .noCaching)
+        ruleFolders = try container.decodeIfPresent([String: [RuleFolder]].self, forKey: .ruleFolders) ?? [:]
     }
 
     // MARK: Internal
@@ -141,6 +144,8 @@ struct SettingsBackupSnapshot: Codable {
     var reverseProxies: [ReverseProxyRule]
     var dnsSpoofing: [DNSSpoofingRule]
     var noCaching: Bool?
+    /// Rule folders per tool (`mapLocal`, `breakpoint`), so the list structure survives a restore.
+    var ruleFolders: [String: [RuleFolder]]
 
     /// The same settings keeping only rules that are turned on.
     func enabledOnly() -> SettingsBackupSnapshot {
