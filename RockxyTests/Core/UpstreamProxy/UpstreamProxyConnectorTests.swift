@@ -5,7 +5,9 @@ import NIOPosix
 @testable import Rockxy
 import Testing
 
-@Suite("UpstreamProxyConnector")
+// Each test blocks its thread on NIO futures; running them one at a time keeps a full-suite
+// run from parking the whole cooperative pool.
+@Suite("UpstreamProxyConnector", .serialized)
 struct UpstreamProxyConnectorTests {
     // MARK: Internal
 
