@@ -47419,6 +47419,26 @@
           }
         }
       }
+    },
+    "Filter Headers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "筛选标头"
+          }
+        }
+      }
+    },
+    "Clear Filter": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除筛选"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
