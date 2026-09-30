@@ -47729,6 +47729,26 @@
           }
         }
       }
+    },
+    "Repeat Through Rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过规则重复"
+          }
+        }
+      }
+    },
+    "Start the proxy to repeat requests through your rules.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先启动代理，才能通过规则重复请求。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

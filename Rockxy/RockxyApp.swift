@@ -1014,6 +1014,11 @@ struct RockxyMenuCommands: Commands {
             .keyboardShortcut("r", modifiers: [.command])
             .disabled(!proxyActions.canRepeatSelection)
 
+            Button(String(localized: "Repeat Through Rules", bundle: RockxyLocalization.bundle)) {
+                proxyActions.replayThroughRules()
+            }
+            .disabled(!proxyActions.canRepeatSelection)
+
             Button(String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.editAndRepeat()
             }

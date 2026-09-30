@@ -32,6 +32,10 @@ Replay uses a proxy-bypass session (an ephemeral `URLSession` with proxy setting
 
 Select several rows (Shift-click or Command-click), then press `Cmd+R` or right-click one of them and choose **Repeat**. Rockxy sends them one after another in list order, adds each result as its own row, and shows one summary of how many were sent, failed, or could not be repeated (for example WebSocket rows). One Repeat sends at most 50 requests.
 
+### Repeat through your rules
+
+**Repeat** goes straight to the server, so no rules apply. To see how your Breakpoint, Map Local, Map Remote, Block List, Scripting, and Modify Headers rules treat a request, choose **Flow > Repeat Through Rules** or right-click and choose **Repeat Through Rules**. Rockxy sends the request (or every selected request) through its own proxy listener, so the rules apply and the proxy records each one as a new row. The proxy must be running. For HTTPS, the request is decrypted only when HTTPS decryption is on for its host and the Rockxy root certificate is trusted on this Mac.
+
 ## Edit and Repeat
 
 **Edit and Repeat** opens a sheet where you can modify the request before sending:
@@ -75,7 +79,7 @@ The response is displayed inline in the replay sheet. It includes:
 
 ## Limitations
 
-- Replayed requests bypass the proxy, so they are not subject to active rules. Repeat rows are attributed to Rockxy rather than to the original client application.
+- **Repeat** bypasses the proxy, so it is not subject to active rules; use **Repeat Through Rules** when they should apply. Repeat rows are attributed to Rockxy rather than to the original client application.
 - Replay sends a single request. Sequence recording (replaying a chain of dependent requests) is not yet available.
 
 ## Next Steps

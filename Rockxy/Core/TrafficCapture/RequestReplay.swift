@@ -25,14 +25,35 @@ enum RequestReplay {
         return URLSession(configuration: config)
     }()
 
-    static func replay(_ request: HTTPRequestData) async throws -> HTTPResponseData {
+    /// A session that sends through Rockxy's own listener, so active rules (Breakpoint,
+    /// Map Local, Map Remote, Block, Scripting, Modify Headers) apply and the proxy records
+    /// the request itself. Cookie handling matches the bypass session.
+    static func configurationThroughProxy(port: Int) -> URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: true,
+            kCFNetworkProxiesHTTPProxy as String: "127.0.0.1",
+            kCFNetworkProxiesHTTPPort as String: port,
+            kCFNetworkProxiesHTTPSEnable as String: true,
+            kCFNetworkProxiesHTTPSProxy as String: "127.0.0.1",
+            kCFNetworkProxiesHTTPSPort as String: port,
+        ]
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
+        return config
+    }
+
+    /// Re-sends `request` directly to the origin, or through Rockxy's listener on
+    /// `throughProxyPort` so the request goes through the active rules.
+    static func replay(_ request: HTTPRequestData, throughProxyPort: Int? = nil) async throws -> HTTPResponseData {
         logger.info("Replaying request: \(request.method) \(request.url.absoluteString)")
 
         let urlRequest = makeURLRequest(from: request)
 
         let responses = BoundedComposeRequestOperation.responses(
             for: urlRequest,
-            configuration: proxyBypassSession.configuration,
+            configuration: throughProxyPort.map(configurationThroughProxy(port:)) ?? proxyBypassSession.configuration,
             followsRedirects: false,
             maximumBytes: ProxyLimits.maxResponseBodySize
         )

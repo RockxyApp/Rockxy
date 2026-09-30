@@ -1217,6 +1217,11 @@ extension RequestTableView {
         }
 
         @objc
+        func handleRepeatThroughRules(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.replayThroughRules(clicked: $1) }
+        }
+
+        @objc
         func handleEditAndRepeat(_ sender: NSMenuItem) {
             withCoordinator(sender) { $0.editAndReplayTransaction($1) }
         }
@@ -1824,6 +1829,13 @@ extension RequestTableView {
             )
             repeatItem.isEnabled = canReplay
             menu.addItem(repeatItem)
+            let throughRulesItem = menuItem(
+                String(localized: "Repeat Through Rules", bundle: RockxyLocalization.bundle),
+                action: #selector(handleRepeatThroughRules(_:)),
+                transaction: transaction
+            )
+            throughRulesItem.isEnabled = canReplay
+            menu.addItem(throughRulesItem)
             let editAndRepeatItem = menuItem(
                 String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleEditAndRepeat(_:)),

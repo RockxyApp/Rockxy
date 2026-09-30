@@ -248,6 +248,31 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("Repeat Through Rules sends the request through the proxy so rules apply and it is recorded")
+    func repeatThroughRulesAppliesRules() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(named: "replayed.json", contents: Data(#"{"from":"rule"}"#.utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Replay", path: "/replay-target", filePath: file.path))
+            let request = HTTPRequestData(
+                method: "GET",
+                url: try #require(URL(string: harness.absoluteURLString(path: "/replay-target"))),
+                httpVersion: "HTTP/1.1",
+                headers: []
+            )
+
+            let direct = try await RequestReplay.replay(request)
+            #expect(direct.body == Data("origin:/replay-target".utf8))
+
+            let throughRules = try await RequestReplay.replay(request, throughProxyPort: harness.listenerPort)
+            #expect(throughRules.body == Data(#"{"from":"rule"}"#.utf8))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let rows = await harness.capturedTransactions().filter { $0.request.url.path == "/replay-target" }
+            #expect(rows.count == 1)
+            #expect(rows.first?.matchedRuleName == "Replay")
+        }
+    }
+
     @Test("A hiding Block rule answers the client but leaves no row")
     func blockAndHideLeavesNoRow() async throws {
         try await MapLocalLoopbackHarness.run { harness in
@@ -886,6 +911,10 @@ private actor MapLocalLoopbackHarness {
             proxyPort: proxyPort,
             method: .CONNECT
         )
+    }
+
+    nonisolated var listenerPort: Int {
+        proxyPort
     }
 
     /// A loopback port nothing listens on, for connection-failure tests.

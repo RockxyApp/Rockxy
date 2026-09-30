@@ -200,6 +200,10 @@ struct MainContentCommandActions {
         coordinator.replaySelectedRequest()
     }
 
+    func replayThroughRules() {
+        coordinator.replaySelectedThroughRules()
+    }
+
     func composeFreshRequest() {
         ComposeStore.shared.requestBlankDraft()
         NotificationCenter.default.post(name: .openComposeWindow, object: nil)

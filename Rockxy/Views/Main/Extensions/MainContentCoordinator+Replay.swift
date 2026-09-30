@@ -65,6 +65,61 @@ extension MainContentCoordinator {
         }
     }
 
+    /// Sends the selected requests again through Rockxy's own listener, so the active rules
+    /// apply exactly as they would to the app. The proxy records each one as a new row.
+    func replaySelectedThroughRules() {
+        let selected = resolveSelectedTransactions()
+        replayThroughRules(selected.isEmpty ? [selectedTransaction].compactMap(\.self) : selected)
+    }
+
+    /// Row menu: the right-clicked row, or the whole selection when the row is part of it.
+    func replayThroughRules(clicked transaction: HTTPTransaction) {
+        replayThroughRules(contextExportTransactions(clicked: transaction))
+    }
+
+    func replayThroughRules(_ targets: [HTTPTransaction]) {
+        let eligible = targets.filter(Self.canReplay)
+        guard isProxyRunning else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: String(
+                    localized: "Start the proxy to repeat requests through your rules.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            return
+        }
+        guard !eligible.isEmpty, eligible.count <= Self.maximumBatchReplayCount else {
+            activeToast = ToastMessage(
+                style: .warning,
+                text: eligible.isEmpty
+                    ? String(localized: "Replay is not supported for this request type.", bundle: RockxyLocalization.bundle)
+                    : String(
+                        localized: "Select at most \(Self.maximumBatchReplayCount) requests to repeat at once.",
+                        bundle: RockxyLocalization.bundle
+                    )
+            )
+            return
+        }
+        let port = activeProxyPort
+        Task { @MainActor in
+            var failed = 0
+            for transaction in eligible {
+                do {
+                    _ = try await RequestReplay.replay(transaction.request, throughProxyPort: port)
+                } catch {
+                    failed += 1
+                    Self.logger.error("Replay through rules failed: \(error.localizedDescription)")
+                }
+            }
+            activeToast = Self.batchReplayToast(
+                sent: eligible.count,
+                failed: failed,
+                skipped: targets.count - eligible.count
+            )
+        }
+    }
+
     nonisolated static func batchReplayToast(sent: Int, failed: Int, skipped: Int) -> ToastMessage {
         var text = String(
             AttributedString(localized: "Repeated ^[\(sent) request](inflect: true)", bundle: RockxyLocalization.bundle)
