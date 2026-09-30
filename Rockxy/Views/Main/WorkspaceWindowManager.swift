@@ -186,6 +186,15 @@ final class RockxyWorkspaceWindowManager: NSObject {
         enforceToolbarOnlyProjectPresentation()
     }
 
+    fileprivate func closeWorkspaces(_ ids: [UUID], keeping kept: UUID) {
+        guard let coordinator, !ids.isEmpty else {
+            return
+        }
+        coordinator.closeWorkspaces(ids, keeping: kept)
+        updateTabAccessory()
+        enforceToolbarOnlyProjectPresentation()
+    }
+
     fileprivate func createWorkspace() {
         openNewWorkspaceTabFromNativeControl()
     }
@@ -621,6 +630,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         }
 
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let renameItem = NSMenuItem(
             title: String(localized: "Rename Tab", bundle: RockxyLocalization.bundle),
             action: #selector(renameTabFromMenu(_:)),
@@ -640,6 +650,26 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
             closeItem.representedObject = workspaceID
             menu.addItem(closeItem)
         }
+
+        let closeOthers = NSMenuItem(
+            title: String(localized: "Close Other Tabs", bundle: RockxyLocalization.bundle),
+            action: #selector(closeOtherTabsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        closeOthers.target = self
+        closeOthers.representedObject = workspaceID
+        closeOthers.isEnabled = !coordinator.closableWorkspaceIDs(otherThan: workspaceID).isEmpty
+        menu.addItem(closeOthers)
+
+        let closeRight = NSMenuItem(
+            title: String(localized: "Close Tabs to the Right", bundle: RockxyLocalization.bundle),
+            action: #selector(closeTabsToRightFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        closeRight.target = self
+        closeRight.representedObject = workspaceID
+        closeRight.isEnabled = !coordinator.closableWorkspaceIDs(rightOf: workspaceID).isEmpty
+        menu.addItem(closeRight)
 
         if coordinator.workspaceStore.canCreateWorkspace {
             menu.addItem(.separator())
@@ -1513,6 +1543,22 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
             return
         }
         manager.closeWorkspace(workspaceID)
+    }
+
+    @objc
+    private func closeOtherTabsFromMenu(_ sender: NSMenuItem) {
+        guard let workspaceID = sender.representedObject as? UUID, let coordinator else {
+            return
+        }
+        manager.closeWorkspaces(coordinator.closableWorkspaceIDs(otherThan: workspaceID), keeping: workspaceID)
+    }
+
+    @objc
+    private func closeTabsToRightFromMenu(_ sender: NSMenuItem) {
+        guard let workspaceID = sender.representedObject as? UUID, let coordinator else {
+            return
+        }
+        manager.closeWorkspaces(coordinator.closableWorkspaceIDs(rightOf: workspaceID), keeping: workspaceID)
     }
 
     @objc

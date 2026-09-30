@@ -14,6 +14,29 @@ extension MainContentCoordinator {
         workspaceStore.closeWorkspace(id: id)
     }
 
+    /// Closable tabs other than `id`, in tab order.
+    func closableWorkspaceIDs(otherThan id: UUID) -> [UUID] {
+        workspaceStore.workspaces.filter { $0.id != id && $0.isClosable }.map(\.id)
+    }
+
+    /// Closable tabs after `id` in the tab strip.
+    func closableWorkspaceIDs(rightOf id: UUID) -> [UUID] {
+        guard let index = workspaceStore.workspaces.firstIndex(where: { $0.id == id }) else {
+            return []
+        }
+        return workspaceStore.workspaces[(index + 1)...].filter(\.isClosable).map(\.id)
+    }
+
+    /// Closes several tabs; `keeping` stays selected when the active tab is among them.
+    func closeWorkspaces(_ ids: [UUID], keeping kept: UUID) {
+        if ids.contains(workspaceStore.activeWorkspaceID) {
+            workspaceStore.selectWorkspace(id: kept)
+        }
+        for id in ids {
+            closeWorkspace(id: id)
+        }
+    }
+
     // MARK: - All-Workspace Updates
 
     func recomputeAllWorkspaces() {

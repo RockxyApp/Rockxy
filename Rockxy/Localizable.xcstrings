@@ -47319,6 +47319,56 @@
           }
         }
       }
+    },
+    "Close Other Tabs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭其他标签页"
+          }
+        }
+      }
+    },
+    "Close Tabs to the Right": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭右侧标签页"
+          }
+        }
+      }
+    },
+    "Select Tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择标签页"
+          }
+        }
+      }
+    },
+    "Tab %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页 %@"
+          }
+        }
+      }
+    },
+    "Last Tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最后一个标签页"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

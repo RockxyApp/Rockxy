@@ -29,6 +29,7 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⇧⌘F` | Show or hide Advanced Filters (Esc hides them) |
 | `⌥⌘F` | Search apps and domains in the sidebar |
 | `⇧⌘P` | Search and run any command |
+| `⌘1…⌘9` | Select a traffic tab by position; ⌘9 selects the last tab |
 | `⌥⌘N` | Compose a new request |
 | `⇧⌘L` | Follow the newest visible request in the active workspace tab |
 | `⌘↑` | Jump to the first visible row when the request table has focus |

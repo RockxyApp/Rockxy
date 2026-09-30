@@ -981,6 +981,8 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("[", modifiers: [.command, .shift])
 
+            WorkspaceTabNumberCommands(actions: proxyActions)
+
             Divider()
 
             Button(String(localized: "Jump to First Request", bundle: RockxyLocalization.bundle)) {

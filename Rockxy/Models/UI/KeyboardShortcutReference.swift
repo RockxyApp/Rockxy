@@ -78,6 +78,7 @@ enum KeyboardShortcutCatalog {
             row("main.advancedFilters", "Main Capture", "Show or hide Advanced Filters (Esc hides them)", "⇧⌘F", "Main capture window", "View", nil),
             row("main.sidebarSearch", "Main Capture", "Search apps and domains in the sidebar", "⌥⌘F", "Main capture window", "View", nil),
             row("main.commandPalette", "Main Capture", "Search and run any command", "⇧⌘P", "Main capture window", "View", nil),
+            row("main.selectTab", "Main Capture", "Select a traffic tab by position; ⌘9 selects the last tab", "⌘1…⌘9", "Main capture window", "View", nil),
             row("main.compose", "Main Capture", "Compose a new request", "⌥⌘N", "Main capture window", "Flow", nil),
             row("main.followLive", "Main Capture", "Follow the newest visible request", "⇧⌘L", "Active workspace tab", "View", nil),
             row("main.first", "Main Capture", "Jump to the first visible row", "⌘↑", "Focused request table", nil, nil),

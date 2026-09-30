@@ -337,6 +337,10 @@ struct MainContentCommandActions {
         RockxyWorkspaceWindowManager.shared.beginRenameForActiveWorkspace(coordinator: coordinator)
     }
 
+    var workspaceTabCount: Int {
+        coordinator.workspaceStore.workspaces.count
+    }
+
     func selectWorkspaceTab(at index: Int) {
         RockxyWorkspaceWindowManager.shared.selectWorkspaceTab(at: index, coordinator: coordinator)
     }
