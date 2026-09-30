@@ -92,6 +92,10 @@ You can also export from the request list: right-click a request and choose **Ex
 
 In the sidebar, right-click a domain or an app and choose **Export > as Rockxy Session...** or **Export > as HAR (HTTP Archive)...** to export only its requests. **Export > Export as CSV...** in the request list works the same way for a one-row-per-request summary.
 
+### Postman collections
+
+Choose **Flow > Export > Export as Postman Collection…**, or right-click requests and choose **Export > Export Selected as Postman Collection…**, to save them as a Postman Collection (v2.1) that Postman and compatible API clients import. Requests are grouped in one folder per host; each keeps its method, URL, query, headers, and text body, and its captured response is attached as a saved example. `Host`, `Content-Length`, and proxy headers are left out so edited requests stay valid. CONNECT tunnels and WebSocket connections are skipped, and binary request bodies are noted rather than included. The file contains authorization headers and cookies, so review it before sharing.
+
 <Note>
   Exported HAR files may contain request bodies, cookies, and authorization headers. Review exports before sharing.
 </Note>
