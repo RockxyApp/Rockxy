@@ -12,6 +12,7 @@ enum TrafficExportFormat: String, CaseIterable {
     case rockxySession
     case har
     case csv
+    case postman
     case openAPIYAML
     case openAPIHTML
 
@@ -25,6 +26,8 @@ enum TrafficExportFormat: String, CaseIterable {
             String(localized: "Export as HAR", bundle: RockxyLocalization.bundle)
         case .csv:
             String(localized: "Export as CSV", bundle: RockxyLocalization.bundle)
+        case .postman:
+            String(localized: "Export as Postman Collection", bundle: RockxyLocalization.bundle)
         case .openAPIYAML:
             String(localized: "Export as OpenAPI YAML", bundle: RockxyLocalization.bundle)
         case .openAPIHTML:
@@ -36,7 +39,8 @@ enum TrafficExportFormat: String, CaseIterable {
         switch self {
         case .rockxySession,
              .har,
-             .csv:
+             .csv,
+             .postman:
             false
         case .openAPIYAML,
              .openAPIHTML:
@@ -59,6 +63,14 @@ enum TrafficExportFormat: String, CaseIterable {
         case .csv:
             String(
                 localized: "CSV files list full URLs with query strings, client apps, and notes. Headers and bodies are not included. Review the file before sharing.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .postman:
+            String(
+                localized: """
+                Postman collections keep full URLs, request headers including authorization and cookies, \
+                request bodies, and captured responses as examples. Review the file before sharing.
+                """,
                 bundle: RockxyLocalization.bundle
             )
         case .openAPIYAML,
@@ -89,6 +101,11 @@ enum TrafficExportFormat: String, CaseIterable {
                 localized: "Choose which captured transactions to list, one row each, in this CSV file.",
                 bundle: RockxyLocalization.bundle
             )
+        case .postman:
+            String(
+                localized: "Choose which HTTP requests to save as a Postman collection, grouped by host.",
+                bundle: RockxyLocalization.bundle
+            )
         case .openAPIYAML,
              .openAPIHTML:
             String(
@@ -106,6 +123,8 @@ enum TrafficExportFormat: String, CaseIterable {
             "rockxy-export.har"
         case .csv:
             "rockxy-export.csv"
+        case .postman:
+            "rockxy-export.postman_collection.json"
         case .openAPIYAML:
             "rockxy-openapi.yaml"
         case .openAPIHTML:
@@ -121,6 +140,8 @@ enum TrafficExportFormat: String, CaseIterable {
             "HAR"
         case .csv:
             "CSV"
+        case .postman:
+            String(localized: "Postman Collection", bundle: RockxyLocalization.bundle)
         case .openAPIYAML:
             "OpenAPI YAML"
         case .openAPIHTML:
@@ -137,6 +158,8 @@ enum TrafficExportFormat: String, CaseIterable {
              .har,
              .csv:
             true
+        case .postman:
+            PostmanCollectionExporter.isEligible(transaction)
         case .openAPIYAML,
              .openAPIHTML:
             OpenAPIExporter.isEligible(transaction)

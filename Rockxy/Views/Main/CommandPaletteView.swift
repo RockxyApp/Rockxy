@@ -190,6 +190,8 @@ struct CommandPaletteSheet: ViewModifier {
             actions.exportHAR()
         case .exportCSV:
             actions.exportCSV()
+        case .exportPostman:
+            actions.exportPostmanCollection()
         case .exportSettings:
             SettingsBackupFlow.exportSettings(onlyEnabledRules: false)
         case .importSettings:

@@ -16,6 +16,10 @@ struct FlowExportMenu: View {
                 actions.exportCSV()
             }
 
+            Button(String(localized: "Export as Postman Collection…", bundle: RockxyLocalization.bundle)) {
+                actions.exportPostmanCollection()
+            }
+
             Button(String(localized: "Export as Rockxy Session…", bundle: RockxyLocalization.bundle)) {
                 actions.exportRockxySession()
             }

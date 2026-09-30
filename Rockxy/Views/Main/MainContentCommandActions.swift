@@ -160,6 +160,10 @@ struct MainContentCommandActions {
         coordinator.exportCSV()
     }
 
+    func exportPostmanCollection() {
+        coordinator.exportPostmanCollection()
+    }
+
     func exportRockxySession() {
         coordinator.exportRockxySession()
     }

@@ -21,6 +21,7 @@ enum CommandPaletteAction: Hashable {
     case importHAR
     case exportHAR
     case exportCSV
+    case exportPostman
     case exportSettings
     case importSettings
     case exportRockxySession
@@ -82,6 +83,7 @@ enum CommandPaletteCatalog {
             command("file.importHAR", "Import HAR…", file, "⇧⌘I", ["archive", "browser"], .importHAR),
             command("file.exportHAR", "Export HAR…", file, "⇧⌘E", ["archive", "share"], .exportHAR),
             command("file.exportCSV", "Export CSV…", file, nil, ["spreadsheet", "share"], .exportCSV),
+            command("file.exportPostman", "Export Postman Collection…", file, nil, ["api client", "share"], .exportPostman),
             command(
                 "file.exportSession",
                 "Export Rockxy Session…",

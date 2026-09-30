@@ -47509,6 +47509,76 @@
           }
         }
       }
+    },
+    "Export as Postman Collection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 Postman 集合"
+          }
+        }
+      }
+    },
+    "Postman collections keep full URLs, request headers including authorization and cookies, request bodies, and captured responses as examples. Review the file before sharing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postman 集合会保留完整 URL、请求头（包括授权和 Cookie）、请求正文，以及作为示例的已捕获响应。分享前请检查文件。"
+          }
+        }
+      }
+    },
+    "Choose which HTTP requests to save as a Postman collection, grouped by host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要保存为 Postman 集合的 HTTP 请求，按主机分组。"
+          }
+        }
+      }
+    },
+    "Postman Collection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Postman 集合"
+          }
+        }
+      }
+    },
+    "Export Selected as Postman Collection…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将所选项导出为 Postman 集合…"
+          }
+        }
+      }
+    },
+    "Export as Postman Collection…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出为 Postman 集合…"
+          }
+        }
+      }
+    },
+    "Export Postman Collection…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出 Postman 集合…"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

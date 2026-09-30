@@ -1341,6 +1341,11 @@ extension RequestTableView {
         }
 
         @objc
+        func handleExportPostman(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .postman) }
+        }
+
+        @objc
         func handleExportOpenAPIYAML(_ sender: NSMenuItem) {
             withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .openAPIYAML) }
         }
@@ -1984,6 +1989,13 @@ extension RequestTableView {
                     ? String(localized: "Export Selected as CSV…", bundle: RockxyLocalization.bundle)
                     : String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleExportCSV(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as Postman Collection…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as Postman Collection…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportPostman(_:)),
                 transaction: transaction
             ))
             exportSubmenu.addItem(.separator())

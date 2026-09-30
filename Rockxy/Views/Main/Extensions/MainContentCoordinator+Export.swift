@@ -24,6 +24,10 @@ extension MainContentCoordinator {
         presentExport(format: .csv)
     }
 
+    func exportPostmanCollection() {
+        presentExport(format: .postman)
+    }
+
     func exportOpenAPIYAML() {
         presentExport(format: .openAPIYAML)
     }
@@ -116,6 +120,10 @@ extension MainContentCoordinator {
                 data = TrafficCSVExporter.export(transactions: plan.eligibleTransactions)
                 exportedCount = plan.eligibleTransactions.count
                 skippedCount = 0
+            case .postman:
+                data = try PostmanCollectionExporter.export(transactions: plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = plan.skippedCount
             case .openAPIYAML:
                 let result = try OpenAPIExporter().export(
                     transactions: plan.eligibleTransactions,
@@ -295,6 +303,8 @@ extension MainContentCoordinator {
              .har,
              .csv:
             source
+        case .postman:
+            source.filter(PostmanCollectionExporter.isEligible)
         case .openAPIYAML,
              .openAPIHTML:
             source.filter(OpenAPIExporter.isEligible)
@@ -362,6 +372,9 @@ extension MainContentCoordinator {
             case .csv:
                 data = TrafficCSVExporter.export(transactions: transactionsToExport)
                 skippedCount = 0
+            case .postman:
+                data = try PostmanCollectionExporter.export(transactions: transactionsToExport)
+                skippedCount = source.count - transactionsToExport.count
             case .openAPIYAML:
                 let result = try OpenAPIExporter().export(
                     transactions: source,
@@ -445,6 +458,8 @@ extension MainContentCoordinator {
             [.har]
         case .csv:
             [.commaSeparatedText]
+        case .postman:
+            [.json]
         case .openAPIYAML:
             [.openAPIYAML]
         case .openAPIHTML:
@@ -460,6 +475,8 @@ extension MainContentCoordinator {
             "har"
         case .csv:
             "csv"
+        case .postman:
+            "postman_collection.json"
         case .openAPIYAML:
             "yaml"
         case .openAPIHTML:
