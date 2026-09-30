@@ -102,6 +102,7 @@ actor SessionStore {
             Self.txIsWebSocket <- (transaction.webSocketConnection == nil ? 0 : 1),
             Self.txIsPinned <- (transaction.isPinned ? 1 : 0),
             Self.txIsSaved <- (transaction.isSaved ? 1 : 0),
+            Self.txIsStruckThrough <- (transaction.isStruckThrough ? 1 : 0),
             Self.txComment <- transaction.comment,
             Self.txHighlightColor <- transaction.highlightColor?.rawValue,
             Self.txClientApp <- transaction.clientApp
@@ -312,6 +313,7 @@ actor SessionStore {
     private static let txIsWebSocket = SQLite.Expression<Int>("is_websocket")
     private static let txIsPinned = SQLite.Expression<Int>("is_pinned")
     private static let txIsSaved = SQLite.Expression<Int>("is_saved")
+    private static let txIsStruckThrough = SQLite.Expression<Int>("is_struck_through")
     private static let txComment = SQLite.Expression<String?>("comment")
     private static let txHighlightColor = SQLite.Expression<String?>("highlight_color")
     private static let txClientApp = SQLite.Expression<String?>("client_app")
@@ -497,6 +499,9 @@ actor SessionStore {
             // v3 introduced the identity column but did not backfill zero-frame handshakes.
             // Keep this as a distinct migration so databases that already reached v3 are repaired.
             (4, []),
+            (5, [
+                "ALTER TABLE transactions ADD COLUMN is_struck_through INTEGER NOT NULL DEFAULT 0",
+            ]),
         ]
 
         let pending = migrations.filter { $0.version > currentVersion }
@@ -506,7 +511,15 @@ actor SessionStore {
         }
 
         for migration in pending {
+            // A database created by this build already has every column, so re-adding one
+            // (a seeded downgrade, an interrupted upgrade) must not fail the whole open.
+            let existing = try existingColumnNames(table: "transactions")
             for sql in migration.statements {
+                if let column = sql.components(separatedBy: "ADD COLUMN ").last?.split(separator: " ").first,
+                   sql.contains("ADD COLUMN "), existing.contains(String(column))
+                {
+                    continue
+                }
                 try db.run(sql)
             }
             if migration.version == 4 {
@@ -746,6 +759,7 @@ actor SessionStore {
         transaction.web3RPCInfo = web3RPCInfo
         transaction.isPinned = row[Self.txIsPinned] != 0
         transaction.isSaved = row[Self.txIsSaved] != 0
+        transaction.isStruckThrough = row[Self.txIsStruckThrough] != 0
         transaction.comment = row[Self.txComment]
         transaction.highlightColor = row[Self.txHighlightColor].flatMap { HighlightColor(rawValue: $0) }
         transaction.clientApp = row[Self.txClientApp]

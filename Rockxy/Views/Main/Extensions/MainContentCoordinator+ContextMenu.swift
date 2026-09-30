@@ -171,6 +171,20 @@ extension MainContentCoordinator {
         refreshRowsAfterMutation()
     }
 
+    /// Strikes through the right-clicked row, or the whole selection when the row is part of it.
+    /// Mixed selections are all struck through; only a fully struck selection is cleared.
+    func toggleStrikethrough(clicked transaction: HTTPTransaction) {
+        let targets = contextExportTransactions(clicked: transaction)
+        guard !targets.isEmpty else {
+            return
+        }
+        let enable = targets.contains { !$0.isStruckThrough }
+        for target in targets {
+            target.isStruckThrough = enable
+        }
+        refreshRowsAfterMutation()
+    }
+
     func promptComment(for transaction: HTTPTransaction) {
         let alert = NSAlert()
         alert.messageText = String(localized: "Add Note", bundle: RockxyLocalization.bundle)

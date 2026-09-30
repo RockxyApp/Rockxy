@@ -47873,6 +47873,16 @@
           }
         }
       }
+    },
+    "Strikethrough": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除线"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

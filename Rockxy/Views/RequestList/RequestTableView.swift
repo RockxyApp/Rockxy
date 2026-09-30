@@ -859,6 +859,9 @@ extension RequestTableView {
 
             if let textField = cell.subviews.first as? NSTextField {
                 configureCellContent(textField, column: columnID, row: row, rowData: rowData)
+                if rowData.isStruckThrough {
+                    Self.applyStrikethrough(to: textField)
+                }
             }
 
             return cell
@@ -1256,6 +1259,11 @@ extension RequestTableView {
         @objc
         func handleRemoveHighlight(_ sender: NSMenuItem) {
             withCoordinator(sender) { $0.setHighlight(nil, clicked: $1) }
+        }
+
+        @objc
+        func handleStrikethrough(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.toggleStrikethrough(clicked: $1) }
         }
 
         @objc
@@ -1971,6 +1979,14 @@ extension RequestTableView {
             )
             removeItem.isEnabled = transaction.highlightColor != nil
             highlightSubmenu.addItem(removeItem)
+            let strikeItem = menuItem(
+                String(localized: "Strikethrough", bundle: RockxyLocalization.bundle),
+                action: #selector(handleStrikethrough(_:)),
+                symbol: "strikethrough",
+                transaction: transaction
+            )
+            strikeItem.state = transaction.isStruckThrough ? .on : .off
+            highlightSubmenu.addItem(strikeItem)
 
             let highlightItem = NSMenuItem(
                 title: String(localized: "Highlight", bundle: RockxyLocalization.bundle), action: nil, keyEquivalent: ""
@@ -2788,6 +2804,19 @@ extension RequestTableView {
             ])
 
             return container
+        }
+
+        private static func applyStrikethrough(to field: NSTextField) {
+            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
+            guard text.length > 0 else {
+                return
+            }
+            text.addAttribute(
+                .strikethroughStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: NSRange(location: 0, length: text.length)
+            )
+            field.attributedStringValue = text
         }
 
         private func configureCellContent(

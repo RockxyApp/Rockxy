@@ -69,6 +69,7 @@ struct CodableTransaction: Codable {
         self.highlightColor = transaction.highlightColor?.rawValue
         self.isPinned = transaction.isPinned
         self.isSaved = transaction.isSaved
+        self.isStruckThrough = transaction.isStruckThrough ? true : nil
         self.isTLSFailure = transaction.isTLSFailure
         self.matchedRuleID = transaction.matchedRuleID
         self.matchedRuleName = transaction.matchedRuleName
@@ -101,6 +102,7 @@ struct CodableTransaction: Codable {
         highlightColor = try container.decodeIfPresent(String.self, forKey: .highlightColor)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
+        isStruckThrough = try container.decodeIfPresent(Bool.self, forKey: .isStruckThrough)
         isTLSFailure = try container.decodeIfPresent(Bool.self, forKey: .isTLSFailure) ?? false
         matchedRuleID = try container.decodeIfPresent(UUID.self, forKey: .matchedRuleID)
         matchedRuleName = try container.decodeIfPresent(String.self, forKey: .matchedRuleName)
@@ -132,6 +134,7 @@ struct CodableTransaction: Codable {
         case highlightColor
         case isPinned
         case isSaved
+        case isStruckThrough
         case isTLSFailure
         case matchedRuleID
         case matchedRuleName
@@ -162,6 +165,7 @@ struct CodableTransaction: Codable {
     let highlightColor: String?
     let isPinned: Bool
     let isSaved: Bool
+    let isStruckThrough: Bool?
     let isTLSFailure: Bool
     let matchedRuleID: UUID?
     let matchedRuleName: String?
@@ -192,6 +196,7 @@ struct CodableTransaction: Codable {
         transaction.highlightColor = highlightColor.flatMap { HighlightColor(rawValue: $0) }
         transaction.isPinned = isPinned
         transaction.isSaved = isSaved
+        transaction.isStruckThrough = isStruckThrough ?? false
         transaction.isTLSFailure = isTLSFailure
         transaction.matchedRuleID = matchedRuleID
         transaction.matchedRuleName = matchedRuleName

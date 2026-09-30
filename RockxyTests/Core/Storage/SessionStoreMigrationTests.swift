@@ -79,6 +79,25 @@ struct SessionStoreMigrationTests {
         #expect(loaded[0].comment == "test comment")
     }
 
+    @Test("Strikethrough survives a save and load, and defaults off")
+    func strikethroughPersists() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try SessionStore(directory: dir)
+        let struck = TestFixtures.makeTransaction()
+        struck.isStruckThrough = true
+        let plain = TestFixtures.makeTransaction()
+
+        try await store.saveTransaction(struck)
+        try await store.saveTransaction(plain)
+        let loaded = try await store.loadTransactions(limit: 10)
+
+        #expect(loaded.first { $0.id == struck.id }?.isStruckThrough == true)
+        #expect(loaded.first { $0.id == plain.id }?.isStruckThrough == false)
+        #expect(try await store.schemaVersion() >= 5)
+    }
+
     @Test("Save and load preserves Web3 RPC metadata")
     func saveLoadPreservesWeb3RPCMetadata() async throws {
         let dir = try makeTempDir()

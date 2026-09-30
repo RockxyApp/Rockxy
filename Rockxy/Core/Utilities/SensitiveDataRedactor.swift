@@ -297,6 +297,7 @@ struct SensitiveDataRedactor {
         redacted.highlightColor = transaction.highlightColor
         redacted.isPinned = transaction.isPinned
         redacted.isSaved = transaction.isSaved
+        redacted.isStruckThrough = transaction.isStruckThrough
         redacted.isTLSFailure = transaction.isTLSFailure
         redacted.webSocketFrameVersion = transaction.webSocketFrameVersion
         redacted.matchedRuleID = transaction.matchedRuleID

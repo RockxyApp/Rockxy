@@ -95,6 +95,8 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var highlightColor: HighlightColor?
     var isPinned: Bool = false
     var isSaved: Bool = false
+    /// Draws the row with struck-through text so a request can be marked as ignorable.
+    var isStruckThrough: Bool = false
     var isTLSFailure: Bool = false
     /// See `SSLCaptureMode`. Live captures always stamp this: raw tunnels record `.tunneled` and
     /// `HTTPSProxyRelayHandler` stamps every decrypted transaction `.intercepted`. `nil` therefore

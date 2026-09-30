@@ -33,6 +33,7 @@ struct RequestListRow: Identifiable {
         responseContentType = transaction.response?.contentType
         isPinned = transaction.isPinned
         isSaved = transaction.isSaved
+        isStruckThrough = transaction.isStruckThrough
         comment = transaction.comment
         highlightColor = transaction.highlightColor
         isTLSFailure = transaction.isTLSFailure
@@ -98,6 +99,7 @@ struct RequestListRow: Identifiable {
     let requestContentType: ContentType?
     let responseContentType: ContentType?
     let isPinned: Bool
+    let isStruckThrough: Bool
     let isSaved: Bool
     let comment: String?
     let highlightColor: HighlightColor?
