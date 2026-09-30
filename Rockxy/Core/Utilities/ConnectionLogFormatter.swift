@@ -66,7 +66,8 @@ enum ConnectionLogFormatter {
 
         if !input.isTunnel {
             appendRequest(input.request, version: requestVersion(input), to: &lines)
-            if let response = input.response, input.log?.failure == nil || response.statusCode < 500 {
+            // A recorded failure means the server never answered; any response on the row is Rockxy's own.
+            if let response = input.response, input.log?.failure == nil {
                 appendResponse(response, version: requestVersion(input), to: &lines)
             }
         }

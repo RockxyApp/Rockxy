@@ -183,6 +183,53 @@ struct UseCaseViewSnapshotTests {
         )
     }
 
+    @Test("Connection log for a decrypted exchange and a refused connection")
+    func connectionLog() async throws {
+        let secure = TestFixtures.makeTransaction(url: "https://api.example.com/v1/items?page=2")
+        secure.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"items":[]}"#.utf8)
+        )
+        secure.serverHTTPVersion = "2"
+        var log = ConnectionLog(host: "api.example.com", port: 443)
+        log.remoteAddress = "93.184.216.34"
+        log.remotePort = 443
+        log.localAddress = "192.168.1.20"
+        log.localPort = 55_123
+        log.connectDuration = 0.023
+        log.tls = ConnectionLog.TLS(
+            serverName: "api.example.com",
+            offeredProtocols: ["h2", "http/1.1"],
+            negotiatedProtocol: "h2",
+            version: "TLSv1.3",
+            handshakeDuration: 0.041,
+            verification: .disabled,
+            certificate: ConnectionLog.Certificate(
+                subject: "CN=api.example.com",
+                issuer: "CN=R11,O=Let's Encrypt,C=US",
+                alternativeNames: ["api.example.com", "*.example.com"],
+                notValidBefore: Date(timeIntervalSince1970: 1_780_000_000),
+                notValidAfter: Date(timeIntervalSince1970: 1_800_000_000),
+                serialNumber: "04:A1"
+            )
+        )
+        secure.connectionLog = log
+        try await render(ConnectionLogInspectorView(transaction: secure), name: "connection-log", size: CGSize(width: 640, height: 620))
+
+        let refused = TestFixtures.makeTransaction(url: "http://127.0.0.1:9/refused")
+        var failed = ConnectionLog(host: "127.0.0.1", port: 9)
+        failed.failure = ConnectionLog.Failure(
+            stage: .connect,
+            message: "Failed to connect to 127.0.0.1 port 9",
+            attempts: ["127.0.0.1 port 9: Connection refused (errno 61)"]
+        )
+        refused.response = HTTPResponseData(statusCode: 502, statusMessage: "Bad Gateway", headers: [])
+        refused.connectionLog = failed
+        try await render(ConnectionLogInspectorView(transaction: refused), name: "connection-log-refused", size: CGSize(width: 640, height: 260))
+    }
+
     // MARK: Private
 
     private func render(_ view: some View, name: String, size: CGSize) async throws {
