@@ -60,8 +60,12 @@ nonisolated enum HostCertGenerator {
                     Insecure.SHA1.hash(data: Certificate.PublicKey(hostKey.publicKey).subjectPublicKeyInfoBytes)
                 )
             )
+            // An imported root may carry a key identifier that is not the SHA-1 of its key
+            // (other tools use different methods); the leaf must reference the one the
+            // issuer actually declares or strict clients fail to build the chain.
             AuthorityKeyIdentifier(
-                keyIdentifier: ArraySlice(Insecure.SHA1.hash(data: issuer.publicKey.subjectPublicKeyInfoBytes))
+                keyIdentifier: (try? issuer.extensions.subjectKeyIdentifier)?.keyIdentifier
+                    ?? ArraySlice(Insecure.SHA1.hash(data: issuer.publicKey.subjectPublicKeyInfoBytes))
             )
         }
 

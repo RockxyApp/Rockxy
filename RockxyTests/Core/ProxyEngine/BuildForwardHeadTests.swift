@@ -20,6 +20,20 @@ struct BuildForwardHeadTests {
         #expect(forward.method == .POST)
     }
 
+    @Test("A WebSocket handshake is forwarded without offering compression extensions")
+    func webSocketHandshakeDropsExtensions() {
+        let req = makeRequest(url: "https://example.com/socket", headers: [
+            HTTPHeader(name: "Upgrade", value: "websocket"),
+            HTTPHeader(name: "Connection", value: "Upgrade"),
+            HTTPHeader(name: "Sec-WebSocket-Extensions", value: "permessage-deflate; client_max_window_bits"),
+            HTTPHeader(name: "Sec-WebSocket-Key", value: "dGhlIHNhbXBsZSBub25jZQ=="),
+        ])
+        let forward = ProxyHandlerShared.buildForwardHead(from: req, originalHead: makeOriginalHead(uri: "/socket"))
+
+        #expect(!forward.headers.contains(name: "Sec-WebSocket-Extensions"))
+        #expect(forward.headers.contains(name: "Sec-WebSocket-Key"))
+    }
+
     @Test("Mutated path + query appear on forwarded URI in origin form")
     func mutatedPathQuery() {
         let req = makeRequest(url: "https://example.com/v2/users?id=42")

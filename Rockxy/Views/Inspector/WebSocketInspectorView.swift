@@ -472,7 +472,8 @@ struct WebSocketInspectorView: View {
         ProtobufPayloadInspectorView(
             payload: frame.payload,
             context: protobufContext(for: frame),
-            payloadID: frame.id.uuidString
+            payloadID: frame.id.uuidString,
+            choiceScopeID: transaction.id.uuidString
         )
         .frame(height: 240)
     }

@@ -47963,6 +47963,46 @@
           }
         }
       }
+    },
+    "Enter the port in the Remote Port field, not in the host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在“远程端口”栏中填写端口，不要写在主机里。"
+          }
+        }
+      }
+    },
+    "This certificate is not a certificate authority, so it cannot sign the certificates Rockxy generates for each host. Choose the root or intermediate CA certificate.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此证书不是证书颁发机构，无法为 Rockxy 为每个主机生成的证书签名。请选择根 CA 或中间 CA 证书。"
+          }
+        }
+      }
+    },
+    "This certificate has expired or is not valid yet. Clients would reject every certificate signed by it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此证书已过期或尚未生效，客户端会拒绝由它签发的所有证书。"
+          }
+        }
+      }
+    },
+    "The password for this P12 file is incorrect.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 P12 文件的密码不正确。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

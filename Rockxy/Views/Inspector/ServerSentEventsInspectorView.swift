@@ -147,12 +147,14 @@ struct ServerSentEventsInspectorView: View {
     }
 
     private func loadEvents() async {
-        guard let body = transaction.response?.body else {
+        guard let response = transaction.response, let body = response.body else {
             events = []
             return
         }
+        let encoding = response.headers.first { $0.name.lowercased() == "content-encoding" }?.value
         let parsed = await Task.detached(priority: .userInitiated) {
-            ServerSentEventParser.parse(body)
+            // A gateway may compress the stream; decode it before reading events.
+            ServerSentEventParser.parse(BodyDecoder.decode(body, encoding: encoding))
         }.value
         guard !Task.isCancelled else {
             return

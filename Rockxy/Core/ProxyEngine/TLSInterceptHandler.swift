@@ -208,6 +208,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         upstreamTrustProvider: @escaping @Sendable () -> Bool = { UpstreamTrustPolicy.acceptsUntrustedCertificates },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
         tunnelCaptureContext: TrafficCaptureContext? = nil,
+        tunnelNetworkProfile: NetworkConditionProfile? = nil,
         clientSourcePort: UInt16? = nil,
         clientApplicationIdentity: ClientApplicationIdentity? = nil,
         clientConnectionDescriptor: ProxyConnectionDescriptor? = nil,
@@ -231,6 +232,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         self.upstreamTrustProvider = upstreamTrustProvider
         self.captureContextProvider = captureContextProvider
         self.tunnelCaptureContext = tunnelCaptureContext
+        self.tunnelNetworkProfile = tunnelNetworkProfile
         self.clientSourcePort = clientSourcePort
         self.clientApplicationIdentity = clientApplicationIdentity
         self.clientConnectionDescriptor = clientConnectionDescriptor
@@ -319,11 +321,23 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         prepareClientChannel: EventLoopFuture<Void>,
         replayClientReads: [ByteBuffer] = [],
         enableClientAutoRead: Bool = false,
+        networkProfile: NetworkConditionProfile? = nil,
         onSuccess: @escaping @Sendable () -> Void,
         onFailure: @escaping @Sendable (Error) -> Void
     ) {
-        let toClient = RawTunnelHandler(peerChannel: clientChannel)
-        let toServer = RawTunnelHandler(peerChannel: serverChannel)
+        // Server-to-client bytes are the download direction; client-to-server the upload.
+        // Latency applies once per round trip, on the request direction.
+        let toClient = RawTunnelHandler(
+            peerChannel: clientChannel,
+            bytesPerSecond: networkProfile?.downloadBytesPerSecond,
+            packetLoss: networkProfile?.packetLoss
+        )
+        let toServer = RawTunnelHandler(
+            peerChannel: serverChannel,
+            bytesPerSecond: networkProfile?.uploadBytesPerSecond,
+            latencyMs: networkProfile?.latencyMs ?? 0,
+            packetLoss: networkProfile?.packetLoss
+        )
 
         serverChannel.pipeline.addHandler(toClient).flatMap {
             prepareClientChannel
@@ -471,6 +485,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     private let upstreamTrustProvider: @Sendable () -> Bool
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
     private let tunnelCaptureContext: TrafficCaptureContext?
+    private let tunnelNetworkProfile: NetworkConditionProfile?
     private let clientSourcePort: UInt16?
     private let clientApplicationIdentity: ClientApplicationIdentity?
     private let clientConnectionDescriptor: ProxyConnectionDescriptor?
@@ -639,7 +654,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 postHandshake: postHandshake,
                 connectionLimiter: self.connectionLimiter,
                 upstreamProxySnapshotProvider: self.upstreamProxySnapshotProvider,
-                rawTunnelConnector: self.rawTunnelConnector
+                rawTunnelConnector: self.rawTunnelConnector,
+                networkProfile: self.tunnelNetworkProfile
             )
 
             let pipeline = context.pipeline
@@ -866,7 +882,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     clientChannel: clientChannel,
                     prepareClientChannel: context.pipeline.removeHandler(context: context),
                     replayClientReads: replayClientReads,
-                    enableClientAutoRead: true
+                    enableClientAutoRead: true,
+                    networkProfile: self.tunnelNetworkProfile
                 ) {
                     // Track the live raw tunnel so a later policy change can reset it. The
                     // registry closes the channel immediately if the raw decision raced a

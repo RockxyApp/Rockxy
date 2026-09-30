@@ -241,6 +241,14 @@ enum ProxyHandlerShared {
             headers.remove(name: "Content-Length")
         }
 
+        // Rockxy records and decodes frame payloads as sent. A negotiated `permessage-deflate`
+        // extension would leave every recorded frame compressed and unreadable, so the
+        // handshake is forwarded without offering any extension; the connection simply falls
+        // back to uncompressed frames.
+        if WebSocketDetector.isWebSocketUpgrade(headers: headers) {
+            headers.remove(name: "Sec-WebSocket-Extensions")
+        }
+
         // HTTP/2 requests are forwarded as HTTP/1.1 on an HTTP/1.1 origin connection; an
         // HTTP/2 origin stream ignores the version, so 1.1 is correct either way.
         return HTTPRequestHead(

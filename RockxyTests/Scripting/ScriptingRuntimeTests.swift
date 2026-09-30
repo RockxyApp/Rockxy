@@ -148,8 +148,19 @@ struct ScriptingRuntimeTests {
         )
         await harness.manager.loadAllPlugins()
 
-        let mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
-        let plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
+        // One failing request must not disable the script: the next request still runs it.
+        var mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
+        var plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
+        if case .error = plugin?.status {
+            Issue.record("A single exception should not mark the script errored")
+        }
+        #expect(harness.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+
+        // A script that keeps failing is eventually parked.
+        for _ in 0 ..< 5 {
+            mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
+        }
+        plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
 
         #expect(jsonBody(mutated).contains(#""bucket":"control""#))
         if case let .error(reason) = plugin?.status {

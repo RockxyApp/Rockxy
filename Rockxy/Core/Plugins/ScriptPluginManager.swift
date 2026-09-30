@@ -291,12 +291,13 @@ actor ScriptPluginManager {
                     behavior: behavior,
                     originalRequest: current
                 )
+                consecutiveHookFailures[plugin.id] = nil
                 if Self.changes(outcome, from: current) {
                     executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
                 }
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onRequest failed: \(error.localizedDescription)")
-                markPluginErrored(id: plugin.id, reason: error.localizedDescription)
+                recordHookFailure(id: plugin.id, reason: error.localizedDescription)
                 continue
             }
             switch outcome {
@@ -352,6 +353,7 @@ actor ScriptPluginManager {
                     originalRequest: request,
                     originalResponse: current
                 )
+                consecutiveHookFailures[plugin.id] = nil
                 if Self.differs(mutated, from: current) {
                     executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
                 }
@@ -362,7 +364,7 @@ actor ScriptPluginManager {
                 return mutated
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onResponse failed: \(error.localizedDescription)")
-                markPluginErrored(id: plugin.id, reason: error.localizedDescription)
+                recordHookFailure(id: plugin.id, reason: error.localizedDescription)
                 continue
             }
         }
@@ -422,6 +424,9 @@ actor ScriptPluginManager {
     private let discovery: PluginDiscovery
     private let runtime: ScriptRuntime
 
+    private static let maxConsecutiveHookFailures = 5
+
+    private var consecutiveHookFailures: [String: Int] = [:]
     private var isLoadedOnce: Bool = false
     private var loadOnceTask: Task<Void, Never>?
     private var inFlightDiscoveryTask: Task<Void, Never>?
@@ -489,6 +494,20 @@ actor ScriptPluginManager {
         let current = plugins
         Self.pluginSnapshot.withLock { $0 = current }
         NotificationCenter.default.post(name: .scriptsDidChange, object: current)
+    }
+
+    /// A script that throws for one unusual request (for example `JSON.parse` on an empty
+    /// body) keeps working for the rest of the traffic; only a script that fails several
+    /// requests in a row is marked errored, so a broken script cannot spam the console.
+    private func recordHookFailure(id: String, reason: String) {
+        let failures = (consecutiveHookFailures[id] ?? 0) + 1
+        consecutiveHookFailures[id] = failures
+        if failures >= Self.maxConsecutiveHookFailures {
+            consecutiveHookFailures[id] = nil
+            markPluginErrored(id: id, reason: reason)
+        } else if let index = plugins.firstIndex(where: { $0.id == id }) {
+            plugins[index].lastError = reason
+        }
     }
 
     private func markPluginErrored(id: String, reason: String) {

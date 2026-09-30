@@ -172,6 +172,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ))?
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var pendingThrottleTask: Scheduled<Void>?
+    /// Network conditions matched by the CONNECT request; applied to an undecrypted tunnel.
+    private var connectNetworkProfile: NetworkConditionProfile?
     private var pendingBreakpointPhase: BreakpointRulePhase?
     private var pendingBreakpointRuleName: String?
     /// The unstructured Task bridging an in-flight request breakpoint to the
@@ -290,17 +292,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
                         return
-                    case let .networkCondition(preset, _, _) where preset.isOffline:
-                        ProxyHandlerShared.simulateOffline(
+                    case let .networkCondition(preset, delayMs, custom):
+                        // Offline refuses the tunnel; any other profile shapes it as a byte stream.
+                        if self.applyConnectNetworkCondition(
+                            NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom),
                             context: context,
                             requestData: requestData,
-                            elapsed: self.requestElapsedDuration(),
-                            sourcePort: self.clientSourcePort,
                             callback: callback
-                        )
-                        return
+                        ) {
+                            return
+                        }
                     case .throttle,
-                         .networkCondition,
                          .mapLocal,
                          .mapRemote,
                          .modifyHeader,
@@ -795,8 +797,38 @@ extension HTTPProxyHandler {
         context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
             proxyHandlerLogger.info("CONNECT tunnel for \(host):\(port)")
-            self.beginTunnel(context: context, host: host, port: port, captureContext: requestData.captureContext)
+            self.beginTunnel(
+                context: context,
+                host: host,
+                port: port,
+                captureContext: requestData.captureContext,
+                networkProfile: self.connectNetworkProfile
+            )
         }
+    }
+
+    /// Returns `true` when the CONNECT was answered (Offline); otherwise remembers the profile
+    /// for the tunnel that is about to be established.
+    private func applyConnectNetworkCondition(
+        _ profile: NetworkConditionProfile,
+        context: ChannelHandlerContext,
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    )
+        -> Bool
+    {
+        guard profile.preset.isOffline else {
+            connectNetworkProfile = profile
+            return false
+        }
+        ProxyHandlerShared.simulateOffline(
+            context: context,
+            requestData: requestData,
+            elapsed: requestElapsedDuration(),
+            sourcePort: clientSourcePort,
+            callback: callback
+        )
+        return true
     }
 
     /// Outcome of applying CONNECT policy to a tunnel requested outside HTTP (SOCKS5).
@@ -871,7 +903,8 @@ extension HTTPProxyHandler {
         context: ChannelHandlerContext,
         host: String,
         port: Int,
-        captureContext: TrafficCaptureContext?
+        captureContext: TrafficCaptureContext?,
+        networkProfile: NetworkConditionProfile? = nil
     )
         -> EventLoopFuture<Void>
     {
@@ -910,6 +943,7 @@ extension HTTPProxyHandler {
                 upstreamTrustProvider: self.upstreamTrustProvider,
                 captureContextProvider: self.captureContextProvider,
                 tunnelCaptureContext: captureContext,
+                tunnelNetworkProfile: networkProfile,
                 clientSourcePort: self.clientSourcePort,
                 clientApplicationIdentity: clientApplicationIdentity,
                 clientConnectionDescriptor: self.clientConnectionDescriptor,

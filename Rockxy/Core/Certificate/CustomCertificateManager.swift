@@ -168,7 +168,9 @@ struct CustomCertificateImportIdentity: Equatable {
         let options = [kSecImportExportPassphrase as String: passphrase] as CFDictionary
         let status = SecPKCS12Import(data as CFData, options, &importedItems)
         guard status == errSecSuccess, let importedItems else {
-            throw CustomCertificateImportError.invalidPKCS12
+            throw status == errSecAuthFailed
+                ? CustomCertificateImportError.incorrectPassword
+                : CustomCertificateImportError.invalidPKCS12
         }
         return try identity(from: importedItems)
     }
@@ -466,6 +468,18 @@ final class CustomCertificateManager: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [CustomCertificateMetadata] = []
 
+    /// A custom root signs a certificate for every host, so it must be a CA that is valid now.
+    private static func validateRootAuthority(_ certificate: Certificate) throws {
+        let now = Date()
+        guard certificate.notValidBefore <= now, now <= certificate.notValidAfter else {
+            throw CustomCertificateError.rootExpired
+        }
+        let basicConstraints = try? certificate.extensions.basicConstraints
+        guard case .isCertificateAuthority = basicConstraints else {
+            throw CustomCertificateError.rootNotCertificateAuthority
+        }
+    }
+
     private static func fingerprint(_ certificate: Certificate) -> String? {
         var serializer = DER.Serializer()
         guard (try? certificate.serialize(into: &serializer)) != nil else {
@@ -491,6 +505,8 @@ final class CustomCertificateManager: @unchecked Sendable {
 
         if kind != .root {
             try validateTLSIdentity(certificatePEM: certificatePEM, privateKeyPEM: privateKeyPEM)
+        } else {
+            try Self.validateRootAuthority(certificate)
         }
 
         let normalizedHostPattern = hostPattern?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -703,11 +719,26 @@ final class CustomCertificateManager: @unchecked Sendable {
 enum CustomCertificateError: LocalizedError, Equatable {
     case invalidCertificateKeyPair
     case missingPrivateKey
+    case rootNotCertificateAuthority
+    case rootExpired
 
     // MARK: Internal
 
     var errorDescription: String? {
         switch self {
+        case .rootNotCertificateAuthority:
+            String(
+                localized: """
+                This certificate is not a certificate authority, so it cannot sign the certificates \
+                Rockxy generates for each host. Choose the root or intermediate CA certificate.
+                """,
+                bundle: RockxyLocalization.bundle
+            )
+        case .rootExpired:
+            String(
+                localized: "This certificate has expired or is not valid yet. Clients would reject every certificate signed by it.",
+                bundle: RockxyLocalization.bundle
+            )
         case .invalidCertificateKeyPair:
             String(
                 localized: "The certificate and private key do not belong to the same identity.",
@@ -743,12 +774,18 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
     case invalidCertificate
     case invalidPrivateKey
     case invalidPKCS12
+    case incorrectPassword
     case missingCertificate
 
     // MARK: Internal
 
     var errorDescription: String? {
         switch self {
+        case .incorrectPassword:
+            String(
+                localized: "The password for this P12 file is incorrect.",
+                bundle: RockxyLocalization.bundle
+            )
         case .invalidCertificate:
             String(
                 localized: "The selected certificate must be a valid PEM or DER X.509 certificate.",

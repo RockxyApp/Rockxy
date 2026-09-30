@@ -41,6 +41,16 @@ struct ServerSentEventParserTests {
         #expect(events.map(\.data) == ["a", "b"])
     }
 
+    @Test("A stream cut in the middle of a multibyte character still lists its events")
+    func survivesTruncatedUTF8() {
+        var bytes = Array("data: one\n\ndata: caf".utf8)
+        bytes.append(contentsOf: [0xC3])
+        let events = ServerSentEventParser.parse(Data(bytes))
+
+        #expect(events.first?.data == "one")
+        #expect(events.count == 2)
+    }
+
     @Test("Only text/event-stream responses qualify")
     func detectsEventStream() {
         #expect(ServerSentEventParser.isEventStream([HTTPHeader(name: "content-type", value: "text/event-stream; charset=utf-8")]))

@@ -8,9 +8,7 @@ enum GraphQLDetector {
     // MARK: Internal
 
     static func detect(request: HTTPRequestData) -> GraphQLInfo? {
-        guard request.path.lowercased().contains("graphql") else {
-            return nil
-        }
+        let pathLooksGraphQL = request.path.lowercased().contains("graphql")
         let fields: [String: Any]
         switch request.method.uppercased() {
         case "POST":
@@ -21,8 +19,16 @@ enum GraphQLDetector {
             {
                 return nil
             }
+            // Endpoints such as `/api` or `/gql` are recognized by the shape of the body: a
+            // string `query` that is a GraphQL document.
+            guard pathLooksGraphQL || isGraphQLDocument(json["query"] as? String) else {
+                return nil
+            }
             fields = json
         case "GET":
+            guard pathLooksGraphQL else {
+                return nil
+            }
             // GraphQL over GET carries the document (or a persisted-query hash) in the URL.
             let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
             var values: [String: Any] = [:]
@@ -64,6 +70,24 @@ enum GraphQLDetector {
     }
 
     // MARK: Private
+
+    /// True when `text` starts like a GraphQL executable document: an anonymous selection set
+    /// or a `query` / `mutation` / `subscription` keyword. Plain search strings do not.
+    private static func isGraphQLDocument(_ text: String?) -> Bool {
+        guard let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return false
+        }
+        if trimmed.hasPrefix("{") {
+            return true
+        }
+        for keyword in ["query", "mutation", "subscription"] where trimmed.hasPrefix(keyword) {
+            let rest = trimmed.dropFirst(keyword.count)
+            if let next = rest.first, next == " " || next == "{" || next == "(" || next == "\n" || next == "\t" {
+                return true
+            }
+        }
+        return false
+    }
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "GraphQLDetector")
 

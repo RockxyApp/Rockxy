@@ -27,6 +27,16 @@ struct ReverseProxyRuleTests {
         #expect(ReverseProxyRuleValidator.problem(with: localDevServer, among: [], proxyPort: 9_090) == nil)
     }
 
+    @Test("A port typed into the host field is rejected, IPv6 literals stay valid")
+    func hostWithPortIsRejected() {
+        let withPort = rule(localPort: 10_001, host: "api.example.com:443", remotePort: 443)
+        let ipv6 = rule(localPort: 10_002, host: "2001:db8::1", remotePort: 443)
+        let bracketed = rule(localPort: 10_003, host: "[2001:db8::1]", remotePort: 443)
+        #expect(ReverseProxyRuleValidator.problem(with: withPort, among: [], proxyPort: 9_090) != nil)
+        #expect(ReverseProxyRuleValidator.problem(with: ipv6, among: [], proxyPort: 9_090) == nil)
+        #expect(ReverseProxyRuleValidator.problem(with: bracketed, among: [], proxyPort: 9_090) == nil)
+    }
+
     @Test("A new rule's empty remote host keeps Save disabled without an error message")
     func emptyHostIsQuiet() {
         let draft = rule(localPort: 10_000, host: "", remotePort: 443)

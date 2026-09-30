@@ -34,10 +34,21 @@ enum ServerSentEventParser {
         }
     }
 
-    static func parse(_ data: Data) -> [ServerSentEvent] {
-        guard let text = String(data: data, encoding: .utf8) else {
-            return []
+    /// UTF-8 text, tolerating a stream cut in the middle of a character: up to three trailing
+    /// bytes are dropped until the rest is valid, and Latin-1 is the last resort.
+    private static func decodeLeniently(_ data: Data) -> String {
+        for dropped in 0 ... 3 where data.count > dropped {
+            if let text = String(bytes: data.dropLast(dropped), encoding: .utf8) {
+                return text
+            }
         }
+        return String(bytes: data, encoding: .isoLatin1) ?? ""
+    }
+
+    static func parse(_ data: Data) -> [ServerSentEvent] {
+        // A body cut mid-character (a capture size cap) still reads; the broken byte shows as
+        // a replacement character instead of hiding the whole stream.
+        let text = decodeLeniently(data)
         var events: [ServerSentEvent] = []
         var eventName: String?
         var eventID: String?

@@ -24,6 +24,9 @@ struct ProtobufPayloadInspectorView: View {
     let context: ProtobufPayloadContext
     /// Changes when a different payload is shown, resetting a manual type choice.
     let payloadID: String
+    /// When set, a manual type choice survives payload changes until this value changes, so
+    /// stepping through a socket's frames keeps the message type the user picked.
+    var choiceScopeID: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,7 +38,7 @@ struct ProtobufPayloadInspectorView: View {
         .task(id: DecodeKey(payloadID: payloadID, choice: effectiveChoice, schemaVersion: schemaVersion)) {
             await decode()
         }
-        .onChange(of: payloadID) {
+        .onChange(of: choiceScopeID ?? payloadID) {
             manualChoice = nil
         }
     }

@@ -31,8 +31,10 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
         postHandshake: PostHandshakeHandler,
         connectionLimiter: ConnectionLimiter,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
-        rawTunnelConnector: @escaping TLSInterceptHandler.RawTunnelConnector = TLSInterceptHandler.connectRawTunnel
+        rawTunnelConnector: @escaping TLSInterceptHandler.RawTunnelConnector = TLSInterceptHandler.connectRawTunnel,
+        networkProfile: NetworkConditionProfile? = nil
     ) {
+        self.networkProfile = networkProfile
         self.sslHandler = sslHandler
         self.host = host
         self.port = port
@@ -133,6 +135,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
 
     // MARK: Private
 
+    private let networkProfile: NetworkConditionProfile?
     private let sslHandler: NIOSSLServerHandler
     private let host: String
     private let port: Int
@@ -235,7 +238,8 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                     clientChannel: channel,
                     prepareClientChannel: prepareClientChannel,
                     replayClientReads: replayClientReads,
-                    enableClientAutoRead: true
+                    enableClientAutoRead: true,
+                    networkProfile: self.networkProfile
                 ) {
                     self.postHandshake.recordSuccessfulTunnel()
                 } onFailure: { error in

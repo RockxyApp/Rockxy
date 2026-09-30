@@ -325,6 +325,17 @@ enum ScriptMultiArgBridge {
                 return try ScriptResponseBodyLoader.load(path: path)
             } catch {
                 logger.warning("Plugin \(pluginID) bodyFilePath load failed: \(error.localizedDescription)")
+                // The real response is served instead; say so in the script console so a typo
+                // in the mock path is not mistaken for a working mock.
+                NotificationCenter.default.post(
+                    name: .scriptConsoleDidAppend,
+                    object: ScriptConsoleEvent(
+                        pluginID: pluginID,
+                        level: .error,
+                        message: "bodyFilePath \"\(path)\" could not be used (\(error.localizedDescription)); the original response was kept.",
+                        timestamp: Date()
+                    )
+                )
                 // fall through to body resolution
             }
         }

@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import os
 
 // Persisted reverse proxy rules and their live listener status.
@@ -98,6 +99,13 @@ enum ReverseProxyRuleValidator {
         guard !host.contains("/"), !host.contains("://"), !host.contains(where: \.isWhitespace) else {
             return String(
                 localized: "Enter only the host name, without a scheme or path.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+        // A colon is only valid inside an IPv6 literal (`::1`, `[2001:db8::1]`).
+        if host.contains(":"), IPv6Address(host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))) == nil {
+            return String(
+                localized: "Enter the port in the Remote Port field, not in the host.",
                 bundle: RockxyLocalization.bundle
             )
         }
