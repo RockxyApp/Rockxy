@@ -248,6 +248,34 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A hiding Block rule answers the client but leaves no row")
+    func blockAndHideLeavesNoRow() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            var hidden = ProxyRule(
+                name: "Hide analytics",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/analytics.*"),
+                action: .block(statusCode: 403)
+            )
+            hidden.hidesMatchedTraffic = true
+            await harness.addRule(hidden)
+            await harness.addRule(ProxyRule(
+                name: "Block ads",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/ads.*"),
+                action: .block(statusCode: 403)
+            ))
+
+            let blocked = try await harness.get("/analytics/collect")
+            let visible = try await harness.get("/ads/banner")
+            #expect(blocked.status == 403)
+            #expect(visible.status == 403)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let paths = await harness.capturedTransactions().map(\.request.url.path)
+            #expect(!paths.contains("/analytics/collect"))
+            #expect(paths.contains("/ads/banner"))
+        }
+    }
+
     @Test("SOCKS5 destinations honor Block rules and the listener loop guard")
     func socks5AppliesConnectPolicy() async throws {
         try await MapLocalLoopbackHarness.run { harness in
