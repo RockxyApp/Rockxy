@@ -28,6 +28,10 @@ Replay uses a proxy-bypass session (an ephemeral `URLSession` with proxy setting
 2. Right-click and choose **Repeat**, or press `Cmd+R`.
 3. A new row attributed to Rockxy appears in the traffic list with the replayed request and its response; select it to inspect status code, headers, and body. A toast summarizes the status code.
 
+### Repeat several requests
+
+Select several rows (Shift-click or Command-click), then press `Cmd+R` or right-click one of them and choose **Repeat**. Rockxy sends them one after another in list order, adds each result as its own row, and shows one summary of how many were sent, failed, or could not be repeated (for example WebSocket rows). One Repeat sends at most 50 requests.
+
 ## Edit and Repeat
 
 **Edit and Repeat** opens a sheet where you can modify the request before sending:
