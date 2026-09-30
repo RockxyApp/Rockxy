@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Renders the advanced filter bar interface for toolbar controls and filtering.
@@ -62,18 +63,27 @@ struct AdvancedFilterBar: View {
         .padding(.vertical, 6)
     }
 
+    private var hasActiveRules: Bool {
+        !FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true).isEmpty
+    }
+
     private var presetMenu: some View {
         Menu {
             Button {
-                _ = presetStore.saveGeneratedPreset(rules: rules)
-                onSave()
+                if let name = PresetNamePrompt.ask(
+                    title: String(localized: "Save Filter Preset", bundle: RockxyLocalization.bundle),
+                    initialName: presetStore.suggestedName(for: rules)
+                ) {
+                    _ = presetStore.savePreset(name: name, rules: rules)
+                    onSave()
+                }
             } label: {
                 Label(
-                    String(localized: "Save Current Filter", bundle: RockxyLocalization.bundle),
+                    String(localized: "Save Current Filter As…", bundle: RockxyLocalization.bundle),
                     systemImage: "square.and.arrow.down"
                 )
             }
-            .disabled(FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true).isEmpty)
+            .disabled(!hasActiveRules)
 
             if !presetStore.presets.isEmpty {
                 Divider()
@@ -85,6 +95,27 @@ struct AdvancedFilterBar: View {
                     }
                 }
 
+                Divider()
+                Menu(String(localized: "Update Preset with Current Filter", bundle: RockxyLocalization.bundle)) {
+                    ForEach(presetStore.presets) { preset in
+                        Button(preset.name) {
+                            presetStore.overwritePreset(id: preset.id, with: rules)
+                        }
+                    }
+                }
+                .disabled(!hasActiveRules)
+                Menu(String(localized: "Rename Preset", bundle: RockxyLocalization.bundle)) {
+                    ForEach(presetStore.presets) { preset in
+                        Button(preset.name) {
+                            if let name = PresetNamePrompt.ask(
+                                title: String(localized: "Rename Filter Preset", bundle: RockxyLocalization.bundle),
+                                initialName: preset.name
+                            ) {
+                                presetStore.renamePreset(id: preset.id, to: name)
+                            }
+                        }
+                    }
+                }
                 Divider()
                 Menu(String(localized: "Delete Preset", bundle: RockxyLocalization.bundle)) {
                     ForEach(presetStore.presets) { preset in
@@ -184,5 +215,28 @@ struct AdvancedFilterBar: View {
             return
         }
         rules.remove(at: index)
+    }
+}
+
+// MARK: - PresetNamePrompt
+
+/// Asks for a filter preset name in a standard alert with a text field.
+@MainActor
+enum PresetNamePrompt {
+    static func ask(title: String, initialName: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.addButton(withTitle: String(localized: "Save", bundle: RockxyLocalization.bundle))
+        alert.addButton(withTitle: String(localized: "Cancel", bundle: RockxyLocalization.bundle))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.stringValue = initialName
+        field.placeholderString = String(localized: "Preset Name", bundle: RockxyLocalization.bundle)
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
     }
 }
