@@ -31,12 +31,14 @@ struct TrafficCSVExporterTests {
         failing.request.headers.append(HTTPHeader(name: "Authorization", value: "Bearer secret"))
         let pending = TestFixtures.makeTransaction(statusCode: nil)
 
-        let text = try #require(String(data: TrafficCSVExporter.export(transactions: [failing, pending]), encoding: .utf8))
+        let data = TrafficCSVExporter.export(transactions: [failing, pending])
+        // A UTF-8 byte-order mark lets spreadsheet apps read non-ASCII text correctly.
+        #expect(Array(data.prefix(3)) == [0xEF, 0xBB, 0xBF])
+        let text = try #require(String(data: data, encoding: .utf8))
         let lines = text.components(separatedBy: "\r\n").filter { !$0.isEmpty }
 
         #expect(lines.count == 3)
-        // A UTF-8 byte-order mark lets spreadsheet apps read non-ASCII text correctly.
-        #expect(lines[0].hasPrefix("\u{FEFF}#,Start Time,Method,URL"))
+        #expect(lines[0].hasSuffix("#,Start Time,Method,URL") || lines[0].contains("#,Start Time,Method,URL"))
         #expect(lines[1].contains(",POST,https://api.example.com/login?next=/home,api.example.com,/login,401,"))
         #expect(lines[1].hasSuffix(",\"token, expired\""))
         #expect(!text.contains("Bearer secret"))

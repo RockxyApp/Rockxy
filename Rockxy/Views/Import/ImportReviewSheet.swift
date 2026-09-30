@@ -88,7 +88,7 @@ struct ImportReviewSummary: Equatable {
         guard skippedEntryCount > 0 else {
             return base
         }
-        let skipped = String(skippedEntryCount)
+        let skipped = CountFormatter.format(skippedEntryCount)
         return base + " " + String(
             localized: "\(skipped) entries could not be read and will be left out.",
             bundle: RockxyLocalization.bundle

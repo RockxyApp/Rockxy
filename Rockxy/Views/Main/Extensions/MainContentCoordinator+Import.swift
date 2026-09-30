@@ -116,40 +116,63 @@ extension MainContentCoordinator {
             return
         }
 
-        // Reading and parsing a large archive must not block the main actor.
+        // A small archive is parsed in place so the review sheet appears immediately; a large
+        // one is read and parsed off the main actor so the UI never freezes.
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        if fileSize <= Self.inlineHARParseLimit {
+            do {
+                presentHARPreview(try Self.makeHARPreview(from: url), url: url)
+            } catch {
+                showHARPreviewFailure(error, url: url)
+            }
+            return
+        }
         Task { @MainActor in
             do {
-                let parsed = try await Task.detached(priority: .userInitiated) {
-                    let fileSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-                    let data = try Data(contentsOf: url)
-                    let result = try HARImporter().importReportingSkips(data)
-                    return (fileSize, Self.isCharlesJSONSession(data), result)
+                let preview = try await Task.detached(priority: .userInitiated) {
+                    try Self.makeHARPreview(from: url)
                 }.value
-
-                importPreview = ImportPreview(
-                    fileName: url.lastPathComponent,
-                    fileType: parsed.1 ? .charlesJSON : .har,
-                    transactionCount: parsed.2.transactions.count,
-                    logEntryCount: 0,
-                    fileSize: parsed.0,
-                    captureStartDate: nil,
-                    captureEndDate: nil,
-                    rockxyVersion: nil,
-                    sourceURL: url,
-                    skippedEntryCount: parsed.2.skipped
-                )
-                RecentCaptureDocuments.shared.note(url)
+                presentHARPreview(preview, url: url)
             } catch {
-                Self.logger.error("Failed to pre-parse HAR: \(error.localizedDescription)")
-                showImportError(
-                    title: String(localized: "HAR Import Failed", bundle: RockxyLocalization.bundle),
-                    message: String(
-                        localized: "Could not import \"\(url.lastPathComponent)\".\n\nThe file may not be a valid HAR archive. \(error.localizedDescription)",
-                        bundle: RockxyLocalization.bundle
-                    )
-                )
+                showHARPreviewFailure(error, url: url)
             }
         }
+    }
+
+    nonisolated static let inlineHARParseLimit: Int64 = 1_048_576
+
+    nonisolated static func makeHARPreview(from url: URL) throws -> ImportPreview {
+        let fileSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let data = try Data(contentsOf: url)
+        let result = try HARImporter().importReportingSkips(data)
+        return ImportPreview(
+            fileName: url.lastPathComponent,
+            fileType: isCharlesJSONSession(data) ? .charlesJSON : .har,
+            transactionCount: result.transactions.count,
+            logEntryCount: 0,
+            fileSize: fileSize,
+            captureStartDate: nil,
+            captureEndDate: nil,
+            rockxyVersion: nil,
+            sourceURL: url,
+            skippedEntryCount: result.skipped
+        )
+    }
+
+    private func presentHARPreview(_ preview: ImportPreview, url: URL) {
+        importPreview = preview
+        RecentCaptureDocuments.shared.note(url)
+    }
+
+    private func showHARPreviewFailure(_ error: Error, url: URL) {
+        Self.logger.error("Failed to pre-parse HAR: \(error.localizedDescription)")
+        showImportError(
+            title: String(localized: "HAR Import Failed", bundle: RockxyLocalization.bundle),
+            message: String(
+                localized: "Could not import \"\(url.lastPathComponent)\".\n\nThe file may not be a valid HAR archive. \(error.localizedDescription)",
+                bundle: RockxyLocalization.bundle
+            )
+        )
     }
 
     // MARK: - External Documents

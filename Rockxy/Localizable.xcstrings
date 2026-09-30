@@ -27619,16 +27619,6 @@
         }
       }
     },
-    "Ready for new connections. Repeat the request.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已准备好接受新连接。请再次发送请求。"
-          }
-        }
-      }
-    },
     "Ready on start": {
       "localizations": {
         "zh-Hans": {
@@ -48100,6 +48090,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "证书下载链接的二维码"
+          }
+        }
+      }
+    },
+    "Ready for new connections. Repeat the request; WebSocket and streaming connections must reconnect.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已准备好接受新连接。请再次发送请求；WebSocket 和流式连接需要重新连接。"
           }
         }
       }

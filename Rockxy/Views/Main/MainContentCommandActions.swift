@@ -306,6 +306,11 @@ struct MainContentCommandActions {
     // MARK: - Selection
 
     func deleteSelected() {
+        // The same shortcut removes a rule in the tool windows; it must never reach traffic rows
+        // from there.
+        guard RockxyWorkspaceWindowManager.shared.isWorkspaceWindowKey else {
+            return
+        }
         coordinator.deleteSelectedTransaction()
     }
 

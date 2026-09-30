@@ -25,6 +25,15 @@ final class RockxyWorkspaceWindowManager: NSObject {
 
     private(set) weak var primaryWindow: NSWindow?
 
+    /// True when the key window is the traffic workspace (or one of its tabs), as opposed to a
+    /// tool window such as Map Local or Breakpoint Rules.
+    var isWorkspaceWindowKey: Bool {
+        guard let key = NSApp.keyWindow, let primary = primaryWindow else {
+            return false
+        }
+        return key === primary || primary.tabbedWindows?.contains(key) == true
+    }
+
     var canCreateWorkspaceTab: Bool {
         coordinator?.workspaceStore.canCreateWorkspace == true
     }
