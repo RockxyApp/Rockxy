@@ -29,6 +29,18 @@ final class RuleFolderStore {
 
     static let mapLocal = RuleFolderStore(tool: "mapLocal")
     static let breakpoint = RuleFolderStore(tool: "breakpoint")
+    static let mapRemote = RuleFolderStore(tool: "mapRemote")
+    static let blockList = RuleFolderStore(tool: "blockList")
+
+    /// Every tool that supports folders, keyed by the name used in settings backups.
+    static var backupStores: [(tool: String, store: RuleFolderStore)] {
+        [
+            ("mapLocal", mapLocal),
+            ("breakpoint", breakpoint),
+            ("mapRemote", mapRemote),
+            ("blockList", blockList),
+        ]
+    }
 
     private(set) var folders: [RuleFolder]
 

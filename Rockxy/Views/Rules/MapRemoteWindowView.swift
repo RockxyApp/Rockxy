@@ -44,8 +44,9 @@ final class MapRemoteEditorStore {
 final class MapRemoteWindowViewModel {
     // MARK: Lifecycle
 
-    init(isToolEnabled: Bool? = nil) {
+    init(isToolEnabled: Bool? = nil, folderStore: RuleFolderStore = .mapRemote) {
         self.isToolEnabled = isToolEnabled ?? Self.defaultToolEnabled
+        self.folderStore = folderStore
     }
 
     // MARK: Internal
@@ -54,6 +55,51 @@ final class MapRemoteWindowViewModel {
     var searchText = ""
     var selectedRuleIDs: Set<UUID> = []
     var isToolEnabled: Bool
+    var errorMessage: String?
+    let folderStore: RuleFolderStore
+
+    /// Folder-grouped rows; flat while searching so every match shows.
+    var rows: [RuleListRow] {
+        let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return RuleListRow.rows(rules: filteredRules, folders: folderStore.folders, flat: searching)
+    }
+
+    func dropRules(_ payloads: [String], onto row: RuleListRow) {
+        folderStore.drop(payloads, onto: row, knownRuleIDs: Set(mapRemoteRules.map(\.id)))
+    }
+
+    func rules(in folder: RuleFolder) -> [ProxyRule] {
+        let members = Set(folder.ruleIDs)
+        return mapRemoteRules.filter { members.contains($0.id) }
+    }
+
+    /// Enables or disables several rules through the quota gate; reports rules the limit refused.
+    func setRulesEnabled(_ ids: [UUID], enabled: Bool) {
+        for index in allRules.indices where ids.contains(allRules[index].id) {
+            allRules[index].isEnabled = enabled
+        }
+        pendingRuleSyncTask = Task {
+            var refused = false
+            for id in ids where await !RulePolicyGate.shared.setRuleEnabled(id: id, enabled: enabled) {
+                refused = true
+            }
+            allRules = await RuleEngine.shared.allRules
+            if refused {
+                errorMessage = String(
+                    localized: "Some rules stayed off because the active Map Remote rule limit was reached.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+        }
+    }
+
+    func newFolderWithSelection() {
+        let ids = mapRemoteRules.map(\.id).filter { selectedRuleIDs.contains($0) }
+        selectedRuleIDs = [folderStore.createFolder(
+            named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
+            containing: ids
+        )]
+    }
 
     var mapRemoteRules: [ProxyRule] {
         allRules.filter { rule in
@@ -95,14 +141,17 @@ final class MapRemoteWindowViewModel {
 
     func refreshFromEngine() async {
         allRules = await RuleEngine.shared.allRules
+        folderStore.reconcile(existingRuleIDs: Set(mapRemoteRules.map(\.id)))
     }
 
     func handleRulesDidChange(_ notification: Notification) {
         if let rules = notification.object as? [ProxyRule] {
             allRules = rules
+            let folderIDs = Set(folderStore.folders.map(\.id))
             selectedRuleIDs = selectedRuleIDs.filter { id in
-                rules.contains { $0.id == id }
+                folderIDs.contains(id) || rules.contains { $0.id == id }
             }
+            folderStore.reconcile(existingRuleIDs: Set(mapRemoteRules.map(\.id)))
         }
     }
 
@@ -127,8 +176,13 @@ final class MapRemoteWindowViewModel {
     }
 
     func removeSelectedRules() {
-        let idsToRemove = selectedRuleIDs
+        // Deleting a folder keeps its rules; they move back to the top level.
+        for folder in folderStore.folders where selectedRuleIDs.contains(folder.id) {
+            folderStore.deleteFolder(id: folder.id)
+        }
+        let idsToRemove = Set(mapRemoteRules.map(\.id)).intersection(selectedRuleIDs)
         guard !idsToRemove.isEmpty else {
+            selectedRuleIDs.removeAll()
             return
         }
         allRules.removeAll { idsToRemove.contains($0.id) }
@@ -168,80 +222,6 @@ final class MapRemoteWindowViewModel {
 
     func waitForPendingRuleSync() async {
         await pendingRuleSyncTask?.value
-    }
-
-    func methodLabel(for rule: ProxyRule) -> String {
-        rule.matchCondition.method?.uppercased() ?? "ANY"
-    }
-
-    func matchingRuleLabel(for rule: ProxyRule) -> String {
-        if let sourcePattern = rule.matchCondition.sourceURLPattern, !sourcePattern.isEmpty {
-            let prefix = rule.matchCondition.matchType == .regex ? "Regex: " : "Wildcard: "
-            return prefix + sourcePattern
-        }
-        guard let pattern = rule.matchCondition.urlPattern, !pattern.isEmpty else {
-            return "<Missing URL>"
-        }
-        if MapLocalPatternFormatter.prefersWildcardPresentation(pattern) {
-            return "Wildcard: \(MapLocalPatternFormatter.readablePattern(pattern))"
-        }
-        return "Regex: \(pattern)"
-    }
-
-    func destinationLabel(for rule: ProxyRule) -> String {
-        guard case let .mapRemote(config) = rule.action else {
-            return ""
-        }
-        guard let host = config.host, !host.isEmpty else {
-            var overrides: [String] = []
-            if let scheme = config.scheme {
-                overrides.append("Protocol \(scheme.uppercased())")
-            }
-            if let port = config.port {
-                overrides.append("Port \(port)")
-            }
-            if let path = config.path, !config.preserveOriginalURL {
-                overrides.append("Path \(path)")
-            }
-            if let query = config.query, !config.preserveOriginalURL {
-                overrides.append("Query \(query)")
-            }
-            if config.preserveOriginalURL {
-                overrides.append("Original target")
-            }
-            overrides.append("Original host")
-            return overrides.joined(separator: " · ")
-        }
-        var result = ""
-        if let scheme = config.scheme {
-            result += "\(scheme)://"
-        }
-        let displayHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        result += displayHost
-        if let port = config.port {
-            result += ":\(port)"
-        }
-        if let path = config.path, !config.preserveOriginalURL {
-            if result.isEmpty {
-                result += path
-            } else {
-                result += path.hasPrefix("/") ? path : "/\(path)"
-            }
-        }
-        if let query = config.query, !config.preserveOriginalURL {
-            result += "?\(query)"
-        }
-        if config.preserveOriginalURL {
-            result += " · Original target"
-        }
-        return result.isEmpty ? "—" : result
-    }
-
-    func preservesHost(for rule: ProxyRule) -> Bool {
-        if case let .mapRemote(config) = rule.action {
-            return config.preserveHostHeader
-        }
-        return false
     }
 
     // MARK: Private
@@ -285,12 +265,25 @@ struct MapRemoteWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .rulesDidChange)) { notification in
             viewModel.handleRulesDidChange(notification)
         }
+        .ruleFolderRenameAlert(store: viewModel.folderStore, folder: $renamingFolder)
+        .alert(
+            String(localized: "Map Remote", bundle: RockxyLocalization.bundle),
+            isPresented: Binding(
+                get: { viewModel.errorMessage != nil },
+                set: { if !$0 { viewModel.errorMessage = nil } }
+            )
+        ) {
+            Button(String(localized: "OK", bundle: RockxyLocalization.bundle)) { viewModel.errorMessage = nil }
+        } message: {
+            Text(viewModel.errorMessage ?? "")
+        }
     }
 
     // MARK: Private
 
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
+    @State private var renamingFolder: RuleFolder?
 
     private var isSearching: Bool {
         !viewModel.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -372,64 +365,102 @@ struct MapRemoteWindowView: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
+    @TableRowBuilder<RuleListRow>
+    private func draggableRuleRow(_ row: RuleListRow) -> some TableRowContent<RuleListRow> {
+        TableRow(row)
+            .draggable(RuleFolderDrag.payload(for: row.id, selection: viewModel.selectedRuleIDs))
+            .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+    }
+
     private var tableContent: some View {
-        Table(viewModel.filteredRules, selection: $viewModel.selectedRuleIDs) {
-            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { rule in
-                Toggle("", isOn: Binding(
-                    get: { rule.isEnabled },
-                    set: { _ in viewModel.toggleRule(id: rule.id) }
-                ))
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-                .accessibilityLabel(
-                    String(
-                        localized: "Enable \(rule.name.isEmpty ? "Untitled" : rule.name)",
-                        bundle: RockxyLocalization.bundle
+        Table(of: RuleListRow.self, selection: $viewModel.selectedRuleIDs) {
+            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { row in
+                switch row.kind {
+                case let .rule(rule):
+                    Toggle("", isOn: Binding(
+                        get: { rule.isEnabled },
+                        set: { _ in viewModel.toggleRule(id: rule.id) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    .labelsHidden()
+                    .accessibilityLabel(
+                        String(
+                            localized: "Enable \(rule.name.isEmpty ? "Untitled" : rule.name)",
+                            bundle: RockxyLocalization.bundle
+                        )
                     )
-                )
+                case let .folder(folder):
+                    RuleFolderToggle(folder: folder, rules: viewModel.rules(in: folder)) { ids, enabled in
+                        viewModel.setRulesEnabled(ids, enabled: enabled)
+                    }
+                }
             }
             .width(62)
 
-            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { rule in
-                Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(rule.name)
-                    .opacity(rule.isEnabled ? 1.0 : 0.5)
+            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { row in
+                switch row.kind {
+                case let .folder(folder):
+                    RuleFolderNameLabel(folder: folder, ruleCount: viewModel.rules(in: folder).count)
+                case let .rule(rule):
+                    Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(rule.name)
+                        .opacity(rule.isEnabled ? 1.0 : 0.5)
+                }
             }
             .width(min: 150, ideal: 190)
 
-            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.methodLabel(for: rule))
-                    .lineLimit(1)
-                    .opacity(rule.isEnabled ? 1.0 : 0.5)
+            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.methodLabel(for: rule))
+                        .lineLimit(1)
+                        .opacity(rule.isEnabled ? 1.0 : 0.5)
+                }
             }
             .width(76)
 
-            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.matchingRuleLabel(for: rule))
-                    .font(toolMetrics.font(monospaced: true))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(viewModel.matchingRuleLabel(for: rule))
-                    .opacity(rule.isEnabled ? 1.0 : 0.5)
-            }
-            .width(min: 220, ideal: 300)
-
-            TableColumn(String(localized: "Remote Destination", bundle: RockxyLocalization.bundle)) { rule in
-                HStack(spacing: 6) {
-                    Text(viewModel.destinationLabel(for: rule))
+            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.matchingRuleLabel(for: rule))
                         .font(toolMetrics.font(monospaced: true))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .help(viewModel.destinationLabel(for: rule))
-                    if viewModel.preservesHost(for: rule) {
-                        preserveHostBadge
-                    }
+                        .help(viewModel.matchingRuleLabel(for: rule))
+                        .opacity(rule.isEnabled ? 1.0 : 0.5)
                 }
-                .opacity(rule.isEnabled ? 1.0 : 0.5)
+            }
+            .width(min: 220, ideal: 300)
+
+            TableColumn(String(localized: "Remote Destination", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    HStack(spacing: 6) {
+                        Text(viewModel.destinationLabel(for: rule))
+                            .font(toolMetrics.font(monospaced: true))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(viewModel.destinationLabel(for: rule))
+                        if viewModel.preservesHost(for: rule) {
+                            preserveHostBadge
+                        }
+                    }
+                    .opacity(rule.isEnabled ? 1.0 : 0.5)
+                }
             }
             .width(min: 280, ideal: 420)
+        } rows: {
+            ForEach(viewModel.rows) { row in
+                if let children = row.children {
+                    DisclosureTableRow(row) {
+                        ForEach(children) { child in
+                            draggableRuleRow(child)
+                        }
+                    }
+                    .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+                } else {
+                    draggableRuleRow(row)
+                }
+            }
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             tableContextMenu(ids: ids)
@@ -583,6 +614,11 @@ struct MapRemoteWindowView: View {
             .keyboardShortcut(.space, modifiers: [])
             .disabled(viewModel.selectedRule == nil)
             Divider()
+            Button(String(localized: "New Folder", bundle: RockxyLocalization.bundle)) {
+                viewModel.newFolderWithSelection()
+            }
+            folderMenuItems(selection: viewModel.selectedRuleIDs)
+            Divider()
             Button(String(localized: "Delete", bundle: RockxyLocalization.bundle), role: .destructive) {
                 viewModel.removeSelectedRules()
             }
@@ -600,9 +636,22 @@ struct MapRemoteWindowView: View {
         .fixedSize()
     }
 
+    private func folderMenuItems(selection ids: Set<UUID>) -> some View {
+        RuleFolderMenuItems(
+            store: viewModel.folderStore,
+            ruleIDs: viewModel.mapRemoteRules.map(\.id).filter { ids.contains($0) }
+        ) { folderID in
+            viewModel.selectedRuleIDs = [folderID]
+        }
+    }
+
     @ViewBuilder
     private func tableContextMenu(ids: Set<UUID>) -> some View {
-        if let id = ids.first {
+        if let folderID = ids.first,
+           let folder = viewModel.folderStore.folders.first(where: { $0.id == folderID })
+        {
+            RuleFolderContextItems(store: viewModel.folderStore, folder: folder) { renamingFolder = $0 }
+        } else if let id = ids.first {
             Button(String(localized: "Edit Rule", bundle: RockxyLocalization.bundle)) {
                 if let rule = viewModel.allRules.first(where: { $0.id == id }) {
                     openEditor(for: rule)
@@ -612,6 +661,8 @@ struct MapRemoteWindowView: View {
                 viewModel.selectedRuleIDs = [id]
                 viewModel.duplicateSelectedRule()
             }
+            Divider()
+            folderMenuItems(selection: ids.count > 1 ? ids : [id])
             Divider()
             Button(String(localized: "Delete Rule", bundle: RockxyLocalization.bundle), role: .destructive) {
                 viewModel.removeRule(id: id)

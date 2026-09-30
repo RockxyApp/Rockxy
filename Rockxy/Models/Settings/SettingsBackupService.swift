@@ -47,10 +47,9 @@ enum SettingsBackupService {
             reverseProxies: ReverseProxyStore.shared.rules,
             dnsSpoofing: DNSSpoofingStore.shared.rules,
             noCaching: UserDefaults.standard.bool(forKey: NoCacheHeaderMutator.userDefaultsKey),
-            ruleFolders: [
-                "mapLocal": RuleFolderStore.mapLocal.folders,
-                "breakpoint": RuleFolderStore.breakpoint.folders,
-            ]
+            ruleFolders: Dictionary(
+                uniqueKeysWithValues: RuleFolderStore.backupStores.map { ($0.tool, $0.store.folders) }
+            )
         )
     }
 
@@ -106,7 +105,7 @@ enum SettingsBackupService {
             }
         }
         // Backups made before folders were recorded have no entry and leave folders untouched.
-        for (tool, store) in [("mapLocal", RuleFolderStore.mapLocal), ("breakpoint", RuleFolderStore.breakpoint)] {
+        for (tool, store) in RuleFolderStore.backupStores {
             if let folders = backup.ruleFolders[tool] {
                 store.importFolders(folders, replacing: mode == .replace)
             }

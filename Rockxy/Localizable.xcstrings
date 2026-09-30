@@ -48263,6 +48263,16 @@
           }
         }
       }
+    },
+    "Some rules stayed off because the active Map Remote rule limit was reached.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已达到 Map Remote 启用规则上限，部分规则仍保持停用。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

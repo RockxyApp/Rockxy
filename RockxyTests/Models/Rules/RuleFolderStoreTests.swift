@@ -8,6 +8,13 @@ import Testing
 struct RuleFolderStoreTests {
     // MARK: Internal
 
+    @Test("Every folder-capable tool is part of settings backups under a unique name")
+    func backupCoversAllFolderTools() {
+        let tools = RuleFolderStore.backupStores.map(\.tool)
+        #expect(Set(tools).count == tools.count)
+        #expect(Set(tools) == ["mapLocal", "breakpoint", "mapRemote", "blockList"])
+    }
+
     @Test("Folders group rules, persist across relaunch, and give their rules back when deleted")
     func folderLifecycle() throws {
         let (defaults, suite) = try isolatedDefaults()

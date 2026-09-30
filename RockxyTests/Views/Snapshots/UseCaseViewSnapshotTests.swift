@@ -236,6 +236,42 @@ struct UseCaseViewSnapshotTests {
         try await render(BreakpointRuleEditorWindowView(), name: "breakpoint-editor", size: CGSize(width: 900, height: 700))
     }
 
+    @Test("Block List with a folder")
+    func blockListFolder() async throws {
+        func rule(_ name: String, _ pattern: String) -> ProxyRule {
+            ProxyRule(
+                name: name,
+                matchCondition: RuleMatchCondition(urlPattern: pattern, sourceURLPattern: pattern, method: "GET"),
+                action: .block(statusCode: 403)
+            )
+        }
+        let ads = rule("Ad network", "https://ads.example.com/*")
+        let tracker = rule("Tracker", "https://t.example.com/*")
+        let loose = rule("Beacon", "https://b.example.com/*")
+        let folder = RuleFolder(id: UUID(), name: "Marketing", ruleIDs: [ads.id, tracker.id])
+        let rows = RuleListRow.rows(rules: [ads, tracker, loose], folders: [folder], flat: false)
+        var display: [BlockListDisplayRow] = []
+        for row in rows {
+            display.append(BlockListDisplayRow(row: row, indented: false))
+            display.append(contentsOf: (row.children ?? []).map { BlockListDisplayRow(row: $0, indented: true) })
+        }
+        let view = BlockListTableView(
+            rows: display,
+            folderRules: { _ in [ads, tracker] },
+            collapsedFolderIDs: [],
+            onToggleCollapse: { _ in },
+            onSetFolderEnabled: { _, _ in },
+            onDrop: { _, _ in },
+            isSearching: false,
+            selectedRuleID: .constant(folder.id),
+            onToggle: { _ in },
+            onEdit: { _ in },
+            onDelete: { _ in },
+            contextMenuItems: { _ in EmptyView() }
+        )
+        try await render(view, name: "block-list-folder", size: CGSize(width: 900, height: 260))
+    }
+
     // MARK: Private
 
     private func render(_ view: some View, name: String, size: CGSize) async throws {
