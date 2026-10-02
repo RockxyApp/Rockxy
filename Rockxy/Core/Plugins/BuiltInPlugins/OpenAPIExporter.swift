@@ -264,6 +264,9 @@ private struct OperationAccumulator {
     let key: EndpointKey
     let pathParameters: [OpenAPIParameter]
     var querySamples: [String: [String]] = [:]
+    /// Names that appeared more than once in a single request (`?id=1&id=2`); only those
+    /// are documented as arrays. Values seen across separate requests are just samples.
+    var repeatedQueryNames: Set<String> = []
     var requestBodySamples: [String: [Any]] = [:]
     var requestBodyBinaryMediaTypes: Set<String> = []
     var responses: [String: ResponseAccumulator] = [:]
@@ -321,6 +324,10 @@ private struct OperationAccumulator {
 
     private mutating func consumeQuery(from url: URL) {
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        var seenNames: Set<String> = []
+        for item in queryItems where !seenNames.insert(item.name).inserted {
+            repeatedQueryNames.insert(item.name)
+        }
         for item in queryItems {
             // A credential parameter is still part of the API contract; document its name
             // and type but never its captured value.
@@ -386,7 +393,7 @@ private struct OperationAccumulator {
                 "in": "query",
                 "required": false
             ]
-            if values.count > 1 {
+            if repeatedQueryNames.contains(name) {
                 schema = [
                     "type": "array",
                     "items": OpenAPISchemaInferer.schema(forScalars: values)

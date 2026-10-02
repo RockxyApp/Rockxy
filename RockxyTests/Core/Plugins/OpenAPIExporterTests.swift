@@ -112,6 +112,20 @@ struct OpenAPIExporterTests {
         #expect(!serialized.contains("secret"))
     }
 
+    @Test("A query name seen once per request in several requests stays a scalar")
+    func queryValuesAcrossRequestsAreNotArrays() throws {
+        let first = jsonTransaction(method: "GET", url: "https://api.example.com/search?user=123", responseBody: ["ok": true])
+        let second = jsonTransaction(method: "GET", url: "https://api.example.com/search?user=456", responseBody: ["ok": true])
+
+        let operation = try operation(from: [first, second], path: "/search", method: "get")
+        let parameters = try #require(operation["parameters"] as? [[String: Any]])
+        let user = try #require(parameters.first { $0["name"] as? String == "user" })
+        let schema = try #require(user["schema"] as? [String: Any])
+
+        #expect(schema["type"] as? String == "integer")
+        #expect(user["explode"] == nil)
+    }
+
     @Test("Merges JSON schemas and intersects required keys")
     func mergesJSONSchemas() throws {
         let first = jsonTransaction(

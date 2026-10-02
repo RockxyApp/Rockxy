@@ -65,7 +65,7 @@ HAR is a JSON-based format supported by browser DevTools, Charles Proxy, Proxyma
 ### Importing a HAR File
 
 1. Choose **File > Import HAR...** (`Cmd+Shift+I`).
-2. Select a `.har` or `.json` file, or a Charles JSON session (`.chlsj`, from Charles's **File > Export Session… > JSON Session File**). Charles's binary `.chls` format can't be read outside Charles; export it as JSON first.
+2. Select a `.har` or `.json` file, a Charles JSON session (`.chlsj`, from Charles's **File > Export Session… > JSON Session File**), or a binary Charles session (`.chls`).
 3. Rockxy shows an **Import Review** sheet with file metadata and a destructive warning if you have an active session.
 4. Click **Replace Current** to import, or **Cancel** to abort.
 5. Imported transactions appear in the traffic list. The status bar shows the import source.
@@ -73,6 +73,8 @@ HAR is a JSON-based format supported by browser DevTools, Charles Proxy, Proxyma
 Import errors (invalid format, oversized file, deserialization failure) are shown in a dialog with a specific error message.
 
 A Charles JSON session keeps each request's headers, body, response, timings, and — where Charles recorded them — the server address and TLS version, which appear in the [Connection Log](/features/connection-log). You can also drop a `.chlsj` file on the traffic list.
+
+`.chls` is Charles's own binary format, so Rockxy asks the Charles installed on your Mac to convert it to HAR and imports the result. The first time, Rockxy explains this and asks before running the converter; Charles runs in the background without opening a window or changing proxy settings, which takes a few seconds. If Charles isn't installed, Rockxy says so — export the session from Charles as `.chlsj` or `.har` instead. Dropping a `.chls` on the traffic list and **File > Open Recent** work the same way.
 
 ### Exporting to HAR
 

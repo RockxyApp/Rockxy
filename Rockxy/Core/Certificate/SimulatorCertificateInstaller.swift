@@ -1,5 +1,7 @@
+import CryptoKit
 import Foundation
 import os
+import SQLite3
 
 // Installs the Rockxy root certificate into booted Apple simulators through simctl.
 
@@ -20,6 +22,16 @@ struct BootedSimulator: Equatable, Hashable, Sendable, Identifiable {
     }
 }
 
+// MARK: - SimulatorTrustStatus
+
+/// Whether a simulator's trust store holds the Rockxy root, read from its
+/// `TrustStore.sqlite3`. `unknown` covers stores that cannot be read.
+enum SimulatorTrustStatus: Equatable, Sendable {
+    case trusted
+    case missing
+    case unknown
+}
+
 // MARK: - SimulatorCertificateInstallerError
 
 enum SimulatorCertificateInstallerError: LocalizedError, Equatable {
@@ -27,6 +39,8 @@ enum SimulatorCertificateInstallerError: LocalizedError, Equatable {
     case commandFailed(status: Int32, message: String?)
     case timedOut
     case unreadableDeviceList
+
+    // MARK: Internal
 
     var errorDescription: String? {
         switch self {
@@ -71,10 +85,12 @@ struct SimulatorCertificateInstaller: Sendable {
 
     init(
         runner: SimulatorCommandRunning = SimulatorProcessRunner(),
-        fileManager: @escaping @Sendable () -> FileManager = { .default }
+        fileManager: @escaping @Sendable () -> FileManager = { .default },
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
     ) {
         self.runner = runner
         self.fileManager = fileManager
+        self.homeDirectory = homeDirectory
     }
 
     // MARK: Internal
@@ -124,6 +140,88 @@ struct SimulatorCertificateInstaller: Sendable {
         UUID(uuidString: value) != nil
     }
 
+    /// The DER bytes inside a PEM certificate.
+    static func derData(fromPEM pem: String) -> Data? {
+        let body = pem
+            .components(separatedBy: .newlines)
+            .filter { !$0.hasPrefix("-----") }
+            .joined()
+        return Data(base64Encoded: body)
+    }
+
+    /// Where CoreSimulator keeps a device's trust settings; `simctl keychain add-root-cert`
+    /// writes the certificate's SHA-256 there and erasing the device removes it.
+    static func trustStoreURL(udid: String, homeDirectory: URL) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library/Developer/CoreSimulator/Devices", isDirectory: true)
+            .appendingPathComponent(udid, isDirectory: true)
+            .appendingPathComponent("data/private/var/protected/trustd/private/TrustStore.sqlite3")
+    }
+
+    /// Reads the trust store read-only; nil when it is missing or unreadable.
+    static func trustStore(at url: URL, containsSHA256 digest: Data) -> Bool? {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        var database: OpaquePointer?
+        defer { sqlite3_close(database) }
+        guard sqlite3_open_v2(url.path, &database, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil) == SQLITE_OK else {
+            return nil
+        }
+        sqlite3_busy_timeout(database, 500)
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_prepare_v2(database, "SELECT 1 FROM tsettings WHERE sha256 = ? LIMIT 1", -1, &statement, nil)
+            == SQLITE_OK else
+        {
+            return nil
+        }
+        let bound = digest.withUnsafeBytes { buffer in
+            sqlite3_bind_blob(
+                statement,
+                1,
+                buffer.baseAddress,
+                Int32(buffer.count),
+                unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+            )
+        }
+        guard bound == SQLITE_OK else {
+            return nil
+        }
+        switch sqlite3_step(statement) {
+        case SQLITE_ROW:
+            return true
+        case SQLITE_DONE:
+            return false
+        default:
+            return nil
+        }
+    }
+
+    /// Trust status of the Rockxy root in each simulator.
+    func trustStatus(
+        of simulators: [BootedSimulator],
+        certificatePEM: String
+    )
+        -> [BootedSimulator: SimulatorTrustStatus]
+    {
+        guard let der = Self.derData(fromPEM: certificatePEM) else {
+            return Dictionary(uniqueKeysWithValues: simulators.map { ($0, .unknown) })
+        }
+        let digest = Data(SHA256.hash(data: der))
+        return Dictionary(uniqueKeysWithValues: simulators.map { simulator in
+            guard Self.isValidUDID(simulator.udid) else {
+                return (simulator, .unknown)
+            }
+            let url = Self.trustStoreURL(udid: simulator.udid, homeDirectory: homeDirectory)
+            switch Self.trustStore(at: url, containsSHA256: digest) {
+            case true?: return (simulator, .trusted)
+            case false?: return (simulator, .missing)
+            case nil: return (simulator, .unknown)
+            }
+        })
+    }
+
     func bootedSimulators() async throws -> [BootedSimulator] {
         let simctl = try await simctlURL()
         let output = try await runner.run(executable: simctl, arguments: ["list", "devices", "booted", "-j"])
@@ -171,6 +269,7 @@ struct SimulatorCertificateInstaller: Sendable {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SimulatorCertificate")
 
     private let fileManager: @Sendable () -> FileManager
+    private let homeDirectory: URL
 
     private static func message(from data: Data) -> String? {
         let text = String(data: data.prefix(2_048), encoding: .utf8)?
@@ -182,6 +281,9 @@ struct SimulatorCertificateInstaller: Sendable {
         let output: SimulatorCommandOutput
         do {
             output = try await runner.run(executable: Self.xcodeSelectURL, arguments: ["-p"])
+        } catch SimulatorCertificateInstallerError.timedOut {
+            // A busy Mac can stall the lookup; that is not a missing Xcode.
+            throw SimulatorCertificateInstallerError.timedOut
         } catch {
             throw SimulatorCertificateInstallerError.developerToolsUnavailable
         }
@@ -230,7 +332,10 @@ struct SimulatorCertificateInstaller: Sendable {
             )
             guard output.status == 0 else {
                 Self.logger.error("simctl add-root-cert failed with status \(output.status)")
-                return .failure(.commandFailed(status: output.status, message: Self.message(from: output.standardError)))
+                return .failure(.commandFailed(
+                    status: output.status,
+                    message: Self.message(from: output.standardError)
+                ))
             }
             Self.logger.info("Installed root certificate in a booted simulator")
             return .success(())

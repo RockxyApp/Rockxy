@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
+- Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.
+- Opening a Charles session (.chls) converts it with the installed Charles app after a one-time confirmation, then shows the import review.
+- Prepared terminals give Java a trust store with Rockxy's certificate, without changing system trust.
+- Custom root certificates with SHA-1 signatures or RSA keys under 2048 bits are rejected with a clear reason.
 - Showed streaming responses (Server-Sent Events and NDJSON, such as LLM completions) in the request list as Active rows as soon as their headers arrive, completed in place when the stream ends, instead of appearing only after a long stream finished.
 - Added Traffic Insights: an Insights destination at the top of the Focus Navigator that turns the active Traffic Tab into a live report — findings with one-click handoffs, traffic over time by bytes, outcome, or latency, protocol share, outcome/content/method breakdowns, top apps and hosts, slowest requests, largest responses, an All/Visible scope that follows the current filters, trailing time windows, pause/resume, and Markdown export.
 - Added persistent application-scoped HTTPS Decrypt and Tunnel rules, with a unified app/host rule list and observed-host picker.
@@ -30,6 +35,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Fixed WebSocket connections failing with HTTP/2 enabled: the handshake is now always sent to the server over HTTP/1.1.
+- Fixed Chrome on Android emulators rejecting Rockxy's certificate after system-wide trust; Rockxy also adds it as a user CA, which Chrome trusts, and Revert removes it.
+- Fixed the Ruby that ships with macOS rejecting Rockxy's certificate in prepared terminals.
+- Fixed `rockxy-cli proxy on` and `proxy off` returning before macOS applied the change.
+- Fixed a Modify Headers rule turning off every Map Local, Map Remote, Block, and Network Conditions rule listed after it for the same URL. Header rules now apply on top of those rules, so a CORS rule for a host also reaches Map Local and script-mocked responses, and request scripts still run after a header rule.
+- Fixed `rockxy-cli start` returning before the proxy was listening, which made a following `rockxy-cli proxy off` have no effect and `rockxy-cli proxy on` fail; `start` now waits and prints the port or the reason it could not start.
+- Fixed iOS Safari downloading the shared root certificate as a plain file instead of offering a configuration profile.
+- Fixed WKWebView and other clients that wait before their first request inside a CONNECT tunnel going uncaptured.
+- Fixed Add Header in the breakpoint editor immediately disabling Apply with an invalid-header error.
+- Fixed OpenAPI export describing a query parameter as an array when separate requests each sent it once.
+- Fixed settings import reporting that no rules were added when it added reverse proxies or DNS Spoofing rules.
+- Fixed Android emulator setup not finding adb from Homebrew when Rockxy is opened from Finder.
+- Fixed a slow `xcode-select` lookup being reported as "Xcode is not installed" during simulator setup.
 - Fixed the inspector showing "No Selection" after a filter hid the focused row of a multi-row selection while other selected rows stayed visible; the top-most visible selected row now becomes the inspected request.
 - Localized system proxy and plugin script error messages shown in the capture readiness panel and the scripting surfaces.
 - Fixed an open WebSocket reading "Duration Unavailable" in the Context Dock while its inspector showed a running time; both now show the elapsed time of a connection or stream that is still open, updated once a second.

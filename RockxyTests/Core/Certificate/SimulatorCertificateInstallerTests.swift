@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import Rockxy
 import Testing
@@ -44,6 +45,21 @@ struct SimulatorCertificateInstallerTests {
             try await installer.bootedSimulators()
         }
         #expect(runner.invocations.count == 1)
+    }
+
+    @Test("A stalled developer-directory lookup reports a timeout, not a missing Xcode")
+    func stalledLookupIsATimeout() async {
+        let runner = RecordingRunner { _, _ in
+            throw SimulatorCertificateInstallerError.timedOut
+        }
+        let installer = SimulatorCertificateInstaller(runner: runner)
+        let simulator = BootedSimulator(udid: UUID().uuidString, name: "iPhone", runtime: "iOS 27.0")
+
+        await #expect(throws: SimulatorCertificateInstallerError.timedOut) {
+            try await installer.bootedSimulators()
+        }
+        let results = await installer.installRootCertificate(pem: "PEM", into: [simulator])
+        #expect(results[simulator].map { if case .failure(.timedOut) = $0 { true } else { false } } == true)
     }
 
     @Test("Install passes the UDID and a private PEM file to simctl, then removes the file")
@@ -131,7 +147,60 @@ struct SimulatorCertificateInstallerTests {
         }
     }
 
+    @Test("Trust status reads the simulator's trust store: present, missing after erase, or unreadable")
+    func trustStatusFromTrustStore() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let trusted = BootedSimulator(udid: UUID().uuidString, name: "iPhone", runtime: "iOS 27.0")
+        let erased = BootedSimulator(udid: UUID().uuidString, name: "iPad", runtime: "iOS 27.0")
+        let unreadable = BootedSimulator(udid: UUID().uuidString, name: "Watch", runtime: "watchOS 26.0")
+        let pem = AndroidEmulatorProxyControllerTests.testCAPEM
+        let der = try #require(SimulatorCertificateInstaller.derData(fromPEM: pem))
+        try makeTrustStore(home: home, udid: trusted.udid, sha256: Data(SHA256.hash(data: der)))
+        try makeTrustStore(home: home, udid: erased.udid, sha256: nil)
+
+        let statuses = SimulatorCertificateInstaller(homeDirectory: home)
+            .trustStatus(of: [trusted, erased, unreadable], certificatePEM: pem)
+
+        #expect(statuses[trusted] == .trusted)
+        #expect(statuses[erased] == .missing)
+        #expect(statuses[unreadable] == .unknown)
+    }
+
+    @Test("The confirmation and live line state each simulator's trust and the empty state")
+    @MainActor
+    func trustSummaries() {
+        let simulator = BootedSimulator(udid: UUID().uuidString, name: "iPhone 18 Pro", runtime: "iOS 27.0")
+        let other = BootedSimulator(udid: UUID().uuidString, name: "iPad Air", runtime: "iOS 27.0")
+        let lines = SimulatorCertificateInstallFlow.statusLines(
+            [simulator, other],
+            statuses: [simulator: .trusted, other: .missing]
+        )
+        #expect(lines.contains("iPhone 18 Pro (iOS 27.0) — already trusts Rockxy"))
+        #expect(lines.contains("iPad Air (iOS 27.0) — certificate not installed"))
+        #expect(SimulatorTrustStatusLine.summary(booted: 0, trusted: 0, trustKnown: true)
+            .hasPrefix("No simulators are booted"))
+        #expect(SimulatorTrustStatusLine
+            .summary(booted: 2, trusted: 1, trustKnown: true) == "2 booted simulators · 1 with the Rockxy certificate")
+        #expect(SimulatorTrustStatusLine.summary(booted: 1, trusted: 0, trustKnown: false) == "1 booted simulator")
+    }
+
     // MARK: Private
+
+    private func makeTrustStore(home: URL, udid: String, sha256: Data?) throws {
+        let url = SimulatorCertificateInstaller.trustStoreURL(udid: udid, homeDirectory: home)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        var sql = "CREATE TABLE tsettings(sha256 BLOB NOT NULL DEFAULT '',subj BLOB NOT NULL DEFAULT '',tset BLOB,data BLOB,uuid BLOB NOT NULL DEFAULT '',UNIQUE(sha256,uuid));"
+        if let sha256 {
+            sql += "INSERT INTO tsettings(sha256) VALUES (x'\(sha256.map { String(format: "%02x", $0) }.joined())');"
+        }
+        process.arguments = [url.path, sql]
+        try process.run()
+        process.waitUntilExit()
+        #expect(process.terminationStatus == 0)
+    }
 
     private func makeFakeDeveloperDirectory() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

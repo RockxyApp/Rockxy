@@ -164,6 +164,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     private var pendingDisablesResponseCaching = false
     private var pendingBreakpointPhase: BreakpointRulePhase?
+    /// Response-phase operations of the Modify Headers rules matched by the current request.
+    private var pendingResponseHeaderOperations: [HeaderOperation]?
     private var pendingBreakpointRuleName: String?
     /// The unstructured Task bridging an in-flight request breakpoint to the
     /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
@@ -210,6 +212,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     ) {
         pendingBreakpointPhase = nil
         pendingBreakpointRuleName = nil
+        pendingResponseHeaderOperations = nil
         var requestData = buildRequestData(from: head)
 
         var head = head
@@ -241,11 +244,13 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 return
             }
             let evaluation = try? result.get()
-            let breakpointRule = evaluation?.0
-            let matchedRule = evaluation?.1
+            let breakpointRule = evaluation?.breakpoint
+            let matchedRule = evaluation?.matched
+            let headerRules = evaluation?.headerRules ?? []
             let ruleForTransaction = ProxyHandlerShared.transactionRule(
                 breakpointRule: breakpointRule,
-                matchedRule: matchedRule
+                matchedRule: matchedRule,
+                headerRules: headerRules
             )
             let matchedRuleCallback = self.makeTransactionCallback(for: ruleForTransaction)
 
@@ -254,6 +259,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.pendingBreakpointPhase = responsePhase
             }
 
+            // Modify Headers rules layer on top of whatever happens next: the request is
+            // rewritten here and the response operations ride along to every response path.
+            let headerOperations = ProxyHandlerShared.headerOperations(of: headerRules)
+            let rewritten = ProxyHandlerShared.applyRequestHeaderOperations(
+                headerOperations.request,
+                head: head,
+                requestData: requestData
+            )
+            self.pendingResponseHeaderOperations = headerOperations.response.isEmpty
+                ? nil
+                : headerOperations.response
+            let forwardHead = rewritten.head
+            let forwardData = rewritten.requestData
+
             if let breakpointRule,
                case let .breakpoint(phase) = breakpointRule.action,
                phase == .request || phase == .both
@@ -261,8 +280,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.handleRuleAction(
                     breakpointRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
                     callback: self.makeTransactionCallback(for: breakpointRule),
@@ -275,8 +294,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.handleRuleAction(
                     matchedRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
                     callback: matchedRuleCallback,
@@ -285,10 +304,12 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 return
             }
 
+            // Only header rules matched: keep their attribution on the transaction.
+            let forwardCallback = headerRules.isEmpty ? callback : matchedRuleCallback
             if let scriptPluginManager = self.scriptPluginManager {
                 let eventLoop = context.eventLoop
                 eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHook(on: requestData)
+                    await scriptPluginManager.runRequestHook(on: forwardData)
                 }.whenSuccess { [weak self] outcome in
                     guard let self else {
                         return
@@ -297,43 +318,43 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                     case let .forward(modifiedRequest):
                         self.connectToUpstream(
                             context: context,
-                            head: head,
+                            head: forwardHead,
                             requestData: modifiedRequest,
                             graphQLInfo: graphQLInfo,
                             startTime: startTime,
-                            callback: callback
+                            callback: forwardCallback
                         )
                     case .blockLocally:
                         self.sendBlockResponse(
                             context: context,
                             status: 403,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     case let .mock(mockResponse):
                         self.sendMappedResponse(
                             context: context,
                             responseData: mockResponse,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     case .mockFailure:
                         self.sendBlockResponse(
                             context: context,
                             status: 502,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     }
                 }
             } else {
                 self.connectToUpstream(
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
-                    callback: callback
+                    callback: forwardCallback
                 )
             }
         }
@@ -431,7 +452,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 acceptsUntrustedCertificates: upstreamTrustProvider(),
                 host: upstreamHost
             )
-            let offersHTTP2 = HTTP2ProxyOptions.isEnabled
+            let offersHTTP2 = HTTP2ProxyOptions.offersHTTP2Upstream(for: head)
             if offersHTTP2 {
                 clientTLSConfig.applicationProtocols = HTTP2ProxyOptions.alpnProtocols
             }
@@ -517,7 +538,10 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 sourcePort: self.clientSourcePort,
                 breakpointPhase: self.pendingBreakpointPhase,
                 breakpointRuleName: self.pendingBreakpointRuleName,
-                headerResponseOperations: responseHeaderOperations,
+                headerResponseOperations: ProxyHandlerShared.mergedResponseOperations(
+                    self.pendingResponseHeaderOperations,
+                    responseHeaderOperations
+                ),
                 disablesResponseCaching: self.pendingDisablesResponseCaching,
                 networkConditionProfile: networkConditionProfile,
                 scriptPluginManager: self.scriptPluginManager,
@@ -894,6 +918,10 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         requestData: HTTPRequestData,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
+        let responseData = ProxyHandlerShared.applyResponseHeaderOperations(
+            pendingResponseHeaderOperations,
+            to: responseData
+        )
         let status = HTTPResponseStatus(statusCode: responseData.statusCode)
         var responseHead = HTTPResponseHead(version: .http1_1, status: status)
         for header in responseData.headers {

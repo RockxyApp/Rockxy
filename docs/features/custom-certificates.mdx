@@ -47,6 +47,7 @@ Common reasons to do this:
 - When a custom root is active, the Root tab shows **Custom Root Active** and lists the import date, validity window, and SHA-256 fingerprint of the imported cert.
 - Rockxy uses the most recently imported root. Importing again replaces the previous one.
 - **Revert** removes the custom root and reactivates Rockxy's default root.
+- Rockxy refuses a root that clients would reject anyway and says why: a certificate that is not a CA, one that has expired or is not valid yet, one signed with SHA-1, or one with an RSA key shorter than 2048 bits. A wrong P12 password is reported as such.
 - After importing a custom root, you still need to make sure that root is trusted on every device that will route traffic through Rockxy — Rockxy does **not** push the custom root into the macOS keychain trust store for you.
 
 <Note>

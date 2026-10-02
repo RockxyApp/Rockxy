@@ -245,6 +245,9 @@ struct SettingsBackupMergeResult {
     var addedRuleCount: Int
     /// Entries left out because they were invalid or conflicted with current settings.
     var skippedCount: Int
+    /// Reverse proxy and DNS Spoofing entries the import adds (they are not tool rules).
+    var addedReverseProxyCount = 0
+    var addedDNSSpoofingCount = 0
 }
 
 // MARK: - SettingsBackupMerger
@@ -342,7 +345,13 @@ enum SettingsBackupMerger {
         }
         result.dnsSpoofing = dnsRules
 
-        return SettingsBackupMergeResult(settings: result, addedRuleCount: addedRuleCount, skippedCount: skipped)
+        return SettingsBackupMergeResult(
+            settings: result,
+            addedRuleCount: addedRuleCount,
+            skippedCount: skipped,
+            addedReverseProxyCount: reverseProxies.count - (mode == .replace ? 0 : current.reverseProxies.count),
+            addedDNSSpoofingCount: dnsRules.count - (mode == .replace ? 0 : current.dnsSpoofing.count)
+        )
     }
 
     /// Returns `value` with a fresh `id`, for models whose identifier is immutable.

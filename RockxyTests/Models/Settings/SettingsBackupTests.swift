@@ -117,6 +117,8 @@ struct SettingsBackupTests {
         #expect(settings.bypassDomains.count == 1)
         // The reverse proxy on an occupied port is skipped; the new port is added.
         #expect(settings.reverseProxies.map(\.localPort) == [10_001, 10_002])
+        #expect(result.addedReverseProxyCount == 1)
+        #expect(result.addedDNSSpoofingCount == 0)
         // The duplicate DNS host is skipped.
         #expect(settings.dnsSpoofing.count == 1)
         // Append never changes tool switches.
@@ -199,6 +201,16 @@ struct SettingsBackupTests {
         #expect(text.contains("1 DNS Spoofing rule"))
         #expect(SettingsBackupFlow.summary(of: SettingsBackupDocument(settings: SettingsBackupSnapshot()))
             == "The backup contains no rules.")
+    }
+
+    @Test("An import that only adds reverse proxies or DNS rules says so instead of 'already here'")
+    @MainActor
+    func reportCountsReverseProxiesAndDNSRules() {
+        let lines = SettingsBackupFlow.reportLines(SettingsBackupImportReport(reverseProxyCount: 1, dnsSpoofingCount: 2))
+        #expect(lines == ["1 reverse proxy added.", "2 DNS Spoofing rules added."])
+        #expect(SettingsBackupFlow.reportLines(SettingsBackupImportReport()) == [
+            "No new rules were added; the backup's rules are already here.",
+        ])
     }
 
     // MARK: Private

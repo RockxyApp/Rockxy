@@ -42,6 +42,20 @@ struct TLSKeyLogSettingsTests {
         #expect(relaunchedWriter.destination == nil)
     }
 
+    @Test("Loading saved settings that are off leaves an existing destination alone")
+    func loadingOffSettingsDoesNotClearTheWriter() throws {
+        let defaults = IsolatedDefaultsSuite.make(prefix: "Rockxy.TLSKeyLogSettingsTests")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("keys-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let writer = TLSKeyLogWriter()
+        try writer.setDestination(url)
+
+        _ = TLSKeyLogSettings(defaults: defaults, writer: writer)
+
+        #expect(writer.destination == url)
+        try writer.setDestination(nil)
+    }
+
     @Test("An unwritable file turns logging off and explains why")
     func unwritableFile() {
         let defaults = IsolatedDefaultsSuite.make(prefix: "Rockxy.TLSKeyLogSettingsTests")

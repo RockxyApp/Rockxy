@@ -87,10 +87,11 @@ extension MainContentCoordinator {
 
     func importHAR() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.har, .json] + [UTType(filenameExtension: "chlsj")].compactMap(\.self)
+        panel.allowedContentTypes = [.har, .json]
+            + [UTType(filenameExtension: "chlsj"), UTType(filenameExtension: "chls")].compactMap(\.self)
         panel.allowsMultipleSelection = false
         panel.message = String(
-            localized: "Choose a HAR file or a Charles JSON session (.chlsj) to import",
+            localized: "Choose a HAR file or a Charles session (.chlsj or .chls) to import",
             bundle: RockxyLocalization.bundle
         )
 
@@ -98,7 +99,109 @@ extension MainContentCoordinator {
             return
         }
 
-        prepareHARImport(from: url)
+        if ExternalCaptureDocumentKind(url: url) == .charlesBinarySession {
+            prepareCharlesSessionImport(from: url)
+        } else {
+            prepareHARImport(from: url)
+        }
+    }
+
+    // MARK: - Import Charles Session
+
+    nonisolated static let charlesConversionConsentKey = RockxyIdentity.current
+        .defaultsKey("charlesConversionConsented")
+
+    /// Converts a binary Charles session with the installed Charles, after a one-time
+    /// consent, then shows the usual import review for the converted HAR.
+    func prepareCharlesSessionImport(
+        from url: URL,
+        converter: CharlesSessionConverter = CharlesSessionConverter(),
+        defaults: UserDefaults = .standard,
+        askConsent: @MainActor () -> Bool = MainContentCoordinator.confirmCharlesConversion
+    ) {
+        guard converter.isCharlesInstalled else {
+            showImportError(
+                title: String(localized: "Charles Is Not Installed", bundle: RockxyLocalization.bundle),
+                message: CharlesSessionConverterError.charlesNotInstalled.localizedDescription
+            )
+            return
+        }
+        if !defaults.bool(forKey: Self.charlesConversionConsentKey) {
+            guard askConsent() else {
+                return
+            }
+            defaults.set(true, forKey: Self.charlesConversionConsentKey)
+        }
+        if case let .failure(sizeError) = ImportSizePolicy.validateFileSize(
+            at: url,
+            maxSize: ImportSizePolicy.maxHARFileSize
+        ) {
+            showImportError(
+                title: String(localized: "Session Too Large", bundle: RockxyLocalization.bundle),
+                message: sizeError.localizedDescription
+            )
+            return
+        }
+        activeToast = ToastMessage(
+            style: .success,
+            text: String(
+                localized: "Converting \(url.lastPathComponent) with Charles…",
+                bundle: RockxyLocalization.bundle
+            )
+        )
+        Task { @MainActor in
+            do {
+                let har = try await converter.convertToHAR(url)
+                let directory = har.deletingLastPathComponent()
+                do {
+                    let converted = try await Task.detached(priority: .userInitiated) {
+                        try Self.makeHARPreview(from: har)
+                    }.value
+                    var preview = ImportPreview(
+                        fileName: url.lastPathComponent,
+                        fileType: .charlesSession,
+                        transactionCount: converted.transactionCount,
+                        logEntryCount: 0,
+                        fileSize: (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0,
+                        captureStartDate: nil,
+                        captureEndDate: nil,
+                        rockxyVersion: nil,
+                        sourceURL: har,
+                        skippedEntryCount: converted.skippedEntryCount
+                    )
+                    preview.temporaryDirectory = directory
+                    importPreview = preview
+                    RecentCaptureDocuments.shared.note(url)
+                } catch {
+                    try? FileManager.default.removeItem(at: directory)
+                    showHARPreviewFailure(error, url: url)
+                }
+            } catch {
+                Self.logger.error("Charles conversion failed: \(error.localizedDescription)")
+                showImportError(
+                    title: String(localized: "Charles Session Import Failed", bundle: RockxyLocalization.bundle),
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    /// One-time notice before Rockxy runs another app's converter.
+    static func confirmCharlesConversion() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(localized: "Convert with Charles?", bundle: RockxyLocalization.bundle)
+        alert.informativeText = String(
+            localized: """
+            .chls is Charles's own format, so Rockxy asks the installed Charles to convert the file to \
+            HAR, then imports that. Charles runs in the background without opening a window or changing \
+            proxy settings. Rockxy won't ask again.
+            """,
+            bundle: RockxyLocalization.bundle
+        )
+        alert.addButton(withTitle: String(localized: "Convert", bundle: RockxyLocalization.bundle))
+        alert.addButton(withTitle: String(localized: "Cancel", bundle: RockxyLocalization.bundle))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// Validates and pre-parses a HAR archive, then presents the import review
@@ -198,6 +301,8 @@ extension MainContentCoordinator {
             prepareSessionImport(from: url)
         case .har:
             prepareHARImport(from: url)
+        case .charlesBinarySession:
+            prepareCharlesSessionImport(from: url)
         }
         return true
     }
@@ -218,9 +323,11 @@ extension MainContentCoordinator {
                 )
                 return
             }
+            defer { removeTemporaryImportFiles(of: preview) }
             switch preview.fileType {
             case .har,
-                 .charlesJSON:
+                 .charlesJSON,
+                 .charlesSession:
                 await executeHARImport(from: preview.sourceURL, fileName: preview.fileName)
             case .rockxysession:
                 await executeSessionImport(from: preview.sourceURL, fileName: preview.fileName)
@@ -229,7 +336,16 @@ extension MainContentCoordinator {
     }
 
     func cancelImport() {
+        if let importPreview {
+            removeTemporaryImportFiles(of: importPreview)
+        }
         importPreview = nil
+    }
+
+    private func removeTemporaryImportFiles(of preview: ImportPreview) {
+        if let directory = preview.temporaryDirectory {
+            try? FileManager.default.removeItem(at: directory)
+        }
     }
 
     // MARK: - Private

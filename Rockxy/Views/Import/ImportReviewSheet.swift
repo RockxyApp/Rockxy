@@ -138,6 +138,8 @@ enum ImportReviewCopy {
             String(localized: "HAR Archive (HTTP Archive 1.2)", bundle: RockxyLocalization.bundle)
         case .charlesJSON:
             String(localized: "Charles JSON Session", bundle: RockxyLocalization.bundle)
+        case .charlesSession:
+            String(localized: "Charles Session (converted by Charles)", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Rockxy Session", bundle: RockxyLocalization.bundle)
         }
@@ -147,7 +149,8 @@ enum ImportReviewCopy {
         switch type {
         case .har:
             String(localized: "Import HAR Archive", bundle: RockxyLocalization.bundle)
-        case .charlesJSON:
+        case .charlesJSON,
+             .charlesSession:
             String(localized: "Import Charles Session", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Open Rockxy Session", bundle: RockxyLocalization.bundle)
@@ -157,7 +160,8 @@ enum ImportReviewCopy {
     static func primaryActionTitle(_ type: ImportFileType) -> String {
         switch type {
         case .har,
-             .charlesJSON:
+             .charlesJSON,
+             .charlesSession:
             String(localized: "Import", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Open Session", bundle: RockxyLocalization.bundle)

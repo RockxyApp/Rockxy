@@ -260,9 +260,14 @@ protocol CommandLineControlTarget: AnyObject {
     var cliProxyPort: Int { get }
     var cliIsRecording: Bool { get }
     var cliIsSystemProxyOn: Bool { get }
-    func cliStartProxy()
+    /// Why the last start failed, when it did.
+    var cliProxyError: String? { get }
+    /// Starts the proxy and returns once it is listening or has failed, so a following
+    /// command (`proxy on`, `proxy off`) acts on a running proxy instead of racing it.
+    func cliStartProxy() async
     func cliStopProxy()
-    func cliSetSystemProxy(_ isOn: Bool)
+    /// Returns once macOS has applied the change, so `proxy off` means traffic is no longer routed.
+    func cliSetSystemProxy(_ isOn: Bool) async
     func cliSetRecording(_ isRecording: Bool)
     func cliClearSession() async
     func cliSetTool(_ tool: CommandLineTool, enabled: Bool) async
@@ -313,8 +318,17 @@ enum CommandLineCommandRunner {
                 : String(localized: "Recording: paused", bundle: RockxyLocalization.bundle)
             return .success([proxy, system, recording].joined(separator: "\n"))
         case .startProxy:
-            target.cliStartProxy()
-            return .success(String(localized: "Starting the proxy.", bundle: RockxyLocalization.bundle))
+            await target.cliStartProxy()
+            guard target.cliIsProxyRunning else {
+                return .failure(target.cliProxyError ?? String(
+                    localized: "The proxy did not start.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            }
+            return .success(String(
+                localized: "Proxy running on port \(String(target.cliProxyPort)).",
+                bundle: RockxyLocalization.bundle
+            ))
         case .stopProxy:
             target.cliStopProxy()
             return .success(String(localized: "Stopping the proxy.", bundle: RockxyLocalization.bundle))
@@ -325,7 +339,13 @@ enum CommandLineCommandRunner {
                     bundle: RockxyLocalization.bundle
                 ))
             }
-            target.cliSetSystemProxy(isOn)
+            await target.cliSetSystemProxy(isOn)
+            guard target.cliIsSystemProxyOn == isOn else {
+                return .failure(String(
+                    localized: "macOS did not accept the proxy change. Check the capture status in Rockxy.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            }
             return .success(isOn
                 ? String(localized: "Routing macOS traffic through Rockxy.", bundle: RockxyLocalization.bundle)
                 : String(localized: "Stopped routing macOS traffic through Rockxy.", bundle: RockxyLocalization.bundle))

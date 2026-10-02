@@ -111,11 +111,22 @@ enum SettingsBackupFlow {
 
     /// What an import did, one sentence per line; shared by the import alert and rockxy-cli.
     static func reportLines(_ report: SettingsBackupImportReport) -> [String] {
-        var lines = [
-            report.ruleCount > 0
-                ? inflected("^[\(report.ruleCount) rule](inflect: true) imported.")
-                : String(localized: "No new rules were added; the backup's rules are already here.", bundle: RockxyLocalization.bundle),
-        ]
+        var lines: [String] = []
+        if report.ruleCount > 0 {
+            lines.append(inflected("^[\(report.ruleCount) rule](inflect: true) imported."))
+        }
+        if report.reverseProxyCount > 0 {
+            lines.append(inflected("^[\(report.reverseProxyCount) reverse proxy](inflect: true) added."))
+        }
+        if report.dnsSpoofingCount > 0 {
+            lines.append(inflected("^[\(report.dnsSpoofingCount) DNS Spoofing rule](inflect: true) added."))
+        }
+        if lines.isEmpty {
+            lines.append(String(
+                localized: "No new rules were added; the backup's rules are already here.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
         if report.scriptCount > 0 {
             lines.append(inflected("^[\(report.scriptCount) script](inflect: true) added, turned off."))
         }

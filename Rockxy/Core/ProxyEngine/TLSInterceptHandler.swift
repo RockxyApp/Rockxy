@@ -723,9 +723,17 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         }
     }
 
-    /// How long a silent client is given before the tunnel goes raw anyway; protocols where the
-    /// server speaks first (SMTP, MySQL) must not hang behind the sniff.
+    /// How long a silent client is given before the tunnel goes raw anyway. Ports of protocols
+    /// where the server speaks first (SSH, FTP, mail, MySQL, VNC) must not wait behind the sniff;
+    /// elsewhere a client may pause before its first request (WebKit sends it about 700 ms
+    /// after a CONNECT), and a TLS client's ClientHello arrives at once either way.
     static let tunnelSniffTimeout: TimeAmount = .milliseconds(300)
+    static let clientFirstTunnelSniffTimeout: TimeAmount = .seconds(2)
+    static let serverFirstPorts: Set<Int> = [21, 22, 25, 110, 143, 465, 587, 993, 995, 3_306, 5_900]
+
+    static func tunnelSniffTimeout(forPort port: Int) -> TimeAmount {
+        serverFirstPorts.contains(port) ? tunnelSniffTimeout : clientFirstTunnelSniffTimeout
+    }
 
     nonisolated private func setupRawTunnel(
         context: ChannelHandlerContext,
@@ -773,7 +781,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             return
         }
         pendingTunnelSniff = decide
-        tunnelSniffTimeout = context.eventLoop.scheduleTask(in: Self.tunnelSniffTimeout) { [weak self] in
+        tunnelSniffTimeout = context.eventLoop.scheduleTask(in: Self.tunnelSniffTimeout(forPort: port)) { [weak self] in
             guard let self, let decision = self.pendingTunnelSniff else {
                 return
             }

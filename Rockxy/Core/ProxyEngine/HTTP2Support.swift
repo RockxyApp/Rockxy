@@ -32,6 +32,13 @@ nonisolated enum HTTP2ProxyOptions {
         return UserDefaults.standard.bool(forKey: defaultsKey)
     }
 
+    /// Whether the origin connection for `head` may offer HTTP/2. A request that asks to
+    /// switch protocols (a WebSocket handshake) only works over HTTP/1.1, so offering h2
+    /// for it would let the origin pick a protocol that cannot upgrade and answer 200.
+    static func offersHTTP2Upstream(for head: HTTPRequestHead) -> Bool {
+        isEnabled && !head.headers.contains(name: "Upgrade")
+    }
+
     /// Test seam so loopback tests never write the app's shared defaults.
     static func setOverride(_ value: Bool?) {
         override.withLockedValue { $0 = value }

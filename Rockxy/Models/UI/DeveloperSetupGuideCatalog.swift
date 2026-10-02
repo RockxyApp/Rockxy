@@ -226,7 +226,11 @@ enum DeveloperSetupGuideCatalog {
                 tip(
                     "android-emu-nsc",
                     "Apps still need network-security-config to trust it",
-                    "Production emulator images behave like real devices: apps only trust user CAs when their network-security-config allows it."
+                    """
+                    A user CA is only trusted by apps whose network-security-config allows it. On a Google APIs \
+                    image, Route Emulators Through Rockxy can trust the certificate system-wide instead, until \
+                    the emulator restarts.
+                    """
                 ),
             ],
             validationTips: [

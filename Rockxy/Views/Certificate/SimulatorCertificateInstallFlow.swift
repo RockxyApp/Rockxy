@@ -10,6 +10,8 @@ import Foundation
 /// simulator's outcome. Trust changes only happen after the user confirms.
 @MainActor
 enum SimulatorCertificateInstallFlow {
+    // MARK: Internal
+
     static func run(installer: SimulatorCertificateInstaller = SimulatorCertificateInstaller()) async {
         let simulators: [BootedSimulator]
         do {
@@ -35,10 +37,6 @@ enum SimulatorCertificateInstallFlow {
             return
         }
 
-        guard confirm(simulators) else {
-            return
-        }
-
         let certificatePEM: String
         do {
             certificatePEM = try await verifiedRootCertificatePEM()
@@ -51,8 +49,51 @@ enum SimulatorCertificateInstallFlow {
             return
         }
 
-        let results = await installer.installRootCertificate(pem: certificatePEM, into: simulators)
+        let before = installer.trustStatus(of: simulators, certificatePEM: certificatePEM)
+        guard confirm(simulators, statuses: before) else {
+            return
+        }
+
+        var results = await installer.installRootCertificate(pem: certificatePEM, into: simulators)
+        // simctl can exit cleanly without changing the store; trust only what the store shows.
+        let after = installer.trustStatus(of: simulators, certificatePEM: certificatePEM)
+        for simulator in simulators where after[simulator] == .missing {
+            if case .success = results[simulator] {
+                results[simulator] = .failure(.commandFailed(
+                    status: 0,
+                    message: String(
+                        localized: "The certificate is not in the simulator's trust store after installing.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                ))
+            }
+        }
         presentSummary(simulators: simulators, results: results)
+    }
+
+    /// One line per simulator for the confirmation, with its current trust state.
+    static func statusLines(
+        _ simulators: [BootedSimulator],
+        statuses: [BootedSimulator: SimulatorTrustStatus]
+    )
+        -> String
+    {
+        simulators.map { simulator in
+            switch statuses[simulator] ?? .unknown {
+            case .trusted:
+                "• " + String(
+                    localized: "\(simulator.displayName) — already trusts Rockxy",
+                    bundle: RockxyLocalization.bundle
+                )
+            case .missing:
+                "• " + String(
+                    localized: "\(simulator.displayName) — certificate not installed",
+                    bundle: RockxyLocalization.bundle
+                )
+            case .unknown:
+                "• \(simulator.displayName)"
+            }
+        }.joined(separator: "\n")
     }
 
     static func summary(
@@ -78,7 +119,12 @@ enum SimulatorCertificateInstallFlow {
 
     // MARK: Private
 
-    private static func confirm(_ simulators: [BootedSimulator]) -> Bool {
+    private static func confirm(
+        _ simulators: [BootedSimulator],
+        statuses: [BootedSimulator: SimulatorTrustStatus]
+    )
+        -> Bool
+    {
         let alert = NSAlert()
         alert.alertStyle = .informational
         alert.messageText = String(AttributedString(
@@ -86,8 +132,7 @@ enum SimulatorCertificateInstallFlow {
             bundle: RockxyLocalization.bundle,
             locale: RockxyLocalization.locale
         ).characters)
-        let list = simulators.map { "• \($0.displayName)" }.joined(separator: "\n")
-        alert.informativeText = list + "\n\n" + String(
+        alert.informativeText = statusLines(simulators, statuses: statuses) + "\n\n" + String(
             localized: "These simulators will trust HTTPS certificates that Rockxy issues. Erasing a simulator removes the certificate.",
             bundle: RockxyLocalization.bundle
         )

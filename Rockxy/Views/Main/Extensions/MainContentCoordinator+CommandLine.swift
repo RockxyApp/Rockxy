@@ -21,10 +21,16 @@ extension MainContentCoordinator: CommandLineControlTarget {
         isSystemProxyConfigured
     }
 
-    func cliStartProxy() {
+    var cliProxyError: String? {
+        proxyError
+    }
+
+    func cliStartProxy() async {
         if canStartProxy {
             startProxy()
         }
+        // Covers a start begun here and one already in progress from the window or launch.
+        await proxyStartTask?.value
     }
 
     func cliStopProxy() {
@@ -33,11 +39,11 @@ extension MainContentCoordinator: CommandLineControlTarget {
         }
     }
 
-    func cliSetSystemProxy(_ isOn: Bool) {
+    func cliSetSystemProxy(_ isOn: Bool) async {
         if isOn, !isSystemProxyConfigured {
-            switchOnSystemProxyOverride()
+            await switchOnSystemProxyOverride()?.value
         } else if !isOn, isSystemProxyConfigured {
-            switchOffSystemProxyOverride()
+            await switchOffSystemProxyOverride().value
         }
     }
 

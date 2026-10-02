@@ -68,15 +68,16 @@ enum ProxyHandlerShared {
         currentBufferSize + incomingChunkSize > maxSize
     }
 
-    /// Evaluates the breakpoint rule (which may pause before any other tool) and the
-    /// first matching rule for a request, including its GraphQL operation name.
+    /// Evaluates the breakpoint rule (which may pause before any other tool), the first
+    /// rule that decides where the request goes, and every Modify Headers rule layered on
+    /// top of that decision, including the request's GraphQL operation name.
     nonisolated static func evaluateRules(
         _ ruleEngine: RuleEngine,
         request: HTTPRequestData,
         graphQLOperationName: String?,
         clientApplication: (@Sendable () async -> ClientApplicationIdentity?)? = nil
     )
-        async -> (breakpoint: ProxyRule?, matched: ProxyRule?)
+        async -> (breakpoint: ProxyRule?, matched: ProxyRule?, headerRules: [ProxyRule])
     {
         // Resolve the calling application only when a rule is scoped to one; identity lookup
         // is bounded, and an unresolved caller simply never matches an application rule.
@@ -91,14 +92,75 @@ enum ProxyHandlerShared {
             graphQLOperationName: graphQLOperationName,
             clientApplication: application
         )
-        let matchedRule = await ruleEngine.evaluateRule(
+        let matchedRule = await ruleEngine.evaluatePrimaryRule(
             method: request.method,
             url: request.url,
             headers: request.headers,
             graphQLOperationName: graphQLOperationName,
             clientApplication: application
         )
-        return (breakpointRule, matchedRule)
+        let headerRules = await ruleEngine.matchingHeaderRules(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
+        )
+        return (breakpointRule, matchedRule, headerRules)
+    }
+
+    /// The request- and response-phase operations of the matching Modify Headers rules,
+    /// in rule order.
+    nonisolated static func headerOperations(
+        of headerRules: [ProxyRule]
+    ) -> (request: [HeaderOperation], response: [HeaderOperation]) {
+        let operations = headerRules.flatMap { rule -> [HeaderOperation] in
+            guard case let .modifyHeader(operations) = rule.action else {
+                return []
+            }
+            return operations
+        }
+        return (HeaderOperation.requestPhase(from: operations), HeaderOperation.responsePhase(from: operations))
+    }
+
+    /// Applies request-phase header operations to both the recorded request and the head
+    /// that is forwarded, so the inspector shows what the server received.
+    nonisolated static func applyRequestHeaderOperations(
+        _ operations: [HeaderOperation],
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData
+    ) -> (head: HTTPRequestHead, requestData: HTTPRequestData) {
+        guard !operations.isEmpty else {
+            return (head, requestData)
+        }
+        var requestData = requestData
+        HeaderMutator.apply(operations, to: &requestData.headers)
+        var head = head
+        head.headers = HTTPHeaders(requestData.headers.map { ($0.name, $0.value) })
+        return (head, requestData)
+    }
+
+    /// Response-phase operations applied to a response Rockxy writes itself (Map Local,
+    /// script mocks), matching what the upstream response handler does for origin replies.
+    nonisolated static func applyResponseHeaderOperations(
+        _ operations: [HeaderOperation]?,
+        to responseData: HTTPResponseData
+    ) -> HTTPResponseData {
+        guard let operations, !operations.isEmpty else {
+            return responseData
+        }
+        var responseData = responseData
+        HeaderMutator.apply(operations, to: &responseData.headers)
+        return responseData
+    }
+
+    /// Combines rule-supplied response operations with an action's own, rule order first.
+    nonisolated static func mergedResponseOperations(
+        _ pending: [HeaderOperation]?,
+        _ explicit: [HeaderOperation]?
+    ) -> [HeaderOperation]? {
+        let merged = (pending ?? []) + (explicit ?? [])
+        return merged.isEmpty ? nil : merged
     }
 
     /// Network Conditions "Offline": drops the client connection without contacting
@@ -374,8 +436,10 @@ enum ProxyHandlerShared {
     /// Block and Map Local results remain attributed to the rule that produced them.
     nonisolated static func transactionRule(
         breakpointRule: ProxyRule?,
-        matchedRule: ProxyRule?
+        matchedRule: ProxyRule?,
+        headerRules: [ProxyRule] = []
     ) -> ProxyRule? {
+        let matchedRule = matchedRule ?? headerRules.first
         guard breakpointRule?.action.responseBreakpointPhase != nil else {
             return matchedRule
         }

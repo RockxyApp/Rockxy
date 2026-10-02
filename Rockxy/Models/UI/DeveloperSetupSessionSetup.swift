@@ -300,11 +300,15 @@ enum RockxySetupScriptBuilder {
                 "export NODE_EXTRA_CA_CERTS=\"$ROCKXY_ROOT_CA_PATH\"",
             ])
             lines.append(contentsOf: combinedTrustBundleLines)
+            lines.append(contentsOf: rubyTrustLines)
         } else {
             lines.append("# Export or trust the Rockxy root certificate to enable certificate environment hints.")
         }
 
         if context.targetID == .javaVMs {
+            if context.certificatePath?.isEmpty == false {
+                lines.append(contentsOf: javaTrustStoreLines)
+            }
             lines.append(contentsOf: javaProxyLines(proxyHost: context.proxyHost, proxyPort: context.proxyPort))
         }
 
@@ -317,6 +321,68 @@ enum RockxySetupScriptBuilder {
 
         return lines.joined(separator: "\n")
     }
+
+    /// The Ruby that ships with macOS is built on LibreSSL, which ignores SSL_CERT_FILE and
+    /// SSL_CERT_DIR, so its HTTPS clients would reject every decrypted host. A small preload,
+    /// loaded through RUBYOPT, adds the Rockxy root to Ruby's default certificate store for
+    /// this shell only; Rubies that already honor SSL_CERT_FILE are unaffected. Re-sourcing
+    /// never adds it twice, and a path with whitespace (which RUBYOPT would split) is skipped.
+    static let rubyTrustLines: [String] = [
+        "",
+        "# Ruby trust: the macOS system Ruby ignores SSL_CERT_FILE, so preload the Rockxy root.",
+        "rockxy_ruby_dir=\"${TMPDIR:-/tmp}\"",
+        "rockxy_ruby_dir=\"${rockxy_ruby_dir%/}\"",
+        "rockxy_ruby_trust=\"$rockxy_ruby_dir/rockxy-ruby-trust.rb\"",
+        "case \"$rockxy_ruby_trust\" in *[[:space:]]*) rockxy_ruby_trust=\"\" ;; esac",
+        "if [ -n \"$rockxy_ruby_trust\" ] && [ -r \"${ROCKXY_ROOT_CA_PATH:-}\" ]; then",
+        "  rockxy_ruby_tmp=\"$(umask 077; mktemp \"$rockxy_ruby_dir/rockxy-ruby-trust.XXXXXX\" 2>/dev/null)\"",
+        "  if [ -n \"$rockxy_ruby_tmp\" ] && printf '%s\\n' 'begin' '  require \"openssl\"' \\",
+        "    '  path = ENV[\"ROCKXY_ROOT_CA_PATH\"]' \\",
+        "    '  OpenSSL::SSL::SSLContext::DEFAULT_CERT_STORE.add_file(path) if path && File.file?(path)' \\",
+        "    'rescue StandardError' '  nil' 'end' > \"$rockxy_ruby_tmp\" \\",
+        "    && mv -f \"$rockxy_ruby_tmp\" \"$rockxy_ruby_trust\"; then",
+        "    case \" ${RUBYOPT:-} \" in",
+        "      *\" -r$rockxy_ruby_trust \"*) ;;",
+        "      *) export RUBYOPT=\"${RUBYOPT:+$RUBYOPT }-r$rockxy_ruby_trust\" ;;",
+        "    esac",
+        "  fi",
+        "  [ -n \"$rockxy_ruby_tmp\" ] && rm -f \"$rockxy_ruby_tmp\"",
+        "fi",
+        "unset rockxy_ruby_dir rockxy_ruby_trust rockxy_ruby_tmp",
+    ]
+
+    /// Java ignores SSL_CERT_FILE, so the Java VMs target gets a private PKCS12 truststore:
+    /// the anchors of the JDK in use plus the Rockxy root, built with that JDK's keytool.
+    /// Only the shell's JVMs read it; the JDK and the system keychain are not changed.
+    /// Without a JDK (or with a path that would split JAVA_TOOL_OPTIONS) nothing is added.
+    static let javaTrustStoreLines: [String] = [
+        "",
+        "# Java trust: a private truststore with the JDK's anchors plus the Rockxy root.",
+        "ROCKXY_JAVA_TRUST_OPTS=\"\"",
+        "rockxy_java_home=\"${JAVA_HOME:-$(/usr/libexec/java_home 2>/dev/null)}\"",
+        "rockxy_keytool=\"$rockxy_java_home/bin/keytool\"",
+        "rockxy_store_dir=\"${TMPDIR:-/tmp}\"",
+        "rockxy_store_dir=\"${rockxy_store_dir%/}\"",
+        "rockxy_store=\"$rockxy_store_dir/rockxy-java-truststore.p12\"",
+        "case \"$rockxy_store\" in *[[:space:]]*) rockxy_keytool=\"\" ;; esac",
+        "if [ -n \"$rockxy_java_home\" ] && [ -x \"$rockxy_keytool\" ] && [ -r \"${ROCKXY_ROOT_CA_PATH:-}\" ]; then",
+        "  rockxy_work=\"$(umask 077; mktemp -d \"$rockxy_store_dir/rockxy-java.XXXXXX\" 2>/dev/null)\"",
+        "  if [ -n \"$rockxy_work\" ]; then",
+        "    if [ -r \"$rockxy_java_home/lib/security/cacerts\" ]; then",
+        "      \"$rockxy_keytool\" -importkeystore -noprompt -srckeystore \"$rockxy_java_home/lib/security/cacerts\" \\",
+        "        -srcstorepass changeit -destkeystore \"$rockxy_work/store.p12\" -deststoretype PKCS12 \\",
+        "        -deststorepass changeit >/dev/null 2>&1",
+        "    fi",
+        "    if \"$rockxy_keytool\" -importcert -noprompt -alias rockxy-root -file \"$ROCKXY_ROOT_CA_PATH\" \\",
+        "      -keystore \"$rockxy_work/store.p12\" -storetype PKCS12 -storepass changeit >/dev/null 2>&1 \\",
+        "      && mv -f \"$rockxy_work/store.p12\" \"$rockxy_store\"; then",
+        "      ROCKXY_JAVA_TRUST_OPTS=\"-Djavax.net.ssl.trustStore=$rockxy_store -Djavax.net.ssl.trustStoreType=PKCS12 -Djavax.net.ssl.trustStorePassword=changeit\"",
+        "    fi",
+        "    rm -rf \"$rockxy_work\"",
+        "  fi",
+        "fi",
+        "unset rockxy_java_home rockxy_keytool rockxy_store_dir rockxy_store rockxy_work",
+    ]
 
     /// JVM proxy properties for the Java VMs target. Re-sourcing removes the
     /// previous Rockxy block before appending the current one, so user options
@@ -333,7 +399,8 @@ enum RockxySetupScriptBuilder {
             "if [ -n \"${ROCKXY_JAVA_PROXY_OPTS:-}\" ] && [ -n \"${JAVA_TOOL_OPTIONS:-}\" ]; then",
             "  export JAVA_TOOL_OPTIONS=\"${JAVA_TOOL_OPTIONS//$ROCKXY_JAVA_PROXY_OPTS/}\"",
             "fi",
-            "export ROCKXY_JAVA_PROXY_OPTS=\(shellDoubleQuoted(proxyOptions))",
+            "export ROCKXY_JAVA_PROXY_OPTS=\(shellDoubleQuoted(proxyOptions))\"${ROCKXY_JAVA_TRUST_OPTS:+ $ROCKXY_JAVA_TRUST_OPTS}\"",
+            "unset ROCKXY_JAVA_TRUST_OPTS",
             "if [ -n \"${JAVA_TOOL_OPTIONS:-}\" ]; then",
             "  export JAVA_TOOL_OPTIONS=\"$JAVA_TOOL_OPTIONS $ROCKXY_JAVA_PROXY_OPTS\"",
             "else",

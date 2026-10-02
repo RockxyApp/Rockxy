@@ -10,6 +10,8 @@ struct SettingsBackupImportReport: Equatable {
     var ruleCount = 0
     var scriptCount = 0
     var skippedCount = 0
+    var reverseProxyCount = 0
+    var dnsSpoofingCount = 0
 }
 
 // MARK: - SettingsBackupService
@@ -120,7 +122,9 @@ enum SettingsBackupService {
         return SettingsBackupImportReport(
             ruleCount: merged.addedRuleCount,
             scriptCount: scriptCount,
-            skippedCount: merged.skippedCount + document.scripts.count - scriptCount
+            skippedCount: merged.skippedCount + document.scripts.count - scriptCount,
+            reverseProxyCount: merged.addedReverseProxyCount,
+            dnsSpoofingCount: merged.addedDNSSpoofingCount
         )
     }
 

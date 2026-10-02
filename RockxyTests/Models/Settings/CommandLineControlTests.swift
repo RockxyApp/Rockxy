@@ -49,12 +49,26 @@ struct CommandLineControlTests {
         response = await run("proxy on", target)
         #expect(!response.ok, "system proxy needs a running proxy")
 
+        target.startError = "Port 9090 is in use."
+        response = await run("start", target)
+        #expect(!response.ok)
+        #expect(response.message == "Port 9090 is in use.")
+
+        target.startError = nil
         response = await run("start", target)
         #expect(response.ok)
+        #expect(response.message == "Proxy running on port 9090.")
         #expect(target.isProxyRunning)
+        target.refusesSystemProxy = true
+        response = await run("proxy on", target)
+        #expect(!response.ok, "a change macOS did not apply is reported")
+        target.refusesSystemProxy = false
         response = await run("proxy on", target)
         #expect(response.ok)
         #expect(target.isSystemProxyOn)
+        response = await run("proxy off", target)
+        #expect(response.ok)
+        #expect(!target.isSystemProxyOn)
 
         response = await run("record off", target)
         #expect(response.ok)
@@ -133,6 +147,8 @@ struct CommandLineControlTests {
         var isProxyRunning = false
         var isRecording = true
         var isSystemProxyOn = false
+        var startError: String?
+        var refusesSystemProxy = false
         var tools: [CommandLineTool: Bool] = [:]
         var clearCount = 0
         var transactions: [HTTPTransaction] = []
@@ -153,16 +169,20 @@ struct CommandLineControlTests {
             isSystemProxyOn
         }
 
-        func cliStartProxy() {
-            isProxyRunning = true
+        var cliProxyError: String? {
+            startError
+        }
+
+        func cliStartProxy() async {
+            isProxyRunning = startError == nil
         }
 
         func cliStopProxy() {
             isProxyRunning = false
         }
 
-        func cliSetSystemProxy(_ isOn: Bool) {
-            isSystemProxyOn = isOn
+        func cliSetSystemProxy(_ isOn: Bool) async {
+            isSystemProxyOn = isOn && !refusesSystemProxy
         }
 
         func cliSetRecording(_ isRecording: Bool) {

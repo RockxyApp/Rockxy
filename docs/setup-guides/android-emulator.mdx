@@ -11,7 +11,9 @@ Android Emulator uses a manual proxy and user CA setup path, but iteration is us
 
 - Manual setup available
 - One-click routing: **Developer Setup ▸ Android Emulator ▸ Route Emulators Through Rockxy…** sets each running emulator's proxy to `10.0.2.2:<port>` through `adb` and copies the root certificate to its Download folder
-- **Revert Emulator Proxy** clears the proxy; Rockxy also reverts routed emulators when it quits, and refuses to route while the proxy is stopped
+- System-wide trust: leave **Also trust the certificate system-wide** checked in the confirmation and Rockxy restarts `adbd` as root on Google APIs images and adds the certificate to the system CA store, so apps that trust only system CAs (your release-config app, most SDKs) accept it. Nothing is written to the system image: that part lasts until the emulator restarts. Chrome checks certificates against its own root store plus user-added CAs only, so Rockxy also adds the certificate as a user CA; that copy stays until you revert. Relaunch an app after routing so it reloads its trust store Google Play images can't be rooted; Rockxy says so and keeps the user-certificate path
+- **Revert Emulator Proxy** clears the proxy and removes the system-store certificate and the user CA copy Rockxy added (a certificate you installed yourself is left alone); Rockxy also clears the proxy of routed emulators when it quits, and refuses to route while the proxy is stopped
+- `adb` is found in `ANDROID_HOME`/`ANDROID_SDK_ROOT`, Android Studio's SDK, and Homebrew's Android command-line tools, so Rockxy finds it even when opened from Finder
 - Certificate sharing support available
 
 ## What Rockxy currently provides

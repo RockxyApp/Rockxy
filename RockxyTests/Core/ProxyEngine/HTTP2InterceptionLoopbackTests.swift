@@ -70,6 +70,22 @@ struct HTTP2InterceptionLoopbackTests {
         }
     }
 
+    @Test("A WebSocket handshake never offers HTTP/2 to the origin, other requests do when enabled")
+    func upgradeRequestsStayOnHTTP1Upstream() {
+        HTTP2ProxyOptions.setOverride(true)
+        defer { HTTP2ProxyOptions.setOverride(nil) }
+        var upgrade = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/socket")
+        upgrade.headers.add(name: "Upgrade", value: "websocket")
+        upgrade.headers.add(name: "Connection", value: "Upgrade")
+        let plain = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/items")
+
+        #expect(!HTTP2ProxyOptions.offersHTTP2Upstream(for: upgrade))
+        #expect(HTTP2ProxyOptions.offersHTTP2Upstream(for: plain))
+
+        HTTP2ProxyOptions.setOverride(false)
+        #expect(!HTTP2ProxyOptions.offersHTTP2Upstream(for: plain))
+    }
+
     @Test("With HTTP/2 off, Rockxy offers only HTTP/1.1 and the exchange still succeeds")
     func http2DisabledFallsBackToHTTP1() async throws {
         try await HTTP2LoopbackHarness.run(http2Enabled: false, originSpeaksHTTP2: true) { harness in

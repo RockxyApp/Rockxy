@@ -26,7 +26,7 @@ as your macOS user can connect, and turning the setting off closes the socket.
 | Command | What it does |
 |---------|--------------|
 | `status` | Shows whether the proxy, the system proxy, and recording are on |
-| `start` / `stop` | Starts or stops the proxy |
+| `start` / `stop` | Starts or stops the proxy. `start` returns once the proxy is listening and prints its port, or the reason it could not start |
 | `proxy on` / `proxy off` | Routes macOS HTTP and HTTPS traffic through Rockxy, or stops |
 | `record on` / `record off` | Resumes or pauses recording |
 | `clear-session` | Removes every captured request |

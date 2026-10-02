@@ -551,6 +551,41 @@ struct MapLocalLoopbackIntegrationTests {
         }
     }
 
+    @Test("A Modify Headers rule listed first layers on Map Local and origin traffic instead of replacing them")
+    func modifyHeadersLayersOnMapLocal() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            await harness.addRule(ProxyRule(
+                name: "CORS",
+                matchCondition: RuleMatchCondition(urlPattern: ".*127\\.0\\.0\\.1.*"),
+                action: .modifyHeader(operations: [
+                    HeaderOperation(type: .replace, headerName: "Access-Control-Allow-Origin", headerValue: "*", phase: .response),
+                    HeaderOperation(type: .add, headerName: "X-Debug", headerValue: "1", phase: .request),
+                ])
+            ))
+            let file = try harness.writeFixtureFile(named: "mock.json", contents: Data(#"{"mock":true}"#.utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Mock", path: "/mocked", filePath: file.path, statusCode: 404))
+
+            let mocked = try await harness.get("/mocked")
+            #expect(mocked.status == 404)
+            #expect(mocked.body == Data(#"{"mock":true}"#.utf8))
+            #expect(mocked.headerValue("Access-Control-Allow-Origin") == "*")
+            #expect(mocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+
+            let live = try await harness.get("/live?cors=1")
+            #expect(live.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+            #expect(live.headerValue("Access-Control-Allow-Origin") == "*")
+
+            try await Task.sleep(for: .milliseconds(300))
+            let rows = await harness.capturedTransactions()
+            let mockRow = rows.first { $0.request.url.path == "/mocked" }
+            #expect(mockRow?.matchedRuleName == "Mock")
+            #expect(mockRow?.response?.headers.contains { $0.name == "Access-Control-Allow-Origin" } == true)
+            let liveRow = rows.first { $0.request.url.query == "cors=1" }
+            #expect(liveRow?.matchedRuleName == "CORS")
+            #expect(liveRow?.request.headers.contains { $0.name == "X-Debug" && $0.value == "1" } == true)
+        }
+    }
+
     @Test("Trailing ? wildcard maps a one-character path but lets a trailing query reach the origin")
     func trailingQuestionMarkWildcardQueryReachesOrigin() async throws {
         try await MapLocalLoopbackHarness.run { harness in

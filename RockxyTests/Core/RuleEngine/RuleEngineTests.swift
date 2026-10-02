@@ -356,6 +356,46 @@ struct RuleEngineTests {
         }
     }
 
+    @Test("Modify Headers rules layer on the primary rule instead of competing with it")
+    func headerRulesDoNotShadowPrimaryRules() async throws {
+        let engine = RuleEngine()
+        let pattern = RuleMatchCondition(urlPattern: ".*example\\.com.*")
+        let cors = ProxyRule(
+            name: "CORS",
+            matchCondition: pattern,
+            action: .modifyHeader(operations: [
+                HeaderOperation(type: .add, headerName: "Access-Control-Allow-Origin", headerValue: "*", phase: .response),
+            ])
+        )
+        let auth = ProxyRule(
+            name: "Auth",
+            matchCondition: pattern,
+            action: .modifyHeader(operations: [
+                HeaderOperation(type: .replace, headerName: "Authorization", headerValue: "Bearer t"),
+            ])
+        )
+        let block = ProxyRule(name: "Block", matchCondition: pattern, action: .block(statusCode: 403))
+        await engine.addRule(cors)
+        await engine.addRule(block)
+        await engine.addRule(auth)
+        let url = try #require(URL(string: "https://example.com/v1"))
+
+        let primary = await engine.evaluatePrimaryRule(method: "GET", url: url, headers: [])
+        #expect(primary?.id == block.id)
+        let headerRules = await engine.matchingHeaderRules(method: "GET", url: url, headers: [])
+        #expect(headerRules.map(\.id) == [cors.id, auth.id])
+
+        let operations = ProxyHandlerShared.headerOperations(of: headerRules)
+        #expect(operations.request.map(\.headerName) == ["Authorization"])
+        #expect(operations.response.map(\.headerName) == ["Access-Control-Allow-Origin"])
+        #expect(ProxyHandlerShared.transactionRule(breakpointRule: nil, matchedRule: nil, headerRules: headerRules)?.id == cors.id)
+
+        await engine.setModifyHeaderToolEnabled(false)
+        #expect(await engine.matchingHeaderRules(method: "GET", url: url, headers: []).isEmpty)
+        await engine.setBlockListToolEnabled(false)
+        #expect(await engine.evaluatePrimaryRule(method: "GET", url: url, headers: []) == nil)
+    }
+
     @Test("Modify Header reorder preserves unrelated global slots")
     func modifyHeaderReorderPreservesUnrelatedSlots() async {
         let engine = RuleEngine()

@@ -34,15 +34,18 @@ struct RecentCaptureDocumentsTests {
             try Data("{}".utf8).write(to: url)
         }
 
+        // The first NSDocumentController created becomes the shared one, so imports exercised by
+        // parallel tests can note their own files here too; look only at this test's files.
         let recents = RecentCaptureDocuments(controller: MemoryDocumentController())
+        let own = { recents.urls.filter { $0.path.contains(directory.lastPathComponent) }.map(\.lastPathComponent) }
         recents.note(session)
         recents.note(text)
         recents.note(har)
-        #expect(recents.urls.map(\.lastPathComponent) == ["b.har", "a.rockxysession"])
+        #expect(own() == ["b.har", "a.rockxysession"])
 
         try FileManager.default.removeItem(at: har)
         recents.refresh()
-        #expect(recents.urls.map(\.lastPathComponent) == ["a.rockxysession"])
+        #expect(own() == ["a.rockxysession"])
 
         recents.clear()
         #expect(recents.urls.isEmpty)

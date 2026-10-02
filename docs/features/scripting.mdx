@@ -189,12 +189,12 @@ Scripts execute in deterministic, id-sorted order. By default, the first matchin
 
 For each captured request:
 
-1. Rules engine evaluates the rule list. If a rule action consumes the request (block, map, breakpoint, throttle, etc.), scripts are skipped on the request side.
-2. Request-side scripts run on the (possibly rule-mutated) request. Outcome:
+1. Rules engine evaluates the rule list. Matching Modify Headers rules change the request headers. If another rule action consumes the request (block, map, breakpoint, throttle, etc.), scripts are skipped on the request side.
+2. Request-side scripts run on the (possibly header-modified) request. Outcome:
    - `forward` → the mutated request is sent upstream.
    - `null` return → local `403`.
    - mock return (when `runAsMock=true`) → local response, never upstream.
-3. Response header rules run on the upstream response.
+3. Response header rules run on the upstream response, and on a script's mock response.
 4. Response-side scripts run on the buffered response.
 5. Response breakpoint (if armed) operates on the script-mutated response.
 6. The response is relayed to the client and persisted in the transaction.

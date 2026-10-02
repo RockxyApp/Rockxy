@@ -740,12 +740,12 @@
         }
       }
     },
-    "Or let Rockxy use adb to point running emulators at this Mac and copy the certificate to them. Revert when you finish so the emulator keeps its connection after Rockxy quits.": {
+    "Or let Rockxy use adb to point running emulators at this Mac, copy the certificate to them, and trust it system-wide on Google APIs images. Revert when you finish so the emulator keeps its connection after Rockxy quits.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "也可以让 Rockxy 使用 adb 将正在运行的模拟器指向这台 Mac，并将证书拷贝到模拟器中。完成后请恢复设置，以便 Rockxy 退出后模拟器仍能联网。"
+            "value": "也可以让 Rockxy 使用 adb 将正在运行的模拟器指向这台 Mac，将证书拷贝到模拟器中，并在 Google APIs 映像上于系统级信任该证书。完成后请恢复设置，以便 Rockxy 退出后模拟器仍能联网。"
           }
         }
       }
@@ -26473,12 +26473,12 @@
         }
       }
     },
-    "Production emulator images behave like real devices: apps only trust user CAs when their network-security-config allows it.": {
+    "A user CA is only trusted by apps whose network-security-config allows it. On a Google APIs image, Route Emulators Through Rockxy can trust the certificate system-wide instead, until the emulator restarts.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "生产版模拟器映像的行为与真实设备相同：仅当 App 的 network-security-config 允许时，App 才会信任用户 CA。"
+            "value": "只有 network-security-config 允许的 App 才会信任用户 CA。在 Google APIs 映像上，“让模拟器通过 Rockxy 路由”可以改为在系统级信任该证书，直到模拟器重新启动。"
           }
         }
       }
@@ -47060,12 +47060,12 @@
         }
       }
     },
-    "Starting the proxy.": {
+    "Proxy running on port %@.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "正在启动代理。"
+            "value": "代理正在端口 %@ 上运行。"
           }
         }
       }
@@ -47630,12 +47630,12 @@
         }
       }
     },
-    "Choose a HAR file or a Charles JSON session (.chlsj) to import": {
+    "Choose a HAR file or a Charles session (.chlsj or .chls) to import": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择要导入的 HAR 文件或 Charles JSON 会话 (.chlsj)"
+            "value": "选择要导入的 HAR 文件或 Charles 会话（.chlsj 或 .chls）"
           }
         }
       }
@@ -48330,6 +48330,316 @@
           "stringUnit": {
             "state": "translated",
             "value": "已达到 DNS 欺骗上限"
+          }
+        }
+      }
+    },
+    "%@ · %@ with the Rockxy certificate": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · %@ 个已安装 Rockxy 证书"
+          }
+        }
+      }
+    },
+    "%@ — already trusts Rockxy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — 已信任 Rockxy"
+          }
+        }
+      }
+    },
+    "%@ — certificate not installed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ — 未安装证书"
+          }
+        }
+      }
+    },
+    ".chls is Charles's own format, so Rockxy asks the installed Charles to convert the file to HAR, then imports that. Charles runs in the background without opening a window or changing proxy settings. Rockxy won't ask again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".chls 是 Charles 的专有格式，因此 Rockxy 会请已安装的 Charles 将文件转换为 HAR 后再导入。Charles 在后台运行，不会打开窗口，也不会更改代理设置。Rockxy 不会再次询问。"
+          }
+        }
+      }
+    },
+    "^[%lld booted simulator](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个已启动的模拟器"
+          }
+        }
+      }
+    },
+    "^[%lld DNS Spoofing rule](inflect: true) added.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 条 DNS 欺骗规则。"
+          }
+        }
+      }
+    },
+    "^[%lld reverse proxy](inflect: true) added.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加 %lld 个反向代理。"
+          }
+        }
+      }
+    },
+    "Also trust the certificate system-wide (roots Google APIs emulators until they restart)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同时在系统级信任证书（在重新启动前为 Google APIs 模拟器获取 root 权限）"
+          }
+        }
+      }
+    },
+    "Apps on these emulators trust Rockxy's certificate until the emulator restarts, and Chrome until you revert. Enable HTTPS decryption for the hosts you want to read, then relaunch the app.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些模拟器上的应用会信任 Rockxy 证书，直到模拟器重启；Chrome 会一直信任，直到你还原。为要查看的主机启用 HTTPS 解密，然后重新启动应用。"
+          }
+        }
+      }
+    },
+    "Charles could not convert the session.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles 无法转换该会话。"
+          }
+        }
+      }
+    },
+    "Charles could not convert the session: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles 无法转换该会话：%@"
+          }
+        }
+      }
+    },
+    "Charles did not finish converting the session in time.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles 未能及时完成会话转换。"
+          }
+        }
+      }
+    },
+    "Charles Is Not Installed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装 Charles"
+          }
+        }
+      }
+    },
+    "Charles Session (converted by Charles)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles 会话（由 Charles 转换）"
+          }
+        }
+      }
+    },
+    "Charles Session Import Failed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charles 会话导入失败"
+          }
+        }
+      }
+    },
+    "Convert": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转换"
+          }
+        }
+      }
+    },
+    "Convert with Charles?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 Charles 转换？"
+          }
+        }
+      }
+    },
+    "Converting %@ with Charles…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在使用 Charles 转换 %@…"
+          }
+        }
+      }
+    },
+    "Installing in simulators": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在安装到模拟器"
+          }
+        }
+      }
+    },
+    "No simulators are booted. Boot one from Xcode or the Simulator app.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有已启动的模拟器。请从 Xcode 或“模拟器”App 启动一个。"
+          }
+        }
+      }
+    },
+    "Proxy Set; System Trust Incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已设置代理；系统级信任未完成"
+          }
+        }
+      }
+    },
+    "Rockxy opens .chls files with Charles's converter, and Charles is not installed. In Charles, choose File > Export Session… and save a JSON Session File (.chlsj) or HTTP Archive (.har), then open that file in Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 使用 Charles 的转换器打开 .chls 文件，但未安装 Charles。请在 Charles 中选择“File > Export Session…”，存储为 JSON Session File (.chlsj) 或 HTTP Archive (.har)，然后在 Rockxy 中打开该文件。"
+          }
+        }
+      }
+    },
+    "System trust was not applied.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未应用系统级信任。"
+          }
+        }
+      }
+    },
+    "System trust was not applied: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未应用系统级信任：%@"
+          }
+        }
+      }
+    },
+    "The certificate is not in the simulator's trust store after installing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装后，证书未出现在模拟器的信任存储中。"
+          }
+        }
+      }
+    },
+    "This certificate is signed with SHA-1. Apple platforms reject it; create a root signed with SHA-256 or stronger.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此证书使用 SHA-1 签名，Apple 平台会拒绝它；请创建使用 SHA-256 或更强算法签名的根证书。"
+          }
+        }
+      }
+    },
+    "This certificate uses a %@-bit RSA key. Apple platforms require at least 2048 bits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此证书使用 %@ 位 RSA 密钥。Apple 平台要求至少 2048 位。"
+          }
+        }
+      }
+    },
+    "This emulator can't run adb as root, so system trust was skipped. Google Play images can't be rooted; use a Google APIs image, or install the certificate as a user certificate.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此模拟器无法以 root 身份运行 adb，因此已跳过系统级信任。Google Play 映像无法获取 root 权限；请使用 Google APIs 映像，或将证书安装为用户证书。"
+          }
+        }
+      }
+    },
+    "Updating emulators": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在更新模拟器"
+          }
+        }
+      }
+    },
+    "The proxy did not start.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理未能启动。"
+          }
+        }
+      }
+    },
+    "macOS did not accept the proxy change. Check the capture status in Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 未接受代理更改。请在 Rockxy 中检查捕获状态。"
           }
         }
       }

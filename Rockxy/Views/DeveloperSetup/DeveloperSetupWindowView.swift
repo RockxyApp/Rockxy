@@ -107,6 +107,7 @@ struct DeveloperSetupWindowView: View {
     @State private var presentedShareSessionID: RootCADownloadSession.ID?
     @State private var inspectorPresented = false
     @State private var searchPresented = false
+    @State private var deviceActionInProgress = false
 
     private var setupMetrics: DeveloperSetupDisplayMetrics {
         DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
@@ -528,8 +529,9 @@ struct DeveloperSetupWindowView: View {
             Text(
                 String(
                     localized: """
-                    Or let Rockxy use adb to point running emulators at this Mac and copy the certificate \
-                    to them. Revert when you finish so the emulator keeps its connection after Rockxy quits.
+                    Or let Rockxy use adb to point running emulators at this Mac, copy the certificate to \
+                    them, and trust it system-wide on Google APIs images. Revert when you finish so the \
+                    emulator keeps its connection after Rockxy quits.
                     """,
                     bundle: RockxyLocalization.bundle
                 )
@@ -542,18 +544,37 @@ struct DeveloperSetupWindowView: View {
                 Button(String(localized: "Route Emulators Through Rockxy…", bundle: RockxyLocalization.bundle)) {
                     let port = viewModel.snapshot.activePort
                     let running = viewModel.snapshot.proxyRunning
-                    Task { @MainActor in
+                    runDeviceAction {
                         await AndroidEmulatorSetupFlow.route(proxyPort: port, proxyRunning: running)
                     }
                 }
                 Button(String(localized: "Revert Emulator Proxy", bundle: RockxyLocalization.bundle)) {
-                    Task { @MainActor in
+                    runDeviceAction {
                         await AndroidEmulatorSetupFlow.revert()
                     }
                 }
+                if deviceActionInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(String(localized: "Updating emulators", bundle: RockxyLocalization.bundle))
+                }
             }
+            .disabled(deviceActionInProgress)
         }
         .padding(.top, 4)
+    }
+
+    /// adb and simctl work can take many seconds; the buttons stay disabled and a spinner
+    /// shows until the flow's result alert has been dismissed.
+    private func runDeviceAction(_ action: @escaping @MainActor () async -> Void) {
+        guard !deviceActionInProgress else {
+            return
+        }
+        deviceActionInProgress = true
+        Task { @MainActor in
+            await action()
+            deviceActionInProgress = false
+        }
     }
 
     private var simulatorInstallRow: some View {
@@ -568,11 +589,21 @@ struct DeveloperSetupWindowView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
 
-            Button(String(localized: "Install in Booted Simulators…", bundle: RockxyLocalization.bundle)) {
-                Task { @MainActor in
-                    await SimulatorCertificateInstallFlow.run()
+            SimulatorTrustStatusLine(font: setupMetrics.secondaryFont())
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Install in Booted Simulators…", bundle: RockxyLocalization.bundle)) {
+                    runDeviceAction {
+                        await SimulatorCertificateInstallFlow.run()
+                    }
+                }
+                if deviceActionInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(String(localized: "Installing in simulators", bundle: RockxyLocalization.bundle))
                 }
             }
+            .disabled(deviceActionInProgress)
         }
         .padding(.top, 4)
     }

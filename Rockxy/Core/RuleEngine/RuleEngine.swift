@@ -71,39 +71,69 @@ actor RuleEngine {
     )
         -> ProxyRule?
     {
-        for rule in rules where rule.isEnabled {
-            if !blockListToolEnabled, case .block = rule.action {
-                continue
-            }
-            if !breakpointToolEnabled, case .breakpoint = rule.action {
-                continue
-            }
-            if !mapLocalToolEnabled, case .mapLocal = rule.action {
-                continue
-            }
-            if !mapRemoteToolEnabled, case .mapRemote = rule.action {
-                continue
-            }
-            if !networkConditionsToolEnabled, case .networkCondition = rule.action {
-                continue
-            }
-            if !modifyHeaderToolEnabled, case .modifyHeader = rule.action {
-                continue
-            }
-            let compiled = compiledPatterns[rule.id]
-            if rule.matchCondition.matches(
+        rules.first { rule in
+            ruleApplies(
+                rule,
                 method: method,
                 url: url,
                 headers: headers,
-                compiledPattern: compiled,
                 graphQLOperationName: graphQLOperationName,
                 clientApplication: clientApplication
-            ) {
-                Self.logger.debug("Rule matched: \(rule.name, privacy: .private)")
-                return rule
-            }
+            )
         }
-        return nil
+    }
+
+    /// The first matching rule that decides where a request goes (Block, Map Local,
+    /// Map Remote, Throttle, Network Conditions). Modify Headers rules never compete for
+    /// this slot: they layer on top of whatever happens, through `matchingHeaderRules`.
+    func evaluatePrimaryRule(
+        method: String,
+        url: URL,
+        headers: [HTTPHeader],
+        graphQLOperationName: String? = nil,
+        clientApplication: ClientApplicationIdentity? = nil
+    )
+        -> ProxyRule?
+    {
+        rules.first { rule in
+            if case .modifyHeader = rule.action {
+                return false
+            }
+            return ruleApplies(
+                rule,
+                method: method,
+                url: url,
+                headers: headers,
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: clientApplication
+            )
+        }
+    }
+
+    /// Every enabled Modify Headers rule that matches, in list order, so a header rule
+    /// also reaches Map Local, Map Remote and scripted traffic on the same URL.
+    func matchingHeaderRules(
+        method: String,
+        url: URL,
+        headers: [HTTPHeader],
+        graphQLOperationName: String? = nil,
+        clientApplication: ClientApplicationIdentity? = nil
+    )
+        -> [ProxyRule]
+    {
+        rules.filter { rule in
+            guard case .modifyHeader = rule.action else {
+                return false
+            }
+            return ruleApplies(
+                rule,
+                method: method,
+                url: url,
+                headers: headers,
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: clientApplication
+            )
+        }
     }
 
     /// Whether any enabled rule is scoped to a client application, so the proxy must resolve
@@ -425,6 +455,45 @@ actor RuleEngine {
     }
 
     // MARK: Private
+
+    private func ruleApplies(
+        _ rule: ProxyRule,
+        method: String,
+        url: URL,
+        headers: [HTTPHeader],
+        graphQLOperationName: String?,
+        clientApplication: ClientApplicationIdentity?
+    )
+        -> Bool
+    {
+        guard rule.isEnabled, isToolEnabled(for: rule.action) else {
+            return false
+        }
+        let matched = rule.matchCondition.matches(
+            method: method,
+            url: url,
+            headers: headers,
+            compiledPattern: compiledPatterns[rule.id],
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: clientApplication
+        )
+        if matched {
+            Self.logger.debug("Rule matched: \(rule.name, privacy: .private)")
+        }
+        return matched
+    }
+
+    private func isToolEnabled(for action: RuleAction) -> Bool {
+        switch action {
+        case .block: blockListToolEnabled
+        case .breakpoint: breakpointToolEnabled
+        case .mapLocal: mapLocalToolEnabled
+        case .mapRemote: mapRemoteToolEnabled
+        case .networkCondition: networkConditionsToolEnabled
+        case .modifyHeader: modifyHeaderToolEnabled
+        case .throttle: true
+        }
+    }
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
 

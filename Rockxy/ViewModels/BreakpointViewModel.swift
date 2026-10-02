@@ -108,7 +108,8 @@ struct BreakpointRequestData {
             )
         }
 
-        for header in headers {
+        // A row just added with Add Header is left out on apply, so it is not an error yet.
+        for header in headers where !Self.isBlankHeaderRow(header) {
             if !Self.isValidHTTPHeaderName(header.name) {
                 return String(localized: "Header names must use valid HTTP token characters.", bundle: RockxyLocalization.bundle)
             }
@@ -117,6 +118,12 @@ struct BreakpointRequestData {
             }
         }
         return nil
+    }
+
+    /// A header row with neither a name nor a value.
+    static func isBlankHeaderRow(_ header: EditableHeader) -> Bool {
+        header.name.trimmingCharacters(in: .whitespaces).isEmpty
+            && header.value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var requestLimitViolationStatusCode: Int? {

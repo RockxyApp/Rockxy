@@ -17,6 +17,8 @@ Rockxy can inspect iOS Simulator traffic, but simulator setup still depends on c
 
 With Xcode installed and a simulator booted, use **Developer Setup ▸ iOS Simulator ▸ Install in Booted Simulators…** or **Certificate ▸ Install Certificate on iOS ▸ iOS Simulator…**. Rockxy lists the booted simulators, asks before changing them, and runs `xcrun simctl keychain <device> add-root-cert` for each, then shows a per-simulator result. Relaunch the app afterwards; if it still does not trust the certificate, restart the simulator. Rockxy verifies the certificate fingerprint before installing it.
 
+The Developer Setup page shows how many simulators are booted and how many already trust the Rockxy certificate, and updates as simulators boot, shut down, or are erased. The confirmation lists each simulator as already trusting Rockxy or missing the certificate, and after installing Rockxy reads the simulator's trust store to confirm the certificate is there. Erasing a simulator removes the certificate; run the install again.
+
 ## What you still need to do
 
 Make sure:

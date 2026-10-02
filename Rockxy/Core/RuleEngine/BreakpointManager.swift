@@ -113,7 +113,9 @@ final class BreakpointManager {
         pausedItems.remove(at: index)
 
         if let continuation = continuations.removeValue(forKey: id) {
-            continuation.resume(returning: (decision, item.editableDraft))
+            var draft = item.editableDraft
+            draft.headers.removeAll(where: BreakpointRequestData.isBlankHeaderRow)
+            continuation.resume(returning: (decision, draft))
         }
 
         if selectedItemId == id {

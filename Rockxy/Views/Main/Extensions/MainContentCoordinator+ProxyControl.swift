@@ -724,7 +724,9 @@ extension MainContentCoordinator {
         )
     }
 
-    func switchOffSystemProxyOverride() {
+    /// Returns the task that applies the change, so a caller can wait for macOS to finish.
+    @discardableResult
+    func switchOffSystemProxyOverride() -> Task<Void, Never> {
         Task { @MainActor in
             do {
                 try await SystemProxyManager.shared.disableSystemProxy()
@@ -741,14 +743,16 @@ extension MainContentCoordinator {
         }
     }
 
-    func switchOnSystemProxyOverride() {
+    /// Returns the task that applies the change, or nil when the proxy is not running.
+    @discardableResult
+    func switchOnSystemProxyOverride() -> Task<Void, Never>? {
         guard isProxyRunning else {
-            return
+            return nil
         }
         readiness.clearProxyEnableFailure()
         readiness.setSystemRoutingExpected(true)
 
-        Task { @MainActor in
+        return Task { @MainActor in
             do {
                 try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true

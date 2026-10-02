@@ -17,7 +17,11 @@ final class TLSKeyLogSettings {
         fileURL = defaults.string(forKey: Self.pathKey).map { URL(fileURLWithPath: $0) }
             ?? Self.defaultFileURL
         isEnabled = defaults.bool(forKey: Self.enabledKey)
-        applyToWriter()
+        // The writer starts with no destination, so only a saved "on" needs applying. Clearing
+        // it here would also cancel a destination set elsewhere just by opening this window.
+        if isEnabled {
+            applyToWriter()
+        }
     }
 
     // MARK: Internal
