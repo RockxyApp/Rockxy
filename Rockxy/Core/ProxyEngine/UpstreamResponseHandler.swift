@@ -715,7 +715,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             statusCode: Int(head.status.code),
             phase: .response,
             isBodyEditable: projection.isEditable,
-            matchedRuleName: breakpointRuleName
+            matchedRuleName: breakpointRuleName,
+            requestHeaders: requestData.headers.map { EditableHeader(name: $0.name, value: $0.value) }
         )
 
         let eventLoop = context.eventLoop

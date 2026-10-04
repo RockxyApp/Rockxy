@@ -45,7 +45,17 @@ struct SensitiveDataRedactor {
 
     static func isSensitiveName(_ name: String, exact: Set<String>) -> Bool {
         let lowered = name.lowercased()
+        if isCORSPolicyName(lowered) {
+            return false
+        }
         return exact.contains(lowered) || sensitiveNameFragments.contains { lowered.contains($0) }
+    }
+
+    /// CORS headers (`Access-Control-Allow-Credentials: true`, `Access-Control-Allow-Headers:
+    /// Authorization`) state what a browser may send. They never carry a credential and are
+    /// exactly what a CORS investigation needs to read, so the `credential` fragment skips them.
+    static func isCORSPolicyName(_ loweredName: String) -> Bool {
+        loweredName.hasPrefix("access-control-")
     }
 
     /// Whether a JSON key holds a credential: body-key names, header names that servers echo
@@ -53,6 +63,9 @@ struct SensitiveDataRedactor {
     /// counts at the end of a key, so usage counters such as `total_tokens` stay readable.
     static func isSensitiveBodyKey(_ key: String) -> Bool {
         let lowered = key.lowercased()
+        if isCORSPolicyName(lowered) {
+            return false
+        }
         if sensitiveBodyKeys.contains(lowered) || sensitiveHeaders.contains(lowered) {
             return true
         }

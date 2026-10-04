@@ -378,6 +378,16 @@ enum DeveloperSetupGuideCatalog {
                     "If you skip client wiring or debug Android trust settings, emulator traffic may bypass Rockxy until a separate automation flow handles routing."
                 ),
                 tip(
+                    "flutter-ios-local-network",
+                    "Allow Local Network access on a physical iPhone or iPad",
+                    """
+                    A Flutter client that dials the Device Proxy LAN host needs iOS Local Network \
+                    permission. Until you tap Allow, or turn the app on in Settings > Privacy & Security \
+                    > Local Network, requests fail with "No route to host" (errno 65). Builds that are \
+                    not debug or profile also need NSLocalNetworkUsageDescription in Info.plist.
+                    """
+                ),
+                tip(
                     "flutter-pinning",
                     "Certificate pinning still wins",
                     "If the app pins certificates, Rockxy cannot decrypt that HTTPS traffic until the debug build relaxes pinning."

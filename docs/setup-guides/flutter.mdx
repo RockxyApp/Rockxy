@@ -186,6 +186,8 @@ With `package:web_socket_channel`, use `IOWebSocketChannel.connect(url, customCl
 3. Trust the certificate in iOS certificate trust settings.
 4. Cold-launch the app and send one HTTPS request.
 
+When the Dart client dials the Device Proxy LAN host itself (the `physicalDevice` runtime in the helper), iOS shows a Local Network prompt on the first request. Tap **Allow**, or turn the app on in **Settings > Privacy & Security > Local Network**. Until then, requests fail with `No route to host` (errno 65). Flutter adds `NSLocalNetworkUsageDescription` to debug and profile builds; add it to `Info.plist` yourself for other build configurations.
+
 ### Android Emulator
 
 1. Use `10.0.2.2:<Rockxy port>` in the helper.

@@ -30,6 +30,17 @@ struct CharlesJSONSessionImporterTests {
     ]
     """#
 
+    @Test("A Charles entry names its client from the User-Agent")
+    func namesClientFromUserAgent() throws {
+        let session = Self.session.replacingOccurrences(
+            of: #"{"name": "Content-Type", "value": "application/json"}"#,
+            with: #"{"name": "Content-Type", "value": "application/json"}, {"name": "User-Agent", "value": "MyApp/3.2 CFNetwork/1.0"}"#
+        )
+        let transactions = try HARImporter().importData(Data(session.utf8))
+
+        #expect(transactions.first?.clientApp == "MyApp")
+    }
+
     @Test("A Charles JSON session imports with URL, headers, bodies, timing, and TLS details")
     func importsEntries() throws {
         let transactions = try HARImporter().importData(Data(Self.session.utf8))

@@ -35,6 +35,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Fixed a crash when several connections looked up their app at the same moment: the app lookup cache could compute a negative age and trap.
+- Fixed Edit and Repeat and Compose results never reaching the traffic list, so an edited request could not be inspected, diffed, or exported (for example to re-export an edited HAR); each send now adds a row attributed to Rockxy, like Repeat.
+- Fixed imported HAR files and Charles sessions listing every request under an "Unknown" client; the client is now named from the User-Agent, as it is for live traffic.
+- Fixed requests imported from a Chrome HAR showing `HTTP/http/2.0` in Diff; browser HTTP versions (`http/2.0`, `h2`, `h3`) are normalized on import.
+- Fixed repeating a request imported from a browser HAR sending its JSON body as form data when the HAR kept the body type only in `postData.mimeType`.
+- Fixed the Breakpoint Queue showing every paused response as coming from an "Unknown" client (or from a response header such as Rails' `X-Runtime`); response pauses now name the app that sent the request.
+- Fixed sensitive-data redaction hiding CORS headers such as `Access-Control-Allow-Credentials: true` in MCP flow details, AI Assistant context, and Gist publishing, which made CORS problems impossible to diagnose there; real credentials stay redacted.
+- Fixed the Flutter setup guide not mentioning iOS Local Network permission: on a physical iPhone or iPad, a Dart client that dials the Mac's LAN proxy fails with "No route to host" (errno 65) until the app is allowed, and the guide now says so.
 - Fixed the Flutter setup snippet leaving WebSockets uncaptured: Dart's `WebSocket.connect` ignores the proxy unless it gets the configured client, so the snippet and guide now show `customClient`.
 - Fixed Route Emulators Through Rockxy failing with "Permission denied" when the certificate in the emulator's Download folder had been opened by another app; Rockxy now reuses an identical copy or writes a uniquely named one, and always reverts the proxy it set when quitting.
 - Fixed sensitive-data redaction (MCP flow details, AI Assistant context, Gist publishing) missing credentials that a server echoes back in a JSON body — `Authorization`, API-key headers, tokens in URLs, and `Bearer`/`Basic` values — while keeping usage counters such as `total_tokens` readable.

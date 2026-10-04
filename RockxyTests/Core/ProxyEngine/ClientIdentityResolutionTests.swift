@@ -121,6 +121,32 @@ struct ClientIdentityResolutionTests {
         #expect(fixture.requests() == [8_888, 8_888, 9_090])
     }
 
+    @Test("elapsed time never underflows when another thread stored a newer timestamp")
+    func elapsedTimeSaturatesAtZero() {
+        let earlier = DispatchTime(uptimeNanoseconds: 1_000_000_000)
+        let later = DispatchTime(uptimeNanoseconds: 3_500_000_000)
+
+        #expect(ProcessResolver.secondsElapsed(from: earlier, to: later) == 2.5)
+        #expect(ProcessResolver.secondsElapsed(from: later, to: earlier) == 0)
+    }
+
+    @Test("concurrent process-map lookups do not trap on timestamps stored while waiting for the lock")
+    func concurrentLookupsDoNotUnderflow() {
+        let fixture = ProcessMapFixture()
+        let resolver = ProcessResolver(
+            processMapProvider: { proxyPort in
+                fixture.next(proxyPort: proxyPort)
+            },
+            minimumRefreshInterval: 0
+        )
+
+        DispatchQueue.concurrentPerform(iterations: 400) { index in
+            _ = resolver.resolveProcesses(proxyPort: 8_888, requiring: [UInt16(50_000 + index % 7)])
+        }
+
+        #expect(!fixture.requests().isEmpty)
+    }
+
     @Test("missing process ports coalesce repeated lsof refreshes")
     func processMapCacheCoalescesMissingPorts() {
         let fixture = ProcessMapFixture()

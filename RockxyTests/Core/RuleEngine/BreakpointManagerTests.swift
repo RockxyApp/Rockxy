@@ -118,6 +118,31 @@ struct BreakpointManagerTests {
         manager.resolve(id: item.id, decision: .cancel)
     }
 
+    @Test("a response pause names the client from the request, not the response headers")
+    func responsePauseNamesClientFromRequest() async throws {
+        let manager = BreakpointManager()
+        let data = BreakpointRequestData(
+            method: "GET",
+            url: "https://api.example.com/profile",
+            headers: [
+                EditableHeader(name: "Content-Type", value: "application/json"),
+                EditableHeader(name: "X-Runtime", value: "0.0123"),
+            ],
+            body: "{}",
+            statusCode: 200,
+            phase: .response,
+            requestHeaders: [EditableHeader(name: "User-Agent", value: "AcceptanceProbe/1 CFNetwork/3860 Darwin/25.6.0")]
+        )
+
+        Task { _ = await manager.enqueueAndWait(data) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let item = try #require(manager.pausedItems.first)
+        #expect(item.client == "AcceptanceProbe")
+
+        manager.resolve(id: item.id, decision: .cancel)
+    }
+
     // MARK: - Selection stability
 
     @Test("a newer hit does not steal selection from the edited item")

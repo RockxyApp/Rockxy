@@ -120,7 +120,7 @@ struct HARImporter {
         let response = parseResponse(entry["response"] as? [String: Any])
         let timingInfo = parseTimings(entry["timings"] as? [String: Any])
 
-        return HTTPTransaction(
+        let transaction = HTTPTransaction(
             id: UUID(),
             timestamp: timestamp,
             request: request,
@@ -128,6 +128,9 @@ struct HARImporter {
             state: response == nil ? .failed : .completed,
             timingInfo: timingInfo
         )
+        // HAR has no client field; name the client from the User-Agent like live capture does.
+        transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)
+        return transaction
     }
 
     // MARK: - Request Parsing
@@ -141,9 +144,17 @@ struct HARImporter {
             throw HARImportError.malformedEntry(index: entryIndex, reason: "Missing or invalid request URL")
         }
 
-        let httpVersion = dict["httpVersion"] as? String ?? "HTTP/1.1"
-        let headers = parseHeaders(dict["headers"] as? [[String: Any]])
-        let body = parseRequestBody(dict["postData"] as? [String: Any])
+        let httpVersion = Self.normalizedHTTPVersion(dict["httpVersion"] as? String)
+        var headers = parseHeaders(dict["headers"] as? [[String: Any]])
+        let postData = dict["postData"] as? [String: Any]
+        let body = parseRequestBody(postData)
+        // Browser HARs can omit the request's Content-Type header and keep the type only in
+        // `postData.mimeType`; restore it so a repeat sends the body with its real type.
+        if body != nil, let mimeType = (postData?["mimeType"] as? String)?.trimmingCharacters(in: .whitespaces),
+           !mimeType.isEmpty, !headers.contains(where: { $0.name.lowercased() == "content-type" })
+        {
+            headers.append(HTTPHeader(name: "Content-Type", value: mimeType))
+        }
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
         return HTTPRequestData(
@@ -154,6 +165,29 @@ struct HARImporter {
             body: body,
             contentType: contentType
         )
+    }
+
+    /// Browsers write `http/2.0` (Chrome), `HTTP/2` (Firefox) or ALPN ids (`h2`, `h3`); live
+    /// capture stores `HTTP/x.y`, which is what the list, diff, and exporters expect.
+    static func normalizedHTTPVersion(_ raw: String?) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespaces) ?? ""
+        switch trimmed.lowercased() {
+        case "":
+            return "HTTP/1.1"
+        case "h2",
+             "http/2",
+             "http/2.0":
+            return "HTTP/2.0"
+        case "h3",
+             "http/3",
+             "http/3.0":
+            return "HTTP/3.0"
+        default:
+            if trimmed.lowercased().hasPrefix("http/") {
+                return "HTTP/" + trimmed.dropFirst(5)
+            }
+            return trimmed
+        }
     }
 
     // MARK: - Response Parsing

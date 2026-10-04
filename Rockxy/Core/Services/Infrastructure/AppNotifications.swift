@@ -36,6 +36,8 @@ extension Notification.Name {
     static let scriptConsoleDidAppend = identity.notificationName("scriptConsoleDidAppend")
     static let openDiffWindow = identity.notificationName("openDiffWindow")
     static let openComposeWindow = identity.notificationName("openComposeWindow")
+    /// Posted with the `HTTPTransaction` a Compose send produced, so the workspace can list it.
+    static let composeExchangeDidComplete = identity.notificationName("composeExchangeDidComplete")
     static let openBlockListWindow = identity.notificationName("openBlockListWindow")
     static let openAllowListWindow = identity.notificationName("openAllowListWindow")
     static let openMapLocalWindow = identity.notificationName("openMapLocalWindow")

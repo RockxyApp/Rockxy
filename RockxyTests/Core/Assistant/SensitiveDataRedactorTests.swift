@@ -30,6 +30,15 @@ struct SensitiveDataRedactorTests {
         #expect(redacted.contains("\"prompt_tokens\":7"))
     }
 
+    @Test("CORS policy names are not treated as credentials")
+    func corsPolicyNamesAreNotSensitive() {
+        let headers = SensitiveDataRedactor.sensitiveHeaders
+        #expect(!SensitiveDataRedactor.isSensitiveName("Access-Control-Allow-Credentials", exact: headers))
+        #expect(!SensitiveDataRedactor.isSensitiveBodyKey("access-control-allow-credentials"))
+        #expect(SensitiveDataRedactor.isSensitiveName("X-Client-Credential", exact: headers))
+        #expect(SensitiveDataRedactor.isSensitiveBodyKey("credentials"))
+    }
+
     @Test("Nested JSON redacts the AI payload vocabulary while keeping ordinary fields")
     func nestedJSONRedactsAIVocabulary() throws {
         let redactor = SensitiveDataRedactor()

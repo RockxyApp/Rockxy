@@ -10,8 +10,12 @@ import os
 final class MCPServerCoordinator {
     // MARK: Lifecycle
 
-    init(sessionStoreFactory: @escaping @MainActor () throws -> SessionStore = { try SessionStore() }) {
+    init(
+        sessionStoreFactory: @escaping @MainActor () throws -> SessionStore = { try SessionStore() },
+        settingsProvider: @escaping @MainActor () -> AppSettings = { AppSettingsManager.shared.settings }
+    ) {
         self.sessionStoreFactory = sessionStoreFactory
+        self.settingsProvider = settingsProvider
         clientActivityStore.onChange = { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshClientActivity()
@@ -92,7 +96,7 @@ final class MCPServerCoordinator {
     }
 
     func startIfEnabled() async {
-        let settings = AppSettingsManager.shared.settings
+        let settings = settingsProvider()
         guard settings.mcpServerEnabled else {
             Self.logger.debug("MCP server disabled in settings, skipping start")
             return
@@ -205,6 +209,7 @@ final class MCPServerCoordinator {
     )
 
     private let sessionStoreFactory: @MainActor () throws -> SessionStore
+    private let settingsProvider: @MainActor () -> AppSettings
 
     private var mcpServer: MCPServer?
     private var redactionState: MCPRedactionState?

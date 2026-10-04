@@ -173,6 +173,7 @@ struct ContentView: View {
             // before hydrating so Map Local and other rule tools have their
             // persisted rules regardless of how long project hydration takes.
             coordinator.setupRulesObserver()
+            coordinator.setupComposeExchangeObserver()
             coordinator.loadInitialRules()
             await coordinator.hydrateProjectsOnLaunch()
             if case .failed = coordinator.projectStore.loadState {

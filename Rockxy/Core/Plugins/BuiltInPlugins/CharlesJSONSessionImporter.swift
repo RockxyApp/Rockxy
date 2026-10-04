@@ -97,6 +97,7 @@ enum CharlesJSONSessionImporter {
             state: status == "COMPLETE" || (status == nil && response != nil) ? .completed : .failed,
             timingInfo: timing(from: entry["durations"] as? [String: Any])
         )
+        transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)
         if let total = (entry["durations"] as? [String: Any])?["total"] as? Double {
             transaction.measuredDuration = total / 1_000
         }

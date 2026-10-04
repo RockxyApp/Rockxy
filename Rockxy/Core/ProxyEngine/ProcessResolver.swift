@@ -68,12 +68,12 @@ final class ProcessResolver: @unchecked Sendable {
             return result
         }
         if let cachedEntry = cachedProcessMaps[proxyPort],
-           Double(now.uptimeNanoseconds - cachedEntry.timestamp.uptimeNanoseconds) / 1_000_000_000 < cacheTTL
+           Self.secondsElapsed(from: cachedEntry.timestamp, to: now) < cacheTTL
         {
             let cached = cachedEntry.result
             let containsRequiredPorts = sourcePorts.allSatisfy { cached[$0] != nil }
             let refreshAge = lastQueryStartedAt[proxyPort].map {
-                Double(now.uptimeNanoseconds - $0.uptimeNanoseconds) / 1_000_000_000
+                Self.secondsElapsed(from: $0, to: now)
             } ?? .infinity
             if containsRequiredPorts || refreshAge < minimumRefreshInterval {
                 lock.unlock()
@@ -81,8 +81,7 @@ final class ProcessResolver: @unchecked Sendable {
             }
         }
         if let lastQueryStartedAt = lastQueryStartedAt[proxyPort],
-           Double(now.uptimeNanoseconds - lastQueryStartedAt.uptimeNanoseconds) / 1_000_000_000
-               < minimumRefreshInterval
+           Self.secondsElapsed(from: lastQueryStartedAt, to: now) < minimumRefreshInterval
         {
             let cached = cachedProcessMaps[proxyPort]?.result ?? [:]
             lock.unlock()
@@ -103,6 +102,16 @@ final class ProcessResolver: @unchecked Sendable {
         lock.unlock()
 
         return result
+    }
+
+    /// Seconds from `start` to `end`, or 0 when `start` is later. `now` is read before the lock,
+    /// so another thread can store a newer cache or query timestamp while this one waits; a plain
+    /// `UInt64` subtraction then underflows and traps.
+    static func secondsElapsed(from start: DispatchTime, to end: DispatchTime) -> Double {
+        guard end.uptimeNanoseconds > start.uptimeNanoseconds else {
+            return 0
+        }
+        return Double(end.uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000_000
     }
 
     /// Async version that dispatches the blocking lsof call off the cooperative thread pool.

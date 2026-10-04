@@ -194,6 +194,9 @@ final class MainContentCoordinator {
             await probeServer.stop()
             probeTracker.cancel()
         }
+        if let composeExchangeObserver {
+            NotificationCenter.default.removeObserver(composeExchangeObserver)
+        }
         if let rulesObserver {
             NotificationCenter.default.removeObserver(rulesObserver)
         }
@@ -326,6 +329,7 @@ final class MainContentCoordinator {
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
+    nonisolated(unsafe) var composeExchangeObserver: NSObjectProtocol?
     nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
     nonisolated(unsafe) var socksListenerObserver: NSObjectProtocol?
 

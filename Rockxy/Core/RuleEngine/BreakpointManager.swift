@@ -62,7 +62,7 @@ final class BreakpointManager {
             host: host,
             path: path,
             url: Self.displayURL(from: data.url),
-            client: Self.clientLabel(from: data.headers),
+            client: Self.clientLabel(from: data.phase == .response ? data.requestHeaders : data.headers),
             queryName: Self.queryName(from: data),
             method: data.method,
             statusCode: data.phase == .response ? data.statusCode : nil,

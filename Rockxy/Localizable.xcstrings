@@ -4774,6 +4774,16 @@
         }
       }
     },
+    "A Flutter client that dials the Device Proxy LAN host needs iOS Local Network permission. Until you tap Allow, or turn the app on in Settings > Privacy & Security > Local Network, requests fail with \"No route to host\" (errno 65). Builds that are not debug or profile also need NSLocalNetworkUsageDescription in Info.plist.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接设备代理局域网主机的 Flutter 客户端需要 iOS 本地网络权限。在你轻点“允许”，或在“设置 > 隐私与安全性 > 本地网络”中为该应用开启之前，请求会以“No route to host”（errno 65）失败。非 debug 或 profile 构建还需要在 Info.plist 中添加 NSLocalNetworkUsageDescription。"
+          }
+        }
+      }
+    },
     "A Mock API script runs on Request and replaces the response.": {
       "localizations": {
         "zh-Hans": {
@@ -6201,6 +6211,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "API 密钥"
+          }
+        }
+      }
+    },
+    "Allow Local Network access on a physical iPhone or iPad": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在实体 iPhone 或 iPad 上允许本地网络访问"
           }
         }
       }

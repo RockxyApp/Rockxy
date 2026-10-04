@@ -217,6 +217,33 @@ extension MainContentCoordinator {
         await sessionManager.addTransaction(replay)
     }
 
+    /// Lists a Compose or Edit and Repeat result in the live session, like a Repeat.
+    func recordComposeExchange(_ transaction: HTTPTransaction) async {
+        guard captureRecordingGate.allowsCapture(),
+              await ensureProjectCatalogReadyForDataIntake() else
+        {
+            return
+        }
+        transaction.assignCaptureContextIfMissing(activeCaptureContext)
+        await sessionManager.addTransaction(transaction)
+    }
+
+    func setupComposeExchangeObserver() {
+        guard composeExchangeObserver == nil else {
+            return
+        }
+        composeExchangeObserver = NotificationCenter.default.addObserver(
+            forName: .composeExchangeDidComplete, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let transaction = notification.object as? HTTPTransaction else {
+                return
+            }
+            Task { @MainActor in
+                await self?.recordComposeExchange(transaction)
+            }
+        }
+    }
+
     /// Builds the session row for a replay. The request is copied without the original's
     /// capture context so the row routes to the currently active Project instead of being
     /// dropped as a stale delivery.

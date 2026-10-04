@@ -44,6 +44,28 @@ struct MCPRedactionPolicyTests {
         #expect(!redactedTruncated.contains("super-secret-token-123"))
     }
 
+    @Test("CORS policy headers stay readable while credentials are still redacted")
+    func corsPolicyHeadersAreNotRedacted() {
+        let headers: [(name: String, value: String)] = [
+            (name: "Access-Control-Allow-Credentials", value: "true"),
+            (name: "Access-Control-Allow-Headers", value: "Authorization, X-Api-Key"),
+            (name: "X-Client-Credential", value: "cred-secret"),
+            (name: "Authorization", value: "Bearer super-secret-token"),
+        ]
+
+        let redacted = enabledPolicy.redactHeaders(headers)
+
+        #expect(redacted[0].value == "true")
+        #expect(redacted[1].value == "Authorization, X-Api-Key")
+        #expect(redacted[2].value == "[REDACTED]")
+        #expect(redacted[3].value == "[REDACTED]")
+
+        let body = #"{"Access-Control-Allow-Credentials":"true","credentials":"cred-body-secret"}"#
+        let redactedBody = enabledPolicy.redactBody(body, contentType: .json)
+        #expect(redactedBody.contains(#""Access-Control-Allow-Credentials":"true""#))
+        #expect(!redactedBody.contains("cred-body-secret"))
+    }
+
     @Test("Passes through non-sensitive headers")
     func passThroughNonSensitive() {
         let headers: [(name: String, value: String)] = [

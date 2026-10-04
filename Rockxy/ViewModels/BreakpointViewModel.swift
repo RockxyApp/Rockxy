@@ -36,6 +36,9 @@ struct BreakpointRequestData {
     var isBodyEditable = true
     var fixedHTTPSAuthority: String?
     var matchedRuleName: String?
+    /// The original request's headers for a response-phase pause, used only to name the
+    /// client in the queue (`headers` then holds the response headers being edited).
+    var requestHeaders: [EditableHeader] = []
 
     /// Whether the edited request URL uses HTTPS.
     var isHTTPS: Bool {
