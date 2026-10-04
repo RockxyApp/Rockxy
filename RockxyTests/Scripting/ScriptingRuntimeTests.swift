@@ -138,9 +138,24 @@ struct ScriptingRuntimeTests {
         #expect(!harness.manager.hasResponseHookForSnapshot(request: pricingRequest()))
     }
 
+    @Test("Each script manager answers hook checks from its own plugins only")
+    func hookSnapshotIsPerManager() async throws {
+        let scriptingOn: @Sendable () -> AppSettings = { AppSettings() }
+        let loaded = try makeHarness(settingsProvider: scriptingOn)
+        try writePricingExperimentPlugin(id: "script.snapshot-owner", into: loaded)
+        await loaded.manager.loadAllPlugins()
+        #expect(loaded.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+
+        // A second manager loading nothing must neither see nor erase the first one's script.
+        let empty = try makeHarness(settingsProvider: scriptingOn)
+        await empty.manager.loadAllPlugins()
+        #expect(!empty.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+        #expect(loaded.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+    }
+
     @Test("SCRIPT_09 jsExceptionSurfacesInConsole")
     func jsExceptionSurfacesInConsole() async throws {
-        let harness = try makeHarness()
+        let harness = try makeHarness(settingsProvider: { AppSettings() })
         try writePlugin(
             id: "script.throws",
             script: "function onResponse(response) { throw new Error('boom'); }",

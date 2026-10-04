@@ -20,7 +20,8 @@ extension TLSInterceptHandler {
         isTLSFailure: Bool = false,
         sslCapture: HTTPTransaction.SSLCaptureMode? = nil,
         captureContext: TrafficCaptureContext? = nil,
-        clientIdentifier: String? = nil
+        clientIdentifier: String? = nil,
+        scheme: String = "https"
     )
         -> HTTPTransaction
     {
@@ -30,7 +31,7 @@ extension TLSInterceptHandler {
             host
         }
 
-        guard let tunnelURL = URL(string: "https://\(hostPart):\(port)") else {
+        guard let tunnelURL = URL(string: "\(scheme)://\(hostPart):\(port)") else {
             tunnelLogger.warning("Failed to build CONNECT tunnel URL for host \(host, privacy: .public):\(port)")
             var fallbackComponents = URLComponents()
             fallbackComponents.scheme = "https"
@@ -48,7 +49,8 @@ extension TLSInterceptHandler {
                 isTLSFailure: isTLSFailure,
                 sslCapture: sslCapture,
                 captureContext: captureContext,
-                clientIdentifier: clientIdentifier
+                clientIdentifier: clientIdentifier,
+                scheme: scheme
             )
         }
         let requestData = HTTPRequestData(

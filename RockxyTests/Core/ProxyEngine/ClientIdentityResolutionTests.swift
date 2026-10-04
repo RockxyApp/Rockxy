@@ -640,6 +640,43 @@ struct ClientIdentityResolutionTests {
         #expect(anonymous.clientApp == nil)
     }
 
+    @Test("stamping callback labels locally answered GraphQL rows with their operation")
+    func stampingCallbackLabelsLocallyAnsweredGraphQL() {
+        func graphQLRequest() -> HTTPRequestData {
+            HTTPRequestData(
+                method: "POST",
+                url: URL(string: "https://api.example.com/graphql")!,
+                httpVersion: "1.1",
+                headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+                body: Data(#"{"operationName":"GetUser","query":"query GetUser { user { id } }"}"#.utf8)
+            )
+        }
+        let stamp = ProxyServer.makeIdentityStampingCallback(handle: nil, downstream: { _ in })
+
+        // A failed breakpoint redirect, a block, and a Map Local hit are answered by Rockxy.
+        let failed = HTTPTransaction(
+            request: graphQLRequest(),
+            response: HTTPResponseData(statusCode: 502, statusMessage: "Bad Gateway", headers: []),
+            state: .failed
+        )
+        stamp(failed)
+        #expect(failed.graphQLInfo?.operationName == "GetUser")
+
+        let blocked = HTTPTransaction(request: graphQLRequest(), response: nil, state: .blocked)
+        stamp(blocked)
+        #expect(blocked.graphQLInfo?.operationName == "GetUser")
+
+        let mapped = HTTPTransaction(request: graphQLRequest(), state: .completed)
+        mapped.matchedRuleID = UUID()
+        stamp(mapped)
+        #expect(mapped.graphQLInfo?.operationName == "GetUser")
+
+        // A relayed response without a rule already ran detection; it is not parsed again.
+        let relayed = HTTPTransaction(request: graphQLRequest(), state: .completed)
+        stamp(relayed)
+        #expect(relayed.graphQLInfo == nil)
+    }
+
     // MARK: Private
 
     private static let matchingRecord = ProxyConnectionRecord(

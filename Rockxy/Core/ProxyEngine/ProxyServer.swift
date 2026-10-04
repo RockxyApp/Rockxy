@@ -407,6 +407,15 @@ actor ProxyServer {
             if transaction.clientApp == nil {
                 transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(transaction.request.headers)
             }
+            // A response Rockxy answers itself (Map Local, Block, breakpoint abort or redirect,
+            // a failed upstream) does not carry the relay's GraphQL detection; label it with
+            // the same operation so the row stays findable by its Operation column and filter.
+            // Relayed responses without a rule already ran detection before forwarding.
+            if transaction.graphQLInfo == nil,
+               transaction.state != .completed || transaction.matchedRuleID != nil
+            {
+                transaction.graphQLInfo = GraphQLDetector.detect(request: transaction.request)
+            }
             downstream(transaction)
         }
     }

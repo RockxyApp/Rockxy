@@ -188,6 +188,35 @@ struct MapLocalLoopbackIntegrationTests {
             #expect(mocked.body == Data(#"{"data":{"user":{"name":"Mocked"}}}"#.utf8))
             #expect(mocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
             #expect(live.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+
+            // Both rows keep their operation, including the one Rockxy answered from the file.
+            try await Task.sleep(for: .milliseconds(300))
+            let operations = await harness.capturedTransactions().compactMap(\.graphQLInfo?.operationName)
+            #expect(operations.sorted() == ["GetUser", "ListPosts"])
+        }
+    }
+
+    @Test("A blocked GraphQL operation keeps its Operation label")
+    func blockedGraphQLOperationKeepsLabel() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            var rule = ProxyRule(
+                name: "Block DeleteUser",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/graphql.*"),
+                action: .block(statusCode: 403)
+            )
+            rule.matchCondition.graphQLOperationName = "DeleteUser"
+            await harness.addRule(rule)
+
+            let blocked = try await harness.post(
+                "/graphql",
+                json: #"{"query":"mutation DeleteUser { deleteUser(id: 1) }"}"#
+            )
+            #expect(blocked.status == 403)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/graphql" }
+            #expect(row?.state == .blocked)
+            #expect(row?.graphQLInfo?.operationName == "DeleteUser")
         }
     }
 

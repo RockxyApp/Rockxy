@@ -44,8 +44,9 @@ actor ScriptPluginManager {
     // MARK: Internal
 
     /// Snapshot of `plugins` updated by the actor after every mutation so that
-    /// NIO event-loop threads can make pre-hook decisions without awaiting.
-    nonisolated static let pluginSnapshot = OSAllocatedUnfairLock<[PluginInfo]>(initialState: [])
+    /// NIO event-loop threads can make pre-hook decisions without awaiting. Per instance, so
+    /// one manager's plugins never answer another manager's hook checks.
+    nonisolated let pluginSnapshot = OSAllocatedUnfairLock<[PluginInfo]>(initialState: [])
 
     private(set) var plugins: [PluginInfo] = []
 
@@ -398,7 +399,7 @@ actor ScriptPluginManager {
         guard currentSettings().scriptingToolEnabled else {
             return false
         }
-        let snapshot = Self.pluginSnapshot.withLock { $0 }
+        let snapshot = pluginSnapshot.withLock { $0 }
         for plugin in snapshot where plugin.isEnabled && plugin.status == .active {
             guard plugin.manifest.entryPoints["script"] != nil else {
                 continue
@@ -492,7 +493,7 @@ actor ScriptPluginManager {
 
     private func publishSnapshot() {
         let current = plugins
-        Self.pluginSnapshot.withLock { $0 = current }
+        pluginSnapshot.withLock { $0 = current }
         NotificationCenter.default.post(name: .scriptsDidChange, object: current)
     }
 

@@ -170,7 +170,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
             case .success:
                 // The CONNECT itself succeeded; its row is the tunnel, the relayed requests
                 // become their own transactions like a decrypted tunnel's would.
-                postHandshake.recordSuccessfulTunnel()
+                postHandshake.recordSuccessfulTunnel(scheme: "http")
                 context.fireChannelRead(NIOAny(firstBuffer))
                 pipeline.removeHandler(context: context, promise: nil)
             case let .failure(error):

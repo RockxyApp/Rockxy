@@ -831,7 +831,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         }.whenComplete { result in
             switch result {
             case .success:
-                self.recordSuccessfulTunnel()
+                self.recordSuccessfulTunnel(scheme: "http")
                 for buffer in replay {
                     context.fireChannelRead(NIOAny(buffer))
                 }
@@ -932,7 +932,9 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
         }
     }
 
-    nonisolated private func recordSuccessfulTunnel() {
+    /// `scheme` is `http` when the tunnel turned out to carry plain HTTP (a `ws://` upgrade or a
+    /// tunneled http:// request), so its CONNECT row is not labelled HTTPS.
+    nonisolated private func recordSuccessfulTunnel(scheme: String = "https") {
         guard !tunnelOutcomeRecorded else {
             return
         }
@@ -951,7 +953,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 clientIdentifier: Self.clientScopeIdentifier(
                     application: clientApplicationIdentity,
                     connectionDescriptor: clientConnectionDescriptor
-                )
+                ),
+                scheme: scheme
             ))
         )
     }
@@ -1186,7 +1189,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     var tunnelConnectionLog: ConnectionLog?
 
     nonisolated func makeSuccessfulTunnelTransaction(
-        statusMessage: String = "Connection Established"
+        statusMessage: String = "Connection Established",
+        scheme: String = "https"
     )
         -> HTTPTransaction
     {
@@ -1200,7 +1204,8 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
             measuredDuration: tunnelElapsedDuration(),
             sslCapture: .tunneled,
             captureContext: tunnelCaptureContext,
-            clientIdentifier: clientIdentifier
+            clientIdentifier: clientIdentifier,
+            scheme: scheme
         ))
     }
 
@@ -1230,13 +1235,14 @@ final class PostHandshakeHandler: ChannelInboundHandler, RemovableChannelHandler
     }
 
     nonisolated func recordSuccessfulTunnel(
-        statusMessage: String = "Connection Established"
+        statusMessage: String = "Connection Established",
+        scheme: String = "https"
     ) {
         guard !tunnelOutcomeRecorded else {
             return
         }
         tunnelOutcomeRecorded = true
-        onTransactionComplete(makeSuccessfulTunnelTransaction(statusMessage: statusMessage))
+        onTransactionComplete(makeSuccessfulTunnelTransaction(statusMessage: statusMessage, scheme: scheme))
     }
 
     /// Builds the CONNECT row for a raw-tunnel fallback that was rejected or could not

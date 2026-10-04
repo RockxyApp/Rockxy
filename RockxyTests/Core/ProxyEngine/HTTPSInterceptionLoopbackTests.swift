@@ -221,7 +221,11 @@ struct HTTPSInterceptionLoopbackTests {
             #expect(relayed?.response?.statusCode == 200)
             // Nothing was decrypted, so the row must not claim an intercepted TLS session.
             #expect(relayed?.sslCapture != .intercepted)
-            #expect(captured.contains { $0.request.method == "CONNECT" && $0.response?.statusCode == 200 })
+            // The tunnel carried plain HTTP (a ws:// upgrade looks the same), so its CONNECT row
+            // is labelled HTTP rather than HTTPS.
+            let tunnel = captured.first { $0.request.method == "CONNECT" }
+            #expect(tunnel?.response?.statusCode == 200)
+            #expect(tunnel?.request.url.scheme == "http")
         }
     }
 
@@ -239,6 +243,7 @@ struct HTTPSInterceptionLoopbackTests {
             #expect(relayed?.request.url.scheme == "http")
             #expect(relayed?.response?.statusCode == 200)
             #expect(relayed?.sslCapture != .intercepted)
+            #expect(captured.first { $0.request.method == "CONNECT" }?.request.url.scheme == "http")
         }
     }
 

@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Fixed GraphQL requests that Rockxy answered itself (Map Local, Block, a breakpoint abort or redirect, an unreachable server) losing their operation name, so they were missing from the Operation column and its filter.
+- Fixed `ws://` and other plain HTTP sent through a CONNECT tunnel showing its CONNECT row as HTTPS; it is now labelled HTTP.
+- Developer Setup's Flutter snippets now fill in the Mac's LAN address for physical devices when Rockxy listens beyond localhost, instead of a placeholder.
 - Fixed a crash when several connections looked up their app at the same moment: the app lookup cache could compute a negative age and trap.
 - Fixed Edit and Repeat and Compose results never reaching the traffic list, so an edited request could not be inspected, diffed, or exported (for example to re-export an edited HAR); each send now adds a row attributed to Rockxy, like Repeat.
 - Fixed imported HAR files and Charles sessions listing every request under an "Unknown" client; the client is now named from the User-Agent, as it is for live traffic.
