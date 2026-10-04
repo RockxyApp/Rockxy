@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Fixed the Flutter setup snippet leaving WebSockets uncaptured: Dart's `WebSocket.connect` ignores the proxy unless it gets the configured client, so the snippet and guide now show `customClient`.
+- Fixed Route Emulators Through Rockxy failing with "Permission denied" when the certificate in the emulator's Download folder had been opened by another app; Rockxy now reuses an identical copy or writes a uniquely named one, and always reverts the proxy it set when quitting.
+- Fixed sensitive-data redaction (MCP flow details, AI Assistant context, Gist publishing) missing credentials that a server echoes back in a JSON body — `Authorization`, API-key headers, tokens in URLs, and `Bearer`/`Basic` values — while keeping usage counters such as `total_tokens` readable.
 - Fixed WebSocket connections failing with HTTP/2 enabled: the handshake is now always sent to the server over HTTP/1.1.
 - Fixed Chrome on Android emulators rejecting Rockxy's certificate after system-wide trust; Rockxy also adds it as a user CA, which Chrome trusts, and Revert removes it.
 - Fixed the Ruby that ships with macOS rejecting Rockxy's certificate in prepared terminals.

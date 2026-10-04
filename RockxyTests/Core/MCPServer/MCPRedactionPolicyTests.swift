@@ -24,6 +24,26 @@ struct MCPRedactionPolicyTests {
         #expect(redacted[1].value == "application/json")
     }
 
+    @Test("A response that echoes request credentials is redacted, including header-named keys and URLs")
+    func echoedCredentialsInJSONBodyAreRedacted() {
+        let body = """
+        {"url":"https://httpbin.org/get?from=seed&token=qs-secret","headers":{"Authorization":"Bearer super-secret-token-123",\
+        "X-Api-Key":"key-abc","Host":"httpbin.org"},"note":"sent Bearer abc.def.ghi","usage":{"total_tokens":42}}
+        """
+
+        let redacted = enabledPolicy.redactBody(body, contentType: .json)
+
+        for secret in ["qs-secret", "super-secret-token-123", "key-abc", "abc.def.ghi"] {
+            #expect(!redacted.contains(secret), "\(secret) leaked: \(redacted)")
+        }
+        #expect(redacted.contains("httpbin.org"))
+        #expect(redacted.contains("\"total_tokens\":42"))
+
+        let truncated = String(body.prefix(130))
+        let redactedTruncated = enabledPolicy.redactBody(truncated, contentType: .json)
+        #expect(!redactedTruncated.contains("super-secret-token-123"))
+    }
+
     @Test("Passes through non-sensitive headers")
     func passThroughNonSensitive() {
         let headers: [(name: String, value: String)] = [

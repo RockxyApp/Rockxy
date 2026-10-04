@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -147,8 +148,8 @@ struct AndroidEmulatorProxyController: Sendable {
                     "-s", emulator.serial, "shell", "settings", "put", "global", "http_proxy",
                     "\(Self.hostLoopbackAlias):\(proxyPort)",
                 ])
-                if let certificateFile {
-                    _ = try await adb(["-s", emulator.serial, "push", certificateFile.path, Self.deviceCertificatePath])
+                if let certificateFile, let certificatePEM {
+                    try await pushCertificate(certificateFile, pem: certificatePEM, to: emulator)
                 } else if certificatePEM != nil {
                     throw AndroidEmulatorError.commandFailed(
                         status: -1,
@@ -316,6 +317,36 @@ struct AndroidEmulatorProxyController: Sendable {
         let output = try await run(["-s", emulator.serial, "shell", "id", "-u"])
         return String(data: output.standardOutput, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) == "0"
+    }
+
+    /// Copies the certificate to the emulator's Download folder. Once a user opens the file,
+    /// Android hands it to that app and the shell can no longer replace it; when the file
+    /// already holds this certificate that is fine, otherwise a copy named after the
+    /// certificate is written next to it.
+    private func pushCertificate(_ file: URL, pem: String, to emulator: AndroidEmulator) async throws {
+        do {
+            _ = try await adb(["-s", emulator.serial, "push", file.path, Self.deviceCertificatePath])
+            return
+        } catch {
+            let existing = try? await adb(["-s", emulator.serial, "shell", "cat", Self.deviceCertificatePath])
+            if let existing, let text = String(bytes: existing, encoding: .utf8), Self.samePEM(text, pem) {
+                return
+            }
+            let alternate = Self.alternateCertificatePath(for: pem)
+            Self.logger.info("Download copy is owned by another app; writing the alternate copy")
+            _ = try await adb(["-s", emulator.serial, "push", file.path, alternate])
+        }
+    }
+
+    /// `rockxy-root-ca-<8 hex>.pem`, stable for one certificate.
+    static func alternateCertificatePath(for pem: String) -> String {
+        let digest = SHA256.hash(data: Data(pem.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        return "/sdcard/Download/rockxy-root-ca-\(digest).pem"
+    }
+
+    static func samePEM(_ lhs: String, _ rhs: String) -> Bool {
+        let normalize: (String) -> String = { $0.filter { !$0.isWhitespace } }
+        return !lhs.isEmpty && normalize(lhs) == normalize(rhs)
     }
 
     /// Runs adb and returns its output whatever the exit status.

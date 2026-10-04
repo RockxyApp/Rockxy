@@ -81,6 +81,40 @@ struct AndroidEmulatorProxyControllerTests {
         #expect(removal.flatMap { first in cleanup.map { first < $0 } } == true)
     }
 
+    @Test("Routing succeeds when another app owns the Download copy: same certificate reused, else a named copy")
+    func routeHandlesAppOwnedDownloadCopy() async {
+        let pem = Self.testCAPEM
+        let path = AndroidEmulatorProxyController.deviceCertificatePath
+        let alternate = AndroidEmulatorProxyController.alternateCertificatePath(for: pem)
+        func controller(existing: String) -> (AndroidEmulatorProxyController, ScriptedADBRunner) {
+            let runner = ScriptedADBRunner(
+                status: { arguments in arguments.contains("push") && arguments.last == path ? 1 : 0 },
+                output: { arguments in arguments.suffix(2) == ["cat", path] ? existing : "" }
+            )
+            return (
+                AndroidEmulatorProxyController(
+                    runner: runner,
+                    environment: ["ANDROID_HOME": "/opt/sdk"],
+                    isExecutable: { _ in true }
+                ),
+                runner
+            )
+        }
+        let emulator = AndroidEmulator(serial: "emulator-5554")
+        func succeeded(_ result: Result<Void, AndroidEmulatorError>?) -> Bool {
+            if case .success = result { true } else { false }
+        }
+
+        let (same, sameRunner) = controller(existing: pem.replacingOccurrences(of: "\n", with: "\r\n"))
+        #expect(succeeded(await same.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
+        #expect(!sameRunner.commands.contains { $0.last == alternate })
+
+        let (other, otherRunner) = controller(existing: "-----BEGIN CERTIFICATE-----\nOLD\n-----END CERTIFICATE-----\n")
+        #expect(succeeded(await other.routeThroughRockxy([emulator], proxyPort: 9_090, certificatePEM: pem)[emulator]))
+        #expect(otherRunner.commands.contains { $0.contains("push") && $0.last == alternate })
+        #expect(alternate.hasPrefix("/sdcard/Download/rockxy-root-ca-") && alternate.hasSuffix(".pem"))
+    }
+
     @Test("System trust roots the emulator, pushes the certificate and script, and needs the success marker")
     func systemTrustCommands() async {
         let runner = ScriptedADBRunner { arguments in

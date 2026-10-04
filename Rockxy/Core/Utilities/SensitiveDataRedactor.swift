@@ -48,6 +48,42 @@ struct SensitiveDataRedactor {
         return exact.contains(lowered) || sensitiveNameFragments.contains { lowered.contains($0) }
     }
 
+    /// Whether a JSON key holds a credential: body-key names, header names that servers echo
+    /// into bodies (`Authorization`, `X-Api-Key`), and credential-like names. `token` only
+    /// counts at the end of a key, so usage counters such as `total_tokens` stay readable.
+    static func isSensitiveBodyKey(_ key: String) -> Bool {
+        let lowered = key.lowercased()
+        if sensitiveBodyKeys.contains(lowered) || sensitiveHeaders.contains(lowered) {
+            return true
+        }
+        if lowered.hasSuffix("token") {
+            return true
+        }
+        return bodyKeyFragments.contains { lowered.contains($0) }
+    }
+
+    /// Redacts credentials carried inside a JSON string value: sensitive query parameters
+    /// of an embedded URL and `Bearer`/`Basic` authorization values.
+    static func redactedStringValue(_ value: String, placeholder: String) -> String {
+        var result = value
+        if result.contains("?"), result.contains("="), var components = URLComponents(string: result),
+           components.scheme != nil, let items = components.queryItems, !items.isEmpty
+        {
+            components.queryItems = items.map { item in
+                isSensitiveName(item.name, exact: sensitiveQueryParams)
+                    ? URLQueryItem(name: item.name, value: placeholder)
+                    : item
+            }
+            result = components.string ?? result
+        }
+        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
+        return authorizationValueRegex.stringByReplacingMatches(
+            in: result,
+            range: range,
+            withTemplate: "$1\(NSRegularExpression.escapedTemplate(for: placeholder))"
+        )
+    }
+
     static let sensitiveQueryParams: Set<String> = [
         "api_key",
         "apikey",
@@ -106,6 +142,19 @@ struct SensitiveDataRedactor {
         "max-amount-required",
         "key",
     ]
+
+    /// Name fragments for JSON keys; narrower than `sensitiveNameFragments` so that keys such
+    /// as `session_count` or `prompt_tokens` are not hidden.
+    static let bodyKeyFragments: [String] = [
+        "secret", "password", "passwd", "apikey", "api-key", "api_key", "private-key", "private_key",
+        "credential", "authorization",
+    ]
+
+    // swiftlint:disable:next force_try
+    static let authorizationValueRegex = try! NSRegularExpression(
+        pattern: #"\b((?:Bearer|Basic)\s+)[A-Za-z0-9._~+/=-]+"#,
+        options: [.caseInsensitive]
+    )
 
     static let sensitiveBodyKeys: Set<String> = sensitiveQueryParams
         .subtracting(["key"])
@@ -354,6 +403,12 @@ struct SensitiveDataRedactor {
         options: [.caseInsensitive]
     )
 
+    /// Header names echoed as JSON keys, for bodies too truncated to parse.
+    private static let bodyHeaderKeyPatternRegex: NSRegularExpression = try! NSRegularExpression(
+        pattern: #"("(?:\#(sensitiveHeaders.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "|")))")\s*:\s*\#(jsonScalarPattern)"#,
+        options: [.caseInsensitive]
+    )
+
     private static let xmlSensitivePatternRegex: NSRegularExpression = try! NSRegularExpression(
         pattern: #"<(\#(bodySecretKeyPattern))>([^<]*)</"#,
         options: [.caseInsensitive]
@@ -398,7 +453,13 @@ struct SensitiveDataRedactor {
         var result = body
         result = applyRegex(Self.bodyTokenPatternRegex, to: result)
         result = applyRegex(Self.bodySecretPatternRegex, to: result)
-        return result
+        result = applyRegex(Self.bodyHeaderKeyPatternRegex, to: result)
+        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
+        return Self.authorizationValueRegex.stringByReplacingMatches(
+            in: result,
+            range: range,
+            withTemplate: "$1\(redactedPlaceholder)"
+        )
     }
 
     private func redactFormBody(_ body: String) -> String {
@@ -448,7 +509,7 @@ struct SensitiveDataRedactor {
         if let dictionary = object as? [String: Any] {
             let entries: [(String, Any)] = dictionary.map { element in
                 let (key, value) = element
-                if Self.sensitiveBodyKeys.contains(key.lowercased()) {
+                if Self.isSensitiveBodyKey(key) {
                     return (key, redactedPlaceholder)
                 }
                 return (key, redactJSONObject(value))
@@ -458,6 +519,10 @@ struct SensitiveDataRedactor {
 
         if let array = object as? [Any] {
             return array.map { redactJSONObject($0) }
+        }
+
+        if let string = object as? String {
+            return Self.redactedStringValue(string, placeholder: redactedPlaceholder)
         }
 
         return object

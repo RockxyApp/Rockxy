@@ -63,9 +63,8 @@ enum AndroidEmulatorSetupFlow {
         }
         let results = await controller.routeThroughRockxy(emulators, proxyPort: proxyPort, certificatePEM: pem)
         let failures = summarize(emulators, results)
-        if failures.count < emulators.count {
-            hasRoutedEmulators = true
-        }
+        // The proxy is set before anything that can fail, so quitting must revert it either way.
+        hasRoutedEmulators = true
         guard failures.isEmpty else {
             presentFailures(failures)
             return

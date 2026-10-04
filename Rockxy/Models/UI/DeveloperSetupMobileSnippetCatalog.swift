@@ -26,6 +26,17 @@ enum DeveloperSetupMobileSnippetCatalog {
           print(body);
           client.close(force: true);
         }
+
+        // WebSockets ignore findProxy unless they get the same client, and would skip Rockxy.
+        // With package:web_socket_channel use IOWebSocketChannel.connect(url, customClient: ...).
+        Future<WebSocket> connectRockxyWebSocket(String url) {
+          final client = HttpClient();
+          client.findProxy = (uri) => 'PROXY ${rockxyProxyHostPort()};';
+
+          // Debug only. Remove this before release builds.
+          client.badCertificateCallback = (certificate, host, port) => true;
+          return WebSocket.connect(url, customClient: client);
+        }
         """
     }
 

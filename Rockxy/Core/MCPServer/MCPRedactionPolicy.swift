@@ -146,7 +146,13 @@ struct MCPRedactionPolicy {
         var result = body
         result = applyRegex(bodyTokenPattern, to: result)
         result = applyRegex(bodySecretPattern, to: result)
-        return result
+        result = applyRegex(Self.bodyHeaderKeyPatternRegex, to: result)
+        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
+        return SensitiveDataRedactor.authorizationValueRegex.stringByReplacingMatches(
+            in: result,
+            range: range,
+            withTemplate: "$1\(redactedPlaceholder)"
+        )
     }
 
     func redactFormBody(_ body: String) -> String {
@@ -238,6 +244,12 @@ struct MCPRedactionPolicy {
         options: [.caseInsensitive]
     )
 
+    /// Header names echoed as JSON keys, for bodies too truncated to parse.
+    private static let bodyHeaderKeyPatternRegex: NSRegularExpression = try! NSRegularExpression(
+        pattern: #"("(?:\#(sensitiveHeaderAlternation))")\s*:\s*\#(jsonScalarPattern)"#,
+        options: [.caseInsensitive]
+    )
+
     private static let curlHeaderPatternRegex: NSRegularExpression = try! NSRegularExpression(
         pattern: #"-H\s+(['"])(\#(sensitiveHeaderAlternation))\s*:\s*[^'"]*\1"#,
         options: [.caseInsensitive]
@@ -292,7 +304,7 @@ struct MCPRedactionPolicy {
         if let dictionary = object as? [String: Any] {
             let entries: [(String, Any)] = dictionary.map { element in
                 let (key, value) = element
-                if Self.sensitiveBodyKeys.contains(key.lowercased()) {
+                if SensitiveDataRedactor.isSensitiveBodyKey(key) {
                     return (key, redactedPlaceholder)
                 }
                 return (key, redactJSONObject(value))
@@ -302,6 +314,10 @@ struct MCPRedactionPolicy {
 
         if let array = object as? [Any] {
             return array.map { redactJSONObject($0) }
+        }
+
+        if let string = object as? String {
+            return SensitiveDataRedactor.redactedStringValue(string, placeholder: redactedPlaceholder)
         }
 
         return object

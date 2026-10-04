@@ -80,6 +80,8 @@ struct DeveloperSetupSnippetGenerationTests {
         #expect(snippet?.contains("badCertificateCallback") == true)
         #expect(snippet?.contains("10.0.2.2:9191") == true)
         #expect(snippet?.contains(DeveloperSetupWorkflowCatalog.certificatePathPlaceholder) == true)
+        // A WebSocket only goes through Rockxy when it is given the proxied client.
+        #expect(snippet?.contains("WebSocket.connect(url, customClient: client)") == true)
     }
 
     @Test("Generated Flutter package:http snippet wraps IOClient")

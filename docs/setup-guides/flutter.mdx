@@ -15,7 +15,7 @@ Flutter setup has two layers: the Flutter HTTP client path and the underlying iO
 
 ## What Rockxy currently provides
 
-- manual setup paths for `Dio`, Dart `HttpClient`, and `package:http`
+- manual setup paths for `Dio`, Dart `HttpClient`, `package:http`, and `WebSocket`
 - guidance that connects Flutter back to the real device, emulator, or simulator trust path
 - a local validation probe that confirms Rockxy captured the request shape without claiming device or runtime attribution
 
@@ -155,6 +155,20 @@ Future<void> runRockxyDioProbe() async {
   print(response.data);
 }
 ```
+
+### WebSockets
+
+`WebSocket.connect` does not use `findProxy` on its own, so a socket opened without a client goes straight to the server and never appears in Rockxy. Pass the helper's client:
+
+```dart
+import 'dart:io';
+
+Future<WebSocket> connectRockxyWebSocket(String url) {
+  return WebSocket.connect(url, customClient: makeRockxyHttpClient());
+}
+```
+
+With `package:web_socket_channel`, use `IOWebSocketChannel.connect(url, customClient: makeRockxyHttpClient())`. Frames then appear on the connection's row in Rockxy.
 
 ## Step 4: complete the platform trust path
 

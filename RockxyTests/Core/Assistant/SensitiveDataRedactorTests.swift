@@ -12,6 +12,24 @@ struct SensitiveDataRedactorTests {
 
     // MARK: - JSON body
 
+    @Test("Echoed Authorization and API-key headers, URL tokens, and Bearer values in JSON are redacted")
+    func echoedCredentialsInJSONAreRedacted() {
+        let redactor = SensitiveDataRedactor()
+        let source = """
+        {"url":"https://api.example.com/v1?access_token=qs-secret&page=2","headers":{"authorization":"Basic dXNlcjpwYXNz",\
+        "x-api-key":"key-abc"},"csrfToken":"csrf-1","session_count":3,"usage":{"prompt_tokens":7}}
+        """
+
+        let redacted = redactor.redactBodyText(source, contentType: .json)
+
+        for secret in ["qs-secret", "dXNlcjpwYXNz", "key-abc", "csrf-1"] {
+            #expect(!redacted.contains(secret), "\(secret) leaked: \(redacted)")
+        }
+        #expect(redacted.contains("page=2"))
+        #expect(redacted.contains("\"session_count\":3"))
+        #expect(redacted.contains("\"prompt_tokens\":7"))
+    }
+
     @Test("Nested JSON redacts the AI payload vocabulary while keeping ordinary fields")
     func nestedJSONRedactsAIVocabulary() throws {
         let redactor = SensitiveDataRedactor()
