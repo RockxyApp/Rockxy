@@ -33,6 +33,12 @@ struct SimulatorCertificateInstallerTests {
         }
     }
 
+    @Test("Vision Pro runtimes read as visionOS, not CoreSimulator's xrOS")
+    func visionRuntimeName() {
+        #expect(SimulatorCertificateInstaller.runtimeName("com.apple.CoreSimulator.SimRuntime.xrOS-27-0") == "visionOS 27.0")
+        #expect(SimulatorCertificateInstaller.runtimeName("com.apple.CoreSimulator.SimRuntime.watchOS-27-0") == "watchOS 27.0")
+    }
+
     @Test("Without a selected developer directory, nothing else is run")
     func missingDeveloperToolsFailsClosed() async {
         let runner = RecordingRunner { executable, _ in

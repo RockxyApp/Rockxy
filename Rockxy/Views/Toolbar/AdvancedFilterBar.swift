@@ -207,6 +207,12 @@ struct AdvancedFilterBar: View {
                 .textFieldStyle(.roundedBorder)
                 .font(metrics.swiftUIFont())
                 .focused($focusedRuleID, equals: rules[index].id)
+                // The text field editor turns Escape into completion, so `onExitCommand` on the bar
+                // never sees it while the value field has focus, which is where the bar opens.
+                .onKeyPress(.escape) {
+                    onHide()
+                    return .handled
+                }
                 .accessibilityLabel(String(localized: "Filter value", bundle: RockxyLocalization.bundle))
                 .overlay {
                     // An unfinished regular expression matches nothing; say so instead of

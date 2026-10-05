@@ -335,6 +335,8 @@ struct BabylonPairingView: View {
                 listenerDiagnosticRow(message, showsRetry: true)
             } else if let message = availability.waitingMessage {
                 listenerDiagnosticRow(message, showsRetry: false)
+            } else if receiver.isUsingFallbackPort {
+                fallbackPortRow
             }
 
             connectionDetails
@@ -365,9 +367,21 @@ struct BabylonPairingView: View {
                     .font(toolMetrics.font(monospaced: true))
                     .textSelection(.enabled)
             }
+            if let serviceName = receiver.advertisedServiceName {
+                GridRow {
+                    detailLabel(String(localized: "Service Name", bundle: RockxyLocalization.bundle))
+                    Text(serviceName)
+                        .font(toolMetrics.font(monospaced: true))
+                        .textSelection(.enabled)
+                        .help(String(
+                            localized: "Pass this name as hostName when a Babylon client should only connect to this Mac.",
+                            bundle: RockxyLocalization.bundle
+                        ))
+                }
+            }
             GridRow {
                 detailLabel(String(localized: "Port", bundle: RockxyLocalization.bundle))
-                Text("\(BabylonCaptureProtocol.port)")
+                Text(String(receiver.listeningPort ?? receiver.preferredPort))
                     .font(toolMetrics.font(monospaced: true))
                     .textSelection(.enabled)
             }
@@ -534,6 +548,32 @@ struct BabylonPairingView: View {
             .font(toolMetrics.secondaryFont())
             .foregroundStyle(.secondary)
             .gridColumnAlignment(.leading)
+    }
+
+    /// The fixed port belongs to another app (usually a second Rockxy). Devices still connect over
+    /// Bonjour; simulator clients dial the fixed port and reach that other app instead.
+    private var fallbackPortRow: some View {
+        VStack(alignment: .leading, spacing: toolMetrics.controlSpacing) {
+            Text(String(
+                localized: "Port \(String(receiver.preferredPort)) is used by another app, so Babylon listens on port \(String(receiver.listeningPort ?? 0)). iPhone and iPad clients find this Mac over Bonjour and connect normally. Simulator clients connect to port \(String(receiver.preferredPort)) and reach the other app until it quits.",
+                bundle: RockxyLocalization.bundle
+            ))
+            .font(toolMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button(String(
+                localized: "Use Port \(String(receiver.preferredPort))",
+                bundle: RockxyLocalization.bundle
+            )) {
+                receiver.retryListener()
+            }
+            .help(String(
+                localized: "Try the standard port again after quitting the app that holds it.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
     }
 
     private func listenerDiagnosticRow(_ message: String, showsRetry: Bool) -> some View {

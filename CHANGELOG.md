@@ -35,6 +35,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Babylon capture keeps working when another app (often a second Rockxy) holds port 10909: Rockxy listens on another port that iPhone and iPad clients find over Bonjour, shows the port and the service name to pin, and offers to switch back to 10909.
+- Requests from Babylon SDK clients now carry their GraphQL operation name, like proxied traffic.
+- Relaunching an app that uses the Babylon SDK reuses its traffic tab instead of opening a new one on every launch.
+- Simulator certificate installs name Vision Pro simulators visionOS instead of xrOS.
+- Pressing Esc in an advanced filter's value field now hides the filter bar, as its hint says.
 - Custom Certificates file choosers now say which file they want (certificate, private key, or P12), so the two steps of a PEM / DER import can be told apart, and a tab's result message no longer carries over to the next tab.
 - Fixed Custom Certificates ignoring a confirmed **Revert to Default** or **Delete**: the dialog closed but the custom root stayed active and server/client certificates were not removed.
 - Custom Certificates imports are direct **Import P12…** and **Import PEM / DER…** buttons instead of an Import pull-down that, on the Root tab, held a single item.

@@ -126,14 +126,16 @@ struct SimulatorCertificateInstaller: Sendable {
         }
     }
 
-    /// `com.apple.CoreSimulator.SimRuntime.iOS-26-0` → `iOS 26.0`.
+    /// `com.apple.CoreSimulator.SimRuntime.iOS-26-0` → `iOS 26.0`. CoreSimulator still names the
+    /// Vision Pro runtime `xrOS`; people know it as visionOS.
     static func runtimeName(_ identifier: String) -> String {
         let suffix = identifier.split(separator: ".").last.map(String.init) ?? identifier
         let parts = suffix.split(separator: "-")
         guard let platform = parts.first, parts.count > 1 else {
             return suffix
         }
-        return "\(platform) \(parts.dropFirst().joined(separator: "."))"
+        let platformName = platform == "xrOS" ? "visionOS" : String(platform)
+        return "\(platformName) \(parts.dropFirst().joined(separator: "."))"
     }
 
     static func isValidUDID(_ value: String) -> Bool {

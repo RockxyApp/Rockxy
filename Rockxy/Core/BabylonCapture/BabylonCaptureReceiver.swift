@@ -19,14 +19,33 @@ enum BabylonListenerStatus: Equatable {
 final class BabylonCaptureReceiver: @unchecked Sendable {
     // MARK: Lifecycle
 
-    private init() {}
+    /// `preferredPort` is the protocol's fixed port; tests pass another one.
+    init(preferredPort: UInt16 = BabylonCaptureProtocol.port) {
+        self.preferredPort = preferredPort
+    }
 
     // MARK: Internal
 
     static let shared = BabylonCaptureReceiver()
     static let maximumRuntimePayloadSize = 2 * 1_024 * 1_024
 
+    let preferredPort: UInt16
+
     private(set) var listenerStatus = BabylonListenerStatus.stopped
+    /// The port the listener actually bound. Devices discover it through Bonjour, so it can differ
+    /// from the fixed port when another app (often a second Rockxy) already holds that one;
+    /// simulator clients dial the fixed port directly and reach whichever app holds it.
+    private(set) var listeningPort: UInt16?
+    /// The Bonjour service name as registered, after any rename the network made to keep it unique.
+    /// Babylon clients that pin a host name must use this value.
+    private(set) var advertisedServiceName: String?
+
+    var isUsingFallbackPort: Bool {
+        guard let listeningPort else {
+            return false
+        }
+        return listeningPort != preferredPort
+    }
     /// Number of live TCP connections. Increments before authentication, so a
     /// non-zero value does not imply any paired/authenticated Babylon client.
     private(set) var openConnectionCount = 0
@@ -44,6 +63,12 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     ) {
         self.coordinator = coordinator
         self.pairingStore = pairingStore
+        startListening()
+    }
+
+    /// Bind and advertise the listener without attaching a coordinator. Frames that need one are
+    /// rejected until `start(coordinator:pairingStore:)` provides it.
+    func startListening() {
         queue.async { [weak self] in
             self?.startListenerIfNeeded()
         }
@@ -154,6 +179,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private var pairingObserver: NSObjectProtocol?
     private var aggregateBufferedByteCount = 0
     private var isListenerStarting = false
+    /// Set when the fixed port was taken; the next bind uses any free port. Retry clears it.
+    private var usesAnyPort = false
     private var runtimeIntake = BabylonRuntimeIntakeBuffer(batchSize: BabylonCaptureReceiver.runtimeBatchSize)
     private var runtimeFlushWorkItem: DispatchWorkItem?
     private let runtimePublicationGate = BabylonRuntimePublicationGate()
@@ -185,7 +212,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         guard listener == nil else {
             return
         }
-        guard let port = NWEndpoint.Port(rawValue: BabylonCaptureProtocol.port) else {
+        guard let port = usesAnyPort ? .any : NWEndpoint.Port(rawValue: preferredPort) else {
             publishListenerStatus(.failed("Invalid Babylon capture port."))
             return
         }
@@ -203,6 +230,15 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
                     return
                 }
                 handleListenerState(state, listener: listener)
+            }
+            listener.serviceRegistrationUpdateHandler = { [weak self, weak listener] change in
+                guard let self, let listener, self.listener === listener,
+                      case let .add(endpoint) = change,
+                      case let .service(name, _, _, _) = endpoint else
+                {
+                    return
+                }
+                publishAdvertisedServiceName(name)
             }
             listener.newConnectionHandler = { [weak self, weak listener] connection in
                 guard let self, let listener, self.listener === listener else {
@@ -234,6 +270,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         listener = nil
         active?.stateUpdateHandler = nil
         active?.cancel()
+        // Retry reclaims the fixed port when the app that held it has quit.
+        usesAnyPort = false
         startListener()
     }
 
@@ -246,19 +284,32 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         switch state {
         case .ready:
             isListenerStarting = false
+            publishListeningPort(listener.port?.rawValue)
             publishListenerStatus(.ready)
         case let .waiting(error):
             publishListenerStatus(.waiting(error.localizedDescription))
+        case let .failed(error) where !usesAnyPort && Self.isAddressInUse(error):
+            // Another app holds the fixed port. Devices find this Mac through Bonjour, which
+            // carries the real port, so listen anywhere instead of leaving Babylon unavailable.
+            Self.logger.info("Babylon port \(self.preferredPort) is in use; listening on another port")
+            self.listener = nil
+            listener.stateUpdateHandler = nil
+            listener.cancel()
+            isListenerStarting = false
+            usesAnyPort = true
+            startListener()
         case let .failed(error):
             isListenerStarting = false
             self.listener = nil
             listener.cancel()
+            publishListeningPort(nil)
             publishListenerStatus(.failed(error.localizedDescription))
         case .cancelled:
             isListenerStarting = false
             // The current listener was cancelled without our asking — surface a
             // retryable Unavailable state rather than a misleading Starting.
             self.listener = nil
+            publishListeningPort(nil)
             publishListenerStatus(.failed(String(
                 localized: "The Babylon listener stopped unexpectedly.",
                 bundle: RockxyLocalization.bundle
@@ -594,6 +645,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         listener = nil
         isListenerStarting = false
         active?.cancel()
+        usesAnyPort = false
+        publishListeningPort(nil)
         disconnectAllClients()
         if let pairingObserver {
             NotificationCenter.default.removeObserver(pairingObserver)
@@ -609,6 +662,30 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             self?.listenerStatus = status
         }
+    }
+
+    private func publishListeningPort(_ port: UInt16?) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        DispatchQueue.main.async { [weak self] in
+            self?.listeningPort = port
+            if port == nil {
+                self?.advertisedServiceName = nil
+            }
+        }
+    }
+
+    private func publishAdvertisedServiceName(_ name: String) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        DispatchQueue.main.async { [weak self] in
+            self?.advertisedServiceName = name
+        }
+    }
+
+    static func isAddressInUse(_ error: NWError) -> Bool {
+        if case let .posix(code) = error {
+            return code == .EADDRINUSE
+        }
+        return false
     }
 
     private func publishOpenConnectionCount() {

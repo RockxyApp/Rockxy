@@ -750,6 +750,16 @@
         }
       }
     },
+    "Pass this name as hostName when a Babylon client should only connect to this Mac.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果 Babylon 客户端只应连接这台 Mac，请将此名称作为 hostName 传入。"
+          }
+        }
+      }
+    },
     "Pause only GraphQL requests with this exact operation name. Leave empty to match every request to the URL.": {
       "localizations": {
         "zh-Hans": {
@@ -786,6 +796,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "插件脚本执行超时"
+          }
+        }
+      }
+    },
+    "Port %@ is used by another app, so Babylon listens on port %@. iPhone and iPad clients find this Mac over Bonjour and connect normally. Simulator clients connect to port %@ and reach the other app until it quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口 %1$@ 已被其他应用占用，因此 Babylon 改为监听端口 %2$@。iPhone 和 iPad 客户端通过 Bonjour 找到这台 Mac 并正常连接。模拟器客户端连接端口 %3$@，在另一个应用退出之前会连接到该应用。"
           }
         }
       }
@@ -1120,6 +1140,16 @@
         }
       }
     },
+    "Service Name": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务名称"
+          }
+        }
+      }
+    },
     "Show Advanced Filters": {
       "localizations": {
         "zh-Hans": {
@@ -1360,6 +1390,16 @@
         }
       }
     },
+    "Try the standard port again after quitting the app that holds it.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出占用标准端口的应用后，再次尝试使用该端口。"
+          }
+        }
+      }
+    },
     "Unexpected networksetup output: %@": {
       "localizations": {
         "zh-Hans": {
@@ -1386,6 +1426,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用“设备证书”下的“安装到已启动的模拟器”，或导出公开 PEM 后自行运行 xcrun simctl keychain <udid> add-root-cert <path-to-pem>。"
+          }
+        }
+      }
+    },
+    "Use Port %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用端口 %@"
           }
         }
       }
