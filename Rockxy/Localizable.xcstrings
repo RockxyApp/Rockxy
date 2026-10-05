@@ -805,7 +805,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "端口 %1$@ 已被其他应用占用，因此 Babylon 改为监听端口 %2$@。iPhone 和 iPad 客户端通过 Bonjour 找到这台 Mac 并正常连接。模拟器客户端连接端口 %3$@，在另一个应用退出之前会连接到该应用。"
+            "value": "端口 %@ 已被其他应用占用，因此 Babylon 改为监听端口 %@。iPhone 和 iPad 客户端通过 Bonjour 找到这台 Mac 并正常连接。模拟器客户端连接端口 %@，在另一个应用退出之前会连接到该应用。"
           }
         }
       }
@@ -835,7 +835,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "隐去敏感数据"
+            "value": "敏感数据脱敏"
           }
         }
       }
@@ -885,7 +885,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将文件中可识别的机密信息（如 Authorization、Cookie、API 密钥和 URL 令牌）替换为 [REDACTED]。尽力而为；分享前请检查文件。"
+            "value": "对文件中可识别的机密信息（如 Authorization、Cookie、API 密钥和 URL 令牌）进行脱敏，替换为 [REDACTED]。尽力而为；分享前请检查文件。"
           }
         }
       }
