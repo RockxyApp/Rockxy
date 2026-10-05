@@ -425,6 +425,58 @@ struct SidebarSSLProxyingTests {
         #expect(manager.isDecryptionConfigured(host: "cdn.example.com"))
     }
 
+    @Test("Decrypting a domain row covers the hosts grouped under it")
+    func domainGroupDecryptCoversSubdomains() {
+        let coordinator = MainContentCoordinator()
+        let manager = SSLProxyingManager.shared
+        let originalRules = manager.rules
+        let originalEnabled = manager.isEnabled
+        let originalBypassDomains = manager.bypassDomains
+        defer {
+            manager.replaceAllRules(originalRules)
+            manager.setEnabled(originalEnabled)
+            manager.setBypassDomains(originalBypassDomains)
+        }
+        manager.setBypassDomains("")
+        // An earlier exact Tunnel on one host must not keep it opaque.
+        manager.replaceAllRules([SSLProxyingRule(domain: "api.example.org", listType: .exclude)])
+        let hosts = ["www.example.org", "api.example.org"]
+
+        #expect(!coordinator.isSSLProxyingEnabled(forDomainGroup: "example.org", hosts: hosts))
+        #expect(coordinator.enableSSLProxying(forDomainGroup: "example.org", hosts: hosts))
+
+        #expect(manager.isDecryptionConfigured(host: "example.org"))
+        #expect(manager.isDecryptionConfigured(host: "www.example.org"))
+        #expect(manager.isDecryptionConfigured(host: "api.example.org"))
+        #expect(manager.isDecryptionConfigured(host: "cdn.example.org"))
+        #expect(coordinator.isSSLProxyingEnabled(forDomainGroup: "example.org", hosts: hosts))
+
+        #expect(coordinator.disableSSLProxying(forDomainGroup: "example.org", hosts: hosts))
+        #expect(!manager.isDecryptionConfigured(host: "www.example.org"))
+        #expect(!manager.isDecryptionConfigured(host: "api.example.org"))
+        #expect(!coordinator.isSSLProxyingEnabled(forDomainGroup: "example.org", hosts: hosts))
+    }
+
+    @Test("A domain row is only shown as decrypted when every grouped host is")
+    func domainGroupStatusNeedsEveryHost() {
+        let coordinator = MainContentCoordinator()
+        let manager = SSLProxyingManager.shared
+        let originalRules = manager.rules
+        let originalEnabled = manager.isEnabled
+        let originalBypassDomains = manager.bypassDomains
+        defer {
+            manager.replaceAllRules(originalRules)
+            manager.setEnabled(originalEnabled)
+            manager.setBypassDomains(originalBypassDomains)
+        }
+        manager.setBypassDomains("")
+        manager.setEnabled(true)
+        manager.replaceAllRules([SSLProxyingRule(domain: "example.org", listType: .include)])
+
+        #expect(coordinator.isSSLProxyingEnabled(for: "example.org"))
+        #expect(!coordinator.isSSLProxyingEnabled(forDomainGroup: "example.org", hosts: ["www.example.org"]))
+    }
+
     @Test("observedDomainsForApp falls back to matching transactions and current host")
     func observedDomainsForAppFallsBackToTransactions() {
         let coordinator = MainContentCoordinator()

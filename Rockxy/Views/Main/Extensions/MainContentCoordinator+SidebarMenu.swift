@@ -192,6 +192,57 @@ extension MainContentCoordinator {
         return didChange
     }
 
+    // MARK: - Domain Groups
+
+    /// A sidebar domain row such as `example.org` stands for the domain and every host captured
+    /// under it (`www.example.org`, `api.example.org`). Decrypting only the exact root left those
+    /// hosts tunneled while the row showed them as decrypted.
+    func isSSLProxyingEnabled(forDomainGroup domain: String, hosts: [String]) -> Bool {
+        let targets = hosts.isEmpty ? [domain] : hosts
+        return targets.allSatisfy { isSSLProxyingEnabled(for: $0) }
+    }
+
+    @discardableResult
+    func enableSSLProxying(forDomainGroup domain: String, hosts: [String], refreshPresentation: Bool = true) -> Bool {
+        let normalizedDomain = normalizedSSLHost(domain)
+        guard !normalizedDomain.isEmpty else {
+            return false
+        }
+        var didChange = enableSSLProxyingForDomain(normalizedDomain, refreshPresentation: false)
+        didChange = enableSSLProxyingForDomain("*.\(normalizedDomain)", refreshPresentation: false) || didChange
+        // An exact Tunnel rule on one of the hosts still wins over the wildcard; replace it.
+        for host in hosts where !isSSLProxyingEnabled(for: host) {
+            didChange = enableSSLProxyingForDomain(host, refreshPresentation: false) || didChange
+        }
+        if didChange, refreshPresentation {
+            refreshSSLProxyingPresentation()
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func disableSSLProxying(forDomainGroup domain: String, hosts: [String], refreshPresentation: Bool = true) -> Bool {
+        let normalizedDomain = normalizedSSLHost(domain)
+        guard !normalizedDomain.isEmpty else {
+            return false
+        }
+        var didChange = false
+        let wildcardIDs = Set(SSLProxyingManager.shared.includeRules.filter {
+            sslHostPatternsAreEqual($0.domain, "*.\(normalizedDomain)")
+        }.map(\.id))
+        if !wildcardIDs.isEmpty {
+            SSLProxyingManager.shared.removeRules(ids: wildcardIDs)
+            didChange = true
+        }
+        for host in Set(hosts + [normalizedDomain]) {
+            didChange = disableSSLProxyingForDomain(host, refreshPresentation: false) || didChange
+        }
+        if didChange, refreshPresentation {
+            refreshSSLProxyingPresentation()
+        }
+        return didChange
+    }
+
     @discardableResult
     func enableSSLProxyingForApp(_ app: AppInfo, refreshPresentation: Bool = true) -> Bool {
         if let identity = app.identity {

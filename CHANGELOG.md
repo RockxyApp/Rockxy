@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Decrypt This Host and Pin and Decrypt This Host on a sidebar domain row (such as example.org) now cover the hosts grouped under it (www.example.org, api.example.org); before, only the bare domain was decrypted while the row showed everything as decrypted.
 - Fixed deleted requests, and requests removed with their domain or app from the sidebar, coming back as soon as new traffic arrived; they were also still included in command-line log exports.
 - Babylon capture keeps working when another app (often a second Rockxy) holds port 10909: Rockxy listens on another port that iPhone and iPad clients find over Bonjour, shows the port and the service name to pin, and offers to switch back to 10909.
 - Requests from Babylon SDK clients now carry their GraphQL operation name, like proxied traffic.

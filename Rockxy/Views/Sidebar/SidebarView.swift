@@ -472,13 +472,27 @@ struct SidebarView: View {
     /// Pins a host and turns on its HTTPS decryption in one explicit step; the choice is visible in
     /// the menu, so decryption is never enabled as a side effect of pinning alone.
     @ViewBuilder
-    private func pinAndDecryptButton(item: SidebarItem, domain: String, isPinned: Bool, isPathScope: Bool) -> some View {
-        if !isPinned, !isPathScope, !coordinator.isSSLProxyingEnabled(for: domain),
+    private func pinAndDecryptButton(
+        item: SidebarItem,
+        domain: String,
+        groupHosts: [String]? = nil,
+        isPinned: Bool,
+        isPathScope: Bool
+    )
+        -> some View
+    {
+        let isDecrypted = groupHosts.map { coordinator.isSSLProxyingEnabled(forDomainGroup: domain, hosts: $0) }
+            ?? coordinator.isSSLProxyingEnabled(for: domain)
+        if !isPinned, !isPathScope, !isDecrypted,
            coordinator.sslProxyingHostDecryptBlockedReason(for: domain) == nil
         {
             Button {
                 coordinator.addFavorite(item)
-                coordinator.enableSSLProxyingForDomain(domain)
+                if let groupHosts {
+                    coordinator.enableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+                } else {
+                    coordinator.enableSSLProxyingForDomain(domain)
+                }
             } label: {
                 Label(
                     String(localized: "Pin and Decrypt This Host", bundle: RockxyLocalization.bundle),
@@ -665,7 +679,7 @@ struct SidebarView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if coordinator.isSSLProxyingEnabled(for: node.selectionDomain), node.kind != .path {
+                if node.kind != .path, isDecryptionEnabled(for: node) {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: metrics.sidebarBadgeFontSize))
                         .foregroundStyle(.green)
@@ -692,15 +706,83 @@ struct SidebarView: View {
         .badge(node.requestCount)
         .tag(sidebarItem(for: node))
         .frame(minHeight: metrics.sidebarRowHeight)
-        .contextMenu { domainContextMenu(node.selectionDomain, pathPrefix: node.pathPrefix) }
+        .contextMenu {
+            domainContextMenu(node.selectionDomain, pathPrefix: node.pathPrefix, groupHosts: groupHosts(for: node))
+        }
         .draggable(SidebarPinDragPayload.encode(sidebarItem(for: node)) ?? "")
         .help(domainHelpText(for: node))
     }
 
     // MARK: - Context Menus
 
+    /// Decrypt or Tunnel for a domain row (the domain and its hosts) or a single host row.
     @ViewBuilder
-    private func domainContextMenu(_ domain: String, pathPrefix: String? = nil) -> some View {
+    private func decryptionToggleButton(domain: String, groupHosts: [String]?) -> some View {
+        if let groupHosts, coordinator.isSSLProxyingEnabled(forDomainGroup: domain, hosts: groupHosts) {
+            Button {
+                coordinator.disableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+            } label: {
+                Label(
+                    String(localized: "Tunnel This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
+            }
+        } else if let groupHosts {
+            Button {
+                coordinator.enableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+            } label: {
+                Label(
+                    String(localized: "Decrypt This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
+            }
+            .disabled(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) != nil)
+            .help(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) ?? "")
+        } else if coordinator.isSSLProxyingEnabled(for: domain) {
+            Button {
+                coordinator.disableSSLProxyingForDomain(domain)
+            } label: {
+                Label(
+                    String(localized: "Tunnel This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
+            }
+        } else {
+            Button {
+                coordinator.enableSSLProxyingForDomain(domain)
+            } label: {
+                Label(
+                    String(localized: "Decrypt This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
+            }
+            .disabled(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) != nil)
+            .help(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) ?? "")
+        }
+    }
+
+    /// The hosts a domain row stands for, or nil for a row that is a single host or a path.
+    private func groupHosts(for node: DomainNode) -> [String]? {
+        guard node.kind == .domain else {
+            return nil
+        }
+        var hosts = node.children.filter { $0.kind == .host }.map(\.domain)
+        // Requests to the root itself show up as path rows directly under it.
+        if hosts.isEmpty || node.children.contains(where: { $0.kind == .path }) {
+            hosts.append(node.selectionDomain)
+        }
+        return hosts
+    }
+
+    private func isDecryptionEnabled(for node: DomainNode) -> Bool {
+        if let hosts = groupHosts(for: node) {
+            return coordinator.isSSLProxyingEnabled(forDomainGroup: node.selectionDomain, hosts: hosts)
+        }
+        return coordinator.isSSLProxyingEnabled(for: node.selectionDomain)
+    }
+
+    @ViewBuilder
+    private func domainContextMenu(_ domain: String, pathPrefix: String? = nil, groupHosts: [String]? = nil) -> some View {
         let item = pathPrefix.map { SidebarItem.domainPath(domain: domain, pathPrefix: $0) }
             ?? SidebarItem.domainNode(domain: domain)
         let isPinned = coordinator.isFavorite(item)
@@ -714,7 +796,13 @@ struct SidebarView: View {
             )
         }
 
-        pinAndDecryptButton(item: item, domain: domain, isPinned: isPinned, isPathScope: pathPrefix != nil)
+        pinAndDecryptButton(
+            item: item,
+            domain: domain,
+            groupHosts: groupHosts,
+            isPinned: isPinned,
+            isPathScope: pathPrefix != nil
+        )
 
         Button {
             guard coordinator.workspaceStore.canCreateWorkspace else {
@@ -744,27 +832,7 @@ struct SidebarView: View {
 
         Divider()
 
-        if coordinator.isSSLProxyingEnabled(for: domain) {
-            Button {
-                coordinator.disableSSLProxyingForDomain(domain)
-            } label: {
-                Label(
-                    String(localized: "Tunnel This Host", bundle: RockxyLocalization.bundle),
-                    systemImage: "lock.shield"
-                )
-            }
-        } else {
-            Button {
-                coordinator.enableSSLProxyingForDomain(domain)
-            } label: {
-                Label(
-                    String(localized: "Decrypt This Host", bundle: RockxyLocalization.bundle),
-                    systemImage: "lock.shield"
-                )
-            }
-            .disabled(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) != nil)
-            .help(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) ?? "")
-        }
+        decryptionToggleButton(domain: domain, groupHosts: groupHosts)
 
         SidebarOpenHTTPSDecryptionButton()
 
