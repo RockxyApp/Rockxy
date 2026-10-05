@@ -292,7 +292,7 @@ struct CustomCertificatesView: View {
 
     private var footer: some View {
         HStack(spacing: toolMetrics.controlSpacing) {
-            importMenu
+            importButtons
 
             Button(viewModel.primaryDestructiveTitle, role: .destructive) {
                 viewModel.requestPrimaryDeletion()
@@ -333,28 +333,21 @@ struct CustomCertificatesView: View {
         .rockxyFunctionalBar()
     }
 
-    private var importMenu: some View {
-        Menu {
-            switch viewModel.mode {
-            case .root:
-                Button(String(localized: "Import P12…", bundle: RockxyLocalization.bundle)) {
-                    importPKCS12(kind: .root)
-                }
-            case .server,
-                 .client:
-                Button(String(localized: "Import PEM / DER…", bundle: RockxyLocalization.bundle)) {
-                    importPEMOrDER(kind: viewModel.mode.kind)
-                }
-                Divider()
-                Button(String(localized: "Import P12…", bundle: RockxyLocalization.bundle)) {
-                    importPKCS12(kind: viewModel.mode.kind)
-                }
+    /// One or two import actions are direct buttons rather than a pull-down: a menu holding a
+    /// single item only adds a step, and the HIG reserves pull-downs for three or more commands.
+    @ViewBuilder
+    private var importButtons: some View {
+        if viewModel.mode != .root {
+            Button(String(localized: "Import PEM / DER…", bundle: RockxyLocalization.bundle)) {
+                importPEMOrDER(kind: viewModel.mode.kind)
             }
-        } label: {
-            Text(String(localized: "Import", bundle: RockxyLocalization.bundle))
+            .rockxyGlassButtonStyle()
+            .disabled(viewModel.isBusy)
         }
-        .menuStyle(.button)
-        .fixedSize()
+        Button(String(localized: "Import P12…", bundle: RockxyLocalization.bundle)) {
+            importPKCS12(kind: viewModel.mode.kind)
+        }
+        .rockxyGlassButtonStyle()
         .disabled(viewModel.isBusy)
     }
 

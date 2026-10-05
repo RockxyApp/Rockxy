@@ -35,6 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Custom Certificates imports are direct **Import P12…** and **Import PEM / DER…** buttons instead of an Import pull-down that, on the Root tab, held a single item.
 - Fixed GraphQL requests that Rockxy answered itself (Map Local, Block, a breakpoint abort or redirect, an unreachable server) losing their operation name, so they were missing from the Operation column and its filter.
 - Fixed `ws://` and other plain HTTP sent through a CONNECT tunnel showing its CONNECT row as HTTPS; it is now labelled HTTP.
 - Developer Setup's Flutter snippets now fill in the Mac's LAN address for physical devices when Rockxy listens beyond localhost, instead of a placeholder.
