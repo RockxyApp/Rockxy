@@ -83,8 +83,9 @@ A Charles JSON session keeps each request's headers, body, response, timings, an
    - **All Transactions** — everything captured
    - **Visible / Filtered** — only what the current filter shows
    - **Selected** — only selected transactions
-3. Click **Export...** to open the save dialog.
-4. Pick a location and filename. Rockxy writes a standard HAR 1.2 file.
+3. To share the file safely, turn on **Redact sensitive data**. Rockxy replaces recognized secrets — `Authorization`, cookies, API keys, URL tokens, and secret body values — with `[REDACTED]` in the file; your captured session keeps the original values. The same option is offered for Rockxy Session, CSV, and Postman exports.
+4. Click **Export...** to open the save dialog.
+5. Pick a location and filename. Rockxy writes a standard HAR 1.2 file.
 
 You can also export from the request list: right-click a request and choose **Export > Export as HAR...**. When the clicked request is part of a multi-row selection, the menu reads **Export Selected as HAR...** and writes every selected request.
 
