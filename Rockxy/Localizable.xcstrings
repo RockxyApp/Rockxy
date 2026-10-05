@@ -830,6 +830,16 @@
         }
       }
     },
+    "Redact sensitive data": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐去敏感数据"
+          }
+        }
+      }
+    },
     "Relaunch the app in the simulator, then enable HTTPS decryption for its hosts.": {
       "localizations": {
         "zh-Hans": {
@@ -866,6 +876,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "远程协议"
+          }
+        }
+      }
+    },
+    "Replaces recognized secrets such as Authorization, Cookie, API keys, and URL tokens with [REDACTED] in the file. Best effort; review the file before sharing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将文件中可识别的机密信息（如 Authorization、Cookie、API 密钥和 URL 令牌）替换为 [REDACTED]。尽力而为；分享前请检查文件。"
           }
         }
       }

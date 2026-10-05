@@ -91,17 +91,20 @@ extension MainContentCoordinator {
 
     /// Consumes only the passed review context — never live coordinator
     /// transactions, filteredTransactions, selection, or workspace state.
-    func executeExport(context: ExportScopeContext, scope: ExportScope) {
+    func executeExport(context: ExportScopeContext, scope: ExportScope, redactsSensitiveData: Bool = false) {
         let format = context.format
         exportScopeContext = nil
 
-        guard let plan = makeExportExecutionPlan(context: context, scope: scope) else {
+        guard let unredactedPlan = makeExportExecutionPlan(context: context, scope: scope) else {
             activeToast = ToastMessage(
                 style: .error,
                 text: String(localized: "No transactions to export", bundle: RockxyLocalization.bundle)
             )
             return
         }
+        let plan = redactsSensitiveData && format.supportsRedaction
+            ? unredactedPlan.redactingSensitiveData()
+            : unredactedPlan
 
         let data: Data
         let exportedCount: Int

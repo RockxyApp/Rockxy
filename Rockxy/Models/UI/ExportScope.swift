@@ -35,6 +35,12 @@ enum TrafficExportFormat: String, CaseIterable {
         }
     }
 
+    /// Formats that write headers, bodies, or full URLs can have recognized secrets replaced
+    /// before the file is written. OpenAPI already leaves those values out.
+    var supportsRedaction: Bool {
+        !isOpenAPI
+    }
+
     var isOpenAPI: Bool {
         switch self {
         case .rockxySession,
@@ -449,4 +455,16 @@ struct ExportExecutionPlan {
 
     /// Count of reviewed transactions this format cannot emit.
     let skippedCount: Int
+
+    /// The same plan with recognized secrets (sensitive headers, URL tokens, body values)
+    /// replaced in copies of the transactions; the captured session is left untouched.
+    func redactingSensitiveData(using redactor: SensitiveDataRedactor = SensitiveDataRedactor()) -> ExportExecutionPlan {
+        ExportExecutionPlan(
+            format: format,
+            scope: scope,
+            reviewedSource: reviewedSource,
+            eligibleTransactions: eligibleTransactions.map(redactor.redactTransaction),
+            skippedCount: skippedCount
+        )
+    }
 }

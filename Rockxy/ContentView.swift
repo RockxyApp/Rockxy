@@ -255,7 +255,9 @@ struct ContentView: View {
         .sheet(item: $coordinator.exportScopeContext) { context in
             ExportScopeSheet(
                 context: context,
-                onExport: { scope in coordinator.executeExport(context: context, scope: scope) },
+                onExport: { scope, redacts in
+                    coordinator.executeExport(context: context, scope: scope, redactsSensitiveData: redacts)
+                },
                 onCancel: { coordinator.exportScopeContext = nil }
             )
         }

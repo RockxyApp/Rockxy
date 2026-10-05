@@ -15,7 +15,7 @@ struct ExportScopeSheet: View {
 
     init(
         context: ExportScopeContext,
-        onExport: @escaping (ExportScope) -> Void,
+        onExport: @escaping (ExportScope, Bool) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.context = context
@@ -31,7 +31,8 @@ struct ExportScopeSheet: View {
     // MARK: Internal
 
     let context: ExportScopeContext
-    var onExport: (ExportScope) -> Void
+    /// The chosen scope and whether recognized secrets are redacted in the written file.
+    var onExport: (ExportScope, Bool) -> Void
     var onCancel: () -> Void
 
     var body: some View {
@@ -45,6 +46,10 @@ struct ExportScopeSheet: View {
             }
 
             privacyNote
+
+            if context.format.supportsRedaction {
+                redactionToggle
+            }
 
             footer
         }
@@ -61,6 +66,7 @@ struct ExportScopeSheet: View {
     // MARK: Private
 
     @State private var selectedScope: ExportScope
+    @State private var redactsSensitiveData = false
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var toolMetrics: ToolWindowDisplayMetrics {
@@ -208,6 +214,28 @@ struct ExportScopeSheet: View {
             .accessibilityIdentifier("exportScope.privacy")
     }
 
+    private var redactionToggle: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Toggle(
+                String(localized: "Redact sensitive data", bundle: RockxyLocalization.bundle),
+                isOn: $redactsSensitiveData
+            )
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("exportScope.redact")
+            Text(String(
+                localized: """
+                Replaces recognized secrets such as Authorization, Cookie, API keys, and URL tokens with \
+                [REDACTED] in the file. Best effort; review the file before sharing.
+                """,
+                bundle: RockxyLocalization.bundle
+            ))
+            .font(toolMetrics.secondaryFont())
+            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 20)
+        }
+    }
+
     private var footer: some View {
         HStack(spacing: toolMetrics.controlSpacing) {
             Spacer()
@@ -224,7 +252,7 @@ struct ExportScopeSheet: View {
             .accessibilityIdentifier("exportScope.cancelButton")
 
             Button {
-                onExport(selectedScope)
+                onExport(selectedScope, context.format.supportsRedaction && redactsSensitiveData)
             } label: {
                 Text(String(localized: "Export\u{2026}", bundle: RockxyLocalization.bundle))
                     .frame(width: footerActionWidth)
