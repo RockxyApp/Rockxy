@@ -814,6 +814,7 @@ extension MainContentCoordinator {
             DomainGrouping.host($0.request.host, matchesDomain: domain)
                 && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
         }
+        syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was removed by this action.
@@ -840,6 +841,7 @@ extension MainContentCoordinator {
 
     func removeAppFromSidebar(_ appName: String) {
         transactions.removeAll { $0.clientApp == appName }
+        syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was this app

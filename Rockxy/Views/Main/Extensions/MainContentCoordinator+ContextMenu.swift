@@ -554,6 +554,7 @@ extension MainContentCoordinator {
     func deleteTransactions(_ transactionsToDelete: [HTTPTransaction]) {
         let ids = Set(transactionsToDelete.map(\.id))
         transactions.removeAll { ids.contains($0.id) }
+        syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
         recomputeErrorCount()
         persistedFavorites.removeAll { ids.contains($0.id) }
@@ -575,6 +576,12 @@ extension MainContentCoordinator {
         // via togglePin/saveRequest even if it was never loaded into persistedFavorites.
         // The store delete is a no-op when the IDs do not exist in SQLite.
         deleteFromSessionStore(ids: ids)
+    }
+
+    /// The list is rebuilt from the active Project's history whenever new traffic arrives, so a
+    /// removal that only touched `transactions` would bring the rows back with the next batch.
+    func syncActiveProjectHistory() {
+        transactionsByProjectID[projectStore.activeProjectID] = transactions
     }
 
     private func deleteFromSessionStore(ids: Set<UUID>) {
