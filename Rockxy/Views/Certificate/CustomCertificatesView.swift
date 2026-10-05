@@ -66,7 +66,7 @@ struct CustomCertificatesView: View {
             presenting: viewModel.pendingDeletion
         ) { request in
             Button(request.confirmLabel, role: .destructive) {
-                confirmDeletion()
+                confirmDeletion(request)
             }
             Button(String(localized: "Cancel", bundle: RockxyLocalization.bundle), role: .cancel) {
                 viewModel.pendingDeletion = nil
@@ -518,10 +518,10 @@ struct CustomCertificatesView: View {
         TimestampFormatter.string(date, date: .abbreviated, time: .shortened)
     }
 
-    private func confirmDeletion() {
-        let wasRoot = viewModel.mode == .root
+    private func confirmDeletion(_ request: CustomCertificatesViewModel.DeletionRequest) {
+        let wasRoot = request.target == .revertRoot
         Task {
-            await viewModel.confirmPendingDeletion()
+            await viewModel.confirmDeletion(request)
             if wasRoot {
                 await viewModel.refreshDefaultRoot()
             }
@@ -615,6 +615,9 @@ struct CustomCertificatesView: View {
     private func chooseFile(title: String, allowedContentTypes: [UTType]) -> URL? {
         let panel = NSOpenPanel()
         panel.title = title
+        // Current macOS does not show an open panel's title; the message is what tells the
+        // certificate step apart from the private-key step that follows it.
+        panel.message = title
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false

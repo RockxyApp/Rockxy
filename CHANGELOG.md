@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Custom Certificates file choosers now say which file they want (certificate, private key, or P12), so the two steps of a PEM / DER import can be told apart, and a tab's result message no longer carries over to the next tab.
+- Fixed Custom Certificates ignoring a confirmed **Revert to Default** or **Delete**: the dialog closed but the custom root stayed active and server/client certificates were not removed.
 - Custom Certificates imports are direct **Import P12…** and **Import PEM / DER…** buttons instead of an Import pull-down that, on the Root tab, held a single item.
 - Fixed GraphQL requests that Rockxy answered itself (Map Local, Block, a breakpoint abort or redirect, an unreachable server) losing their operation name, so they were missing from the Operation column and its filter.
 - Fixed `ws://` and other plain HTTP sent through a CONNECT tunnel showing its CONNECT row as HTTPS; it is now labelled HTTP.

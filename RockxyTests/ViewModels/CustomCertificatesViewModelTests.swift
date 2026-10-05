@@ -96,6 +96,43 @@ struct CustomCertificatesViewModelTests {
         #expect(viewModel.statusTone == .success)
     }
 
+    @Test("A confirmed delete still runs after the dialog clears the pending request")
+    func confirmationSurvivesDialogDismissal() async throws {
+        let environment = makeEnvironment()
+        defer { environment.cleanup() }
+        let first = try importServer(host: "one.example.com", into: environment.manager)
+        let second = try importServer(host: "two.example.com", into: environment.manager)
+        let viewModel = CustomCertificatesViewModel(manager: environment.manager)
+
+        viewModel.mode = .server
+        viewModel.selectedServerID = first.id
+        viewModel.requestPrimaryDeletion()
+        let shown = try #require(viewModel.pendingDeletion)
+        // SwiftUI sets the dialog's isPresented binding to false before the async action runs.
+        viewModel.pendingDeletion = nil
+        await viewModel.confirmDeletion(shown)
+
+        #expect(environment.manager.metadata(kind: .server).map(\.id) == [second.id])
+        #expect(viewModel.statusTone == .success)
+    }
+
+    @Test("Switching tabs clears the previous tab's result message")
+    func switchingTabsClearsStatus() async throws {
+        let environment = makeEnvironment()
+        defer { environment.cleanup() }
+        let first = try importServer(host: "one.example.com", into: environment.manager)
+        let viewModel = CustomCertificatesViewModel(manager: environment.manager)
+
+        viewModel.mode = .server
+        viewModel.selectedServerID = first.id
+        viewModel.requestPrimaryDeletion()
+        await viewModel.confirmPendingDeletion()
+        #expect(viewModel.statusMessage == "Certificate deleted.")
+
+        viewModel.mode = .client
+        #expect(viewModel.statusMessage == nil)
+    }
+
     @Test("Host input uses bare-host validation and canonical normalization")
     func validatesAndNormalizesHostPatterns() {
         let environment = makeEnvironment()

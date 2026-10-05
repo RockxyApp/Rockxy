@@ -134,6 +134,12 @@ final class CustomCertificatesViewModel {
             if isImporting {
                 importGeneration += 1
             }
+            // A result belongs to the tab it happened on ("Certificate deleted.", "Rockxy is using
+            // its default root certificate."); it must not read as a statement about the new tab.
+            if !isBusy {
+                statusMessage = nil
+                statusTone = .neutral
+            }
             reconcileSelection()
         }
     }
@@ -363,6 +369,13 @@ final class CustomCertificatesViewModel {
         guard let request = pendingDeletion else {
             return
         }
+        await confirmDeletion(request)
+    }
+
+    /// Carries out the request the confirmation dialog showed. The dialog clears
+    /// `pendingDeletion` as it dismisses, before an async confirmation runs, so the
+    /// confirmed request is passed in rather than read back from that property.
+    func confirmDeletion(_ request: DeletionRequest) async {
         pendingDeletion = nil
         guard !isBusy else {
             return
