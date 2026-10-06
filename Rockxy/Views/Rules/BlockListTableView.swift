@@ -5,10 +5,25 @@ import SwiftUI
 
 // MARK: - BlockListTableView
 
+/// One displayed line: a folder header or a rule (indented when it sits inside a folder).
+struct BlockListDisplayRow: Identifiable {
+    let row: RuleListRow
+    let indented: Bool
+
+    var id: UUID {
+        row.id
+    }
+}
+
 struct BlockListTableView<ContextMenuContent: View>: View {
     // MARK: Internal
 
-    let rules: [ProxyRule]
+    let rows: [BlockListDisplayRow]
+    let folderRules: (RuleFolder) -> [ProxyRule]
+    let collapsedFolderIDs: Set<UUID>
+    let onToggleCollapse: (UUID) -> Void
+    let onSetFolderEnabled: ([UUID], Bool) -> Void
+    let onDrop: ([String], RuleListRow) -> Void
     let isSearching: Bool
     @Binding var selectedRuleID: UUID?
 
@@ -23,7 +38,7 @@ struct BlockListTableView<ContextMenuContent: View>: View {
             ZStack {
                 zebraRows
 
-                if rules.isEmpty {
+                if rows.isEmpty {
                     VStack(spacing: 7) {
                         Image(systemName: isSearching ? "magnifyingglass" : "hand.raised")
                             .font(.system(size: max(22, toolMetrics.emptyStateFontSize + 8)))
@@ -52,20 +67,19 @@ struct BlockListTableView<ContextMenuContent: View>: View {
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(Array(rules.enumerated()), id: \.element.id) { index, rule in
-                                BlockRuleTableRow(
-                                    rule: rule,
-                                    isSelected: selectedRuleID == rule.id,
-                                    rowIndex: index,
-                                    onSelect: { selectedRuleID = rule.id },
-                                    onToggle: { onToggle(rule.id) }
-                                )
-                                .contextMenu {
-                                    contextMenuItems(rule.id)
-                                }
-                                .onTapGesture(count: 2) {
-                                    onEdit(rule.id)
-                                }
+                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, entry in
+                                displayRow(entry, index: index)
+                                    .contextMenu {
+                                        contextMenuItems(entry.id)
+                                    }
+                                    .draggable(RuleFolderDrag.payload(
+                                        for: entry.id,
+                                        selection: selectedRuleID.map { [$0] } ?? []
+                                    ))
+                                    .dropDestination(for: String.self) { payloads, _ in
+                                        onDrop(payloads, entry.row)
+                                        return true
+                                    }
                             }
                         }
                     }
@@ -90,6 +104,35 @@ struct BlockListTableView<ContextMenuContent: View>: View {
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    @ViewBuilder
+    private func displayRow(_ entry: BlockListDisplayRow, index: Int) -> some View {
+        switch entry.row.kind {
+        case let .rule(rule):
+            BlockRuleTableRow(
+                rule: rule,
+                isSelected: selectedRuleID == rule.id,
+                rowIndex: index,
+                indented: entry.indented,
+                onSelect: { selectedRuleID = rule.id },
+                onToggle: { onToggle(rule.id) }
+            )
+            .onTapGesture(count: 2) {
+                onEdit(rule.id)
+            }
+        case let .folder(folder):
+            BlockFolderTableRow(
+                folder: folder,
+                rules: folderRules(folder),
+                isSelected: selectedRuleID == folder.id,
+                isCollapsed: collapsedFolderIDs.contains(folder.id),
+                rowIndex: index,
+                onSelect: { selectedRuleID = folder.id },
+                onToggleCollapse: { onToggleCollapse(folder.id) },
+                onSetEnabled: onSetFolderEnabled
+            )
+        }
     }
 
     private var columnHeader: some View {
@@ -152,6 +195,7 @@ private struct BlockRuleTableRow: View {
     let rule: ProxyRule
     let isSelected: Bool
     let rowIndex: Int
+    var indented = false
     let onSelect: () -> Void
     let onToggle: () -> Void
 
@@ -168,6 +212,7 @@ private struct BlockRuleTableRow: View {
             Text(rule.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .padding(.leading, indented ? 18 : 0)
                 .frame(width: 300, alignment: .leading)
 
             actionLabel
@@ -221,5 +266,72 @@ private struct BlockRuleTableRow: View {
                     : String(localized: "Return 403 Forbidden", bundle: RockxyLocalization.bundle)
             )
         }
+    }
+}
+
+// MARK: - BlockFolderTableRow
+
+private struct BlockFolderTableRow: View {
+    // MARK: Internal
+
+    let folder: RuleFolder
+    let rules: [ProxyRule]
+    let isSelected: Bool
+    let isCollapsed: Bool
+    let rowIndex: Int
+    let onSelect: () -> Void
+    let onToggleCollapse: () -> Void
+    let onSetEnabled: ([UUID], Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            RuleFolderToggle(folder: folder, rules: rules, setEnabled: onSetEnabled)
+                .frame(width: 66)
+
+            HStack(spacing: 4) {
+                Button(action: onToggleCollapse) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: toolMetrics.smallIconFontSize, weight: .semibold))
+                        .frame(width: 14)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(
+                    isCollapsed
+                        ? String(localized: "Expand \(folder.name)", bundle: RockxyLocalization.bundle)
+                        : String(localized: "Collapse \(folder.name)", bundle: RockxyLocalization.bundle)
+                )
+                RuleFolderNameLabel(folder: folder, ruleCount: rules.count)
+            }
+            .frame(width: 300, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .font(toolMetrics.font(weight: .medium))
+        .padding(.horizontal, toolMetrics.tableCellHorizontalPadding)
+        .frame(height: toolMetrics.tableRowHeight)
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) {
+            onToggleCollapse()
+        }
+        .onTapGesture {
+            onSelect()
+        }
+    }
+
+    // MARK: Private
+
+    @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var rowBackground: some ShapeStyle {
+        if isSelected {
+            return AnyShapeStyle(Color.accentColor.opacity(0.22))
+        }
+        return AnyShapeStyle(rowIndex.isMultiple(of: 2) ? Color(nsColor: .textBackgroundColor) : Color.secondary
+            .opacity(0.08))
+    }
+
+    private var toolMetrics: ToolWindowDisplayMetrics {
+        ToolWindowDisplayMetrics(appMetrics: appMetrics)
     }
 }

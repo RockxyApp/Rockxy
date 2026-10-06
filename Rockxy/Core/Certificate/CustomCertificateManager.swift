@@ -100,6 +100,15 @@ struct CustomCertificateImportIdentity: Equatable {
 
     private static func fromSecurityPKCS12(data: Data, displayName: String, passphrase: String) throws -> Self {
         let identity = try secItemImportIdentity(data: data, passphrase: passphrase)
+        // Report a short RSA key plainly; the X509 parser below would reject it with a
+        // low-level size error.
+        if let key = SecCertificateCopyKey(identity.certificate),
+           let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
+           (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String),
+           let bits = attributes[kSecAttrKeySizeInBits] as? Int, bits < 2_048
+        {
+            throw CustomCertificateError.rootWeakKey(bits: bits)
+        }
         let certificate = try certificate(from: identity.certificate)
         let privateKey: Certificate.PrivateKey
         do {
@@ -168,7 +177,9 @@ struct CustomCertificateImportIdentity: Equatable {
         let options = [kSecImportExportPassphrase as String: passphrase] as CFDictionary
         let status = SecPKCS12Import(data as CFData, options, &importedItems)
         guard status == errSecSuccess, let importedItems else {
-            throw CustomCertificateImportError.invalidPKCS12
+            throw status == errSecAuthFailed
+                ? CustomCertificateImportError.incorrectPassword
+                : CustomCertificateImportError.invalidPKCS12
         }
         return try identity(from: importedItems)
     }
@@ -466,6 +477,40 @@ final class CustomCertificateManager: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [CustomCertificateMetadata] = []
 
+    /// A custom root signs a certificate for every host, so it must be a CA that is valid now.
+    private static func validateRootAuthority(_ certificate: Certificate) throws {
+        let now = Date()
+        guard certificate.notValidBefore <= now, now <= certificate.notValidAfter else {
+            throw CustomCertificateError.rootExpired
+        }
+        let basicConstraints = try? certificate.extensions.basicConstraints
+        guard case .isCertificateAuthority = basicConstraints else {
+            throw CustomCertificateError.rootNotCertificateAuthority
+        }
+        // Apple platforms reject chains signed with SHA-1 (short RSA keys are refused earlier).
+        guard certificate.signatureAlgorithm != .sha1WithRSAEncryption else {
+            throw CustomCertificateError.rootWeakSignature
+        }
+    }
+
+    /// RSA modulus size of a PEM certificate's key, or nil for other key types. Read through
+    /// Security so short keys that the X509 parser refuses outright are still measured.
+    private static func rsaKeySize(certificatePEM: String) -> Int? {
+        let base64 = certificatePEM
+            .components(separatedBy: .newlines)
+            .filter { !$0.hasPrefix("-----") }
+            .joined()
+        guard let der = Data(base64Encoded: base64),
+              let secCertificate = SecCertificateCreateWithData(nil, der as CFData),
+              let key = SecCertificateCopyKey(secCertificate),
+              let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
+              (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String) else
+        {
+            return nil
+        }
+        return attributes[kSecAttrKeySizeInBits] as? Int
+    }
+
     private static func fingerprint(_ certificate: Certificate) -> String? {
         var serializer = DER.Serializer()
         guard (try? certificate.serialize(into: &serializer)) != nil else {
@@ -483,7 +528,15 @@ final class CustomCertificateManager: @unchecked Sendable {
     )
         throws -> CustomCertificateMetadata
     {
+        // A root is checked before it and its key are parsed, so a weak root reports why
+        // instead of failing inside the parsers.
+        if kind == .root, let bits = Self.rsaKeySize(certificatePEM: certificatePEM), bits < 2_048 {
+            throw CustomCertificateError.rootWeakKey(bits: bits)
+        }
         let certificate = try Certificate(pemEncoded: certificatePEM)
+        if kind == .root {
+            try Self.validateRootAuthority(certificate)
+        }
         let privateKey = try Certificate.PrivateKey(pemEncoded: privateKeyPEM)
         guard certificate.publicKey.subjectPublicKeyInfoBytes == privateKey.publicKey.subjectPublicKeyInfoBytes else {
             throw CustomCertificateError.invalidCertificateKeyPair
@@ -703,11 +756,38 @@ final class CustomCertificateManager: @unchecked Sendable {
 enum CustomCertificateError: LocalizedError, Equatable {
     case invalidCertificateKeyPair
     case missingPrivateKey
+    case rootNotCertificateAuthority
+    case rootExpired
+    case rootWeakSignature
+    case rootWeakKey(bits: Int)
 
     // MARK: Internal
 
     var errorDescription: String? {
         switch self {
+        case .rootNotCertificateAuthority:
+            String(
+                localized: """
+                This certificate is not a certificate authority, so it cannot sign the certificates \
+                Rockxy generates for each host. Choose the root or intermediate CA certificate.
+                """,
+                bundle: RockxyLocalization.bundle
+            )
+        case .rootExpired:
+            String(
+                localized: "This certificate has expired or is not valid yet. Clients would reject every certificate signed by it.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .rootWeakSignature:
+            String(
+                localized: "This certificate is signed with SHA-1. Apple platforms reject it; create a root signed with SHA-256 or stronger.",
+                bundle: RockxyLocalization.bundle
+            )
+        case let .rootWeakKey(bits):
+            String(
+                localized: "This certificate uses a \(String(bits))-bit RSA key. Apple platforms require at least 2048 bits.",
+                bundle: RockxyLocalization.bundle
+            )
         case .invalidCertificateKeyPair:
             String(
                 localized: "The certificate and private key do not belong to the same identity.",
@@ -743,12 +823,18 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
     case invalidCertificate
     case invalidPrivateKey
     case invalidPKCS12
+    case incorrectPassword
     case missingCertificate
 
     // MARK: Internal
 
     var errorDescription: String? {
         switch self {
+        case .incorrectPassword:
+            String(
+                localized: "The password for this P12 file is incorrect.",
+                bundle: RockxyLocalization.bundle
+            )
         case .invalidCertificate:
             String(
                 localized: "The selected certificate must be a valid PEM or DER X.509 certificate.",

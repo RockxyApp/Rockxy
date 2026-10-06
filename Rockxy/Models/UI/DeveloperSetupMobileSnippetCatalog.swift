@@ -5,12 +5,12 @@ import Foundation
 enum DeveloperSetupMobileSnippetCatalog {
     // MARK: Internal
 
-    static func flutterHttpClientSnippet(port: Int, certPath: String) -> String {
+    static func flutterHttpClientSnippet(port: Int, certPath: String, deviceProxyHost: String? = nil) -> String {
         """
         import 'dart:convert';
         import 'dart:io';
 
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
+        \(flutterProxyHostBlock(port: port, certPath: certPath, deviceProxyHost: deviceProxyHost))
 
         Future<void> runRockxyProbe() async {
           final client = HttpClient();
@@ -26,17 +26,28 @@ enum DeveloperSetupMobileSnippetCatalog {
           print(body);
           client.close(force: true);
         }
+
+        // WebSockets ignore findProxy unless they get the same client, and would skip Rockxy.
+        // With package:web_socket_channel use IOWebSocketChannel.connect(url, customClient: ...).
+        Future<WebSocket> connectRockxyWebSocket(String url) {
+          final client = HttpClient();
+          client.findProxy = (uri) => 'PROXY ${rockxyProxyHostPort()};';
+
+          // Debug only. Remove this before release builds.
+          client.badCertificateCallback = (certificate, host, port) => true;
+          return WebSocket.connect(url, customClient: client);
+        }
         """
     }
 
-    static func flutterHTTPPackageSnippet(port: Int, certPath: String) -> String {
+    static func flutterHTTPPackageSnippet(port: Int, certPath: String, deviceProxyHost: String? = nil) -> String {
         """
         import 'dart:convert';
         import 'dart:io';
 
         import 'package:http/io_client.dart';
 
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
+        \(flutterProxyHostBlock(port: port, certPath: certPath, deviceProxyHost: deviceProxyHost))
 
         Future<void> runRockxyProbe() async {
           final httpClient = HttpClient();
@@ -57,14 +68,14 @@ enum DeveloperSetupMobileSnippetCatalog {
         """
     }
 
-    static func flutterDio5Snippet(port: Int, certPath: String) -> String {
+    static func flutterDio5Snippet(port: Int, certPath: String, deviceProxyHost: String? = nil) -> String {
         """
         import 'dart:io';
 
         import 'package:dio/dio.dart';
         import 'package:dio/io.dart';
 
-        \(flutterProxyHostBlock(port: port, certPath: certPath))
+        \(flutterProxyHostBlock(port: port, certPath: certPath, deviceProxyHost: deviceProxyHost))
 
         Dio makeRockxyDio() {
           final dio = Dio();
@@ -201,8 +212,11 @@ enum DeveloperSetupMobileSnippetCatalog {
         case javaScript
     }
 
-    private static func flutterProxyHostBlock(port: Int, certPath: String) -> String {
+    /// `deviceProxyHost` is the Mac's reachable LAN address when Rockxy listens beyond localhost;
+    /// without one the physical-device value stays a placeholder to fill in by hand.
+    private static func flutterProxyHostBlock(port: Int, certPath: String, deviceProxyHost: String?) -> String {
         let certPath = escapeForStringLiteral(certPath, language: .dart)
+        let deviceHost = deviceProxyHost.map { escapeForStringLiteral($0, language: .dart) } ?? "<LAN device proxy host>"
         return """
         // Debug-only Rockxy proxy values. Pick the runtime that is running this app.
         enum RockxyRuntime { localAppleRuntime, androidEmulator, physicalDevice }
@@ -214,7 +228,7 @@ enum DeveloperSetupMobileSnippetCatalog {
         // Install or share the Rockxy Root CA first. Exported PEM hint: \(certPath)
         const rockxyProxyForSimulator = '127.0.0.1:\(port)';
         const rockxyProxyForAndroidEmulator = '10.0.2.2:\(port)';
-        const rockxyProxyForPhysicalDevice = '<LAN device proxy host>:\(port)';
+        const rockxyProxyForPhysicalDevice = '\(deviceHost):\(port)';
 
         String rockxyProxyHostPort() {
           switch (rockxyRuntime) {

@@ -131,7 +131,7 @@ struct NetworkConditionsWindowViewModelTests {
         #expect(viewModel.allRules.first { $0.id == rule.id }?.isEnabled == true)
         #expect(copy.matchCondition == rule.matchCondition)
         #expect(copy.priority == 42)
-        if case let .networkCondition(preset, delayMs) = copy.action {
+        if case let .networkCondition(preset, delayMs, _) = copy.action {
             #expect(preset == .edge)
             #expect(delayMs == 850)
         } else {
@@ -217,13 +217,17 @@ struct NetworkConditionsWindowViewModelTests {
         #expect(profile.uploadBandwidth == "< 330 kbps")
         // The percent sign is placed by the locale (`de_DE` writes "0,0 %"), so this pins the
         // shared formatter rather than one machine's spelling.
-        #expect(profile.packetLoss == DecimalFormatter.percent(0, fractionDigits: 1))
+        #expect(profile.packetLoss == DecimalFormatter.percent(0))
+        // A 0.1 loss rate is ten percent, not a tenth of a percent.
+        #expect(NetworkConditionPreset.veryBadNetwork.packetLossLabel == DecimalFormatter.percent(10))
+        #expect(NetworkConditionPreset.offline.packetLossLabel == DecimalFormatter.percent(100))
+        #expect(NetworkConditionPreset.packetLossLabel(forRate: 0.025) == DecimalFormatter.percent(2.5, fractionDigits: 1))
         #expect(profile.systemImage == "antenna.radiowaves.left.and.right")
         #expect(viewModel.statusLabel(for: activeRule).0 == "Enabled")
         #expect(viewModel.statusLabel(for: inactiveRule).0 == "Inactive")
 
         let customRule = networkRule(name: "Custom API", host: "custom.example.com", preset: .custom)
-        #expect(viewModel.networkProfile(for: customRule).name == "Custom Latency")
+        #expect(viewModel.networkProfile(for: customRule).name == "Custom")
     }
 
     @Test
@@ -393,7 +397,7 @@ struct NetworkConditionsWindowViewModelTests {
         #expect(rule.name == "Untitled")
         #expect(rule.isEnabled)
         #expect(rule.matchCondition.urlPattern == "(?i)^https?://api\\.service\\.test(?::\\d+)?(?:/.*)?$")
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .threeG)
             #expect(delayMs == 400)
         } else {
@@ -418,7 +422,7 @@ struct NetworkConditionsWindowViewModelTests {
         #expect(rule.name == "Edited")
         #expect(rule.isEnabled == false)
         #expect(rule.matchCondition.urlPattern == nil)
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .custom)
             #expect(delayMs == 1_234)
         } else {
@@ -484,7 +488,7 @@ struct NetworkConditionsWindowViewModelTests {
         #expect(edited.id == id)
         #expect(edited.name == "3G API (edited)")
         #expect(edited.isEnabled == false)
-        if case let .networkCondition(preset, delayMs) = edited.action {
+        if case let .networkCondition(preset, delayMs, _) = edited.action {
             #expect(preset == .lte)
             #expect(delayMs == NetworkConditionPreset.lte.defaultLatencyMs)
         } else {

@@ -21,6 +21,7 @@
 		DCA9C5B72F627204005B1552 /* NIO in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6412F624B60005B1552 /* NIO */; };
 		DCA9C5B82F627204005B1552 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6422F624B60005B1552 /* NIOCore */; };
 		DCA9C5B92F627204005B1552 /* NIOHTTP1 in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6432F624B60005B1552 /* NIOHTTP1 */; };
+		DCA9C5BD2F627204005B1552 /* NIOHTTP2 in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6482F624B70005B1552 /* NIOHTTP2 */; };
 		DCA9C5BA2F627204005B1552 /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6442F624B60005B1552 /* NIOPosix */; };
 		DCA9C5BB2F627204005B1552 /* NIOSSL in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6452F624B60005B1552 /* NIOSSL */; };
 		DCA9C5BC2F627204005B1552 /* NIOWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = DCA9A6462F624B60005B1552 /* NIOWebSocket */; };
@@ -164,6 +165,7 @@
 				DCA9C5BB2F627204005B1552 /* NIOSSL in Frameworks */,
 				DCA9C5BA2F627204005B1552 /* NIOPosix in Frameworks */,
 				DCA9C5B92F627204005B1552 /* NIOHTTP1 in Frameworks */,
+				DCA9C5BD2F627204005B1552 /* NIOHTTP2 in Frameworks */,
 				DCA9C5B82F627204005B1552 /* NIOCore in Frameworks */,
 				DCA9C5B72F627204005B1552 /* NIO in Frameworks */,
 				DCA9C5B62F627204005B1552 /* SwiftASN1 in Frameworks */,
@@ -461,6 +463,7 @@
 				DCA9A6412F624B60005B1552 /* NIO */,
 				DCA9A6422F624B60005B1552 /* NIOCore */,
 				DCA9A6432F624B60005B1552 /* NIOHTTP1 */,
+				DCA9A6482F624B70005B1552 /* NIOHTTP2 */,
 				DCA9A6442F624B60005B1552 /* NIOPosix */,
 				DCA9A6452F624B60005B1552 /* NIOSSL */,
 				DCA9A6462F624B60005B1552 /* NIOWebSocket */,
@@ -573,6 +576,7 @@
 			packageReferences = (
 				DCA9A6382F624A2C005B1552 /* XCRemoteSwiftPackageReference "swift-nio" */,
 				DCA9A6392F624A6F005B1552 /* XCRemoteSwiftPackageReference "swift-nio-ssl" */,
+				DCA9A6472F624B70005B1552 /* XCRemoteSwiftPackageReference "swift-nio-http2" */,
 				DCA9A63A2F624B04005B1552 /* XCRemoteSwiftPackageReference "swift-certificates" */,
 				DCA9A63B2F624B15005B1552 /* XCRemoteSwiftPackageReference "swift-crypto" */,
 				DCA9A63C2F624B36005B1552 /* XCRemoteSwiftPackageReference "SQLite" */,
@@ -630,7 +634,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\n\ncase \"$TARGET_BUILD_DIR\" in\n    */DerivedData/*/Build/Products/*) ;;\n    *) exit 0 ;;\nesac\n\nSOURCE=\"${BUILT_PRODUCTS_DIR}/rockxy-mcp\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/rockxy-mcp\"\n\n# Stop only the bridge from this DerivedData bundle before replacing it. Copy the\n# product here as well as in the following Copy Files phase so an incremental build\n# can never leave the app's sealed MCP executable missing.\n/usr/bin/pkill -f \"$DEST\" 2>/dev/null || true\n\nif [ ! -x \"$SOURCE\" ]; then\n    echo \"error: Missing built MCP tool at $SOURCE\" >&2\n    exit 1\nfi\n\n/bin/cp -f \"$SOURCE\" \"$DEST\"\n";
+			shellScript = "set -e\n\n# rockxy-cli is the same executable reached by another name; it picks its mode from\n# the name it was run as.\nTOOL_DIR=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}\"\nmkdir -p \"$TOOL_DIR\"\nln -sfn rockxy-mcp \"$TOOL_DIR/rockxy-cli\"\n\ncase \"$TARGET_BUILD_DIR\" in\n    */DerivedData/*/Build/Products/*) ;;\n    *) exit 0 ;;\nesac\n\nSOURCE=\"${BUILT_PRODUCTS_DIR}/rockxy-mcp\"\nDEST=\"${TARGET_BUILD_DIR}/${EXECUTABLE_FOLDER_PATH}/rockxy-mcp\"\n\n# Stop only the bridge from this DerivedData bundle before replacing it. Copy the\n# product here as well as in the following Copy Files phase so an incremental build\n# can never leave the app's sealed MCP executable missing.\n/usr/bin/pkill -f \"$DEST\" 2>/dev/null || true\n\nif [ ! -x \"$SOURCE\" ]; then\n    echo \"error: Missing built MCP tool at $SOURCE\" >&2\n    exit 1\nfi\n\n/bin/cp -f \"$SOURCE\" \"$DEST\"\n";
 		};
 		DCA9D0212F700100005B1552 /* Generate Helper LaunchDaemon Plist */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1172,6 +1176,14 @@
 				minimumVersion = 2.9.1;
 			};
 		};
+		DCA9A6472F624B70005B1552 /* XCRemoteSwiftPackageReference "swift-nio-http2" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-http2.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.38.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -1209,6 +1221,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DCA9A6382F624A2C005B1552 /* XCRemoteSwiftPackageReference "swift-nio" */;
 			productName = NIOHTTP1;
+		};
+		DCA9A6482F624B70005B1552 /* NIOHTTP2 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DCA9A6472F624B70005B1552 /* XCRemoteSwiftPackageReference "swift-nio-http2" */;
+			productName = NIOHTTP2;
 		};
 		DCA9A6442F624B60005B1552 /* NIOPosix */ = {
 			isa = XCSwiftPackageProductDependency;

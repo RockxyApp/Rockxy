@@ -13,6 +13,7 @@ enum HTTPMethodFilter: String, Codable, CaseIterable, Identifiable {
     case head = "HEAD"
     case options = "OPTIONS"
     case trace = "TRACE"
+    case query = "QUERY"
 
     // MARK: Internal
 

@@ -337,7 +337,7 @@ enum DiffFormatter {
     }
 
     private static func normalizeHTTPVersion(_ version: String) -> String {
-        version.hasPrefix("HTTP/") ? version : "HTTP/\(version)"
+        version.uppercased().hasPrefix("HTTP/") ? version : "HTTP/\(version)"
     }
 
     /// Deliberately not `DurationFormatter`: a diff puts two timing blocks side by side, so every

@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOSSL
+import NIOTLS
 import NIOWebSocket
 import os
 
@@ -32,6 +33,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         tcpTime: DispatchTime,
         clientContext: ChannelHandlerContext,
         isHTTPS: Bool = false,
+        tlsIntent: UpstreamTLSIntent? = nil,
         sourcePort: UInt16? = nil,
         breakpointPhase: BreakpointRulePhase? = nil,
         breakpointRuleName: String? = nil,
@@ -53,6 +55,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         self.tcpTime = tcpTime
         self.clientContext = clientContext
         self.isHTTPS = isHTTPS
+        self.tlsIntent = tlsIntent
         self.sourcePort = sourcePort
         self.breakpointPhase = breakpointPhase
         self.breakpointRuleName = breakpointRuleName
@@ -121,6 +124,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     }
 
     nonisolated func handlerAdded(context: ChannelHandlerContext) {
+        // An HTTP/2 origin is reached through a stream channel whose parent is the connection.
+        serverHTTPVersion = context.channel.parent == nil ? "1.1" : "2"
+        // Socket addresses are only readable while the channel is open, so take them now.
+        snapshotConnection(context.channel)
         readTimeoutTask = context.eventLoop.scheduleTask(in: .seconds(30)) { [weak self] in
             guard let self, !self.completed else {
                 return
@@ -142,6 +149,11 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 response: HTTPResponseData(statusCode: 504, statusMessage: "Gateway Timeout", headers: []),
                 state: .failed
             )
+            self.connectionLog?.failure = ConnectionLog.Failure(
+                stage: .response,
+                message: "No response within 30 seconds"
+            )
+            transaction.connectionLog = self.connectionLog
             transaction.sourcePort = self.sourcePort
             transaction.clientApp = Self.extractAppFromUserAgent(self.requestData.headers)
             self.onTransactionComplete(transaction)
@@ -169,6 +181,15 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             }
             context.close(promise: nil)
         }
+    }
+
+    nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        if let tlsEvent = event as? TLSUserEvent, case let .handshakeCompleted(negotiated) = tlsEvent {
+            tlsHandshakeCompletedAt = .now()
+            negotiatedProtocol = negotiated
+            snapshotConnection(context.channel)
+        }
+        context.fireUserInboundEventTriggered(event)
     }
 
     nonisolated func channelInactive(context: ChannelHandlerContext) {
@@ -206,6 +227,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             response: HTTPResponseData(statusCode: 502, statusMessage: reason, headers: []),
             state: .failed
         )
+        if connectionLog?.failure == nil {
+            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: reason)
+        }
+        transaction.connectionLog = connectionLog
         let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds &- startTime.uptimeNanoseconds
         transaction.measuredDuration = Double(elapsedNanoseconds) / 1_000_000_000
         transaction.sourcePort = sourcePort
@@ -219,6 +244,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         case let .head(head):
             readTimeoutTask?.cancel()
             readTimeoutTask = nil
+            if connectionLog?.tls?.version == nil {
+                snapshotConnection(context.channel)
+            }
 
             var modifiedHead = head
 
@@ -307,10 +335,11 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 relayResponseBody(buffer)
             }
 
-        case .end:
+        case let .end(trailers):
             guard !completed else {
                 return
             }
+            responseTrailers = trailers
             if pendingWebSocketUpgrade {
                 completed = true
                 readTimeoutTask?.cancel()
@@ -372,6 +401,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             buildAndCompleteTransaction()
         } else if !completed, !Self.isUncleanTLSShutdown(error) {
             completed = true
+            snapshotConnection(context.channel, failure: ConnectionLogCapture.failure(for: error))
             failClientBeforeResponse(reason: Self.upstreamFailureReason(for: error))
         }
         if Self.isUncleanTLSShutdown(error) {
@@ -410,6 +440,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private let tcpTime: DispatchTime
     private let clientContext: ChannelHandlerContext
     private let isHTTPS: Bool
+    private let tlsIntent: UpstreamTLSIntent?
     private let sourcePort: UInt16?
     private let breakpointPhase: BreakpointRulePhase?
     private let breakpointRuleName: String?
@@ -427,6 +458,15 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private let onChannelClosed: @Sendable () -> Void
 
     private var responseHead: HTTPResponseHead?
+    /// Trailers sent after the body (HTTP/2, or chunked HTTP/1.1), e.g. `grpc-status`.
+    private var responseTrailers: HTTPHeaders?
+    private var serverHTTPVersion: String?
+    private var connectionLog: ConnectionLog?
+    /// When the upstream TLS handshake finished, if this handler saw it happen.
+    private var tlsHandshakeCompletedAt: DispatchTime?
+    private var negotiatedProtocol: String?
+    /// When the upstream TCP connection opened, from the connection probe.
+    private var probeConnectedAt: DispatchTime?
     private var pendingWebSocketUpgrade = false
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
@@ -484,7 +524,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         let proxyHead = HTTPResponseHead(version: head.version, status: head.status, headers: head.headers)
         let part = NIOAny(HTTPServerResponsePart.head(proxyHead))
-        if networkConditionProfile?.downloadBytesPerSecond != nil {
+        if networkConditionProfile?.downloadBytesPerSecond != nil || networkConditionProfile?.packetLoss != nil {
             clientContext.writeAndFlush(part, promise: nil)
         } else {
             clientContext.write(part, promise: nil)
@@ -498,7 +538,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         guard let plan = NetworkThrottlePlanner.makePlan(
             byteCount: buffer.readableBytes,
             bytesPerSecond: networkConditionProfile?.downloadBytesPerSecond,
-            earliestReadyAtNanos: downloadReadyAtNanos
+            earliestReadyAtNanos: downloadReadyAtNanos,
+            packetLoss: networkConditionProfile?.packetLoss
         ) else {
             clientContext.write(
                 NIOAny(HTTPServerResponsePart.body(.byteBuffer(buffer))),
@@ -540,6 +581,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         guard clientContext.channel.isActive else {
             return
         }
+        let trailers = responseTrailers
         if let downloadTailFuture {
             self.downloadTailFuture = nil
             downloadTailFuture.whenComplete { [clientContext] _ in
@@ -547,7 +589,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                     return
                 }
                 clientContext.writeAndFlush(
-                    NIOAny(HTTPServerResponsePart.end(nil)),
+                    NIOAny(HTTPServerResponsePart.end(trailers)),
                     promise: nil
                 )
             }
@@ -559,7 +601,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 return
             }
             clientContext.writeAndFlush(
-                NIOAny(HTTPServerResponsePart.end(nil)),
+                NIOAny(HTTPServerResponsePart.end(trailers)),
                 promise: nil
             )
         }
@@ -673,7 +715,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             statusCode: Int(head.status.code),
             phase: .response,
             isBodyEditable: projection.isEditable,
-            matchedRuleName: breakpointRuleName
+            matchedRuleName: breakpointRuleName,
+            requestHeaders: requestData.headers.map { EditableHeader(name: $0.name, value: $0.value) }
         )
 
         let eventLoop = context.eventLoop
@@ -843,6 +886,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         )
         transaction.sourcePort = sourcePort
         transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
+        transaction.connectionLog = connectionLog
         liveStreamTransaction = transaction
         onTransactionComplete(transaction)
     }
@@ -872,6 +916,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             contentType: contentType
         )
         responseData.bodyTruncated = responseBodyTruncated
+        responseData.trailers = responseTrailers.map { $0.map { HTTPHeader(name: $0.name, value: $0.value) } }
 
         let timing = buildTimingInfo(endTime: endTime)
 
@@ -886,6 +931,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         )
         transaction.sourcePort = sourcePort
         transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
+        transaction.noCachingApplied = disablesResponseCaching
+        transaction.serverHTTPVersion = serverHTTPVersion
+        transaction.connectionLog = connectionLog
 
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
@@ -900,6 +948,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             live.timingInfo = transaction.timingInfo
             live.web3RPCInfo = transaction.web3RPCInfo
             live.x402Info = transaction.x402Info
+            live.noCachingApplied = transaction.noCachingApplied
+            live.serverHTTPVersion = transaction.serverHTTPVersion
+            live.connectionLog = transaction.connectionLog
             live.state = .completed
             onTransactionComplete(live)
         }
@@ -913,6 +964,22 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
 
         let tcpConnection: TimeInterval
         let tlsHandshake: TimeInterval
+        if let handshakeAt = tlsHandshakeCompletedAt {
+            // Measured phases: connect start → socket open → handshake done → first byte.
+            let socketOpen = probeConnectedAt.map { min($0.uptimeNanoseconds, handshakeAt.uptimeNanoseconds) }
+                ?? min(tcpTime.uptimeNanoseconds, handshakeAt.uptimeNanoseconds)
+            let requestSent = max(handshakeAt.uptimeNanoseconds, tcpTime.uptimeNanoseconds)
+            let ttfbAfterTLS = firstByteTime.map {
+                TimeInterval($0.uptimeNanoseconds &- min(requestSent, $0.uptimeNanoseconds)) / 1_000_000_000
+            } ?? 0
+            return TimingInfo(
+                dnsLookup: dnsLookup,
+                tcpConnection: TimeInterval(socketOpen &- min(connectTime.uptimeNanoseconds, socketOpen)) / 1_000_000_000,
+                tlsHandshake: TimeInterval(handshakeAt.uptimeNanoseconds - socketOpen) / 1_000_000_000,
+                timeToFirstByte: ttfbAfterTLS,
+                contentTransfer: transfer
+            )
+        }
         if isHTTPS {
             tcpConnection = rawTcpConnection * 0.4
             tlsHandshake = rawTcpConnection * 0.6
@@ -938,6 +1005,44 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     {
         let nanos = end.uptimeNanoseconds - start.uptimeNanoseconds
         return TimeInterval(nanos) / 1_000_000_000.0
+    }
+
+    /// Rebuilds the Connection Log from the live channel; once it has closed, only a failure
+    /// can still be added because NIO no longer reports its addresses or TLS session.
+    nonisolated private func snapshotConnection(_ channel: Channel, failure: ConnectionLog.Failure? = nil) {
+        guard channel.isActive else {
+            if let failure {
+                connectionLog?.failure = failure
+            }
+            return
+        }
+        let probe = UpstreamConnectionProbe.find(on: channel)
+        // With HTTP/2 offered the channel is handed over after ALPN, so the probe holds the
+        // handshake this handler could not observe.
+        if tlsHandshakeCompletedAt == nil, let recorded = probe?.tlsHandshakeCompletedAt {
+            tlsHandshakeCompletedAt = recorded
+            negotiatedProtocol = negotiatedProtocol ?? probe?.negotiatedProtocol
+        }
+        probeConnectedAt = probe?.connectedAt ?? probeConnectedAt
+        // Through an external proxy the interval also covers the tunnel setup, so only a
+        // direct connection reports a handshake duration.
+        let handshakeDuration: TimeInterval? = if let handshakeAt = tlsHandshakeCompletedAt,
+                                                  let probe, probe.route == .direct,
+                                                  handshakeAt.uptimeNanoseconds >= probe.connectedAt.uptimeNanoseconds
+        {
+            TimeInterval(handshakeAt.uptimeNanoseconds - probe.connectedAt.uptimeNanoseconds) / 1_000_000_000
+        } else {
+            nil
+        }
+        connectionLog = ConnectionLogCapture.log(
+            for: channel,
+            host: requestData.host,
+            port: requestData.url.port ?? (requestData.url.scheme == "https" ? 443 : 80),
+            tlsIntent: tlsIntent,
+            handshakeDuration: handshakeDuration,
+            negotiatedProtocol: negotiatedProtocol,
+            failure: failure
+        )
     }
 
     nonisolated private func callChannelClosed() {

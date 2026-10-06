@@ -19,4 +19,5 @@ struct AllowListEditorContext {
     let defaultMatchType: RuleMatchType
     let httpMethod: HTTPMethodFilter
     let includeSubpaths: Bool
+    var graphQLOperationName: String?
 }

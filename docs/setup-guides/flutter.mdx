@@ -15,7 +15,7 @@ Flutter setup has two layers: the Flutter HTTP client path and the underlying iO
 
 ## What Rockxy currently provides
 
-- manual setup paths for `Dio`, Dart `HttpClient`, and `package:http`
+- manual setup paths for `Dio`, Dart `HttpClient`, `package:http`, and `WebSocket`
 - guidance that connects Flutter back to the real device, emulator, or simulator trust path
 - a local validation probe that confirms Rockxy captured the request shape without claiming device or runtime attribution
 
@@ -40,7 +40,7 @@ Start Rockxy, keep capture running, then choose the host that matches where the 
 | Android Emulator | `10.0.2.2:<Rockxy port>` |
 | Physical iPhone, iPad, or Android device | `<Device Proxy LAN host>:<Rockxy port>` |
 
-The Rockxy port is shown in the app toolbar. For physical devices, use the Device Proxy host shown in Developer Setup Hub and make sure the device is on the same local network as the Mac.
+The Rockxy port is shown in the app toolbar. For physical devices, use the Device Proxy host shown in Developer Setup Hub and make sure the device is on the same local network as the Mac. When Rockxy listens beyond localhost, the Flutter snippets in Developer Setup Hub already contain this host.
 
 ## Step 2: add a debug-only proxy helper
 
@@ -156,6 +156,20 @@ Future<void> runRockxyDioProbe() async {
 }
 ```
 
+### WebSockets
+
+`WebSocket.connect` does not use `findProxy` on its own, so a socket opened without a client goes straight to the server and never appears in Rockxy. Pass the helper's client:
+
+```dart
+import 'dart:io';
+
+Future<WebSocket> connectRockxyWebSocket(String url) {
+  return WebSocket.connect(url, customClient: makeRockxyHttpClient());
+}
+```
+
+With `package:web_socket_channel`, use `IOWebSocketChannel.connect(url, customClient: makeRockxyHttpClient())`. Frames then appear on the connection's row in Rockxy.
+
 ## Step 4: complete the platform trust path
 
 ### iOS Simulator
@@ -171,6 +185,8 @@ Future<void> runRockxyDioProbe() async {
 2. Install the Rockxy Root CA profile on the device.
 3. Trust the certificate in iOS certificate trust settings.
 4. Cold-launch the app and send one HTTPS request.
+
+When the Dart client dials the Device Proxy LAN host itself (the `physicalDevice` runtime in the helper), iOS shows a Local Network prompt on the first request. Tap **Allow**, or turn the app on in **Settings > Privacy & Security > Local Network**. Until then, requests fail with `No route to host` (errno 65). Flutter adds `NSLocalNetworkUsageDescription` to debug and profile builds; add it to `Info.plist` yourself for other build configurations.
 
 ### Android Emulator
 

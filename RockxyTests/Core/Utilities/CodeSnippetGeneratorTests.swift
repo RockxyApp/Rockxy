@@ -11,7 +11,8 @@ struct CodeSnippetGeneratorTests {
     func snippetsCarryTheRequest() throws {
         let request = try makeRequest()
 
-        for language in CodeSnippetLanguage.allCases {
+        // HTTPie is a shell command: single quotes carry the text verbatim (tested separately).
+        for language in CodeSnippetLanguage.allCases where language != .httpie {
             let snippet = CodeSnippetGenerator.snippet(for: request, language: language)
             #expect(snippet.contains("https://api.example.com/items?page=2"), "\(language)")
             #expect(snippet.contains("POST"), "\(language)")
@@ -68,6 +69,47 @@ struct CodeSnippetGeneratorTests {
             source: snippet,
             fileExtension: "swift"
         )
+    }
+
+    @Test("HTTPie command quotes every word for the shell")
+    func httpieQuotesForShell() throws {
+        var request = try makeRequest()
+        request.headers.append(HTTPHeader(name: "X-Note", value: "it's"))
+        let snippet = CodeSnippetGenerator.snippet(for: request, language: .httpie)
+        #expect(snippet.hasPrefix(#"printf '%s' '{"name":"rockxy"}' | http --print=hb POST 'https://api.example.com/items?page=2'"#))
+        #expect(snippet.contains(#"'X-Note:it'\''s'"#))
+        #expect(!snippet.contains("Content-Length"))
+        try Self.expectToolAccepts(executable: "/bin/sh", arguments: { ["-n", $0] }, source: snippet, fileExtension: "sh")
+    }
+
+    @Test("Ruby snippet parses and does not interpolate #{…} from the captured data")
+    func rubySnippetParses() throws {
+        var request = try makeRequest()
+        request.body = Data(##"{"q":"#{system('x')}"}"##.utf8)
+        let snippet = CodeSnippetGenerator.snippet(for: request, language: .rubyNetHTTP)
+        #expect(snippet.contains(##"\#{system"##))
+        try Self.expectToolAccepts(
+            executable: "/opt/homebrew/bin/ruby",
+            arguments: { ["-c", $0] },
+            source: snippet,
+            fileExtension: "rb"
+        )
+    }
+
+    @Test("Node.js axios snippet parses as an ES module")
+    func axiosSnippetParses() throws {
+        let snippet = try CodeSnippetGenerator.snippet(for: makeRequest(), language: .nodeAxios)
+        let node = ProcessInfo.processInfo.environment["NODE_BINARY"] ?? "/usr/local/bin/node"
+        try Self.expectToolAccepts(executable: node, arguments: { ["--check", $0] }, source: snippet, fileExtension: "mjs")
+    }
+
+    @Test("Java snippet leaves out headers HttpClient refuses")
+    func javaSkipsRestrictedHeaders() throws {
+        var request = try makeRequest()
+        request.headers.append(HTTPHeader(name: "Connection", value: "keep-alive"))
+        let snippet = CodeSnippetGenerator.snippet(for: request, language: .javaHttpClient)
+        #expect(!snippet.contains("\"Connection\""))
+        #expect(snippet.contains(#".method("POST", HttpRequest.BodyPublishers.ofString("#))
     }
 
     // MARK: Private

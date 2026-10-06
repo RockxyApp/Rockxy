@@ -9,6 +9,10 @@ enum CodeSnippetLanguage: String, CaseIterable, Identifiable, Sendable {
     case pythonRequests
     case javaScriptFetch
     case goNetHTTP
+    case httpie
+    case nodeAxios
+    case javaHttpClient
+    case rubyNetHTTP
 
     // MARK: Internal
 
@@ -26,6 +30,14 @@ enum CodeSnippetLanguage: String, CaseIterable, Identifiable, Sendable {
             String(localized: "JavaScript (fetch)", bundle: RockxyLocalization.bundle)
         case .goNetHTTP:
             String(localized: "Go (net/http)", bundle: RockxyLocalization.bundle)
+        case .httpie:
+            "HTTPie"
+        case .nodeAxios:
+            String(localized: "Node.js (axios)", bundle: RockxyLocalization.bundle)
+        case .javaHttpClient:
+            String(localized: "Java (HttpClient)", bundle: RockxyLocalization.bundle)
+        case .rubyNetHTTP:
+            String(localized: "Ruby (Net::HTTP)", bundle: RockxyLocalization.bundle)
         }
     }
 }
@@ -61,17 +73,25 @@ enum CodeSnippetGenerator {
             return javaScript(input)
         case .goNetHTTP:
             return go(input)
+        case .httpie:
+            return httpie(input)
+        case .nodeAxios:
+            return axios(input)
+        case .javaHttpClient:
+            return java(input)
+        case .rubyNetHTTP:
+            return ruby(input)
         }
     }
 
     // MARK: Private
 
-    private enum SnippetBody {
+    enum SnippetBody {
         case text(String)
         case binary(byteCount: Int)
     }
 
-    private struct SnippetInput {
+    struct SnippetInput {
         let method: String
         let url: String
         let headers: [(name: String, value: String)]
@@ -209,7 +229,7 @@ enum CodeSnippetGenerator {
 
     /// Double-quoted literal with C-style escapes. Swift spells unicode escapes as `\u{XXXX}`;
     /// JavaScript, Go, and Python use `\uXXXX`.
-    private static func quoted(_ value: String, swiftUnicodeEscapes: Bool = false) -> String {
+    static func quoted(_ value: String, swiftUnicodeEscapes: Bool = false) -> String {
         var escaped = ""
         for scalar in value.unicodeScalars {
             switch scalar {

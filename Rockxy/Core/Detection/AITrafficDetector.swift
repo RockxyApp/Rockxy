@@ -502,8 +502,7 @@ nonisolated enum AITrafficDetector {
         }
         guard responseJSON == nil,
               let body = snapshot.responseBody,
-              body.count <= maxBodyBytes,
-              let text = String(data: body, encoding: .utf8) else
+              let text = String(data: boundedTail(body), encoding: .utf8) else
         {
             return .none
         }
@@ -530,10 +529,23 @@ nonisolated enum AITrafficDetector {
             || boolValue(forKey: "stream", in: requestJSON) == true
     }
 
+    /// A long stream is analyzed from its tail: the final events carry the usage and the
+    /// finish reason, and the leading partial event is dropped so parsing starts on a boundary.
+    static func boundedTail(_ data: Data) -> Data {
+        guard data.count > maxBodyBytes else {
+            return data
+        }
+        let tail = data.suffix(maxBodyBytes)
+        let separator = Data("\n\n".utf8)
+        if let boundary = tail.range(of: separator) {
+            return Data(tail[boundary.upperBound...])
+        }
+        return Data(tail)
+    }
+
     static func parseSSEEvents(_ data: Data?) -> [AIStreamEvent] {
         guard let data,
-              data.count <= maxBodyBytes,
-              let text = String(data: data, encoding: .utf8),
+              let text = String(data: boundedTail(data), encoding: .utf8),
               text.contains("data:") else
         {
             return []
@@ -567,7 +579,11 @@ nonisolated enum AITrafficDetector {
             }
         }
         flush()
-        return Array(events.prefix(maxStreamEvents))
+        guard events.count > maxStreamEvents else {
+            return events
+        }
+        // Keep the start of the stream and its end, where usage and the finish reason arrive.
+        return Array(events.prefix(maxStreamEvents / 2) + events.suffix(maxStreamEvents / 2))
     }
 
     static func parseNDJSONEvents(_ data: Data?) -> [AIStreamEvent] {

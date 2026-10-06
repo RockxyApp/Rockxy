@@ -28,6 +28,14 @@ Replay uses a proxy-bypass session (an ephemeral `URLSession` with proxy setting
 2. Right-click and choose **Repeat**, or press `Cmd+R`.
 3. A new row attributed to Rockxy appears in the traffic list with the replayed request and its response; select it to inspect status code, headers, and body. A toast summarizes the status code.
 
+### Repeat several requests
+
+Select several rows (Shift-click or Command-click), then press `Cmd+R` or right-click one of them and choose **Repeat**. Rockxy sends them one after another in list order, adds each result as its own row, and shows one summary of how many were sent, failed, or could not be repeated (for example WebSocket rows). One Repeat sends at most 50 requests.
+
+### Repeat through your rules
+
+**Repeat** goes straight to the server, so no rules apply. To see how your Breakpoint, Map Local, Map Remote, Block List, Scripting, and Modify Headers rules treat a request, choose **Flow > Repeat Through Rules** or right-click and choose **Repeat Through Rules**. Rockxy sends the request (or every selected request) through its own proxy listener, so the rules apply and the proxy records each one as a new row. The proxy must be running. For HTTPS, the request is decrypted only when HTTPS decryption is on for its host and the Rockxy root certificate is trusted on this Mac.
+
 ## Edit and Repeat
 
 **Edit and Repeat** opens a sheet where you can modify the request before sending:
@@ -35,9 +43,10 @@ Replay uses a proxy-bypass session (an ephemeral `URLSession` with proxy setting
 - **Method** — switch between GET, POST, PUT, DELETE, PATCH, or any custom method.
 - **URL** — change the scheme, host, path, or query parameters.
 - **Headers** — add, remove, or edit any header. Click **+** to add a new row.
-- **Body** — edit the request body with syntax highlighting for JSON, XML, and form data.
+- **Body** — edit the request body with syntax highlighting for JSON, XML, and form data. When `Content-Type` is `application/x-www-form-urlencoded`, switch the Body tab to **Form** to edit fields as a name/value table; Rockxy encodes them the way browsers send forms.
+- **Raw** — edit the whole request as HTTP text (request line, headers, blank line, body) and click **Apply** to update the other tabs, or **Revert** to discard the edit. A path in the request line is combined with the `Host` header; a full URL in the request line is used as is.
 
-Click **Send** to dispatch the modified request, or **Cancel** to discard changes.
+Click **Send** to dispatch the modified request, or **Cancel** to discard changes. Like a Repeat, each send also lands in the traffic list as a new row attributed to Rockxy (while recording is on), so an edited request can be inspected, diffed, and exported — for example, import a browser HAR, edit one request, then export the session as HAR again.
 
 <Tip>
 Use Edit and Repeat to test authentication flows. Copy a request, swap the Authorization header with a different token or remove it entirely, and check how the server responds.
@@ -70,7 +79,7 @@ The response is displayed inline in the replay sheet. It includes:
 
 ## Limitations
 
-- Replayed requests bypass the proxy, so they are not subject to active rules. Repeat rows are attributed to Rockxy rather than to the original client application.
+- **Repeat** bypasses the proxy, so it is not subject to active rules; use **Repeat Through Rules** when they should apply. Repeat rows are attributed to Rockxy rather than to the original client application.
 - Replay sends a single request. Sequence recording (replaying a chain of dependent requests) is not yet available.
 
 ## Next Steps

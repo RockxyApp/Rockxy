@@ -36,6 +36,10 @@ final class BreakpointManager {
     static let shared = BreakpointManager()
 
     private(set) var pausedItems: [PausedBreakpointItem] = []
+
+    /// Whether the Breakpoint Queue window is on screen. A hit that arrives while the window
+    /// is closed (for example dismissed with Esc while items were still waiting) raises it again.
+    var isQueueWindowVisible = false
     var selectedItemId: UUID?
 
     var hasPausedItems: Bool {
@@ -58,7 +62,7 @@ final class BreakpointManager {
             host: host,
             path: path,
             url: Self.displayURL(from: data.url),
-            client: Self.clientLabel(from: data.headers),
+            client: Self.clientLabel(from: data.phase == .response ? data.requestHeaders : data.headers),
             queryName: Self.queryName(from: data),
             method: data.method,
             statusCode: data.phase == .response ? data.statusCode : nil,
@@ -87,9 +91,9 @@ final class BreakpointManager {
                     selectedItemId = itemId
                 }
                 Self.logger.info("Breakpoint paused")
-                // Auto-raise the queue window once per burst: notify only on the
-                // empty → non-empty transition, not on every subsequent hit.
-                if wasEmpty {
+                // Auto-raise the queue window once per burst: notify on the empty → non-empty
+                // transition, or when the window was closed while items were still waiting.
+                if wasEmpty || !isQueueWindowVisible {
                     NotificationCenter.default.post(name: .breakpointHit, object: self)
                 }
             }
@@ -109,7 +113,9 @@ final class BreakpointManager {
         pausedItems.remove(at: index)
 
         if let continuation = continuations.removeValue(forKey: id) {
-            continuation.resume(returning: (decision, item.editableDraft))
+            var draft = item.editableDraft
+            draft.headers.removeAll(where: BreakpointRequestData.isBlankHeaderRow)
+            continuation.resume(returning: (decision, draft))
         }
 
         if selectedItemId == id {

@@ -44,6 +44,52 @@ async function onResponse(context, url, request, response) {
 
 `request.headers` and `request.queries` are plain JS dictionaries — assign directly. `response.statusCode` accepts any integer in `[100, 599]`. `response.bodyFilePath` accepts a path under `~`; the file is loaded with the same size cap as captured response bodies.
 
+### Sharing state between the request and response of one flow
+
+`context.sharedState` is an object that starts empty for every request and is handed to
+the same flow's `onResponse`. Use it when the response decision depends on something only
+the request carries — for example, mocking a single GraphQL operation on a shared endpoint:
+
+```javascript
+function onRequest(context, url, request) {
+  context.sharedState.operation = JSON.parse(request.body || "{}").operationName;
+  return request;
+}
+
+function onResponse(context, url, request, response) {
+  if (context.sharedState.operation === "GetUser") {
+    response.bodyFilePath = "~/Mocks/get-user.json";
+  }
+  return response;
+}
+```
+
+State is private to each script and each flow; concurrent requests never see each other's
+values. It is released when the response hook runs, and state for flows that never receive a
+response (blocked, mocked, or failed requests) is discarded after newer flows replace it.
+Use `$rockxy.storage` for values that must outlive a single flow.
+
+### Showing your own data in the inspector
+
+Push `{ title, text }` entries onto `context.previewTabs` to add a **Script** tab to the
+request or response inspector — useful for a decrypted payload, a signature check, or one
+field of a large body. Nothing is sent differently on the wire.
+
+```javascript
+function onResponse(context, url, request, response) {
+  const payload = JSON.parse(response.body);
+  context.previewTabs.push({ title: "Decoded token", text: atob(payload.token) });
+  context.previewTabs.push({ title: "Summary", text: { id: payload.id, items: payload.items.length } });
+  return response;
+}
+```
+
+`text` may be a string or any JSON value (shown pretty-printed). Hooks run on the request
+side add tabs to the Request inspector, response hooks to the Response inspector; each
+exchange keeps up to 8 tabs per side, titles are cut at 40 characters and text at 256 KB.
+Tabs are saved with the session but left out of redacted MCP output. This requires the
+`(context, url, request[, response])` function shape.
+
 ### Single-arg API (legacy)
 
 Scripts define one or both of these functions, exported either as direct globals or via CommonJS `module.exports`:
@@ -132,7 +178,7 @@ Each script-type plugin's `plugin.json` may include an optional `scriptBehavior`
 
 | Field | Meaning | Default if missing |
 |-------|---------|--------------------|
-| `matchCondition` | Reuses the rule-engine match condition (URL regex, method, optional header). | `null` (match every request) |
+| `matchCondition` | Reuses the rule-engine match condition (URL regex, method, optional header, optional `graphQLOperationName`). The editor's **GraphQL Operation** field sets the operation name so the script runs for one GraphQL operation only. | `null` (match every request) |
 | `runOnRequest` | Whether `onRequest(ctx)` runs for matching traffic. | `true` |
 | `runOnResponse` | Whether `onResponse(ctx)` runs for matching traffic. | `true` |
 | `runAsMock` | Treat the request-hook return value as a mock response; never go upstream. | `false` |
@@ -143,12 +189,12 @@ Scripts execute in deterministic, id-sorted order. By default, the first matchin
 
 For each captured request:
 
-1. Rules engine evaluates the rule list. If a rule action consumes the request (block, map, breakpoint, throttle, etc.), scripts are skipped on the request side.
-2. Request-side scripts run on the (possibly rule-mutated) request. Outcome:
+1. Rules engine evaluates the rule list. Matching Modify Headers rules change the request headers. If another rule action consumes the request (block, map, breakpoint, throttle, etc.), scripts are skipped on the request side.
+2. Request-side scripts run on the (possibly header-modified) request. Outcome:
    - `forward` → the mutated request is sent upstream.
    - `null` return → local `403`.
    - mock return (when `runAsMock=true`) → local response, never upstream.
-3. Response header rules run on the upstream response.
+3. Response header rules run on the upstream response, and on a script's mock response.
 4. Response-side scripts run on the buffered response.
 5. Response breakpoint (if armed) operates on the script-mutated response.
 6. The response is relayed to the client and persisted in the transaction.

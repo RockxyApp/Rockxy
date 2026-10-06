@@ -28,15 +28,12 @@ extension MainContentCoordinator {
         let captureContext = activeCaptureContext
         for transaction in importedTransactions {
             transaction.assignCaptureContextIfMissing(captureContext)
+            transaction.isImported = true
             transaction.sequenceNumber = nextSequenceNumber
             nextSequenceNumber += 1
             transactions.append(transaction)
             updateDomainGroupingIndex(for: transaction, in: destinationWorkspace)
             updateAppNodes(for: transaction, in: destinationWorkspace)
-        }
-        let overflow = max(0, transactions.count - liveHistoryLimit)
-        if overflow > 0 {
-            evictOldestTransactions(count: overflow)
         }
         transactionsByProjectID[projectStore.activeProjectID] = transactions
         nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber

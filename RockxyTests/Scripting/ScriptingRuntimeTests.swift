@@ -138,9 +138,24 @@ struct ScriptingRuntimeTests {
         #expect(!harness.manager.hasResponseHookForSnapshot(request: pricingRequest()))
     }
 
+    @Test("Each script manager answers hook checks from its own plugins only")
+    func hookSnapshotIsPerManager() async throws {
+        let scriptingOn: @Sendable () -> AppSettings = { AppSettings() }
+        let loaded = try makeHarness(settingsProvider: scriptingOn)
+        try writePricingExperimentPlugin(id: "script.snapshot-owner", into: loaded)
+        await loaded.manager.loadAllPlugins()
+        #expect(loaded.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+
+        // A second manager loading nothing must neither see nor erase the first one's script.
+        let empty = try makeHarness(settingsProvider: scriptingOn)
+        await empty.manager.loadAllPlugins()
+        #expect(!empty.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+        #expect(loaded.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+    }
+
     @Test("SCRIPT_09 jsExceptionSurfacesInConsole")
     func jsExceptionSurfacesInConsole() async throws {
-        let harness = try makeHarness()
+        let harness = try makeHarness(settingsProvider: { AppSettings() })
         try writePlugin(
             id: "script.throws",
             script: "function onResponse(response) { throw new Error('boom'); }",
@@ -148,8 +163,19 @@ struct ScriptingRuntimeTests {
         )
         await harness.manager.loadAllPlugins()
 
-        let mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
-        let plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
+        // One failing request must not disable the script: the next request still runs it.
+        var mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
+        var plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
+        if case .error = plugin?.status {
+            Issue.record("A single exception should not mark the script errored")
+        }
+        #expect(harness.manager.hasResponseHookForSnapshot(request: pricingRequest()))
+
+        // A script that keeps failing is eventually parked.
+        for _ in 0 ..< 5 {
+            mutated = await harness.manager.runResponseHook(request: pricingRequest(), response: pricingResponse())
+        }
+        plugin = await harness.manager.plugins.first(where: { $0.id == "script.throws" })
 
         #expect(jsonBody(mutated).contains(#""bucket":"control""#))
         if case let .error(reason) = plugin?.status {
@@ -501,6 +527,102 @@ struct ScriptingRuntimeTests {
       return response;
     }
     """
+
+    @Test("sharedState set in onRequest reaches the same flow's onResponse only")
+    func sharedStateFollowsItsOwnFlow() async throws {
+        let harness = try makeHarness()
+        try writePlugin(
+            id: "script.graphql-mock",
+            script: """
+            function onRequest(context, url, request) {
+              context.sharedState.operation = JSON.parse(request.body).operationName;
+              return request;
+            }
+            function onResponse(context, url, request, response) {
+              if (context.sharedState.operation === "GetUser") {
+                response.body = JSON.stringify({ data: { user: { name: "Mocked" } } });
+              }
+              return response;
+            }
+            """,
+            into: harness,
+            behavior: ScriptBehavior(matchCondition: nil, runOnRequest: true, runOnResponse: true, runAsMock: false)
+        )
+        await harness.manager.loadAllPlugins()
+
+        let getUser = graphQLRequest(operation: "GetUser")
+        let listPosts = graphQLRequest(operation: "ListPosts")
+        _ = await harness.manager.runRequestHook(on: getUser)
+        _ = await harness.manager.runRequestHook(on: listPosts)
+
+        let postsResponse = await harness.manager.runResponseHook(request: listPosts, response: pricingResponse())
+        let userResponse = await harness.manager.runResponseHook(request: getUser, response: pricingResponse())
+
+        #expect(!stringBody(postsResponse).contains("Mocked"))
+        #expect(stringBody(userResponse).contains(#""name":"Mocked""#))
+        #expect(harness.manager.executionLedger.scriptNames(for: getUser.flowID) == ["script.graphql-mock"])
+        #expect(harness.manager.executionLedger.scriptNames(for: listPosts.flowID).isEmpty)
+        #expect(harness.manager.executionLedger.scriptNames(for: UUID()).isEmpty)
+    }
+
+    @Test("previewTabs published by request and response hooks are recorded per flow and panel")
+    func previewTabsAreRecordedPerFlow() async throws {
+        let harness = try makeHarness()
+        try writePlugin(
+            id: "script.previews",
+            script: """
+            function onRequest(context, url, request) {
+              context.previewTabs.push({ title: "Operation", text: JSON.parse(request.body).operationName });
+              return request;
+            }
+            function onResponse(context, url, request, response) {
+              context.previewTabs.push({ title: "Decoded", text: { ok: true, n: 2 } });
+              context.previewTabs.push({ title: "Bad" });
+              context.previewTabs.push({ text: "untitled" });
+              return response;
+            }
+            """,
+            into: harness,
+            behavior: ScriptBehavior(matchCondition: nil, runOnRequest: true, runOnResponse: true, runAsMock: false)
+        )
+        await harness.manager.loadAllPlugins()
+
+        let request = graphQLRequest(operation: "GetUser")
+        _ = await harness.manager.runRequestHook(on: request)
+        _ = await harness.manager.runResponseHook(request: request, response: pricingResponse())
+
+        let tabs = harness.manager.executionLedger.previews(for: request.flowID)
+        #expect(tabs.filter { $0.panel == .request }.map(\.title) == ["Operation"])
+        #expect(tabs.first { $0.panel == .request }?.text == "GetUser")
+        let responseTabs = tabs.filter { $0.panel == .response }
+        #expect(responseTabs.map(\.title) == ["Decoded", "Script"])
+        #expect(responseTabs.first?.text.contains("\"n\" : 2") == true)
+        #expect(harness.manager.executionLedger.previews(for: UUID()).isEmpty)
+    }
+
+    @Test("script previews are bounded and survive a session round trip")
+    func previewsAreBoundedAndPersist() throws {
+        let long = String(repeating: "x", count: ScriptPreviewTab.maxTextBytes + 10)
+        let tab = ScriptPreviewTab.normalized(title: String(repeating: "T", count: 90), text: long, panel: .response)
+        #expect(tab.title.count == ScriptPreviewTab.maxTitleLength)
+        #expect(tab.text.utf8.count == ScriptPreviewTab.maxTextBytes)
+
+        let transaction = TestFixtures.makeTransaction()
+        transaction.scriptPreviews = [ScriptPreviewTab(title: "A", text: "B", panel: .request)]
+        let data = try JSONEncoder().encode(CodableTransaction(from: transaction))
+        let decoded = try JSONDecoder().decode(CodableTransaction.self, from: data)
+        #expect(decoded.toLiveModel().scriptPreviews == transaction.scriptPreviews)
+    }
+
+    private func graphQLRequest(operation: String) -> HTTPRequestData {
+        HTTPRequestData(
+            method: "POST",
+            url: URL(string: "https://api.example.com/graphql")!,
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"operationName":"\#(operation)","query":"query \#(operation) { id }"}"#.utf8)
+        )
+    }
 
     private func makeHarness(
         settingsProvider: (@Sendable () -> AppSettings)? = nil

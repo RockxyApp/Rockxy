@@ -358,3 +358,66 @@ struct JSONPathQueryResult: Sendable, Equatable {
     let diagnostic: String?
     let isTruncated: Bool
 }
+
+// MARK: - JSONPathNode + JSON text
+
+extension JSONPathNode {
+    /// The node's value as JSON text, keeping the document's key order. Strings copy without
+    /// quotes when `unquotedStrings` is set, which is what a single value is usually pasted as.
+    func jsonText(unquotedStrings: Bool = false) -> String {
+        if unquotedStrings, case let .string(value) = value {
+            return value
+        }
+        var output = ""
+        Self.write(self, indent: 0, into: &output)
+        return output
+    }
+
+    private static func write(_ node: JSONPathNode, indent: Int, into output: inout String) {
+        let pad = String(repeating: "  ", count: indent + 1)
+        let closingPad = String(repeating: "  ", count: indent)
+        switch node.value {
+        case let .object(pairs):
+            guard !pairs.isEmpty else {
+                output += "{}"
+                return
+            }
+            output += "{\n"
+            for (index, pair) in pairs.enumerated() {
+                output += pad + quoted(pair.key) + ": "
+                write(pair.value, indent: indent + 1, into: &output)
+                output += index == pairs.count - 1 ? "\n" : ",\n"
+            }
+            output += closingPad + "}"
+        case let .array(items):
+            guard !items.isEmpty else {
+                output += "[]"
+                return
+            }
+            output += "[\n"
+            for (index, item) in items.enumerated() {
+                output += pad
+                write(item, indent: indent + 1, into: &output)
+                output += index == items.count - 1 ? "\n" : ",\n"
+            }
+            output += closingPad + "]"
+        case let .string(value):
+            output += quoted(value)
+        case let .number(value):
+            output += value
+        case let .bool(value):
+            output += value ? "true" : "false"
+        case .null:
+            output += "null"
+        }
+    }
+
+    static func quoted(_ string: String) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.withoutEscapingSlashes]
+        guard let data = try? encoder.encode(string), let text = String(data: data, encoding: .utf8) else {
+            return "\"\(string)\""
+        }
+        return text
+    }
+}

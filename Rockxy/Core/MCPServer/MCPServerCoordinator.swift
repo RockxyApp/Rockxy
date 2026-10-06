@@ -10,8 +10,12 @@ import os
 final class MCPServerCoordinator {
     // MARK: Lifecycle
 
-    init(sessionStoreFactory: @escaping @MainActor () throws -> SessionStore = { try SessionStore() }) {
+    init(
+        sessionStoreFactory: @escaping @MainActor () throws -> SessionStore = { try SessionStore() },
+        settingsProvider: @escaping @MainActor () -> AppSettings = { AppSettingsManager.shared.settings }
+    ) {
         self.sessionStoreFactory = sessionStoreFactory
+        self.settingsProvider = settingsProvider
         clientActivityStore.onChange = { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshClientActivity()
@@ -40,10 +44,12 @@ final class MCPServerCoordinator {
     /// Called when the app's main coordinator is available to wire live data providers.
     func attachProviders(
         flow: any MCPLiveFlowProvider,
-        state: any MCPProxyStateProvider
+        state: any MCPProxyStateProvider,
+        control: (any MCPCaptureControlProvider)? = nil
     ) {
         flowProvider = flow
         stateProvider = state
+        controlProvider = control
         Self.logger.debug("MCP providers attached")
     }
 
@@ -51,6 +57,7 @@ final class MCPServerCoordinator {
     func detachProviders() {
         flowProvider = nil
         stateProvider = nil
+        controlProvider = nil
         Self.logger.debug("MCP providers detached")
     }
 
@@ -62,6 +69,11 @@ final class MCPServerCoordinator {
     /// Resolve the current proxy state provider, if one is currently attached.
     func currentStateProvider() -> (any MCPProxyStateProvider)? {
         stateProvider
+    }
+
+    /// Resolve the capture control provider, if the main workspace is attached.
+    func currentControlProvider() -> (any MCPCaptureControlProvider)? {
+        controlProvider
     }
 
     /// Lazily-created session store for persisted transaction fallback.
@@ -84,7 +96,7 @@ final class MCPServerCoordinator {
     }
 
     func startIfEnabled() async {
-        let settings = AppSettingsManager.shared.settings
+        let settings = settingsProvider()
         guard settings.mcpServerEnabled else {
             Self.logger.debug("MCP server disabled in settings, skipping start")
             return
@@ -123,7 +135,12 @@ final class MCPServerCoordinator {
         let registry = MCPToolRegistry(
             flowService: flowService,
             statusService: statusService,
-            ruleService: ruleService
+            ruleService: ruleService,
+            changeService: MCPChangeService(
+                serverCoordinator: self,
+                ruleMutations: MCPRuleMutationService(mutator: MCPPolicyGateRuleMutator()),
+                scriptCreator: MCPPluginScriptCreator()
+            )
         )
 
         let server = MCPServer(
@@ -192,12 +209,14 @@ final class MCPServerCoordinator {
     )
 
     private let sessionStoreFactory: @MainActor () throws -> SessionStore
+    private let settingsProvider: @MainActor () -> AppSettings
 
     private var mcpServer: MCPServer?
     private var redactionState: MCPRedactionState?
     private var cachedSessionStore: SessionStore?
     private weak var flowProvider: (any MCPLiveFlowProvider)?
     private weak var stateProvider: (any MCPProxyStateProvider)?
+    private weak var controlProvider: (any MCPCaptureControlProvider)?
     private var stopRequested = false
 
     private func refreshClientActivity() {

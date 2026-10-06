@@ -24,6 +24,48 @@ struct MCPRedactionPolicyTests {
         #expect(redacted[1].value == "application/json")
     }
 
+    @Test("A response that echoes request credentials is redacted, including header-named keys and URLs")
+    func echoedCredentialsInJSONBodyAreRedacted() {
+        let body = """
+        {"url":"https://httpbin.org/get?from=seed&token=qs-secret","headers":{"Authorization":"Bearer super-secret-token-123",\
+        "X-Api-Key":"key-abc","Host":"httpbin.org"},"note":"sent Bearer abc.def.ghi","usage":{"total_tokens":42}}
+        """
+
+        let redacted = enabledPolicy.redactBody(body, contentType: .json)
+
+        for secret in ["qs-secret", "super-secret-token-123", "key-abc", "abc.def.ghi"] {
+            #expect(!redacted.contains(secret), "\(secret) leaked: \(redacted)")
+        }
+        #expect(redacted.contains("httpbin.org"))
+        #expect(redacted.contains("\"total_tokens\":42"))
+
+        let truncated = String(body.prefix(130))
+        let redactedTruncated = enabledPolicy.redactBody(truncated, contentType: .json)
+        #expect(!redactedTruncated.contains("super-secret-token-123"))
+    }
+
+    @Test("CORS policy headers stay readable while credentials are still redacted")
+    func corsPolicyHeadersAreNotRedacted() {
+        let headers: [(name: String, value: String)] = [
+            (name: "Access-Control-Allow-Credentials", value: "true"),
+            (name: "Access-Control-Allow-Headers", value: "Authorization, X-Api-Key"),
+            (name: "X-Client-Credential", value: "cred-secret"),
+            (name: "Authorization", value: "Bearer super-secret-token"),
+        ]
+
+        let redacted = enabledPolicy.redactHeaders(headers)
+
+        #expect(redacted[0].value == "true")
+        #expect(redacted[1].value == "Authorization, X-Api-Key")
+        #expect(redacted[2].value == "[REDACTED]")
+        #expect(redacted[3].value == "[REDACTED]")
+
+        let body = #"{"Access-Control-Allow-Credentials":"true","credentials":"cred-body-secret"}"#
+        let redactedBody = enabledPolicy.redactBody(body, contentType: .json)
+        #expect(redactedBody.contains(#""Access-Control-Allow-Credentials":"true""#))
+        #expect(!redactedBody.contains("cred-body-secret"))
+    }
+
     @Test("Passes through non-sensitive headers")
     func passThroughNonSensitive() {
         let headers: [(name: String, value: String)] = [

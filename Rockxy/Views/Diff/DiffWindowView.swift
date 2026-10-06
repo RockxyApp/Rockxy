@@ -56,6 +56,26 @@ struct DiffWindowView: View {
                 }
                 .disabled(!canExport)
                 .help(String(localized: "Export the comparison as a text file", bundle: RockxyLocalization.bundle))
+
+                if DiffFileMerge.isAvailable {
+                    Button {
+                        do {
+                            try DiffFileMerge.open(viewModel.activeDiffResult)
+                        } catch {
+                            exportErrorMessage = error.localizedDescription
+                        }
+                    } label: {
+                        Label(
+                            String(localized: "Open in FileMerge", bundle: RockxyLocalization.bundle),
+                            systemImage: "rectangle.split.2x1"
+                        )
+                    }
+                    .disabled(!canExport)
+                    .help(String(
+                        localized: "Compare both sides in FileMerge",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
             }
         }
         .alert(
@@ -188,8 +208,8 @@ struct DiffWindowView: View {
 
         let panel = NSSavePanel()
         panel.title = String(localized: "Export Diff", bundle: RockxyLocalization.bundle)
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "diff.txt"
+        panel.allowedContentTypes = [UTType(filenameExtension: "diff") ?? .plainText, .plainText]
+        panel.nameFieldStringValue = "rockxy-comparison.diff"
 
         guard panel.runModal() == .OK, let url = panel.url else {
             return
@@ -221,7 +241,173 @@ enum DiffExportFormatter {
         return output
     }
 
+    /// Writes a unified diff (`diff -u` / `git apply` format) so the export opens in
+    /// FileMerge, code review tools, and editors that understand patches.
     static func write(_ result: DiffResult, to url: URL) throws {
-        try text(for: result).write(to: url, atomically: true, encoding: .utf8)
+        try unifiedPatch(for: result).write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// Unified diff with one file entry per changed section and `context` unchanged
+    /// lines around each change. Sections without changes are omitted.
+    static func unifiedPatch(for result: DiffResult, context: Int = 3) -> String {
+        var output = ""
+        for section in result.sections {
+            let hunks = unifiedHunks(for: section.lines, context: max(0, context))
+            guard !hunks.isEmpty else {
+                continue
+            }
+            let path = patchPath(for: section.title)
+            output += "--- a/\(path)\n+++ b/\(path)\n"
+            for hunk in hunks {
+                output += hunk
+            }
+        }
+        return output
+    }
+
+    private static func unifiedHunks(for lines: [DiffLine], context: Int) -> [String] {
+        let changed = lines.indices.filter { lines[$0].type != .unchanged }
+        guard let firstChange = changed.first else {
+            return []
+        }
+        var groups: [ClosedRange<Int>] = []
+        var start = firstChange
+        var end = firstChange
+        for index in changed.dropFirst() {
+            if index - end > context * 2 + 1 {
+                groups.append(start ... end)
+                start = index
+            }
+            end = index
+        }
+        groups.append(start ... end)
+
+        return groups.map { group in
+            let range = max(0, group.lowerBound - context) ... min(lines.count - 1, group.upperBound + context)
+            let slice = lines[range]
+            let oldCount = slice.count { $0.type != .added }
+            let newCount = slice.count { $0.type != .removed }
+            let oldStart = hunkStart(
+                in: lines, range: range, count: oldCount, lineNumber: \.oldLineNumber
+            )
+            let newStart = hunkStart(
+                in: lines, range: range, count: newCount, lineNumber: \.newLineNumber
+            )
+            var hunk = "@@ -\(oldStart),\(oldCount) +\(newStart),\(newCount) @@\n"
+            for line in slice {
+                let marker = switch line.type {
+                case .unchanged: " "
+                case .added: "+"
+                case .removed: "-"
+                }
+                hunk += marker + line.content + "\n"
+            }
+            return hunk
+        }
+    }
+
+    /// First line number of the hunk on one side. For an empty side, unified diff
+    /// uses the line *before* the insertion point (0 at the top of the file).
+    private static func hunkStart(
+        in lines: [DiffLine],
+        range: ClosedRange<Int>,
+        count: Int,
+        lineNumber: KeyPath<DiffLine, Int?>
+    )
+        -> Int
+    {
+        if count > 0, let first = lines[range].lazy.compactMap({ $0[keyPath: lineNumber] }).first {
+            return first
+        }
+        return lines[..<range.lowerBound].lazy.compactMap { $0[keyPath: lineNumber] }.last ?? 0
+    }
+
+    private static func patchPath(for title: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
+        let slug = String(title.lowercased().unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return slug.isEmpty ? "section" : slug
+    }
+}
+
+// MARK: - DiffFileMerge
+
+/// Hands both sides of a comparison to FileMerge, the diff tool that ships with Xcode.
+enum DiffFileMerge {
+    static let bundleIdentifier = "com.apple.FileMerge"
+    static let opendiffPath = "/usr/bin/opendiff"
+
+    static var isAvailable: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+            && FileManager.default.isExecutableFile(atPath: opendiffPath)
+    }
+
+    /// The left and right documents, each section introduced by its title, so FileMerge
+    /// aligns the same sections against each other.
+    static func documents(for result: DiffResult) -> (left: String, right: String) {
+        var left = ""
+        var right = ""
+        for section in result.sections {
+            left += "--- \(section.title) ---\n"
+            right += "--- \(section.title) ---\n"
+            for line in section.lines {
+                switch line.type {
+                case .unchanged:
+                    left += line.content + "\n"
+                    right += line.content + "\n"
+                case .removed:
+                    left += line.content + "\n"
+                case .added:
+                    right += line.content + "\n"
+                }
+            }
+            left += "\n"
+            right += "\n"
+        }
+        return (left, right)
+    }
+
+    static func open(_ result: DiffResult) throws {
+        let (left, right) = documents(for: result)
+        Self.purgeStaleDiffDirectories()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rockxy-diff-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let leftURL = directory.appendingPathComponent("left.txt")
+        let rightURL = directory.appendingPathComponent("right.txt")
+        try left.write(to: leftURL, atomically: true, encoding: .utf8)
+        try right.write(to: rightURL, atomically: true, encoding: .utf8)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: opendiffPath)
+        process.arguments = [leftURL.path, rightURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+    }
+
+    /// FileMerge keeps reading the comparison files after `opendiff` returns, so they cannot be
+    /// removed right away. Captured requests can hold credentials, so older comparison
+    /// folders are deleted the next time one is created.
+    private static func purgeStaleDiffDirectories() {
+        let fileManager = FileManager.default
+        let temp = fileManager.temporaryDirectory
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: temp,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else {
+            return
+        }
+        for entry in entries where entry.lastPathComponent.hasPrefix("rockxy-diff-") {
+            let modified = (try? entry.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            if let modified, modified < cutoff {
+                try? fileManager.removeItem(at: entry)
+            }
+        }
     }
 }

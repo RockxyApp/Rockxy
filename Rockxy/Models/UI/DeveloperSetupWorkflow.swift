@@ -391,7 +391,8 @@ enum DeveloperSetupWorkflowCatalog {
         for targetID: SetupTarget.ID,
         snippetID: SetupSnippetID,
         port: Int,
-        certificatePath: String?
+        certificatePath: String?,
+        deviceProxyHost: String? = nil
     )
         -> String?
     {
@@ -450,11 +451,23 @@ enum DeveloperSetupWorkflowCatalog {
         case (.nextJS, .nextJSRouteHandler):
             nextJSRouteHandlerSnippet(proxyURL: proxyURL, certPath: rawCertificatePath)
         case (.flutter, .flutterHttpClient):
-            DeveloperSetupMobileSnippetCatalog.flutterHttpClientSnippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterHttpClientSnippet(
+                port: port,
+                certPath: rawCertificatePath,
+                deviceProxyHost: deviceProxyHost
+            )
         case (.flutter, .flutterHTTPPackage):
-            DeveloperSetupMobileSnippetCatalog.flutterHTTPPackageSnippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterHTTPPackageSnippet(
+                port: port,
+                certPath: rawCertificatePath,
+                deviceProxyHost: deviceProxyHost
+            )
         case (.flutter, .flutterDio5):
-            DeveloperSetupMobileSnippetCatalog.flutterDio5Snippet(port: port, certPath: rawCertificatePath)
+            DeveloperSetupMobileSnippetCatalog.flutterDio5Snippet(
+                port: port,
+                certPath: rawCertificatePath,
+                deviceProxyHost: deviceProxyHost
+            )
         case (.flutter, .flutterAndroidNetworkSecurityConfig):
             DeveloperSetupMobileSnippetCatalog.flutterAndroidNetworkSecurityConfigSnippet(certPath: rawCertificatePath)
         case (.reactNative, .reactNativeFetchProbe):

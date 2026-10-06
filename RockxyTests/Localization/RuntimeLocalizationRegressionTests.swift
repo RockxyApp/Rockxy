@@ -230,7 +230,9 @@ struct RuntimeLocalizationRegressionTests {
     @Test("VS Code Open-with menu renders the app name verbatim, not through localization")
     func vsCodeLabelIsVerbatim() throws {
         let source = try readProjectFile("Rockxy/Views/Inspector/ResponseInspectorView.swift")
-        #expect(source.contains("Text(verbatim: \"Code\")"))
+        // Editor product names ("Code", "Cursor", …) render verbatim, never through the catalog.
+        #expect(source.contains("Text(verbatim: editor.name)"))
+        #expect(source.contains("ResponseBodyEditor(name: \"Code\""))
         #expect(!source.contains("Label(\"Code\""))
         #expect(!source.contains("localized: \"Code\""))
     }

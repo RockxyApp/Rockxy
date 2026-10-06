@@ -96,6 +96,16 @@ struct ContentView: View {
                 toastOverlay
             }
             .animation(.easeOut(duration: 0.18), value: coordinator.activeToast?.id)
+            .overlay {
+                if isCaptureDocumentDropTargeted {
+                    CaptureDocumentDropHighlight()
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                coordinator.openExternalDocuments(urls)
+            } isTargeted: { isTargeted in
+                isCaptureDocumentDropTargeted = isTargeted
+            }
         } inspector: {
             ContextDockView(
                 coordinator: coordinator,
@@ -119,6 +129,18 @@ struct ContentView: View {
             .frame(width: 0, height: 0)
         }
         .focusedSceneValue(\.commandActions, MainContentCommandActions(coordinator: coordinator))
+        .onReceive(NotificationCenter.default.publisher(for: .focusSidebarSearchField)) { _ in
+            guard !isSidebarPresented else {
+                return
+            }
+            // The search field does not exist while the sidebar is collapsed; ask
+            // again once the sidebar has been laid out.
+            isSidebarPresented = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(250))
+                NotificationCenter.default.post(name: .focusSidebarSearchField, object: nil)
+            }
+        }
         .modifier(ConditionalContentWindowNotificationHandlers(
             isEnabled: managesLifecycle,
             coordinator: coordinator,
@@ -128,9 +150,11 @@ struct ContentView: View {
             guard managesLifecycle, !ProcessInfo.processInfo.isTestHost else {
                 return
             }
+            ExternalDocumentOpenRouter.shared.openMainWindow = { openWindow(id: "main") }
             coordinator.configureSharedGates()
             coordinator.loadPersistedFavorites()
             coordinator.attachToMCPServer(MCPServerCoordinator.shared)
+            CommandLineControlCoordinator.shared.target = coordinator
         }
         .onDisappear {
             guard managesLifecycle, !ProcessInfo.processInfo.isTestHost else {
@@ -149,6 +173,7 @@ struct ContentView: View {
             // before hydrating so Map Local and other rule tools have their
             // persisted rules regardless of how long project hydration takes.
             coordinator.setupRulesObserver()
+            coordinator.setupComposeExchangeObserver()
             coordinator.loadInitialRules()
             await coordinator.hydrateProjectsOnLaunch()
             if case .failed = coordinator.projectStore.loadState {
@@ -230,7 +255,9 @@ struct ContentView: View {
         .sheet(item: $coordinator.exportScopeContext) { context in
             ExportScopeSheet(
                 context: context,
-                onExport: { scope in coordinator.executeExport(context: context, scope: scope) },
+                onExport: { scope, redacts in
+                    coordinator.executeExport(context: context, scope: scope, redactsSensitiveData: redacts)
+                },
                 onCancel: { coordinator.exportScopeContext = nil }
             )
         }
@@ -291,6 +318,7 @@ struct ContentView: View {
     @Bindable private var coordinator: MainContentCoordinator
     @State private var nearbyTransferReceiver = RockxyNearbyTransferReceiver.shared
     @State private var isSidebarPresented = true
+    @State private var isCaptureDocumentDropTargeted = false
 
     private let settingsManager = AppSettingsManager.shared
     private let managesLifecycle: Bool

@@ -1,5 +1,12 @@
 import Foundation
 
+// One executable, two names: `rockxy-cli` controls the running app from a terminal, and
+// `rockxy-mcp` bridges an MCP client's stdio to the app's MCP server.
+let invokedName = URL(fileURLWithPath: CommandLine.arguments.first ?? "").lastPathComponent
+if invokedName == "rockxy-cli" {
+    exit(CommandLineClient.run(arguments: Array(CommandLine.arguments.dropFirst())))
+}
+
 let handshake: HandshakeReader.Handshake
 do {
     handshake = try HandshakeReader.readHandshake()

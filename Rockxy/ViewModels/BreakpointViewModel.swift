@@ -36,12 +36,35 @@ struct BreakpointRequestData {
     var isBodyEditable = true
     var fixedHTTPSAuthority: String?
     var matchedRuleName: String?
+    /// The original request's headers for a response-phase pause, used only to name the
+    /// client in the queue (`headers` then holds the response headers being edited).
+    var requestHeaders: [EditableHeader] = []
 
-    /// Whether the original request uses HTTPS. Used by the breakpoint editor to constrain
-    /// the URL editor so the user can only modify path and query — the host is fixed by the
-    /// TLS tunnel and cannot be changed mid-connection.
+    /// Whether the edited request URL uses HTTPS.
     var isHTTPS: Bool {
         url.lowercased().hasPrefix("https://")
+    }
+
+    /// The `scheme://host[:port]` an HTTPS request will be sent to when the edited URL names
+    /// a different server than the one the client connected to, or `nil` when it does not.
+    var redirectedOrigin: String? {
+        guard phase == .request,
+              let fixedHTTPSAuthority,
+              let components = URLComponents(string: url),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host, !host.isEmpty else
+        {
+            return nil
+        }
+        let bracketedHost = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
+        var editedAuthority = bracketedHost
+        if let port = components.port, port != (scheme == "https" ? 443 : 80) {
+            editedAuthority += ":\(port)"
+        }
+        if scheme == "https", editedAuthority.caseInsensitiveCompare(fixedHTTPSAuthority) == .orderedSame {
+            return nil
+        }
+        return "\(scheme)://\(editedAuthority)"
     }
 
     /// Phase-aware validation shared by the structured editor and proxy builders.
@@ -88,7 +111,8 @@ struct BreakpointRequestData {
             )
         }
 
-        for header in headers {
+        // A row just added with Add Header is left out on apply, so it is not an error yet.
+        for header in headers where !Self.isBlankHeaderRow(header) {
             if !Self.isValidHTTPHeaderName(header.name) {
                 return String(localized: "Header names must use valid HTTP token characters.", bundle: RockxyLocalization.bundle)
             }
@@ -97,6 +121,12 @@ struct BreakpointRequestData {
             }
         }
         return nil
+    }
+
+    /// A header row with neither a name nor a value.
+    static func isBlankHeaderRow(_ header: EditableHeader) -> Bool {
+        header.name.trimmingCharacters(in: .whitespaces).isEmpty
+            && header.value.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var requestLimitViolationStatusCode: Int? {

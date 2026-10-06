@@ -69,11 +69,17 @@ struct CodableTransaction: Codable {
         self.highlightColor = transaction.highlightColor?.rawValue
         self.isPinned = transaction.isPinned
         self.isSaved = transaction.isSaved
+        self.isStruckThrough = transaction.isStruckThrough ? true : nil
         self.isTLSFailure = transaction.isTLSFailure
         self.matchedRuleID = transaction.matchedRuleID
         self.matchedRuleName = transaction.matchedRuleName
         self.matchedRuleActionSummary = transaction.matchedRuleActionSummary
         self.matchedRulePattern = transaction.matchedRulePattern
+        self.appliedScriptNames = transaction.appliedScriptNames.isEmpty ? nil : transaction.appliedScriptNames
+        self.scriptPreviews = transaction.scriptPreviews.isEmpty ? nil : transaction.scriptPreviews
+        self.noCachingApplied = transaction.noCachingApplied ? true : nil
+        self.serverHTTPVersion = transaction.serverHTTPVersion
+        self.connectionLog = transaction.connectionLog
     }
 
     init(from decoder: Decoder) throws {
@@ -96,11 +102,17 @@ struct CodableTransaction: Codable {
         highlightColor = try container.decodeIfPresent(String.self, forKey: .highlightColor)
         isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
         isSaved = try container.decodeIfPresent(Bool.self, forKey: .isSaved) ?? false
+        isStruckThrough = try container.decodeIfPresent(Bool.self, forKey: .isStruckThrough)
         isTLSFailure = try container.decodeIfPresent(Bool.self, forKey: .isTLSFailure) ?? false
         matchedRuleID = try container.decodeIfPresent(UUID.self, forKey: .matchedRuleID)
         matchedRuleName = try container.decodeIfPresent(String.self, forKey: .matchedRuleName)
         matchedRuleActionSummary = try container.decodeIfPresent(String.self, forKey: .matchedRuleActionSummary)
         matchedRulePattern = try container.decodeIfPresent(String.self, forKey: .matchedRulePattern)
+        appliedScriptNames = try container.decodeIfPresent([String].self, forKey: .appliedScriptNames)
+        scriptPreviews = try container.decodeIfPresent([ScriptPreviewTab].self, forKey: .scriptPreviews)
+        noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
+        serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
+        connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
     }
 
     // MARK: Internal
@@ -122,11 +134,17 @@ struct CodableTransaction: Codable {
         case highlightColor
         case isPinned
         case isSaved
+        case isStruckThrough
         case isTLSFailure
         case matchedRuleID
         case matchedRuleName
         case matchedRuleActionSummary
         case matchedRulePattern
+        case appliedScriptNames
+        case scriptPreviews
+        case noCachingApplied
+        case serverHTTPVersion
+        case connectionLog
     }
 
     let id: UUID
@@ -147,11 +165,17 @@ struct CodableTransaction: Codable {
     let highlightColor: String?
     let isPinned: Bool
     let isSaved: Bool
+    let isStruckThrough: Bool?
     let isTLSFailure: Bool
     let matchedRuleID: UUID?
     let matchedRuleName: String?
     let matchedRuleActionSummary: String?
     let matchedRulePattern: String?
+    let appliedScriptNames: [String]?
+    let scriptPreviews: [ScriptPreviewTab]?
+    let noCachingApplied: Bool?
+    let serverHTTPVersion: String?
+    let connectionLog: ConnectionLog?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -172,11 +196,17 @@ struct CodableTransaction: Codable {
         transaction.highlightColor = highlightColor.flatMap { HighlightColor(rawValue: $0) }
         transaction.isPinned = isPinned
         transaction.isSaved = isSaved
+        transaction.isStruckThrough = isStruckThrough ?? false
         transaction.isTLSFailure = isTLSFailure
         transaction.matchedRuleID = matchedRuleID
         transaction.matchedRuleName = matchedRuleName
         transaction.matchedRuleActionSummary = matchedRuleActionSummary
         transaction.matchedRulePattern = matchedRulePattern
+        transaction.appliedScriptNames = appliedScriptNames ?? []
+        transaction.scriptPreviews = scriptPreviews ?? []
+        transaction.noCachingApplied = noCachingApplied ?? false
+        transaction.serverHTTPVersion = serverHTTPVersion
+        transaction.connectionLog = connectionLog
         return transaction
     }
 }
@@ -235,6 +265,7 @@ struct CodableResponse: Codable {
         self.bodyTruncated = encoded.truncated
         self.originalBodySize = encoded.originalSize
         self.contentType = response.contentType?.rawValue
+        self.trailers = response.trailers?.map { CodableHeader(from: $0) }
     }
 
     // MARK: Internal
@@ -246,6 +277,8 @@ struct CodableResponse: Codable {
     let bodyTruncated: Bool
     let originalBodySize: Int?
     let contentType: String?
+    /// Absent in sessions saved before trailers were recorded.
+    let trailers: [CodableHeader]?
 
     func toLiveModel() -> HTTPResponseData {
         HTTPResponseData(
@@ -253,6 +286,7 @@ struct CodableResponse: Codable {
             statusMessage: statusMessage,
             headers: headers.map { $0.toLiveModel() },
             body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            trailers: trailers?.map { $0.toLiveModel() },
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
     }

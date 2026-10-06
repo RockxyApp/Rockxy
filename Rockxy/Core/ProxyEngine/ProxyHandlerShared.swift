@@ -1,4 +1,5 @@
 import Foundation
+import NIOCore
 import NIOHTTP1
 import os
 
@@ -67,6 +68,129 @@ enum ProxyHandlerShared {
         currentBufferSize + incomingChunkSize > maxSize
     }
 
+    /// Evaluates the breakpoint rule (which may pause before any other tool), the first
+    /// rule that decides where the request goes, and every Modify Headers rule layered on
+    /// top of that decision, including the request's GraphQL operation name.
+    nonisolated static func evaluateRules(
+        _ ruleEngine: RuleEngine,
+        request: HTTPRequestData,
+        graphQLOperationName: String?,
+        clientApplication: (@Sendable () async -> ClientApplicationIdentity?)? = nil
+    )
+        async -> (breakpoint: ProxyRule?, matched: ProxyRule?, headerRules: [ProxyRule])
+    {
+        // Resolve the calling application only when a rule is scoped to one; identity lookup
+        // is bounded, and an unresolved caller simply never matches an application rule.
+        var application: ClientApplicationIdentity?
+        if let clientApplication, await ruleEngine.hasApplicationScopedRules {
+            application = await clientApplication()
+        }
+        let breakpointRule = await ruleEngine.evaluateBreakpointRule(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
+        )
+        let matchedRule = await ruleEngine.evaluatePrimaryRule(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
+        )
+        let headerRules = await ruleEngine.matchingHeaderRules(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: application
+        )
+        return (breakpointRule, matchedRule, headerRules)
+    }
+
+    /// The request- and response-phase operations of the matching Modify Headers rules,
+    /// in rule order.
+    nonisolated static func headerOperations(
+        of headerRules: [ProxyRule]
+    ) -> (request: [HeaderOperation], response: [HeaderOperation]) {
+        let operations = headerRules.flatMap { rule -> [HeaderOperation] in
+            guard case let .modifyHeader(operations) = rule.action else {
+                return []
+            }
+            return operations
+        }
+        return (HeaderOperation.requestPhase(from: operations), HeaderOperation.responsePhase(from: operations))
+    }
+
+    /// Applies request-phase header operations to both the recorded request and the head
+    /// that is forwarded, so the inspector shows what the server received.
+    nonisolated static func applyRequestHeaderOperations(
+        _ operations: [HeaderOperation],
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData
+    ) -> (head: HTTPRequestHead, requestData: HTTPRequestData) {
+        guard !operations.isEmpty else {
+            return (head, requestData)
+        }
+        var requestData = requestData
+        HeaderMutator.apply(operations, to: &requestData.headers)
+        var head = head
+        head.headers = HTTPHeaders(requestData.headers.map { ($0.name, $0.value) })
+        return (head, requestData)
+    }
+
+    /// Response-phase operations applied to a response Rockxy writes itself (Map Local,
+    /// script mocks), matching what the upstream response handler does for origin replies.
+    nonisolated static func applyResponseHeaderOperations(
+        _ operations: [HeaderOperation]?,
+        to responseData: HTTPResponseData
+    ) -> HTTPResponseData {
+        guard let operations, !operations.isEmpty else {
+            return responseData
+        }
+        var responseData = responseData
+        HeaderMutator.apply(operations, to: &responseData.headers)
+        return responseData
+    }
+
+    /// Combines rule-supplied response operations with an action's own, rule order first.
+    nonisolated static func mergedResponseOperations(
+        _ pending: [HeaderOperation]?,
+        _ explicit: [HeaderOperation]?
+    ) -> [HeaderOperation]? {
+        let merged = (pending ?? []) + (explicit ?? [])
+        return merged.isEmpty ? nil : merged
+    }
+
+    /// Network Conditions "Offline": drops the client connection without contacting
+    /// the server, the way a device with no network fails, and records the request
+    /// as failed with no response.
+    nonisolated static func simulateOffline(
+        context: ChannelHandlerContext,
+        requestData: HTTPRequestData,
+        elapsed: TimeInterval?,
+        sourcePort: UInt16?,
+        callback: @Sendable (HTTPTransaction) -> Void
+    ) {
+        guard context.channel.isActive else {
+            return
+        }
+        context.close(promise: nil)
+        let transaction = HTTPTransaction(request: requestData, response: nil, state: .failed)
+        transaction.measuredDuration = elapsed
+        transaction.sourcePort = sourcePort
+        callback(transaction)
+    }
+
+    /// A Block List rule set to hide what it blocks keeps those requests out of the list.
+    nonisolated static func hidesBlockedTraffic(_ rule: ProxyRule) -> Bool {
+        guard rule.hidesMatchedTraffic, case .block = rule.action else {
+            return false
+        }
+        return true
+    }
+
     /// Wraps a downstream transaction callback with matched-rule metadata injection.
     /// Used by both HTTP and HTTPS handlers to decorate transactions before delivery.
     nonisolated static func makeTransactionCallback(
@@ -75,6 +199,9 @@ enum ProxyHandlerShared {
     )
         -> @Sendable (HTTPTransaction) -> Void
     {
+        if let matchedRule, Self.hidesBlockedTraffic(matchedRule) {
+            return { _ in }
+        }
         let matchedRuleID = matchedRule?.id
         let matchedRuleName = matchedRule?.name
         let matchedRuleActionSummary = matchedRule?.action.matchedRuleActionSummary
@@ -113,7 +240,6 @@ enum ProxyHandlerShared {
     nonisolated static func mapRemoteActionSummary(originalURL: URL) -> String {
         "Map Remote (from \(originalURL.absoluteString))"
     }
-
     /// Rebuild the outbound `HTTPRequestHead` from a (possibly script-mutated)
     /// `HTTPRequestData`, scoped to the safe mutation kinds: method, origin-form
     /// path + query, headers, and a recomputed `Content-Length` when the original
@@ -176,8 +302,18 @@ enum ProxyHandlerShared {
             headers.remove(name: "Content-Length")
         }
 
+        // Rockxy records and decodes frame payloads as sent. A negotiated `permessage-deflate`
+        // extension would leave every recorded frame compressed and unreadable, so the
+        // handshake is forwarded without offering any extension; the connection simply falls
+        // back to uncompressed frames.
+        if WebSocketDetector.isWebSocketUpgrade(headers: headers) {
+            headers.remove(name: "Sec-WebSocket-Extensions")
+        }
+
+        // HTTP/2 requests are forwarded as HTTP/1.1 on an HTTP/1.1 origin connection; an
+        // HTTP/2 origin stream ignores the version, so 1.1 is correct either way.
         return HTTPRequestHead(
-            version: originalHead.version,
+            version: originalHead.version.major >= 2 ? .http1_1 : originalHead.version,
             method: resolvedMethod,
             uri: uri,
             headers: headers
@@ -251,7 +387,8 @@ enum ProxyHandlerShared {
             headers: modifiedHead.headers.map { HTTPHeader(name: $0.name, value: $0.value) },
             body: requestData.body,
             contentType: requestData.contentType,
-            captureContext: requestData.captureContext
+            captureContext: requestData.captureContext,
+            flowID: requestData.flowID
         )
 
         return MapRemoteRewrite(
@@ -299,8 +436,10 @@ enum ProxyHandlerShared {
     /// Block and Map Local results remain attributed to the rule that produced them.
     nonisolated static func transactionRule(
         breakpointRule: ProxyRule?,
-        matchedRule: ProxyRule?
+        matchedRule: ProxyRule?,
+        headerRules: [ProxyRule] = []
     ) -> ProxyRule? {
+        let matchedRule = matchedRule ?? headerRules.first
         guard breakpointRule?.action.responseBreakpointPhase != nil else {
             return matchedRule
         }
@@ -324,7 +463,7 @@ enum ProxyHandlerShared {
 
     /// Lowercase set of RFC-defined methods we accept from scripts.
     nonisolated private static let HTTPMethodRawValues: Set<String> = [
-        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT",
+        "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "QUERY",
     ]
 
     nonisolated(unsafe) private static var warned: Set<String> = []

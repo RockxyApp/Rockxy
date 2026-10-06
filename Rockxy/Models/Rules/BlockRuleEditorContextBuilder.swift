@@ -19,7 +19,8 @@ enum BlockRuleEditorContextBuilder {
             defaultMatchType: .wildcard,
             defaultAction: .returnForbidden,
             httpMethod: HTTPMethodFilter(rawValue: transaction.request.method.uppercased()) ?? .any,
-            includeSubpaths: true
+            includeSubpaths: true,
+            graphQLOperationName: transaction.graphQLInfo?.operationName
         )
     }
 

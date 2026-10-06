@@ -311,7 +311,8 @@ actor ProxyServer {
             await ProcessResolver.shared.identityResolver.resolveIdentity(descriptor: $0)
         },
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void = { _ in },
-        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil,
+        remoteAccessGate: RemoteAccessGate = .shared
     ) {
         self.configuration = configuration
         self.certificateManager = certificateManager
@@ -327,6 +328,7 @@ actor ProxyServer {
         self.clientIdentityResolver = clientIdentityResolver
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
+        self.remoteAccessGate = remoteAccessGate
     }
 
     // MARK: Internal
@@ -356,6 +358,30 @@ actor ProxyServer {
         }
     }
 
+    /// Stamps the scripts that ran for the transaction's flow, so a request a script
+    /// changed is never presented as untouched.
+    static func makeScriptAttributionCallback(
+        ledger: ScriptExecutionLedger?,
+        downstream: @escaping @Sendable (HTTPTransaction) -> Void
+    )
+        -> @Sendable (HTTPTransaction) -> Void
+    {
+        guard let ledger else {
+            return downstream
+        }
+        return { transaction in
+            let names = ledger.scriptNames(for: transaction.request.flowID)
+            if !names.isEmpty {
+                transaction.appliedScriptNames = names
+            }
+            let previews = ledger.previews(for: transaction.request.flowID)
+            if !previews.isEmpty {
+                transaction.scriptPreviews = previews
+            }
+            downstream(transaction)
+        }
+    }
+
     /// Wraps a transaction callback so every emitted transaction — raw CONNECT, TLS failure,
     /// intercepted HTTP, WebSocket — inherits the connection's resolved application identity
     /// and a matching `clientApp` label. Stamping is a non-blocking read of the retained
@@ -380,6 +406,15 @@ actor ProxyServer {
             }
             if transaction.clientApp == nil {
                 transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(transaction.request.headers)
+            }
+            // A response Rockxy answers itself (Map Local, Block, breakpoint abort or redirect,
+            // a failed upstream) does not carry the relay's GraphQL detection; label it with
+            // the same operation so the row stays findable by its Operation column and filter.
+            // Relayed responses without a rule already ran detection before forwarding.
+            if transaction.graphQLInfo == nil,
+               transaction.state != .completed || transaction.matchedRuleID != nil
+            {
+                transaction.graphQLInfo = GraphQLDetector.detect(request: transaction.request)
             }
             downstream(transaction)
         }
@@ -449,6 +484,134 @@ actor ProxyServer {
             self.currentUpstreamProxyConfiguration()
         }
 
+        installPolicyObservers(tunnelRegistry: tunnelRegistry)
+
+        // One pipeline for the main listener and every reverse proxy listener; a reverse
+        // listener adds only the request rewriter in front of the proxy handler.
+        let accessGate = remoteAccessGate
+        let makeChildPipeline: @Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void> = { channel, reverseTarget in
+            // Access Control: refuse other devices before any byte is read. A failed
+            // initializer closes the connection.
+            let access = accessGate.decision(
+                clientAddress: channel.remoteAddress?.ipAddress,
+                localAddress: channel.localAddress?.ipAddress
+            )
+            guard access == .allow else {
+                proxyServerLogger.info("Refused a connection from a device not allowed by Access Control")
+                return channel.eventLoop.makeFailedFuture(RemoteAccessRefusedError())
+            }
+            childRegistry.register(channel)
+            // Capture an immutable connection descriptor at accept and start identity
+            // resolution concurrently. The decorated callback stamps the resolved
+            // identity onto every emitted transaction for rules and observed-app UI.
+            let descriptor = ProxyConnectionDescriptor(
+                acceptedAt: DispatchTime.now(),
+                clientHost: channel.remoteAddress?.ipAddress,
+                clientPort: channel.remoteAddress?.port.flatMap { UInt16(exactly: $0) },
+                proxyHost: channel.localAddress?.ipAddress,
+                // The port this connection actually reached (main, reverse, or SOCKS listener),
+                // which identity resolution matches against the client's socket.
+                proxyPort: channel.localAddress?.port ?? reverseTarget?.localPort ?? proxyPort
+            )
+            let identityHandle = identityProvider(descriptor)
+            identityHandle?.startResolution()
+            let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
+                handle: identityHandle,
+                downstream: ProxyServer.makeScriptAttributionCallback(
+                    ledger: scriptMgr?.executionLedger,
+                    downstream: callback
+                )
+            )
+            return channel.pipeline.addHandler(BreakpointClientLivenessProbeHandler()).flatMap {
+                channel.pipeline.addHandler(ConnectionTimeoutHandler(timeout: .seconds(300)))
+            }.flatMap {
+                channel.pipeline.addHandler(ConnectionLogger())
+            }.flatMap {
+                channel.pipeline.configureHTTPServerPipeline()
+            }.flatMap {
+                guard let reverseTarget else {
+                    return channel.eventLoop.makeSucceededVoidFuture()
+                }
+                return channel.pipeline.addHandler(ReverseProxyRequestRewriter(target: reverseTarget))
+            }.flatMap {
+                let handler = HTTPProxyHandler(
+                    certificateManager: certManager,
+                    ruleEngine: ruleEng,
+                    scriptPluginManager: scriptMgr,
+                    connectionLimiter: limiter,
+                    sslProxyingManager: sslProxyingManager,
+                    bypassProxyManager: bypassProxyManager,
+                    upstreamProxySnapshotProvider: upstreamProxyProvider,
+                    upstreamTrustProvider: self.upstreamTrustProvider,
+                    captureContextProvider: captureProvider,
+                    shouldBypassUserModifications: bypassUserModifications,
+                    clientIdentityHandle: identityHandle,
+                    clientConnectionDescriptor: descriptor,
+                    liveTunnelRegistry: tunnelRegistry,
+                    onTransactionComplete: decoratedCallback,
+                    onBreakpointHit: breakpointHit,
+                    breakpointBridgeTracker: bridgeTracker
+                )
+                return channel.pipeline.addHandler(handler)
+            }
+        }
+        childPipeline = makeChildPipeline
+
+        let bootstrap = ServerBootstrap(group: group)
+            // Backlog of 256 pending connections before the OS starts rejecting
+            .serverChannelOption(.backlog, value: 256)
+            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                makeChildPipeline(channel, nil)
+            }
+            .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            // Cap messages per read to bound per-channel memory usage under high throughput
+            .childChannelOption(.maxMessagesPerRead, value: 16)
+
+        do {
+            let channel = try await bootstrap.bind(
+                host: configuration.listenAddress,
+                port: configuration.port
+            ).get()
+            self.serverChannel = channel
+        } catch {
+            try? await group.shutdownGracefully()
+            eventLoopGroup = nil
+            // The observers were installed before `bind`. `stop()` guards on `serverChannel`,
+            // which never got set on a failed start, so it can't clean them — remove them here or
+            // a retry would overwrite the tokens and leak the originals.
+            removePolicyObservers()
+            liveTunnelRegistry = nil
+            if let ioError = error as? IOError, ioError.errnoCode == EADDRINUSE {
+                throw ProxyServerError.portInUse(configuration.port)
+            }
+            throw error
+        }
+
+        Self.logger.info(
+            "Proxy server started on \(self.configuration.listenAddress):\(self.configuration.port)"
+        )
+    }
+
+    /// Reverse proxy and SOCKS reconciliation run one at a time; overlapping updates
+    /// would otherwise race to bind the same port and report a stale status.
+    private func beginListenerReconcile() async {
+        if isReconcilingListeners {
+            await withCheckedContinuation { listenerReconcileWaiters.append($0) }
+        }
+        isReconcilingListeners = true
+    }
+
+    private func endListenerReconcile() {
+        if listenerReconcileWaiters.isEmpty {
+            isReconcilingListeners = false
+        } else {
+            listenerReconcileWaiters.removeFirst().resume()
+        }
+    }
+
+    /// Keeps the upstream proxy snapshot and live tunnels in step with settings changes.
+    private func installPolicyObservers(tunnelRegistry: LiveTunnelRegistry) {
         upstreamProxyObserver = NotificationCenter.default.addObserver(
             forName: .upstreamProxyConfigurationDidChange,
             object: nil,
@@ -490,84 +653,102 @@ actor ProxyServer {
                 tunnelRegistry.invalidateTunnelsNowRequiringInterception()
             }
         }
+    }
 
-        let bootstrap = ServerBootstrap(group: group)
-            // Backlog of 256 pending connections before the OS starts rejecting
-            .serverChannelOption(.backlog, value: 256)
-            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            .childChannelInitializer { channel in
-                childRegistry.register(channel)
-                // Capture an immutable connection descriptor at accept and start identity
-                // resolution concurrently. The decorated callback stamps the resolved
-                // identity onto every emitted transaction for rules and observed-app UI.
-                let descriptor = ProxyConnectionDescriptor(
-                    acceptedAt: DispatchTime.now(),
-                    clientHost: channel.remoteAddress?.ipAddress,
-                    clientPort: channel.remoteAddress?.port.flatMap { UInt16(exactly: $0) },
-                    proxyHost: channel.localAddress?.ipAddress,
-                    proxyPort: proxyPort
-                )
-                let identityHandle = identityProvider(descriptor)
-                identityHandle?.startResolution()
-                let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
-                    handle: identityHandle,
-                    downstream: callback
-                )
-                return channel.pipeline.addHandler(BreakpointClientLivenessProbeHandler()).flatMap {
-                    channel.pipeline.addHandler(ConnectionTimeoutHandler(timeout: .seconds(300)))
-                }.flatMap {
-                    channel.pipeline.addHandler(ConnectionLogger())
-                }.flatMap {
-                    channel.pipeline.configureHTTPServerPipeline()
-                }.flatMap {
-                    let handler = HTTPProxyHandler(
-                        certificateManager: certManager,
-                        ruleEngine: ruleEng,
-                        scriptPluginManager: scriptMgr,
-                        connectionLimiter: limiter,
-                        sslProxyingManager: sslProxyingManager,
-                        bypassProxyManager: bypassProxyManager,
-                        upstreamProxySnapshotProvider: upstreamProxyProvider,
-                        upstreamTrustProvider: self.upstreamTrustProvider,
-                        captureContextProvider: captureProvider,
-                        shouldBypassUserModifications: bypassUserModifications,
-                        clientIdentityHandle: identityHandle,
-                        clientConnectionDescriptor: descriptor,
-                        liveTunnelRegistry: tunnelRegistry,
-                        onTransactionComplete: decoratedCallback,
-                        onBreakpointHit: breakpointHit,
-                        breakpointBridgeTracker: bridgeTracker
-                    )
-                    return channel.pipeline.addHandler(handler)
-                }
-            }
-            .childChannelOption(.socketOption(.so_reuseaddr), value: 1)
-            // Cap messages per read to bound per-channel memory usage under high throughput
-            .childChannelOption(.maxMessagesPerRead, value: 16)
-
-        do {
-            let channel = try await bootstrap.bind(
-                host: configuration.listenAddress,
-                port: configuration.port
-            ).get()
-            self.serverChannel = channel
-        } catch {
-            try? await group.shutdownGracefully()
-            eventLoopGroup = nil
-            // The observers were installed before `bind`. `stop()` guards on `serverChannel`,
-            // which never got set on a failed start, so it can't clean them — remove them here or
-            // a retry would overwrite the tokens and leak the originals.
-            removePolicyObservers()
-            liveTunnelRegistry = nil
-            if let ioError = error as? IOError, ioError.errnoCode == EADDRINUSE {
-                throw ProxyServerError.portInUse(configuration.port)
-            }
-            throw error
+    /// Reconciles reverse proxy listeners with `targets`: listeners that are no longer
+    /// wanted (or changed) close, new ones bind on loopback. Returns the targets whose
+    /// port could not be bound, keyed by target id. Requires a running proxy.
+    @discardableResult
+    func updateReverseProxies(_ targets: [ReverseProxyTarget]) async -> [UUID: ReverseProxyBindFailure] {
+        await beginListenerReconcile()
+        defer { endListenerReconcile() }
+        let generation = listenerGeneration
+        let wanted = Set(targets)
+        for (target, channel) in reverseListeners where !wanted.contains(target) {
+            try? await channel.close().get()
+            reverseListeners.removeValue(forKey: target)
+        }
+        guard let group = eventLoopGroup, let childPipeline, serverChannel != nil else {
+            return Dictionary(uniqueKeysWithValues: targets.map { ($0.id, .proxyNotRunning) })
         }
 
-        Self.logger.info(
-            "Proxy server started on \(self.configuration.listenAddress):\(self.configuration.port)"
-        )
+        var failures: [UUID: ReverseProxyBindFailure] = [:]
+        for target in targets where reverseListeners[target] == nil {
+            guard target.localPort != configuration.port else {
+                failures[target.id] = .portInUse
+                continue
+            }
+            let bootstrap = ServerBootstrap(group: group)
+                .serverChannelOption(.backlog, value: 64)
+                .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+                .childChannelInitializer { channel in
+                    childPipeline(channel, target)
+                }
+                .childChannelOption(.maxMessagesPerRead, value: 16)
+            do {
+                let channel = try await bootstrap.bind(host: "127.0.0.1", port: target.localPort).get()
+                guard generation == listenerGeneration, serverChannel != nil else {
+                    try? await channel.close().get()
+                    failures[target.id] = .proxyNotRunning
+                    continue
+                }
+                reverseListeners[target] = channel
+                Self.logger.info("Reverse proxy listening on 127.0.0.1:\(target.localPort)")
+            } catch {
+                let inUse = (error as? IOError)?.errnoCode == EADDRINUSE
+                failures[target.id] = inUse ? .portInUse : .bindFailed(error.localizedDescription)
+            }
+        }
+        return failures
+    }
+
+    /// Starts, moves, or stops the SOCKS5 listener. It binds to the same address as
+    /// the HTTP proxy, so it is reachable from other devices only when the proxy is.
+    /// Pass `nil` to stop it. Requires a running proxy.
+    @discardableResult
+    func updateSOCKSListener(port: Int?) async -> ReverseProxyBindFailure? {
+        await beginListenerReconcile()
+        defer { endListenerReconcile() }
+        let generation = listenerGeneration
+        let host = configuration.listenAddress
+        if let current = socksListener, current.port != port || current.host != host {
+            try? await current.channel.close().get()
+            socksListener = nil
+        }
+        guard let port else {
+            return nil
+        }
+        guard socksListener == nil else {
+            return nil
+        }
+        guard let group = eventLoopGroup, let childPipeline, serverChannel != nil else {
+            return .proxyNotRunning
+        }
+        guard port != configuration.port else {
+            return .portInUse
+        }
+        let bootstrap = ServerBootstrap(group: group)
+            .serverChannelOption(.backlog, value: 128)
+            .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
+            .childChannelInitializer { channel in
+                childPipeline(channel, nil).flatMap {
+                    channel.pipeline.addHandler(SOCKS5ServerHandler(), position: .first)
+                }
+            }
+            .childChannelOption(.maxMessagesPerRead, value: 16)
+        do {
+            let channel = try await bootstrap.bind(host: host, port: port).get()
+            guard generation == listenerGeneration, serverChannel != nil else {
+                try? await channel.close().get()
+                return .proxyNotRunning
+            }
+            socksListener = (channel, host, port)
+            Self.logger.info("SOCKS5 listener on \(host):\(port)")
+            return nil
+        } catch {
+            let inUse = (error as? IOError)?.errnoCode == EADDRINUSE
+            return inUse ? .portInUse : .bindFailed(error.localizedDescription)
+        }
     }
 
     func stop() async {
@@ -577,7 +758,17 @@ actor ProxyServer {
         isStopping = true
         defer { isStopping = false }
         serverChannel = nil
+        listenerGeneration &+= 1
         removePolicyObservers()
+        for listener in reverseListeners.values {
+            try? await listener.close().get()
+        }
+        reverseListeners.removeAll()
+        if let socksListener {
+            try? await socksListener.channel.close().get()
+            self.socksListener = nil
+        }
+        childPipeline = nil
 
         do {
             try await channel.close().get()
@@ -622,6 +813,7 @@ actor ProxyServer {
     private let clientIdentityHandleProvider: (@Sendable (ProxyConnectionDescriptor) -> ClientIdentityHandle?)?
     private let clientIdentityResolver: @Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?
     private let connectionLimiter = ConnectionLimiter()
+    private let remoteAccessGate: RemoteAccessGate
     private let childChannelRegistry = ProxyChildChannelRegistry()
     private let breakpointBridgeTracker = BreakpointBridgeTracker()
     /// Tracks live raw CONNECT tunnels so an SSL-policy change can reset exactly the tunnels the
@@ -635,6 +827,14 @@ actor ProxyServer {
     ))?
 
     private var eventLoopGroup: MultiThreadedEventLoopGroup?
+    /// Child pipeline factory built by `start()`; reverse proxy listeners reuse it.
+    private var childPipeline: (@Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void>)?
+    private var reverseListeners: [ReverseProxyTarget: Channel] = [:]
+    private var socksListener: (channel: Channel, host: String, port: Int)?
+    /// Bumped by every stop so a listener bind that finishes after the proxy stopped is discarded.
+    private var listenerGeneration: UInt64 = 0
+    private var isReconcilingListeners = false
+    private var listenerReconcileWaiters: [CheckedContinuation<Void, Never>] = []
     private var serverChannel: Channel?
     private var isStopping = false
     private var upstreamProxyObserver: NSObjectProtocol?

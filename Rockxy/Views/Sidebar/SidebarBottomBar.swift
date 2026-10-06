@@ -54,11 +54,40 @@ private struct NativeSidebarSearchField: NSViewRepresentable {
 
         init(text: Binding<String>) {
             self.text = text
+            super.init()
+            focusObserver = NotificationCenter.default.addObserver(
+                forName: .focusSidebarSearchField,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.focusSearchField()
+                }
+            }
+        }
+
+        deinit {
+            if let focusObserver {
+                NotificationCenter.default.removeObserver(focusObserver)
+            }
         }
 
         // MARK: Internal
 
         var text: Binding<String>
+        weak var searchField: NSSearchField?
+
+        func focusSearchField() {
+            guard let searchField, let window = searchField.window else {
+                return
+            }
+            window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(searchField)
+        }
+
+        // MARK: Private
+
+        nonisolated(unsafe) private var focusObserver: NSObjectProtocol?
 
         func controlTextDidChange(_ notification: Notification) {
             guard let searchField = notification.object as? NSSearchField else {
@@ -85,6 +114,7 @@ private struct NativeSidebarSearchField: NSViewRepresentable {
         searchField.sendsWholeSearchString = false
         searchField.sendsSearchStringImmediately = true
         searchField.delegate = context.coordinator
+        context.coordinator.searchField = searchField
         searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.setAccessibilityLabel(String(localized: "Filter sidebar", bundle: RockxyLocalization.bundle))

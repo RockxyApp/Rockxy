@@ -21,6 +21,14 @@ protocol AppPolicy: Sendable {
     var maxUpstreamProxyBypassEntries: Int { get }
     var protobufDecodingAllowsSchemaUpload: Bool { get }
     var maxProtobufSchemas: Int { get }
+    /// Whether a traffic tab can show a second pane beside it (split view).
+    var allowsTrafficSplitView: Bool { get }
+    /// Folders a single rule tool (Map Local, Map Remote, Block List, Breakpoint) may hold.
+    var maxRuleFoldersPerTool: Int { get }
+    /// Reverse Proxy rules that may exist at once.
+    var maxReverseProxyRules: Int { get }
+    /// DNS Spoofing entries that may exist at once.
+    var maxDNSSpoofingRules: Int { get }
 }
 
 extension AppPolicy {
@@ -50,6 +58,22 @@ extension AppPolicy {
     var maxProtobufSchemas: Int {
         0
     }
+
+    var allowsTrafficSplitView: Bool {
+        false
+    }
+
+    var maxRuleFoldersPerTool: Int {
+        3
+    }
+
+    var maxReverseProxyRules: Int {
+        2
+    }
+
+    var maxDNSSpoofingRules: Int {
+        5
+    }
 }
 
 // MARK: - DefaultAppPolicy
@@ -68,4 +92,8 @@ struct DefaultAppPolicy: AppPolicy {
     let maxUpstreamProxyBypassEntries = 3
     let protobufDecodingAllowsSchemaUpload = false
     let maxProtobufSchemas = 0
+    let allowsTrafficSplitView = false
+    let maxRuleFoldersPerTool = 3
+    let maxReverseProxyRules = 2
+    let maxDNSSpoofingRules = 5
 }

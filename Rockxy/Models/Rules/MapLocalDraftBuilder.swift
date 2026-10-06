@@ -18,7 +18,8 @@ enum MapLocalDraftBuilder {
             }?.value,
             inferredExtension: MimeTypeResolver.inferExtension(from: transaction),
             responseStatusCode: transaction.response?.statusCode,
-            responseHeaders: seed.headers
+            responseHeaders: seed.headers,
+            graphQLOperationName: transaction.graphQLInfo?.operationName
         )
     }
 

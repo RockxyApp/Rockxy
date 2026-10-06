@@ -335,14 +335,10 @@ struct MCPClientActivityCoordinatorTests {
 
     @Test("Starting a new run clears activity from the previous run")
     func startClearsPreviousActivity() async throws {
-        let originalSettings = AppSettingsManager.shared.settings
-        defer { AppSettingsManager.shared.settings = originalSettings }
-
-        var settings = originalSettings
+        // Injected settings: other suites write AppSettingsManager.shared in parallel.
+        var settings = AppSettingsManager.shared.settings
         settings.mcpServerEnabled = false
-        AppSettingsManager.shared.settings = settings
-
-        let coordinator = MCPServerCoordinator()
+        let coordinator = MCPServerCoordinator(settingsProvider: { settings })
         coordinator.clientActivityStore.recordInitialize(clientName: "Client", clientVersion: "1.0")
         try await waitUntil { coordinator.latestClientActivity != nil }
 
@@ -352,7 +348,6 @@ struct MCPClientActivityCoordinatorTests {
 
         settings.mcpServerEnabled = true
         settings.mcpServerPort = 1
-        AppSettingsManager.shared.settings = settings
         await coordinator.startIfEnabled()
 
         #expect(!coordinator.isRunning)

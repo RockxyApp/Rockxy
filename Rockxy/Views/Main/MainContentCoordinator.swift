@@ -194,6 +194,9 @@ final class MainContentCoordinator {
             await probeServer.stop()
             probeTracker.cancel()
         }
+        if let composeExchangeObserver {
+            NotificationCenter.default.removeObserver(composeExchangeObserver)
+        }
         if let rulesObserver {
             NotificationCenter.default.removeObserver(rulesObserver)
         }
@@ -202,6 +205,12 @@ final class MainContentCoordinator {
         }
         if let evictionObserver {
             NotificationCenter.default.removeObserver(evictionObserver)
+        }
+        if let reverseProxyObserver {
+            NotificationCenter.default.removeObserver(reverseProxyObserver)
+        }
+        if let socksListenerObserver {
+            NotificationCenter.default.removeObserver(socksListenerObserver)
         }
     }
 
@@ -320,6 +329,9 @@ final class MainContentCoordinator {
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
+    nonisolated(unsafe) var composeExchangeObserver: NSObjectProtocol?
+    nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
+    nonisolated(unsafe) var socksListenerObserver: NSObjectProtocol?
 
     // MARK: - UI State — Engine Status
 
@@ -619,6 +631,7 @@ final class MainContentCoordinator {
     func configureSharedGates() {
         RulePolicyGate.shared = RulePolicyGate(policy: policy)
         ScriptPolicyGate.shared = ScriptPolicyGate(policy: policy)
+        ToolCapacityGate.shared = ToolCapacityGate(policy: policy)
     }
 
     // MARK: - Transaction Lookup (migration seam — O(n), next issue replaces with indexed/store lookup)

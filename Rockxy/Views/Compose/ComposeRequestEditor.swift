@@ -36,6 +36,9 @@ struct ComposeRequestEditor: View {
     // MARK: Private
 
     @State private var selectedTab: ComposeRequestTab = .headers
+    @State private var rawDraft = ""
+    @State private var editsBodyAsForm = true
+    @State private var rawError: String?
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
     private var toolMetrics: ToolWindowDisplayMetrics {
@@ -206,9 +209,27 @@ struct ComposeRequestEditor: View {
 
     private var bodyEditor: some View {
         VStack(spacing: 0) {
-            TextEditor(text: bodyBinding)
-                .font(toolMetrics.font(monospaced: true))
-                .padding(8)
+            if FormURLEncodedBody.isFormContentType(viewModel.headers) {
+                HStack {
+                    Picker(String(localized: "Body Format", bundle: RockxyLocalization.bundle), selection: $editsBodyAsForm) {
+                        Text(String(localized: "Form", bundle: RockxyLocalization.bundle)).tag(true)
+                        Text(String(localized: "Text", bundle: RockxyLocalization.bundle)).tag(false)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            }
+            if editsBodyAsForm, FormURLEncodedBody.isFormContentType(viewModel.headers) {
+                formBodyEditor
+            } else {
+                TextEditor(text: bodyBinding)
+                    .font(toolMetrics.font(monospaced: true))
+                    .padding(8)
+            }
 
             if let message = viewModel.lastFormattingError {
                 Divider()
@@ -223,15 +244,117 @@ struct ComposeRequestEditor: View {
         }
     }
 
+    // MARK: - Form Body
+
+    private var formBodyEditor: some View {
+        let fields = FormURLEncodedBody.fields(from: viewModel.body)
+        return ScrollView {
+            LazyVStack(spacing: 0) {
+                columnHeaders(name: "Name", value: "Value")
+                ForEach(Array(fields.indices), id: \.self) { index in
+                    HStack(spacing: 8) {
+                        Color.clear.frame(width: 24)
+                        TextField(
+                            String(localized: "e.g. email", bundle: RockxyLocalization.bundle),
+                            text: formFieldBinding(index: index, keyPath: \.name)
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        TextField(
+                            String(localized: "Value", bundle: RockxyLocalization.bundle),
+                            text: formFieldBinding(index: index, keyPath: \.value)
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .font(toolMetrics.font())
+                        removeButton {
+                            var updated = FormURLEncodedBody.fields(from: viewModel.body)
+                            if updated.indices.contains(index) {
+                                updated.remove(at: index)
+                            }
+                            viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: updated))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                addButton(String(localized: "Add Field", bundle: RockxyLocalization.bundle)) {
+                    var updated = FormURLEncodedBody.fields(from: viewModel.body)
+                    updated.append(FormURLEncodedBody.Field(name: "", value: ""))
+                    viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: updated))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(12)
+        }
+    }
+
+    private func formFieldBinding(
+        index: Int,
+        keyPath: WritableKeyPath<FormURLEncodedBody.Field, String>
+    )
+        -> Binding<String>
+    {
+        Binding(
+            get: {
+                let fields = FormURLEncodedBody.fields(from: viewModel.body)
+                return fields.indices.contains(index) ? fields[index][keyPath: keyPath] : ""
+            },
+            set: { newValue in
+                var fields = FormURLEncodedBody.fields(from: viewModel.body)
+                guard fields.indices.contains(index) else {
+                    return
+                }
+                fields[index][keyPath: keyPath] = newValue
+                viewModel.replaceUnavailableBody(with: FormURLEncodedBody.body(from: fields))
+            }
+        )
+    }
+
     // MARK: - Raw Tab
 
     private var rawView: some View {
-        ScrollView([.horizontal, .vertical]) {
-            Text(viewModel.rawRequestText)
+        VStack(spacing: 0) {
+            TextEditor(text: $rawDraft)
                 .font(toolMetrics.font(monospaced: true))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
+                .padding(8)
+                .accessibilityLabel(String(localized: "Raw request", bundle: RockxyLocalization.bundle))
+            Divider()
+            HStack(spacing: toolMetrics.controlSpacing) {
+                if let rawError {
+                    Label(rawError, systemImage: "exclamationmark.triangle")
+                        .font(toolMetrics.secondaryFont())
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                } else {
+                    Text(String(
+                        localized: "Edit the request line, headers, or body, then apply.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .font(toolMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(String(localized: "Revert", bundle: RockxyLocalization.bundle)) {
+                    rawDraft = viewModel.rawRequestText
+                    rawError = nil
+                }
+                .disabled(rawDraft == viewModel.rawRequestText)
+                Button(String(localized: "Apply", bundle: RockxyLocalization.bundle)) {
+                    do {
+                        try viewModel.applyRawRequest(rawDraft)
+                        rawDraft = viewModel.rawRequestText
+                        rawError = nil
+                    } catch {
+                        rawError = error.localizedDescription
+                    }
+                }
+                .disabled(rawDraft == viewModel.rawRequestText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .onAppear {
+            rawDraft = viewModel.rawRequestText
+            rawError = nil
         }
     }
 

@@ -1,0 +1,60 @@
+---
+title: "DNS Spoofing"
+description: "Connect to another address for a host while the request keeps its URL, Host header, and certificate check."
+---
+
+# DNS Spoofing
+
+DNS Spoofing works like an `/etc/hosts` entry that applies only to traffic through Rockxy. Each
+rule names a host and the address Rockxy connects to instead. Nothing else about the request
+changes: the URL, the `Host` header, the TLS server name, and the certificate check all keep the
+original host.
+
+## Entry points
+
+| Action | How to Access |
+|--------|---------------|
+| DNS Spoofing window | **Tools > DNS Spoofing…** |
+| Command Palette | `⇧⌘P`, then type "dns" |
+
+## When to use it
+
+- A staging or canary server answers for the production name, and you want the app to reach it
+  without changing a single URL.
+- A new server is not in DNS yet, and you know its IP address.
+- You want one host from a set (`*.example.com`) to go to a local machine.
+
+## DNS Spoofing or Map Remote?
+
+| | DNS Spoofing | Map Remote |
+|---|---|---|
+| Changes | Only the address Rockxy connects to | Scheme, host, port, path, and query |
+| Host header and URL | Original | Rewritten (unless you keep the Host header) |
+| Certificate check | Against the original host | Against the new host |
+| Matches on | Host name | URL pattern, method, GraphQL operation |
+
+## Create a rule
+
+1. Open **Tools > DNS Spoofing…** and click **+**.
+2. Enter the **Host**: an exact name such as `api.example.com`, or `*.example.com` for every
+   subdomain.
+3. Enter **Connect To**: an IP address or another host name. The port stays the same.
+4. Save. The next connection uses the rule; the proxy does not need to restart.
+
+The first matching rule wins. Clear a rule's checkbox to turn it off without deleting it.
+
+<Note>
+For HTTPS, the server at the new address must present a certificate that is valid for the
+original host, because Rockxy still verifies it against that name.
+</Note>
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Map Remote" icon="shuffle" href="/rules/map-remote">
+    Rewrite the destination URL itself.
+  </Card>
+  <Card title="Reverse Proxy" icon="right-left" href="/features/reverse-proxy">
+    Give clients without proxy support a local address.
+  </Card>
+</CardGroup>

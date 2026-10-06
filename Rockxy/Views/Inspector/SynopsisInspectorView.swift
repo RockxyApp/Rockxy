@@ -21,6 +21,11 @@ struct SynopsisInspectorView: View {
                     String(localized: "HTTP Version", bundle: RockxyLocalization.bundle),
                     transaction.request.httpVersion
                 )
+                synopsisRow(
+                    String(localized: "Server Protocol", bundle: RockxyLocalization.bundle),
+                    transaction.serverHTTPVersion.map(RequestListRow.displayVersion)
+                        ?? String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+                )
 
                 if let matchedRuleName = transaction.matchedRuleName {
                     Divider()
@@ -31,6 +36,22 @@ struct SynopsisInspectorView: View {
                     if let pattern = transaction.matchedRulePattern {
                         synopsisRow(String(localized: "Rule Pattern", bundle: RockxyLocalization.bundle), pattern)
                     }
+                }
+
+                if !transaction.appliedScriptNames.isEmpty {
+                    Divider()
+                    synopsisRow(
+                        String(localized: "Scripts", bundle: RockxyLocalization.bundle),
+                        transaction.appliedScriptNames.joined(separator: ", ")
+                    )
+                }
+
+                if transaction.noCachingApplied {
+                    Divider()
+                    synopsisRow(
+                        String(localized: "Tools", bundle: RockxyLocalization.bundle),
+                        String(localized: "No Caching", bundle: RockxyLocalization.bundle)
+                    )
                 }
 
                 if let response = transaction.response {

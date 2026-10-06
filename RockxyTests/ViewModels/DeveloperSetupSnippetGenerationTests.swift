@@ -66,6 +66,22 @@ struct DeveloperSetupSnippetGenerationTests {
         #expect(snippet?.contains("https://<your-host>/<your-path>") == true)
     }
 
+    @Test("Flutter snippets fill in the Mac's LAN host for physical devices when Rockxy has one")
+    func flutterSnippetUsesReachableLANHost() {
+        for snippetID in [SetupSnippetID.flutterHttpClient, .flutterHTTPPackage, .flutterDio5] {
+            let snippet = DeveloperSetupWorkflowCatalog.generatedSnippet(
+                for: .flutter,
+                snippetID: snippetID,
+                port: 9_090,
+                certificatePath: nil,
+                deviceProxyHost: "192.168.1.20"
+            )
+            #expect(snippet?.contains("const rockxyProxyForPhysicalDevice = '192.168.1.20:9090';") == true)
+            #expect(snippet?.contains("<LAN device proxy host>") == false)
+            #expect(snippet?.contains("const rockxyProxyForSimulator = '127.0.0.1:9090';") == true)
+        }
+    }
+
     @Test("Generated Flutter HttpClient snippet sets findProxy and badCertificateCallback")
     func generatedFlutterHttpClientSnippet() {
         let snippet = DeveloperSetupWorkflowCatalog.generatedSnippet(
@@ -80,6 +96,8 @@ struct DeveloperSetupSnippetGenerationTests {
         #expect(snippet?.contains("badCertificateCallback") == true)
         #expect(snippet?.contains("10.0.2.2:9191") == true)
         #expect(snippet?.contains(DeveloperSetupWorkflowCatalog.certificatePathPlaceholder) == true)
+        // A WebSocket only goes through Rockxy when it is given the proxied client.
+        #expect(snippet?.contains("WebSocket.connect(url, customClient: client)") == true)
     }
 
     @Test("Generated Flutter package:http snippet wraps IOClient")

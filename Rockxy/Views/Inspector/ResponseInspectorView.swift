@@ -138,7 +138,12 @@ struct ResponseInspectorView: View {
 
     private var tabDescriptors: [InspectorTabDescriptor] {
         var descriptors: [InspectorTabDescriptor] = ResponseInspectorTab
-            .availableTabs()
+            .availableTabs(
+                includesEvents: ServerSentEventsInspectorView.isApplicable(to: transaction),
+                includesProtobuf: ProtobufBodyInspection.isApplicable(to: transaction, direction: .response),
+                includesMultipart: MultipartInspectorView.isApplicable(to: transaction, direction: .response),
+                includesScript: ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response)
+            )
             .map { tab in
                 InspectorTabDescriptor(
                     id: "native.\(tab.rawValue)",
@@ -278,32 +283,17 @@ struct ResponseInspectorView: View {
             }
 
             Menu(String(localized: "Open with", bundle: RockxyLocalization.bundle)) {
-                Button {
-                    openResponseBody(bundleIdentifier: "com.microsoft.VSCode")
-                } label: {
-                    Label {
-                        Text(verbatim: "Code")
-                    } icon: {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                // Only editors installed on this Mac are offered; "Open by System…" always works.
+                ForEach(ResponseBodyEditor.installed) { editor in
+                    Button {
+                        openResponseBody(bundleIdentifier: editor.bundleIdentifier)
+                    } label: {
+                        Label {
+                            Text(verbatim: editor.name)
+                        } icon: {
+                            Image(systemName: editor.systemImage)
+                        }
                     }
-                }
-
-                Button {
-                    openResponseBody(bundleIdentifier: "com.todesktop.230313mzl4w4u92")
-                } label: {
-                    Label("Cursor", systemImage: "cursorarrow")
-                }
-
-                Button {
-                    openResponseBody(bundleIdentifier: "com.apple.TextEdit")
-                } label: {
-                    Label("TextEdit", systemImage: "doc.text")
-                }
-
-                Button {
-                    openResponseBody(bundleIdentifier: "com.apple.dt.Xcode")
-                } label: {
-                    Label("Xcode", systemImage: "hammer")
                 }
 
                 Divider()
@@ -406,6 +396,34 @@ struct ResponseInspectorView: View {
                 responseHeadersView(response: response)
             case .body:
                 responseBodyView(response: response)
+            case .events:
+                if ServerSentEventsInspectorView.isApplicable(to: transaction) {
+                    ServerSentEventsInspectorView(transaction: transaction)
+                } else {
+                    responseBodyView(response: response)
+                }
+            case .protobuf:
+                if ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
+                    ProtobufPayloadInspectorView(
+                        payload: ProtobufBodyInspection.payload(of: transaction, direction: .response),
+                        context: ProtobufBodyInspection.context(of: transaction, direction: .response),
+                        payloadID: "\(transaction.id.uuidString)-response"
+                    )
+                } else {
+                    responseBodyView(response: response)
+                }
+            case .script:
+                if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response) {
+                    ScriptPreviewInspectorView(transaction: transaction, panel: .response)
+                } else {
+                    responseBodyView(response: response)
+                }
+            case .multipart:
+                if MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
+                    MultipartInspectorView(transaction: transaction, direction: .response)
+                } else {
+                    responseBodyView(response: response)
+                }
             case .setCookie:
                 SetCookieInspectorView(transaction: transaction, highlightContext: highlightContext)
             case .auth:
@@ -440,12 +458,26 @@ struct ResponseInspectorView: View {
             )
         } else {
             ScrollView {
-                HeaderKeyValueTable(
-                    headers: response.headers,
-                    highlightContext: highlightContext,
-                    source: .response,
-                    coordinator: coordinator
-                )
+                VStack(alignment: .leading, spacing: 12) {
+                    HeaderKeyValueTable(
+                        headers: response.headers,
+                        highlightContext: highlightContext,
+                        source: .response,
+                        coordinator: coordinator
+                    )
+                    if let trailers = response.trailers, !trailers.isEmpty {
+                        Text(String(localized: "Trailers", bundle: RockxyLocalization.bundle))
+                            .font(.system(size: metrics.secondaryFontSize, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .accessibilityAddTraits(.isHeader)
+                        HeaderKeyValueTable(
+                            headers: trailers,
+                            highlightContext: highlightContext,
+                            source: .response,
+                            coordinator: coordinator
+                        )
+                    }
+                }
                 .padding()
             }
         }
@@ -561,6 +593,18 @@ struct ResponseInspectorView: View {
     }
 
     private func syncInspectorStateForTransaction() {
+        if selectedTab == .events, !ServerSentEventsInspectorView.isApplicable(to: transaction) {
+            selectedTab = .body
+        }
+        if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
+            selectedTab = .body
+        }
+        if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
+            selectedTab = .body
+        }
+        if selectedTab == .script, !ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response) {
+            selectedTab = .body
+        }
         if let selectedPreviewTab,
            !previewTabStore.responseTabs.contains(where: { $0.id == selectedPreviewTab.id })
         {
@@ -673,7 +717,16 @@ struct ResponseInspectorView: View {
         guard panel.runModal() == .OK, let url = panel.url else {
             return
         }
-        try? body.write(to: url)
+        do {
+            try body.write(to: url, options: .atomic)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(localized: "Could Not Save Body", bundle: RockxyLocalization.bundle)
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "OK", bundle: RockxyLocalization.bundle))
+            alert.runModal()
+        }
     }
 }
 
@@ -986,5 +1039,33 @@ enum ProtocolTabKind: Hashable {
         case .grpc:
             GRPCDetector.isGRPC(transaction: transaction)
         }
+    }
+}
+
+// MARK: - ResponseBodyEditor
+
+/// External editors offered in the response body's Open With menu.
+struct ResponseBodyEditor: Identifiable, Equatable {
+    static let candidates = [
+        ResponseBodyEditor(name: "Code", bundleIdentifier: "com.microsoft.VSCode", systemImage: "chevron.left.forwardslash.chevron.right"),
+        ResponseBodyEditor(name: "Cursor", bundleIdentifier: "com.todesktop.230313mzl4w4u92", systemImage: "cursorarrow"),
+        ResponseBodyEditor(name: "TextEdit", bundleIdentifier: "com.apple.TextEdit", systemImage: "doc.text"),
+        ResponseBodyEditor(name: "Xcode", bundleIdentifier: "com.apple.dt.Xcode", systemImage: "hammer"),
+    ]
+
+    let name: String
+    let bundleIdentifier: String
+    let systemImage: String
+
+    var id: String {
+        bundleIdentifier
+    }
+
+    static var installed: [ResponseBodyEditor] {
+        installed(isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil })
+    }
+
+    static func installed(isInstalled: (String) -> Bool) -> [ResponseBodyEditor] {
+        candidates.filter { isInstalled($0.bundleIdentifier) }
     }
 }

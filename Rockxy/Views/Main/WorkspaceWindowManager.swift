@@ -25,6 +25,15 @@ final class RockxyWorkspaceWindowManager: NSObject {
 
     private(set) weak var primaryWindow: NSWindow?
 
+    /// True when the key window is the traffic workspace (or one of its tabs), as opposed to a
+    /// tool window such as Map Local or Breakpoint Rules.
+    var isWorkspaceWindowKey: Bool {
+        guard let key = NSApp.keyWindow, let primary = primaryWindow else {
+            return false
+        }
+        return key === primary || primary.tabbedWindows?.contains(key) == true
+    }
+
     var canCreateWorkspaceTab: Bool {
         coordinator?.workspaceStore.canCreateWorkspace == true
     }
@@ -182,6 +191,15 @@ final class RockxyWorkspaceWindowManager: NSObject {
             return
         }
         coordinator.closeWorkspace(id: workspaceID)
+        updateTabAccessory()
+        enforceToolbarOnlyProjectPresentation()
+    }
+
+    fileprivate func closeWorkspaces(_ ids: [UUID], keeping kept: UUID) {
+        guard let coordinator, !ids.isEmpty else {
+            return
+        }
+        coordinator.closeWorkspaces(ids, keeping: kept)
         updateTabAccessory()
         enforceToolbarOnlyProjectPresentation()
     }
@@ -621,6 +639,7 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
         }
 
         let menu = NSMenu()
+        menu.autoenablesItems = false
         let renameItem = NSMenuItem(
             title: String(localized: "Rename Tab", bundle: RockxyLocalization.bundle),
             action: #selector(renameTabFromMenu(_:)),
@@ -640,6 +659,26 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
             closeItem.representedObject = workspaceID
             menu.addItem(closeItem)
         }
+
+        let closeOthers = NSMenuItem(
+            title: String(localized: "Close Other Tabs", bundle: RockxyLocalization.bundle),
+            action: #selector(closeOtherTabsFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        closeOthers.target = self
+        closeOthers.representedObject = workspaceID
+        closeOthers.isEnabled = !coordinator.closableWorkspaceIDs(otherThan: workspaceID).isEmpty
+        menu.addItem(closeOthers)
+
+        let closeRight = NSMenuItem(
+            title: String(localized: "Close Tabs to the Right", bundle: RockxyLocalization.bundle),
+            action: #selector(closeTabsToRightFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        closeRight.target = self
+        closeRight.representedObject = workspaceID
+        closeRight.isEnabled = !coordinator.closableWorkspaceIDs(rightOf: workspaceID).isEmpty
+        menu.addItem(closeRight)
 
         if coordinator.workspaceStore.canCreateWorkspace {
             menu.addItem(.separator())
@@ -1513,6 +1552,22 @@ private final class WorkspaceTabBarView: NSView, NSTextFieldDelegate {
             return
         }
         manager.closeWorkspace(workspaceID)
+    }
+
+    @objc
+    private func closeOtherTabsFromMenu(_ sender: NSMenuItem) {
+        guard let workspaceID = sender.representedObject as? UUID, let coordinator else {
+            return
+        }
+        manager.closeWorkspaces(coordinator.closableWorkspaceIDs(otherThan: workspaceID), keeping: workspaceID)
+    }
+
+    @objc
+    private func closeTabsToRightFromMenu(_ sender: NSMenuItem) {
+        guard let workspaceID = sender.representedObject as? UUID, let coordinator else {
+            return
+        }
+        manager.closeWorkspaces(coordinator.closableWorkspaceIDs(rightOf: workspaceID), keeping: workspaceID)
     }
 
     @objc

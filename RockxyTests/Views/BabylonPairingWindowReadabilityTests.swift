@@ -99,7 +99,10 @@ struct BabylonPairingWindowReadabilityTests {
         require(source, [
             "localized: \"Bonjour Service\"",
             "BabylonCaptureProtocol.serviceType",
-            "BabylonCaptureProtocol.port",
+            // The port shown is the one actually bound, which differs when the fixed port is taken.
+            "receiver.listeningPort ?? receiver.preferredPort",
+            "fallbackPortRow",
+            "receiver.advertisedServiceName",
             "localized: \"Open Connections\"",
             "Open connections may still be authenticating.",
         ])

@@ -64,6 +64,370 @@ struct MapLocalLoopbackIntegrationTests {
             let failed = await harness.capturedTransactions().first { $0.request.url.path == "/close-without-response" }
             #expect(failed?.state == .failed)
             #expect(failed?.response?.statusCode == 502)
+            #expect(failed?.connectionLog?.failure?.stage == .response)
+            #expect(failed?.connectionLog?.remoteAddress == "127.0.0.1")
+        }
+    }
+
+    @Test("The Connection Log records the address Rockxy connected to for plain HTTP")
+    func connectionLogRecordsPlainHTTPAddress() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let response = try await harness.get("/live?log=1")
+            #expect(response.status == 200)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.query == "log=1" }
+            let log = try #require(row?.connectionLog)
+            #expect(log.remoteAddress == "127.0.0.1")
+            #expect(log.remotePort == harness.originPort)
+            #expect(log.route == .direct)
+            #expect(log.connectHost == nil)
+            #expect(log.tls == nil)
+            #expect(log.failure == nil)
+            #expect(log.connectDuration != nil)
+            #expect(log.localAddress == "127.0.0.1")
+        }
+    }
+
+    @Test("The Connection Log names each refused address when the server is unreachable")
+    func connectionLogRecordsRefusedConnection() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let closedPort = try await harness.unusedLoopbackPort()
+            let response = try await harness.get(host: "127.0.0.1", port: closedPort, path: "/refused")
+            #expect(response.status == 502)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/refused" }
+            let failure = try #require(row?.connectionLog?.failure)
+            #expect(failure.stage == .connect)
+            #expect(failure.message.contains("port \(closedPort)"))
+            #expect(failure.attempts.contains { $0.hasPrefix("127.0.0.1 port \(closedPort):") && $0.contains("refused") })
+        }
+    }
+
+    @Test("Network Conditions Offline drops the connection without reaching the origin")
+    func offlineNetworkConditionDropsConnection() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let absolute = harness.absoluteURLString(path: "/offline")
+            await harness.addRule(ProxyRule(
+                name: "Offline",
+                matchCondition: RuleMatchCondition(
+                    urlPattern: absolute,
+                    sourceURLPattern: absolute,
+                    matchType: .wildcard,
+                    includeSubpaths: false
+                ),
+                action: .networkCondition(preset: .offline, delayMs: 0)
+            ))
+
+            let response = try? await harness.get("/offline")
+            #expect(response == nil || response?.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+
+            let live = try await harness.get("/live")
+            #expect(live.status == 200)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let offline = await harness.capturedTransactions().first { $0.request.url.path == "/offline" }
+            #expect(offline?.state == .failed)
+            #expect(offline?.response == nil)
+            #expect(offline?.matchedRuleName == "Offline")
+        }
+    }
+
+    @Test("A Custom Network Conditions profile paces the response at its download limit")
+    func customNetworkConditionPacesDownload() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let absolute = harness.absoluteURLString(path: "/large")
+            await harness.addRule(ProxyRule(
+                name: "Slow custom",
+                matchCondition: RuleMatchCondition(
+                    urlPattern: absolute,
+                    sourceURLPattern: absolute,
+                    matchType: .wildcard,
+                    includeSubpaths: false
+                ),
+                // 80 kbps is 10,000 bytes per second, so a 20 KB body takes about two seconds.
+                action: .networkCondition(
+                    preset: .custom,
+                    delayMs: 10,
+                    custom: NetworkCustomProfile(downloadKbps: 80)
+                )
+            ))
+
+            let started = ContinuousClock.now
+            let response = try await harness.get("/large")
+            let elapsed = ContinuousClock.now - started
+
+            #expect(response.status == 200)
+            #expect(response.body.count == 20_000 + "origin:/large".utf8.count)
+            #expect(elapsed >= .milliseconds(1_500), "custom download limit was not applied (\(elapsed))")
+            #expect(elapsed < .seconds(10))
+        }
+    }
+
+    @Test("A Map Local rule scoped to a GraphQL operation mocks only that operation")
+    func graphQLOperationScopedMapLocal() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(
+                named: "get-user.json",
+                contents: Data(#"{"data":{"user":{"name":"Mocked"}}}"#.utf8)
+            )
+            var rule = harness.mapLocalRule(name: "GetUser mock", path: "/graphql", filePath: file.path)
+            rule.matchCondition.graphQLOperationName = "GetUser"
+            await harness.addRule(rule)
+
+            let mocked = try await harness.post(
+                "/graphql",
+                json: #"{"operationName":"GetUser","query":"query GetUser { user { name } }"}"#
+            )
+            let live = try await harness.post(
+                "/graphql",
+                json: #"{"query":"query ListPosts { posts { id } }"}"#
+            )
+
+            #expect(mocked.body == Data(#"{"data":{"user":{"name":"Mocked"}}}"#.utf8))
+            #expect(mocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+            #expect(live.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+
+            // Both rows keep their operation, including the one Rockxy answered from the file.
+            try await Task.sleep(for: .milliseconds(300))
+            let operations = await harness.capturedTransactions().compactMap(\.graphQLInfo?.operationName)
+            #expect(operations.sorted() == ["GetUser", "ListPosts"])
+        }
+    }
+
+    @Test("A blocked GraphQL operation keeps its Operation label")
+    func blockedGraphQLOperationKeepsLabel() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            var rule = ProxyRule(
+                name: "Block DeleteUser",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/graphql.*"),
+                action: .block(statusCode: 403)
+            )
+            rule.matchCondition.graphQLOperationName = "DeleteUser"
+            await harness.addRule(rule)
+
+            let blocked = try await harness.post(
+                "/graphql",
+                json: #"{"query":"mutation DeleteUser { deleteUser(id: 1) }"}"#
+            )
+            #expect(blocked.status == 403)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let row = await harness.capturedTransactions().first { $0.request.url.path == "/graphql" }
+            #expect(row?.state == .blocked)
+            #expect(row?.graphQLInfo?.operationName == "DeleteUser")
+        }
+    }
+
+    @Test("A reverse proxy listener relays origin-form requests to its server and captures them")
+    func reverseProxyRelaysAndCaptures() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let reversePort = try await harness.startReverseProxy()
+
+            let response = try await harness.getViaReverseProxy(port: reversePort, path: "/live?source=reverse")
+
+            #expect(response.status == 200)
+            #expect(response.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+            #expect(response.body == Data("origin:/live".utf8))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.path == "/live" }
+            #expect(captured?.request.url.absoluteString == harness.absoluteURLString(path: "/live?source=reverse"))
+            #expect(captured?.state == .completed)
+        }
+    }
+
+    @Test("A reverse proxy rule applies like any captured request")
+    func reverseProxyHonorsRules() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(named: "reverse.txt", contents: Data("MOCKED".utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Reverse mock", path: "/mocked", filePath: file.path))
+            let reversePort = try await harness.startReverseProxy()
+
+            let response = try await harness.getViaReverseProxy(port: reversePort, path: "/mocked")
+
+            #expect(response.body == Data("MOCKED".utf8))
+            #expect(response.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+        }
+    }
+
+    @Test("A SOCKS5 client reaches the origin through Rockxy and the request is captured")
+    func socks5PlainHTTPIsCaptured() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+            let originPort = harness.originPort
+
+            let raw = try await Task.detached {
+                try SOCKS5TestClient.exchange(
+                    socksPort: socksPort,
+                    destinationIPv4: [127, 0, 0, 1],
+                    destinationPort: originPort,
+                    payload: "GET /live?via=socks HTTP/1.1\r\nHost: 127.0.0.1:\(originPort)\r\nConnection: close\r\n\r\n"
+                )
+            }.value
+
+            #expect(raw.hasPrefix("HTTP/1.1 200"))
+            #expect(raw.contains("origin:/live"))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.query == "via=socks" }
+            #expect(captured?.request.url.absoluteString == harness.absoluteURLString(path: "/live?via=socks"))
+            #expect(captured?.state == .completed)
+        }
+    }
+
+    @Test("Repeat Through Rules sends the request through the proxy so rules apply and it is recorded")
+    func repeatThroughRulesAppliesRules() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let file = try harness.writeFixtureFile(named: "replayed.json", contents: Data(#"{"from":"rule"}"#.utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Replay", path: "/replay-target", filePath: file.path))
+            let request = HTTPRequestData(
+                method: "GET",
+                url: try #require(URL(string: harness.absoluteURLString(path: "/replay-target"))),
+                httpVersion: "HTTP/1.1",
+                headers: []
+            )
+
+            let direct = try await RequestReplay.replay(request)
+            #expect(direct.body == Data("origin:/replay-target".utf8))
+
+            let throughRules = try await RequestReplay.replay(request, throughProxyPort: harness.listenerPort)
+            #expect(throughRules.body == Data(#"{"from":"rule"}"#.utf8))
+
+            try await Task.sleep(for: .milliseconds(300))
+            let rows = await harness.capturedTransactions().filter { $0.request.url.path == "/replay-target" }
+            #expect(rows.count == 1)
+            #expect(rows.first?.matchedRuleName == "Replay")
+        }
+    }
+
+    @Test("A hiding Block rule answers the client but leaves no row")
+    func blockAndHideLeavesNoRow() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            var hidden = ProxyRule(
+                name: "Hide analytics",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/analytics.*"),
+                action: .block(statusCode: 403)
+            )
+            hidden.hidesMatchedTraffic = true
+            await harness.addRule(hidden)
+            await harness.addRule(ProxyRule(
+                name: "Block ads",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/ads.*"),
+                action: .block(statusCode: 403)
+            ))
+
+            let blocked = try await harness.get("/analytics/collect")
+            let visible = try await harness.get("/ads/banner")
+            #expect(blocked.status == 403)
+            #expect(visible.status == 403)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let paths = await harness.capturedTransactions().map(\.request.url.path)
+            #expect(!paths.contains("/analytics/collect"))
+            #expect(paths.contains("/ads/banner"))
+        }
+    }
+
+    @Test("A Block rule scoped to an application blocks that process only")
+    func blockScopedToClientApplication() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            await harness.addRule(ProxyRule(
+                name: "Block curl",
+                matchCondition: RuleMatchCondition(urlPattern: ".*/ads.*", clientApplication: "curl"),
+                action: .block(statusCode: 403)
+            ))
+
+            // A separate curl process is identified through the OS connection table. A very
+            // short-lived process can finish before the table lists its socket, so the lookup
+            // is allowed a few attempts before the test concludes it was not identified.
+            var fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            var attempts = 1
+            while fromCurl != 403, attempts < 4 {
+                attempts += 1
+                fromCurl = try await harness.curlStatus(path: "/ads/banner")
+            }
+            #expect(fromCurl == 403)
+
+            // The test process itself is the proxy's own pid, so it is never identified and
+            // an application-scoped rule does not fire for it.
+            let inProcess = try await harness.get("/ads/banner")
+            #expect(inProcess.status != 403)
+        }
+    }
+
+    @Test("SOCKS5 destinations honor Block rules and the listener loop guard")
+    func socks5AppliesConnectPolicy() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+            let originPort = harness.originPort
+            await harness.addRule(ProxyRule(
+                name: "Block origin",
+                matchCondition: RuleMatchCondition(urlPattern: ".*127\\.0\\.0\\.1:\(originPort).*"),
+                action: .block(statusCode: 403)
+            ))
+
+            let blocked = try await Task.detached {
+                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: originPort)
+            }.value
+            #expect(blocked.count >= 2 && blocked[1] == 0x02)
+
+            let loop = try await Task.detached {
+                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: socksPort)
+            }.value
+            #expect(loop.count >= 2 && loop[1] == 0x02)
+        }
+    }
+
+    @Test("A SOCKS5 client that offers no usable method is refused")
+    func socks5RefusesUnsupportedMethods() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            let socksPort = try await harness.startSOCKSListener()
+
+            let reply = try await Task.detached {
+                try SOCKS5TestClient.greetingReply(socksPort: socksPort, methods: [0x02])
+            }.value
+
+            #expect(reply == [0x05, 0xFF])
+        }
+    }
+
+    @Test("An emulator's 10.0.2.2 host alias reaches the Mac's loopback server")
+    func emulatorHostAliasReachesLoopback() async throws {
+        let onAliasSubnet = RootCADownloadServer.lanIPv4Addresses().contains { $0.hasPrefix("10.0.2.") }
+        try await MapLocalLoopbackHarness.run { harness in
+            guard !onAliasSubnet else {
+                return
+            }
+            let response = try await harness.getViaEmulatorAlias("/live")
+
+            #expect(response.status == 200)
+            #expect(response.body == Data("origin:/live".utf8))
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.host() == "10.0.2.2" }
+            #expect(captured?.state == .completed)
+
+            let loop = try await harness.connectToOwnPortViaEmulatorAlias()
+            #expect(loop.status == 508)
+        }
+    }
+
+    @Test("DNS Spoofing connects to another address and keeps the request's host")
+    func dnsSpoofingKeepsHost() async throws {
+        let host = "spoof-\(UUID().uuidString.prefix(8).lowercased()).rockxy.test"
+        DNSSpoofingTable.shared.update([DNSSpoofingEntry(hostPattern: host, address: "127.0.0.1")])
+        defer { DNSSpoofingTable.shared.update([]) }
+        try await MapLocalLoopbackHarness.run { harness in
+            let response = try await harness.get(host: host, path: "/live")
+
+            #expect(response.status == 200)
+            #expect(response.body == Data("origin:/live".utf8))
+            #expect(response.headerValue("X-Rockxy-Origin-Host") == "\(host):\(harness.originPort)")
+            try await Task.sleep(for: .milliseconds(300))
+            let captured = await harness.capturedTransactions().first { $0.request.url.host() == host }
+            #expect(captured?.state == .completed)
+            #expect(captured?.connectionLog?.connectHost == "127.0.0.1")
         }
     }
 
@@ -213,6 +577,41 @@ struct MapLocalLoopbackIntegrationTests {
 
             #expect(response.status == 201)
             #expect(response.body == Data("FIRST".utf8))
+        }
+    }
+
+    @Test("A Modify Headers rule listed first layers on Map Local and origin traffic instead of replacing them")
+    func modifyHeadersLayersOnMapLocal() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            await harness.addRule(ProxyRule(
+                name: "CORS",
+                matchCondition: RuleMatchCondition(urlPattern: ".*127\\.0\\.0\\.1.*"),
+                action: .modifyHeader(operations: [
+                    HeaderOperation(type: .replace, headerName: "Access-Control-Allow-Origin", headerValue: "*", phase: .response),
+                    HeaderOperation(type: .add, headerName: "X-Debug", headerValue: "1", phase: .request),
+                ])
+            ))
+            let file = try harness.writeFixtureFile(named: "mock.json", contents: Data(#"{"mock":true}"#.utf8))
+            await harness.addRule(harness.mapLocalRule(name: "Mock", path: "/mocked", filePath: file.path, statusCode: 404))
+
+            let mocked = try await harness.get("/mocked")
+            #expect(mocked.status == 404)
+            #expect(mocked.body == Data(#"{"mock":true}"#.utf8))
+            #expect(mocked.headerValue("Access-Control-Allow-Origin") == "*")
+            #expect(mocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+
+            let live = try await harness.get("/live?cors=1")
+            #expect(live.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+            #expect(live.headerValue("Access-Control-Allow-Origin") == "*")
+
+            try await Task.sleep(for: .milliseconds(300))
+            let rows = await harness.capturedTransactions()
+            let mockRow = rows.first { $0.request.url.path == "/mocked" }
+            #expect(mockRow?.matchedRuleName == "Mock")
+            #expect(mockRow?.response?.headers.contains { $0.name == "Access-Control-Allow-Origin" } == true)
+            let liveRow = rows.first { $0.request.url.query == "cors=1" }
+            #expect(liveRow?.matchedRuleName == "CORS")
+            #expect(liveRow?.request.headers.contains { $0.name == "X-Debug" && $0.value == "1" } == true)
         }
     }
 
@@ -455,6 +854,26 @@ private actor MapLocalLoopbackHarness {
         await engine.addRule(rule)
     }
 
+    /// HTTP status curl reports for `path` fetched through the proxy from its own process.
+    func curlStatus(path: String) async throws -> Int {
+        let port = proxyPort
+        let url = origin.absoluteURLString(path: path)
+        return try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+            process.arguments = [
+                "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10",
+                "--proxy", "http://127.0.0.1:\(port)", url,
+            ]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return Int(String(decoding: data, as: UTF8.self)) ?? -1
+        }.value
+    }
+
     /// Builds a Map Local rule whose wildcard pattern matches exactly one absolute request URL
     /// (`http://127.0.0.1:<originPort><path>`), anchored so sibling paths do not match.
     nonisolated func mapLocalRule(
@@ -524,6 +943,10 @@ private actor MapLocalLoopbackHarness {
     /// absolute-form request line (`GET http://127.0.0.1:<originPort><path> HTTP/1.1`). This
     /// avoids URLSession's automatic loopback-proxy bypass, so the request is guaranteed to
     /// traverse the proxy and exercise the rule engine.
+    nonisolated func absoluteURLString(path: String) -> String {
+        origin.absoluteURLString(path: path)
+    }
+
     func get(_ path: String) async throws -> ProxyHTTPResponse {
         let absolute = origin.absoluteURLString(path: path)
         return try await ProxyHTTPClient.get(
@@ -532,6 +955,115 @@ private actor MapLocalLoopbackHarness {
             originPort: origin.boundPort,
             proxyHost: "127.0.0.1",
             proxyPort: proxyPort
+        )
+    }
+
+    /// Opens the SOCKS5 listener on a free loopback port and returns it.
+    func startSOCKSListener() async throws -> Int {
+        let port = try Self.reserveLoopbackPort()
+        if let failure = await proxyServer.updateSOCKSListener(port: port) {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS bind failed: \(failure)")
+        }
+        return port
+    }
+
+    nonisolated var originPort: Int {
+        origin.boundPort
+    }
+
+    /// Opens a reverse proxy listener that forwards to the origin fixture and returns its port.
+    func startReverseProxy() async throws -> Int {
+        let port = try Self.reserveLoopbackPort()
+        let target = ReverseProxyTarget(
+            id: UUID(),
+            localPort: port,
+            scheme: .http,
+            host: origin.host,
+            port: origin.boundPort,
+            preserveHostHeader: false
+        )
+        let failures = await proxyServer.updateReverseProxies([target])
+        guard failures.isEmpty else {
+            throw MapLocalLoopbackError.connectionFailed("reverse proxy bind failed: \(failures)")
+        }
+        return port
+    }
+
+    /// Sends an origin-form request straight to a reverse proxy listener, like a client
+    /// whose base URL was changed to `http://127.0.0.1:<port>`.
+    func getViaReverseProxy(port: Int, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: path,
+            host: "127.0.0.1",
+            originPort: port,
+            proxyHost: "127.0.0.1",
+            proxyPort: port
+        )
+    }
+
+    /// Sends `GET http://10.0.2.2:<originPort><path>` the way an Android emulator names the Mac.
+    func getViaEmulatorAlias(_ path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://10.0.2.2:\(origin.boundPort)\(path)",
+            host: "10.0.2.2",
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
+        )
+    }
+
+    /// CONNECT to the emulator alias of Rockxy's own port, which must be refused as a loop.
+    func connectToOwnPortViaEmulatorAlias() async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "10.0.2.2:\(proxyPort)",
+            host: "10.0.2.2",
+            originPort: proxyPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            method: .CONNECT
+        )
+    }
+
+    nonisolated var listenerPort: Int {
+        proxyPort
+    }
+
+    /// A loopback port nothing listens on, for connection-failure tests.
+    func unusedLoopbackPort() throws -> Int {
+        try Self.reserveLoopbackPort()
+    }
+
+    /// Sends `GET http://<host>:<port><path>` to an arbitrary port.
+    func get(host: String, port: Int, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://\(host):\(port)\(path)",
+            host: host,
+            originPort: port,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
+        )
+    }
+
+    /// Sends `GET http://<host>:<originPort><path>`, for a host only DNS Spoofing can reach.
+    func get(host: String, path: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: "http://\(host):\(origin.boundPort)\(path)",
+            host: host,
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort
+        )
+    }
+
+    func post(_ path: String, json: String) async throws -> ProxyHTTPResponse {
+        try await ProxyHTTPClient.get(
+            absoluteURL: origin.absoluteURLString(path: path),
+            host: origin.host,
+            originPort: origin.boundPort,
+            proxyHost: "127.0.0.1",
+            proxyPort: proxyPort,
+            method: .POST,
+            body: Data(json.utf8)
         )
     }
 
@@ -706,6 +1238,7 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
         switch unwrapInboundIn(data) {
         case let .head(head):
             requestPath = URLComponents(string: head.uri)?.path ?? head.uri
+            receivedHost = head.headers.first(name: "Host")
         case .body:
             break
         case .end:
@@ -718,6 +1251,7 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
 
     private let markerHeader: String
     private var requestPath: String?
+    private var receivedHost: String?
 
     private func respond(context: ChannelHandlerContext) {
         let path = requestPath ?? "/"
@@ -728,10 +1262,15 @@ private final class MapLocalOriginHandler: ChannelInboundHandler, @unchecked Sen
         }
         var buffer = context.channel.allocator.buffer(capacity: path.utf8.count + 8)
         buffer.writeString("origin:\(path)")
+        // A 20 KB body, large enough for bandwidth pacing to be measurable.
+        if path == "/large" {
+            buffer.writeRepeatingByte(UInt8(ascii: "x"), count: 20_000)
+        }
 
         var headers = HTTPHeaders()
         headers.add(name: "Content-Type", value: "text/plain; charset=utf-8")
         headers.add(name: markerHeader, value: "true")
+        headers.add(name: "X-Rockxy-Origin-Host", value: receivedHost ?? "")
         headers.add(name: "Content-Length", value: "\(buffer.readableBytes)")
         headers.add(name: "Connection", value: "close")
 
@@ -769,7 +1308,9 @@ private enum ProxyHTTPClient {
         host: String,
         originPort: Int,
         proxyHost: String,
-        proxyPort: Int
+        proxyPort: Int,
+        method: HTTPMethod = .GET,
+        body: Data? = nil
     )
         async throws -> ProxyHTTPResponse
     {
@@ -778,7 +1319,11 @@ private enum ProxyHTTPClient {
         var headers = HTTPHeaders()
         headers.add(name: "Host", value: "\(host):\(originPort)")
         headers.add(name: "Connection", value: "close")
-        let requestHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: absoluteURL, headers: headers)
+        if let body {
+            headers.add(name: "Content-Type", value: "application/json")
+            headers.add(name: "Content-Length", value: String(body.count))
+        }
+        let requestHead = HTTPRequestHead(version: .http1_1, method: method, uri: absoluteURL, headers: headers)
 
         let promise = group.next().makePromise(of: ProxyHTTPResponse.self)
         let bootstrap = ClientBootstrap(group: group)
@@ -786,7 +1331,7 @@ private enum ProxyHTTPClient {
             .channelInitializer { channel in
                 channel.pipeline.addHTTPClientHandlers().flatMap {
                     channel.pipeline.addHandler(
-                        ProxyClientResponseHandler(requestHead: requestHead, promise: promise)
+                        ProxyClientResponseHandler(requestHead: requestHead, body: body, promise: promise)
                     )
                 }
             }
@@ -825,8 +1370,9 @@ private enum ProxyHTTPClient {
 private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(requestHead: HTTPRequestHead, promise: EventLoopPromise<ProxyHTTPResponse>) {
+    init(requestHead: HTTPRequestHead, body: Data? = nil, promise: EventLoopPromise<ProxyHTTPResponse>) {
         self.requestHead = requestHead
+        requestBody = body
         self.promise = promise
     }
 
@@ -837,6 +1383,11 @@ private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecke
 
     func channelActive(context: ChannelHandlerContext) {
         context.write(wrapOutboundOut(.head(requestHead)), promise: nil)
+        if let requestBody {
+            var buffer = context.channel.allocator.buffer(capacity: requestBody.count)
+            buffer.writeBytes(requestBody)
+            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+        }
         context.writeAndFlush(wrapOutboundOut(.end(nil)), promise: nil)
     }
 
@@ -863,6 +1414,7 @@ private final class ProxyClientResponseHandler: ChannelInboundHandler, @unchecke
     // MARK: Private
 
     private let requestHead: HTTPRequestHead
+    private let requestBody: Data?
     private let promise: EventLoopPromise<ProxyHTTPResponse>
     private var status = 0
     private var headers = HTTPHeaders()
@@ -887,5 +1439,101 @@ private enum MapLocalLoopbackError: Error, CustomStringConvertible {
         case .timeout:
             "Timed out waiting for the proxied response."
         }
+    }
+}
+
+// MARK: - SOCKS5TestClient
+
+/// Blocking POSIX SOCKS5 client used only by the loopback tests.
+private enum SOCKS5TestClient {
+    static func connectReply(socksPort: Int, destinationIPv4: [UInt8], destinationPort: Int) throws -> [UInt8] {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, 0x01, 0x00])
+        _ = try receive(fd, count: 2)
+        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        return try receive(fd, count: 10)
+    }
+
+    static func greetingReply(socksPort: Int, methods: [UInt8]) throws -> [UInt8] {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, UInt8(methods.count)] + methods)
+        return try receive(fd, count: 2)
+    }
+
+    static func exchange(
+        socksPort: Int,
+        destinationIPv4: [UInt8],
+        destinationPort: Int,
+        payload: String
+    ) throws -> String {
+        let fd = try connect(port: socksPort)
+        defer { close(fd) }
+        try send(fd, [0x05, 0x01, 0x00])
+        guard try receive(fd, count: 2) == [0x05, 0x00] else {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS greeting refused")
+        }
+        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        let reply = try receive(fd, count: 10)
+        guard reply.count == 10, reply[1] == 0x00 else {
+            throw MapLocalLoopbackError.connectionFailed("SOCKS CONNECT refused: \(reply)")
+        }
+        try send(fd, Array(payload.utf8))
+        var response: [UInt8] = []
+        var chunk = [UInt8](repeating: 0, count: 4_096)
+        while true {
+            let count = recv(fd, &chunk, chunk.count, 0)
+            if count <= 0 {
+                break
+            }
+            response.append(contentsOf: chunk[0 ..< count])
+        }
+        return String(decoding: response, as: UTF8.self)
+    }
+
+    private static func connect(port: Int) throws -> Int32 {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw MapLocalLoopbackError.socket("socket() failed")
+        }
+        var timeout = timeval(tv_sec: 10, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(UInt16(port).bigEndian)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard result == 0 else {
+            close(fd)
+            throw MapLocalLoopbackError.connectionFailed("connect() failed")
+        }
+        return fd
+    }
+
+    private static func send(_ fd: Int32, _ bytes: [UInt8]) throws {
+        let sent = bytes.withUnsafeBytes { Darwin.send(fd, $0.baseAddress, bytes.count, 0) }
+        guard sent == bytes.count else {
+            throw MapLocalLoopbackError.connectionFailed("send() failed")
+        }
+    }
+
+    private static func receive(_ fd: Int32, count: Int) throws -> [UInt8] {
+        var buffer = [UInt8](repeating: 0, count: count)
+        var received = 0
+        while received < count {
+            let result = buffer.withUnsafeMutableBytes {
+                recv(fd, $0.baseAddress! + received, count - received, 0)
+            }
+            if result <= 0 {
+                break
+            }
+            received += result
+        }
+        return Array(buffer[0 ..< received])
     }
 }

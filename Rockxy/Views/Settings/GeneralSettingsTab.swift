@@ -16,6 +16,14 @@ struct GeneralSettingsTab: View {
                 generalControlsSection
             }
 
+            SettingsSection(String(localized: "Map Local", bundle: RockxyLocalization.bundle)) {
+                mapLocalSection
+            }
+
+            SettingsSection(String(localized: "Copy as cURL", bundle: RockxyLocalization.bundle)) {
+                curlOptionsSection
+            }
+
             SettingsSection(String(localized: "Root CA Certificate", bundle: RockxyLocalization.bundle)) {
                 certificateSection
 
@@ -87,6 +95,10 @@ struct GeneralSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("proxyPort")) private var proxyPort =
         9_090
     @AppStorage(RockxyIdentity.current.defaultsKey("recordOnLaunch")) private var recordOnLaunch = true
+    @AppStorage(HTTP2ProxyOptions.defaultsKey) private var useHTTP2 = false
+    @AppStorage(MapLocalMarkerSetting.markKey) private var markMapLocalResponses = false
+    @AppStorage(CurlCopyOptions.includeProxyKey) private var curlIncludesProxy = false
+    @AppStorage(CurlCopyOptions.preserveOriginalKey) private var curlPreservesOriginal = false
     @State private var certSnapshot: RootCAStatusSnapshot?
     @State private var certLoading = false
     @State private var showResetConfirmation = false
@@ -95,6 +107,41 @@ struct GeneralSettingsTab: View {
 
     private var settingsMetrics: SettingsDisplayMetrics {
         SettingsDisplayMetrics(appMetrics: appMetrics)
+    }
+
+    private var mapLocalSection: some View {
+        Toggle(
+            String(localized: "Mark mocked responses with an X-Rockxy-Applied header", bundle: RockxyLocalization.bundle),
+            isOn: $markMapLocalResponses
+        )
+        .toggleStyle(.checkbox)
+    }
+
+    private var curlOptionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(
+                String(localized: "Add --proxy flag to the cURL command", bundle: RockxyLocalization.bundle),
+                isOn: $curlIncludesProxy
+            )
+            .toggleStyle(.checkbox)
+            Text(String(
+                localized: "Running the copied command sends the request through Rockxy again.",
+                bundle: RockxyLocalization.bundle
+            ))
+            .font(settingsMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            Toggle(
+                String(localized: "Preserve original headers", bundle: RockxyLocalization.bundle),
+                isOn: $curlPreservesOriginal
+            )
+            .toggleStyle(.checkbox)
+            Text(String(
+                localized: "Keep Content-Length, Accept-Encoding, and Content-Encoding exactly as captured.",
+                bundle: RockxyLocalization.bundle
+            ))
+            .font(settingsMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+        }
     }
 
     private var certificateSection: some View {
@@ -125,6 +172,27 @@ struct GeneralSettingsTab: View {
                     Text(
                         String(
                             localized: "Start capturing network traffic as soon as the app launches.",
+                            bundle: RockxyLocalization.bundle
+                        )
+                    )
+                    .font(settingsMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            SettingsIndentedContent {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(String(localized: "Use HTTP/2", bundle: RockxyLocalization.bundle), isOn: $useHTTP2)
+                        .toggleStyle(.checkbox)
+                        .accessibilityIdentifier("settings.useHTTP2")
+                    Text(
+                        String(
+                            localized: """
+                            Decrypted HTTPS connections offer HTTP/2 to apps and servers, and fall back to \
+                            HTTP/1.1 when either side does not support it. Applies to new connections, so \
+                            reload the page or restart the app you are debugging.
+                            """,
                             bundle: RockxyLocalization.bundle
                         )
                     )

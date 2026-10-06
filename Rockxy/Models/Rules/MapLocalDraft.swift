@@ -16,7 +16,8 @@ struct MapLocalDraft {
         responseContentType: String? = nil,
         inferredExtension: String? = nil,
         responseStatusCode: Int? = nil,
-        responseHeaders: [HTTPHeader] = []
+        responseHeaders: [HTTPHeader] = [],
+        graphQLOperationName: String? = nil
     ) {
         self.origin = origin
         self.suggestedName = suggestedName
@@ -29,6 +30,7 @@ struct MapLocalDraft {
         self.inferredExtension = inferredExtension
         self.responseStatusCode = responseStatusCode
         self.responseHeaders = responseHeaders
+        self.graphQLOperationName = graphQLOperationName
     }
 
     // MARK: Internal
@@ -54,6 +56,10 @@ struct MapLocalDraft {
     /// and `Content-Length` recomputation stay the responsibility of `MapLocalResponseBuilder`
     /// at serve time. Empty for domain quick-create and legacy drafts.
     let responseHeaders: [HTTPHeader]
+
+    /// Operation name of a captured GraphQL request, so the mock targets that
+    /// operation instead of every call to the shared endpoint.
+    let graphQLOperationName: String?
 
     var hasResponseBody: Bool {
         guard let body = responseBody else {

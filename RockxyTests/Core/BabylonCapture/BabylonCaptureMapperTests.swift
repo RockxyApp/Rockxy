@@ -21,6 +21,31 @@ struct BabylonCaptureMapperTests {
         #expect(transaction.state == .completed)
     }
 
+    @Test("A GraphQL request from the SDK keeps its operation name")
+    func labelsGraphQLOperation() throws {
+        let package = BabylonTrafficPackageDTO(
+            id: "graphql",
+            startAt: 1,
+            request: .init(
+                url: "https://api.example.com/graphql",
+                method: "POST",
+                headers: [.init(key: "Content-Type", value: "application/json")],
+                body: Data(#"{"operationName":"GetUser","query":"query GetUser { user { id } }"}"#.utf8)
+            ),
+            response: .init(statusCode: 200, headers: []),
+            error: nil,
+            responseBodyData: Data(#"{"data":{}}"#.utf8),
+            endAt: 2,
+            packageType: .http,
+            correlationContext: nil,
+            websocketMessagePackage: nil
+        )
+
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+
+        #expect(transaction.graphQLInfo?.operationName == "GetUser")
+    }
+
     @Test("WebSocket package maps binary receive frame")
     func mapsWebSocketFrame() throws {
         let package = BabylonTrafficPackageDTO(

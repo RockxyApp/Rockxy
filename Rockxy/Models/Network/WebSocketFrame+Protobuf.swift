@@ -5,7 +5,13 @@ extension WebSocketFrameData {
         ProtobufHeuristicDecoder.decode(payload)
     }
 
-    func protobufSchemaTree(using descriptor: ProtobufSchemaDescriptor) throws -> ProtobufDecodedTree {
-        try ProtobufSchemaDecoder.decode(payload, using: descriptor)
+    func protobufSchemaTree(
+        messageType: String,
+        schema: ProtobufSchema,
+        encoding: ProtobufPayloadEncoding = .auto
+    )
+        throws -> ProtobufDecodedTree
+    {
+        try ProtobufSchemaDecoder.decode(payload, messageType: messageType, schema: schema, encoding: encoding)
     }
 }

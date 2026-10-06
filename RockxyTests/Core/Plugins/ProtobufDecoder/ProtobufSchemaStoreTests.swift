@@ -16,7 +16,7 @@ struct ProtobufSchemaStoreTests {
         #expect(store.schemasLimit == 0)
         #expect(throws: AppPolicyViolation.protobufSchemaUploadUnavailable) {
             try store.uploadSchema(
-                data: Data("syntax = \"proto3\";".utf8),
+                data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
                 fileName: "test.proto",
                 hostPattern: "*.example.com"
             )
@@ -28,7 +28,7 @@ struct ProtobufSchemaStoreTests {
         let directory = temporaryDirectory()
         let store = makeStore(policy: ProtobufPermissivePolicy(), directory: directory)
         let descriptor = try store.uploadSchema(
-            data: Data("syntax = \"proto3\";".utf8),
+            data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
             fileName: "test.proto",
             hostPattern: "*.example.com",
             defaultMessageType: "Message"
@@ -43,7 +43,7 @@ struct ProtobufSchemaStoreTests {
     @Test("enforces file size and schema count")
     func limits() throws {
         let store = makeStore(policy: OneSchemaPolicy())
-        let data = Data("syntax = \"proto3\";".utf8)
+        let data = Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8)
         _ = try store.uploadSchema(data: data, fileName: "one.proto", hostPattern: "*.example.com")
         #expect(throws: AppPolicyViolation.protobufSchemaLimitReached(limit: 1)) {
             try store.uploadSchema(data: data, fileName: "two.proto", hostPattern: "*.example.com")
@@ -68,7 +68,7 @@ struct ProtobufSchemaStoreTests {
         let oneStore = makeStore(policy: OneSchemaPolicy())
         #expect(oneStore.importAvailability == .available)
         _ = try oneStore.uploadSchema(
-            data: Data("syntax = \"proto3\";".utf8),
+            data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
             fileName: "one.proto",
             hostPattern: "*.example.com"
         )
@@ -82,7 +82,7 @@ struct ProtobufSchemaStoreTests {
         let fileStore = ProtobufSchemaFileStore(directoryURL: directory)
         let store = ProtobufSchemaStore(policy: ProtobufPermissivePolicy(), fileStore: fileStore)
         let descriptor = try store.uploadSchema(
-            data: Data("syntax = \"proto3\";".utf8),
+            data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
             fileName: "one.proto",
             hostPattern: "*.example.com"
         )
@@ -105,7 +105,7 @@ struct ProtobufSchemaStoreTests {
 
         #expect(throws: FaultingSchemaStoreError.descriptorSaveFailed) {
             try store.uploadSchema(
-                data: Data("syntax = \"proto3\";".utf8),
+                data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
                 fileName: "rollback.proto",
                 hostPattern: "*"
             )
@@ -119,7 +119,7 @@ struct ProtobufSchemaStoreTests {
     func deleteRollbackOnDescriptorFailure() throws {
         let fileStore = FaultingProtobufSchemaFileStore()
         let store = ProtobufSchemaStore(policy: ProtobufPermissivePolicy(), fileStore: fileStore)
-        let source = Data("syntax = \"proto3\";".utf8)
+        let source = Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8)
         let descriptor = try store.uploadSchema(
             data: source,
             fileName: "keep.proto",
@@ -140,7 +140,7 @@ struct ProtobufSchemaStoreTests {
         let fileStore = FaultingProtobufSchemaFileStore()
         let store = ProtobufSchemaStore(policy: ProtobufPermissivePolicy(), fileStore: fileStore)
         let descriptor = try store.uploadSchema(
-            data: Data("syntax = \"proto3\";".utf8),
+            data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
             fileName: "unreadable.proto",
             hostPattern: "*"
         )
@@ -172,7 +172,7 @@ struct ProtobufSchemaStoreTests {
         #expect(store.schemas.isEmpty)
         #expect(throws: ProtobufSchemaStoreError.storageUnavailable) {
             try store.uploadSchema(
-                data: Data("syntax = \"proto3\";".utf8),
+                data: Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8),
                 fileName: "x.proto",
                 hostPattern: "*.example.com"
             )
@@ -223,17 +223,9 @@ struct ProtobufSchemaStoreTests {
             _ = try ProtobufSchemaSourceValidator.read(contentsOf: hugeURL)
         }
 
-        let goodURL = try writeTempFile(Data("syntax = \"proto3\";".utf8), fileName: "ok.proto")
+        let goodURL = try writeTempFile(Data("syntax = \"proto3\"; message Ping { int32 id = 1; }".utf8), fileName: "ok.proto")
         let data = try ProtobufSchemaSourceValidator.loadValidatedSource(at: goodURL, fileName: "ok.proto")
         #expect(!data.isEmpty)
-    }
-
-    @Test("schema-based decoding is not implemented in this build")
-    func schemaDecoderNotImplemented() {
-        let descriptor = ProtobufSchemaDescriptor(fileName: "s.proto", hostPattern: "*")
-        #expect(throws: ProtobufSchemaDecodeError.notImplemented) {
-            _ = try ProtobufSchemaDecoder.decode(Data([0x08, 0x01]), using: descriptor)
-        }
     }
 
     // MARK: Private

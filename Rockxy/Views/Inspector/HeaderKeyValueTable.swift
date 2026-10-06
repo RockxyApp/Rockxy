@@ -13,15 +13,41 @@ struct HeaderKeyValueTable: View {
     var source: HeaderColumnSource?
     var coordinator: MainContentCoordinator?
 
+    /// Tables longer than this get a filter field; short ones read fine without it.
+    static let filterThreshold = 6
+
+    /// Headers whose name or value contains `query`, ignoring case; all of them when empty.
+    static func filtered(_ headers: [HTTPHeader], by query: String) -> [HTTPHeader] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else {
+            return headers
+        }
+        return headers.filter {
+            $0.name.localizedCaseInsensitiveContains(needle) || $0.value.localizedCaseInsensitiveContains(needle)
+        }
+    }
+
     var body: some View {
+        let visible = Self.filtered(headers, by: filterText)
         VStack(spacing: 0) {
+            if headers.count >= Self.filterThreshold {
+                filterField
+                Divider()
+            }
             headerRow
             Divider()
-            ForEach(Array(headers.enumerated()), id: \.offset) { index, header in
+            ForEach(Array(visible.enumerated()), id: \.offset) { index, header in
                 row(header)
-                if index < headers.count - 1 {
+                if index < visible.count - 1 {
                     Divider()
                 }
+            }
+            if visible.isEmpty {
+                Text(String(localized: "No Matching Headers", bundle: RockxyLocalization.bundle))
+                    .font(.system(size: metrics.secondaryFontSize))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -36,6 +62,36 @@ struct HeaderKeyValueTable: View {
     // MARK: Private
 
     @Environment(\.appUIDisplayMetrics) private var metrics
+    @State private var filterText = ""
+
+    private var filterField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(
+                String(localized: "Filter Headers", bundle: RockxyLocalization.bundle),
+                text: $filterText
+            )
+            .textFieldStyle(.plain)
+            .font(.system(size: metrics.secondaryFontSize))
+            .accessibilityLabel(String(localized: "Filter Headers", bundle: RockxyLocalization.bundle))
+            if !filterText.isEmpty {
+                Button {
+                    filterText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "Clear Filter", bundle: RockxyLocalization.bundle))
+                .accessibilityLabel(String(localized: "Clear Filter", bundle: RockxyLocalization.bundle))
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
 
     private var headerRow: some View {
         HStack(spacing: 0) {
@@ -138,7 +194,10 @@ struct HeaderKeyValueTable: View {
         switch source {
         case .request:
             String(localized: "Add Request Header as Column", bundle: RockxyLocalization.bundle)
-        case .response:
+        case .response,
+             .query,
+             .requestBody,
+             .responseBody:
             String(localized: "Add Response Header as Column", bundle: RockxyLocalization.bundle)
         }
     }

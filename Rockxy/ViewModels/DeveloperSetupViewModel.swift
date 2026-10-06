@@ -218,7 +218,8 @@ final class DeveloperSetupViewModel {
                 activePort: snapshot.activePort,
                 configuredPort: AppSettingsManager.shared.settings.proxyPort
             ),
-            certificatePath: certificatePathHint
+            certificatePath: certificatePathHint,
+            deviceProxyHost: snapshot.reachableLANAddress
         )
     }
 

@@ -87,7 +87,8 @@ Validate does not depend on public DNS or a third-party endpoint. If local valid
 Each target's automation surface is driven by its `SetupAutomationSupport` value in the catalog:
 
 - **Automatic Setup** — available for runtime/terminal targets (Python, Node.js, Ruby, Go, Rust, cURL, Java). The Automatic Setup window shows the workflow plan, lets you preview the exact commands in `DeveloperSetupAutomationSheet`, and runs the local probe once you apply.
-- **Manual Setup** — used for every target where Rockxy ships snippets but does not drive the target tool itself (Firefox, Postman, Insomnia, Paw, Docker, ElectronJS, Next.js, Flutter, React Native), and for every guide-only target (devices, simulators, emulators).
+- **Prepared browsers** — Chrome (new or current profile) and Firefox open a dedicated, proxy-configured window through **Automatic Setup ▸ Browsers**. Chrome's current-profile option needs Chrome to be quit first; the Firefox profile trusts the macOS keychain roots. The proxy must be running.
+- **Manual Setup** — used for every target where Rockxy ships snippets but does not drive the target tool itself (Postman, Insomnia, Paw, Docker, ElectronJS, Next.js, Flutter, React Native), and for every guide-only target (devices, simulators, emulators).
 
 The hub never silently bypasses the manual path. Even targets that expose Automatic Setup keep the Manual Setup window reachable from the same inspector.
 
@@ -100,19 +101,19 @@ These targets depend on behavior Rockxy does not drive from macOS (physical-devi
 **Devices**
 
 - `iOS Device` — manual Wi-Fi proxy + install the certificate as a profile + enable full trust under Certificate Trust Settings.
-- `iOS Simulator` — loopback is reachable from the simulator; drag the PEM onto the simulator and enable full trust, then cold-launch the target app.
+- `iOS Simulator` — loopback is reachable from the simulator. **Install in Booted Simulators…** (or **Certificate ▸ Install Certificate on iOS ▸ iOS Simulator…**) adds the root certificate to every booted simulator through `xcrun simctl keychain … add-root-cert` after a confirmation, then relaunch the app; dragging the PEM onto the simulator and enabling full trust still works.
 - `Android Device` — manual Wi-Fi proxy + install as a user CA + debug build with a network-security-config that trusts user CAs.
-- `Android Emulator` — Mac is reachable at `10.0.2.2`; set the emulator proxy to `10.0.2.2` plus Rockxy's port and install as user CA.
-- `tvOS / watchOS` — reuse the iOS Device and iOS Simulator paths; there is no dedicated pairing workflow.
-- `Vision Pro` — follows the iOS Device path on the device itself; there is no dedicated Vision Pro pairing workflow.
+- `Android Emulator` — Mac is reachable at `10.0.2.2`. **Route Emulators Through Rockxy…** sets each running emulator's proxy through `adb` and copies the certificate to its Download folder (install it as a user CA); **Revert Emulator Proxy** undoes it, and Rockxy reverts routed emulators when it quits. Loopback clients that reach `10.0.2.2` (for example a Metro server) are mapped to `127.0.0.1` automatically.
+- `tvOS / watchOS` — reuse the iOS Device and iOS Simulator paths (including **Install in Booted Simulators…**). An Apple Watch has no proxy setting: trust the certificate on the paired iPhone and the watch, point the iPhone at Rockxy, and turn off the watch's Wi-Fi and cellular.
+- `Vision Pro` — follows the iOS Device path on the device itself; the simulator supports **Install in Booted Simulators…**. There is no dedicated Vision Pro pairing workflow.
 
 ### What guide-only does NOT do
 
 - It does not pair with devices or simulators.
 - It does not install, trust, or import certificates into third-party apps.
 - It does not run AppleScript or launch Terminal for you.
-- It does not rewrite `network-security-config`, `simctl`, browser profiles, or system proxy settings.
-- It does not install an Android local VPN companion or offer no-code Flutter Android Emulator routing.
+- It does not rewrite `network-security-config` or system proxy settings. The only changes it makes to simulators and emulators are the confirmed `simctl` certificate install and `adb` proxy routing described above.
+- It does not install an Android local VPN companion.
 
 If a page ever implies an automatic flow, treat it as a bug. File an issue.
 

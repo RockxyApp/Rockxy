@@ -1,52 +1,75 @@
 ---
-title: "WebSocket Protobuf Decoding"
-description: "Decode likely Protobuf binary WebSocket frames using a bounded wire-format heuristic."
+title: "Protobuf Decoding"
+description: "Decode Protobuf request bodies, response bodies, WebSocket frames, and gRPC messages, with field names from imported .proto or .desc schemas."
 ---
 
-# WebSocket Protobuf Decoding
+# Protobuf Decoding
 
-WebSocket Protobuf Decoding adds an on-demand decoder for binary WebSocket frames whose payloads look like Protobuf wire-format data. It helps inspect real-time APIs that send compact binary messages instead of JSON.
+Rockxy decodes Protobuf payloads wherever they appear: HTTP request and response bodies, binary WebSocket frames, and gRPC messages. Without a schema it shows field numbers and best-guess values. With an imported schema it shows field names, declared types, enum names, signed and floating-point values, and timestamps.
 
 ## Entry Points
 
-| Action | How to Access |
-|--------|---------------|
-| Capture WebSocket frames | Response inspector > WebSocket tab |
-| Inspect a binary frame | Select a WebSocket binary frame |
-| Decode as Protobuf | Switch the frame detail's payload picker to **Protobuf** (auto-selected when a frame looks like Protobuf) |
-| Manage mapping rules | **Tools > Protobuf…** (`Cmd + Option + U`) |
-| Review schema list | **Tools > Protobuf…** > **Protobuf Schema…** |
+| Payload | Where it appears |
+|---------|------------------|
+| HTTP request or response body | **Protobuf** tab in the request or response inspector. It appears when the body declares a Protobuf media type (for example `application/x-protobuf`) or an enabled mapping definition matches the request. |
+| WebSocket frame | Response inspector > **WebSocket** > select a frame > **Protobuf**. Chosen automatically for frames that look like Protobuf or that a mapping definition covers. |
+| gRPC message | Response inspector > **gRPC** > select a frame. gzip and deflate compressed messages are inflated first. |
 
-The decoder runs on demand when the inspector requests it. WebSocket capture itself stays on the existing hot path, so Rockxy does not decode every frame while proxying traffic.
+Each view has a **Decode As** menu:
 
-## Heuristic Mode
+- **Automatic** uses the message type from a matching mapping definition, or from an imported gRPC service when the request path is `/package.Service/Method`. Without either, it falls back to best guess.
+- **Best Guess (No Schema)** infers the structure from the wire format.
+- Any message type from your imported schemas, listed with its package, such as `chat.events.NewMessage`.
+- **Manage Schemas…** and **Protobuf Mapping…** open the schema list and mapping definitions.
 
-Community decoding uses Protobuf wire-format heuristics. No schema file is needed.
+Decoding runs on demand when you open the view, off the main thread. Capture never decodes payloads on the proxy path.
 
-The decoder can identify:
+## Best Guess
 
-- field numbers and wire types
-- varints
-- fixed32 and fixed64 values
-- length-delimited strings
-- length-delimited raw bytes
-- nested length-delimited messages when the nested payload also parses as Protobuf
+Best guess needs no schema. It identifies field numbers, varints, fixed32 and fixed64 values, strings, raw bytes, and nested messages whose bytes also parse as Protobuf. It cannot know field names, enum labels, or whether a varint is signed, so treat its values as guesses.
 
-Heuristic mode cannot know original field names, enum labels, message names, or application-specific types because those require schema descriptors.
+## Importing Schemas
+
+Open **Tools > Protobuf…** > **Local Schemas…** and click **+** to import either:
+
+- a `.proto` source file, or
+- a descriptor set (`.desc`, `.pb`, `.protoset`, `.binpb`) compiled with protoc:
+
+```sh
+protoc --descriptor_set_out=app.desc --include_imports app.proto
+```
+
+`--include_imports` bundles every file the schema depends on. When you import `.proto` sources instead, import each file the schema imports as well; Rockxy resolves types across all imported schemas. The common `google.protobuf` types (Timestamp, Duration, wrappers, Struct, Any, Empty, FieldMask) are built in.
+
+Rockxy parses a schema when you import it and rejects files that do not parse, with the line and reason. The **Message Types** column shows how many types each file defines; hover over it to list them.
+
+Schema import is available when the current Rockxy edition allows it. When it is not, existing best-guess decoding keeps working.
+
+## Mapping Definitions
+
+**Tools > Protobuf…** stores definitions that match a URL pattern and HTTP method to a message type:
+
+- **Message type** applies to both directions.
+- **Use different message types for request and response** sets a request type and a response type. For WebSocket connections, frames the client sends use the request type and frames the server sends use the response type.
+- **Payload** chooses **Single Message**, **Delimited List** (several messages, each prefixed with its varint length), or **Auto**, which tries a single message first and then a delimited list.
+
+The **Status** column shows whether each definition is active, disabled, or names a type that no imported schema defines.
+
+## When Decoding Fails
+
+Rockxy reports a problem instead of showing misleading values:
+
+- **The imported schemas do not define …** — import the schema that declares the type, including its imports.
+- **This payload does not match …** — the chosen root type is wrong for this direction, or the bytes carry a custom length prefix, compression, or encryption.
+- **The payload ends in the middle of a field** — the capture was truncated.
+
+Field numbers the schema does not declare (for example from a newer server) are kept as unnamed fields rather than failing the decode.
 
 ## Safety Limits
 
-Malformed input fails closed and returns no decoded tree. The decoder also applies bounded recursion and node-count limits so large or adversarial frame bodies cannot consume unbounded memory or CPU.
+Malformed input fails closed. The decoders bound recursion depth and field count, and schema files are limited to 1 MB, so large or adversarial payloads cannot consume unbounded memory or CPU.
 
-## Schema-Based Decoding
-
-The public API has a stable schema-decoding surface so the inspector can later resolve field names from uploaded `.proto` files. The schema parser and full schema-based decoder body are intentionally not included yet; that follow-up will decide whether to bring in a Protobuf dependency.
-
-In the Community policy, schema uploads are capped at zero.
-
-## Protobuf Settings
-
-Tools > Protobuf... opens a mapping-rule window for future schema-aware decoding. Rules can be prepared with URL matching, method selection, payload encoding, message type, and schema association. Schema upload controls are visible for the stable workflow, but uploads are rejected by the default app policy until a later private policy implementation enables them.
+Descriptor sets and `.proto` files describe your API. They stay on this Mac.
 
 ## Related Features
 

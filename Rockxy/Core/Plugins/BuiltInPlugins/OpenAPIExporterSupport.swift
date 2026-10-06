@@ -81,7 +81,9 @@ enum OpenAPIPathTemplateInferer {
 
     private static func parameterBaseName(from previousSegment: String?) -> String? {
         guard let previousSegment,
-              !previousSegment.hasPrefix("{") else {
+              !previousSegment.hasPrefix("{"),
+              // A version prefix (`v1`, `v2`) says nothing about the resource.
+              previousSegment.range(of: #"^v\d+$"#, options: [.regularExpression, .caseInsensitive]) == nil else {
             return nil
         }
         let cleaned = previousSegment
@@ -93,9 +95,12 @@ enum OpenAPIPathTemplateInferer {
         guard let first = words.first else {
             return nil
         }
-        let singular = String(first).hasSuffix("s")
-            ? String(first.dropLast())
-            : String(first)
+        // Only plain plurals lose the "s": `users` -> `user`, but `status`, `class` and `analysis`
+        // are already singular.
+        let word = String(first).lowercased()
+        let isPlural = word.hasSuffix("s") && word.count > 3
+            && !["ss", "us", "is"].contains(where: { word.hasSuffix($0) })
+        let singular = isPlural ? String(first.dropLast()) : String(first)
         let rest = words.dropFirst().map { word in
             let lower = word.lowercased()
             return lower.prefix(1).uppercased() + lower.dropFirst()

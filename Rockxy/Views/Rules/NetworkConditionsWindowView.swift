@@ -19,8 +19,25 @@ struct NetworkConditionProfileMetadata: Equatable {
     let packetLoss: String
     let systemImage: String
 
-    static func from(preset: NetworkConditionPreset, latencyMs: Int) -> Self {
+    static func from(
+        preset: NetworkConditionPreset,
+        latencyMs: Int,
+        custom: NetworkCustomProfile? = nil
+    )
+        -> Self
+    {
         let effectiveLatency = latencyMs > 0 ? latencyMs : preset.defaultLatencyMs
+        if preset == .custom {
+            let custom = custom ?? .unlimited
+            return Self(
+                name: title(for: preset),
+                latencyMs: effectiveLatency,
+                downloadBandwidth: NetworkConditionPreset.bandwidthLabel(for: custom.effectiveDownloadKbps),
+                uploadBandwidth: NetworkConditionPreset.bandwidthLabel(for: custom.effectiveUploadKbps),
+                packetLoss: NetworkConditionPreset.packetLossLabel(forRate: custom.packetLossRate),
+                systemImage: preset.systemImage
+            )
+        }
         return Self(
             name: title(for: preset),
             latencyMs: effectiveLatency,
@@ -32,7 +49,7 @@ struct NetworkConditionProfileMetadata: Equatable {
     }
 
     static func title(for preset: NetworkConditionPreset) -> String {
-        preset == .custom ? String(localized: "Custom Latency", bundle: RockxyLocalization.bundle) : preset.displayName
+        preset.displayName
     }
 }
 
@@ -264,15 +281,15 @@ final class NetworkConditionsWindowViewModel {
     }
 
     func presetInfo(for rule: ProxyRule) -> (name: String, latencyMs: Int) {
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             return (preset.displayName, delayMs)
         }
         return ("", 0)
     }
 
     func networkProfile(for rule: ProxyRule) -> NetworkConditionProfileMetadata {
-        if case let .networkCondition(preset, delayMs) = rule.action {
-            return .from(preset: preset, latencyMs: delayMs)
+        if case let .networkCondition(preset, delayMs, custom) = rule.action {
+            return .from(preset: preset, latencyMs: delayMs, custom: custom)
         }
         return .from(preset: .custom, latencyMs: 0)
     }
@@ -548,12 +565,14 @@ enum NetworkConditionsRuleForm {
         applySystemWide: Bool,
         preset: NetworkConditionPreset,
         customLatencyMs: Int,
+        customProfile: NetworkCustomProfile = .unlimited,
         original: ProxyRule? = nil
     )
         -> Bool
     {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs) > 0
+            && (preset.isOffline || effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs) > 0)
+            && (preset != .custom || customProfile.validationMessage == nil)
             && hostValidationMessage(
                 original: original,
                 hostText: hostText,
@@ -585,7 +604,8 @@ enum NetworkConditionsRuleForm {
         hostText: String,
         applySystemWide: Bool,
         preset: NetworkConditionPreset,
-        customLatencyMs: Int
+        customLatencyMs: Int,
+        customProfile: NetworkCustomProfile = .unlimited
     )
         -> ProxyRule
     {
@@ -601,7 +621,8 @@ enum NetworkConditionsRuleForm {
             matchCondition: condition,
             action: .networkCondition(
                 preset: preset,
-                delayMs: effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs)
+                delayMs: effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs),
+                custom: customAction(preset: preset, customProfile: customProfile)
             )
         )
     }
@@ -613,7 +634,8 @@ enum NetworkConditionsRuleForm {
         hostText: String,
         applySystemWide: Bool,
         preset: NetworkConditionPreset,
-        customLatencyMs: Int
+        customLatencyMs: Int,
+        customProfile: NetworkCustomProfile = .unlimited
     )
         -> ProxyRule
     {
@@ -651,10 +673,21 @@ enum NetworkConditionsRuleForm {
             matchCondition: condition,
             action: .networkCondition(
                 preset: preset,
-                delayMs: effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs)
+                delayMs: effectiveLatencyMs(preset: preset, customLatencyMs: customLatencyMs),
+                custom: customAction(preset: preset, customProfile: customProfile)
             ),
             priority: original?.priority ?? 0
         )
+    }
+
+    /// Custom limits persisted with the rule; presets and unlimited profiles store none.
+    static func customAction(
+        preset: NetworkConditionPreset,
+        customProfile: NetworkCustomProfile
+    )
+        -> NetworkCustomProfile?
+    {
+        preset == .custom && !customProfile.isUnlimited ? customProfile : nil
     }
 
     // MARK: Private
@@ -1189,9 +1222,10 @@ private struct NetworkConditionsEditSheet: View {
             )
             _applySystemWide = State(initialValue: existingRule.matchCondition.urlPattern == nil)
             _isEnabled = State(initialValue: existingRule.isEnabled)
-            if case let .networkCondition(preset, delayMs) = existingRule.action {
+            if case let .networkCondition(preset, delayMs, custom) = existingRule.action {
                 _selectedPreset = State(initialValue: preset)
                 _customLatencyMs = State(initialValue: delayMs)
+                _customProfile = State(initialValue: custom ?? .unlimited)
             }
         } else if let draft {
             _name = State(initialValue: draft.suggestedName)
@@ -1288,6 +1322,7 @@ private struct NetworkConditionsEditSheet: View {
     @State private var applySystemWide = false
     @State private var selectedPreset = NetworkConditionsRuleForm.defaultPreset
     @State private var customLatencyMs = NetworkConditionsRuleForm.defaultCustomLatencyMs
+    @State private var customProfile = NetworkCustomProfile.unlimited
     @State private var isEnabled = true
     @State private var isSaving = false
     @State private var saveError: String?
@@ -1311,6 +1346,7 @@ private struct NetworkConditionsEditSheet: View {
             applySystemWide: applySystemWide,
             preset: selectedPreset,
             customLatencyMs: customLatencyMs,
+            customProfile: customProfile,
             original: existingRule
         )
     }
@@ -1425,7 +1461,11 @@ private struct NetworkConditionsEditSheet: View {
     }
 
     private var networkProfileSection: some View {
-        let metadata = NetworkConditionProfileMetadata.from(preset: selectedPreset, latencyMs: effectiveLatencyMs)
+        let metadata = NetworkConditionProfileMetadata.from(
+            preset: selectedPreset,
+            latencyMs: effectiveLatencyMs,
+            custom: customProfile
+        )
         return VStack(alignment: .leading, spacing: 7) {
             Text(String(localized: "Network Profile", bundle: RockxyLocalization.bundle))
                 .font(toolMetrics.font(weight: .semibold))
@@ -1455,11 +1495,18 @@ private struct NetworkConditionsEditSheet: View {
                     Spacer()
                 }
 
+                if selectedPreset == .custom {
+                    NetworkCustomProfileFields(profile: $customProfile)
+                }
+
                 if selectedPreset == .custom, customLatencyMs <= 0 {
                     validationLabel(String(
                         localized: "Custom latency must be greater than 0 ms.",
                         bundle: RockxyLocalization.bundle
                     ))
+                }
+                if selectedPreset == .custom, let message = customProfile.validationMessage {
+                    validationLabel(message)
                 }
 
                 HStack(spacing: toolMetrics.controlSpacing) {
@@ -1478,6 +1525,11 @@ private struct NetworkConditionsEditSheet: View {
                         value: metadata.uploadBandwidth,
                         systemImage: "arrow.up"
                     )
+                    profileMetric(
+                        title: String(localized: "Packet Loss", bundle: RockxyLocalization.bundle),
+                        value: metadata.packetLoss,
+                        systemImage: "exclamationmark.arrow.triangle.2.circlepath"
+                    )
                 }
 
                 Text(
@@ -1485,7 +1537,7 @@ private struct NetworkConditionsEditSheet: View {
                         localized:
                         """
                         Presets add connection latency and pace request and response bodies at the displayed limits. \
-                        Custom Latency leaves upload and download bandwidth unlimited.
+                        Custom uses the latency, bandwidth, and packet loss you enter; empty bandwidth is unlimited.
                         """, bundle: RockxyLocalization.bundle
                     )
                 )
@@ -1678,7 +1730,8 @@ private struct NetworkConditionsEditSheet: View {
             hostText: hostText,
             applySystemWide: applySystemWide,
             preset: selectedPreset,
-            customLatencyMs: customLatencyMs
+            customLatencyMs: customLatencyMs,
+            customProfile: customProfile
         )
         isSaving = true
         saveError = nil

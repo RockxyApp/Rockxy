@@ -58,8 +58,8 @@ struct NearbyTransferImportTests {
         #expect(coordinator.activeWorkspace.filteredTransactions.first?.request.host == "ios.example.com")
     }
 
-    @Test("Import never reintroduces transactions evicted by the live-history cap")
-    func importFiltersOnlyRetainedTransactions() async throws {
+    @Test("Import keeps every transferred transaction past the live-history cap")
+    func importIsNotTrimmedByLiveHistoryCap() async throws {
         let coordinator = MainContentCoordinator(policy: SingleEntryHistoryPolicy())
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let transferred = (0 ..< 3).map { index in
@@ -93,8 +93,8 @@ struct NearbyTransferImportTests {
         try await coordinator.importNearbyTransfer(session, deviceName: "iPhone")
 
         let retainedIDs = Set(coordinator.transactions.map(\.id))
-        #expect(coordinator.transactions.count == 1)
-        #expect(coordinator.activeWorkspace.filteredTransactions.count == 1)
+        #expect(coordinator.transactions.count == 3)
+        #expect(coordinator.activeWorkspace.filteredTransactions.count == 3)
         #expect(coordinator.activeWorkspace.filteredTransactions.allSatisfy { retainedIDs.contains($0.id) })
     }
 }

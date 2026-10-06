@@ -49,11 +49,31 @@ struct NetworkConditionPresetTests {
         #expect(NetworkConditionPreset.custom.uploadBytesPerSecond == nil)
     }
 
-    @Test("packet loss stays disabled for all presets")
-    func packetLossDisabled() {
-        for preset in NetworkConditionPreset.allCases {
+    @Test("Only Very Bad Network drops packets among throttling presets")
+    func packetLossRates() {
+        for preset in NetworkConditionPreset.allCases where preset != .offline && preset != .veryBadNetwork {
             #expect(preset.packetLossRate == 0.0)
         }
+        #expect(NetworkConditionPreset.veryBadNetwork.packetLossRate == 0.1)
+        #expect(NetworkConditionProfile(preset: .veryBadNetwork, latencyMs: 2_000).packetLoss?.rate == 0.1)
+        #expect(NetworkConditionProfile(preset: .threeG, latencyMs: 400).packetLoss == nil)
+        #expect(NetworkConditionProfile(preset: .offline, latencyMs: 0).packetLoss == nil)
+    }
+
+    @Test("Offline refuses traffic and is never inferred from a latency value")
+    func offlinePreset() {
+        #expect(NetworkConditionPreset.offline.isOffline)
+        #expect(NetworkConditionPreset.offline.packetLossRate == 1.0)
+        #expect(NetworkConditionPreset.offline.downloadBandwidthKbps == nil)
+        #expect(NetworkConditionPreset.offline.downloadBandwidthLabel == "No Connection")
+        #expect(NetworkConditionPreset.from(delayMs: 0) == .custom)
+        #expect(NetworkConditionsRuleForm.isValid(
+            name: "Airplane",
+            hostText: "api.example.com",
+            applySystemWide: false,
+            preset: .offline,
+            customLatencyMs: 0
+        ))
     }
 
     @Test("each preset returns correct display name")
@@ -78,7 +98,7 @@ struct NetworkConditionPresetTests {
 
         #expect(rule.name == "Slow 3G")
         #expect(rule.isEnabled == true)
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .threeG)
             #expect(delayMs == 400)
         } else {
@@ -96,7 +116,7 @@ struct NetworkConditionPresetTests {
             matchCondition: condition
         )
 
-        if case let .networkCondition(preset, delayMs) = rule.action {
+        if case let .networkCondition(preset, delayMs, _) = rule.action {
             #expect(preset == .custom)
             #expect(delayMs == 1_234)
         } else {

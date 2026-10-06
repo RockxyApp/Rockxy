@@ -18,6 +18,19 @@ Good candidates:
 - known-noisy background polling,
 - third-party calls that distract from your main debugging session.
 
+For GraphQL, set **GraphQL Operation** to block one operation (for example `DeleteUser`) while
+every other operation on the same endpoint keeps working. Block rules created from a captured
+GraphQL request prefill the operation name.
+
+Set **Client Application** to block only what one app on this Mac sends, by name or bundle
+identifier (for example `Safari` or `com.apple.Safari`). Requests from other apps are untouched.
+The rule never matches traffic from another device, or from a process Rockxy could not identify,
+so an unidentified caller is allowed rather than blocked.
+
+## Organize rules in folders
+
+Group related Block List rules into folders. Select rules and choose **New Folder with Selection** from the context menu or the **More** menu, or drag rules onto a folder. The folder's checkbox turns every rule inside it on or off (mixed when only some are on), and the active-rule limit still applies. **Rename Folder…** and **Delete Folder** are on the folder's context menu; deleting a folder keeps its rules. Folders only organize the list — rules keep their first-match order — and searching lists matches without folders.
+
 ## Allow List
 
 Use Allow List when you want to restrict attention to a specific subset of traffic.
@@ -27,6 +40,13 @@ This is particularly helpful when:
 - one app emits too much unrelated traffic,
 - you want to focus on one service during capture,
 - or you are validating that only a specific endpoint family is active.
+
+Set **GraphQL Operation** on an Allow rule to record only one GraphQL operation from a shared
+endpoint. Rules created from a captured GraphQL request prefill the operation name.
+
+Set **Client Application** on an Allow rule to record only what one app on this Mac sends, by name or
+bundle identifier (case-insensitive). Traffic from other devices, or from a process Rockxy could not
+identify, does not match an application-scoped rule.
 
 ## When to choose which
 

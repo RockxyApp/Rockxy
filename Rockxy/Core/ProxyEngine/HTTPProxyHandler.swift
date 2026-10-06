@@ -71,6 +71,25 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
+    /// Resolves the request target to an absolute URL string. A proxied WebSocket client may send
+    /// its absolute-form target with its own scheme (`GET ws://host:port/socket`); the upgrade
+    /// travels over HTTP, so `ws`/`wss` map to `http`/`https`. Treating that target as a path
+    /// glued it onto the Host into an unparseable URL, which fell back to `http://host/` — the
+    /// upgrade then went to the wrong path and port.
+    nonisolated static func requestURLString(uri: String, host: String) -> String {
+        let lowered = uri.lowercased()
+        if lowered.hasPrefix("http://") || lowered.hasPrefix("https://") {
+            return uri
+        }
+        if lowered.hasPrefix("ws://") {
+            return "http://" + uri.dropFirst("ws://".count)
+        }
+        if lowered.hasPrefix("wss://") {
+            return "https://" + uri.dropFirst("wss://".count)
+        }
+        return "http://\(host)\(uri)"
+    }
+
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         guard !requestBodyLimitState.isRejected else {
             return
@@ -153,7 +172,11 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ))?
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var pendingThrottleTask: Scheduled<Void>?
+    /// Network conditions matched by the CONNECT request; applied to an undecrypted tunnel.
+    private var connectNetworkProfile: NetworkConditionProfile?
     private var pendingBreakpointPhase: BreakpointRulePhase?
+    /// Response-phase operations of the Modify Headers rules matched by the current request.
+    private var pendingResponseHeaderOperations: [HeaderOperation]?
     private var pendingBreakpointRuleName: String?
     /// The unstructured Task bridging an in-flight request breakpoint to the
     /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
@@ -178,7 +201,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         return HTTPResponseData(
             statusCode: payload.statusCode,
             statusMessage: message,
-            headers: payload.headers,
+            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
             body: payload.body
         )
     }
@@ -200,6 +223,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ) {
         pendingBreakpointPhase = nil
         pendingBreakpointRuleName = nil
+        pendingResponseHeaderOperations = nil
 
         if head.uri.count > ProxyLimits.maxURILength {
             proxyHandlerLogger.warning("SECURITY: URI exceeds \(ProxyLimits.maxURILength) chars, rejecting with 414")
@@ -231,21 +255,28 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Rule evaluation is async (actor-isolated), so bridge to NIO's EventLoopFuture world
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
+        let operationName = GraphQLDetector.detect(request: requestData)?.operationName
+        let identityHandle = self.clientIdentityHandle
 
         eventLoop.makeFutureWithTask {
-            let breakpointRule = await ruleEngine.evaluateBreakpointRule(method: method, url: url, headers: headers)
-            let matchedRule = await ruleEngine.evaluateRule(method: method, url: url, headers: headers)
-            return (breakpointRule, matchedRule)
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: operationName,
+                clientApplication: { await identityHandle?.awaitIdentity() }
+            )
         }.whenComplete { [weak self] result in
             guard let self else {
                 return
             }
             let evaluation = try? result.get()
-            let breakpointRule = evaluation?.0
-            let matchedRule = evaluation?.1
+            let breakpointRule = evaluation?.breakpoint
+            let matchedRule = evaluation?.matched
+            let headerRules = evaluation?.headerRules ?? []
             let ruleForTransaction = ProxyHandlerShared.transactionRule(
                 breakpointRule: breakpointRule,
-                matchedRule: matchedRule
+                matchedRule: matchedRule,
+                headerRules: headerRules
             )
             let callback = self.makeTransactionCallback(for: ruleForTransaction)
 
@@ -266,8 +297,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
                         return
+                    case let .networkCondition(preset, delayMs, custom):
+                        // Offline refuses the tunnel; any other profile shapes it as a byte stream.
+                        if self.applyConnectNetworkCondition(
+                            NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom),
+                            context: context,
+                            requestData: requestData,
+                            callback: callback
+                        ) {
+                            return
+                        }
                     case .throttle,
-                         .networkCondition,
                          .mapLocal,
                          .mapRemote,
                          .modifyHeader,
@@ -288,6 +328,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 self.pendingBreakpointPhase = responsePhase
             }
 
+            // Modify Headers rules layer on top of whatever happens next: the request is
+            // rewritten here and the response operations ride along to every response path.
+            let headerOperations = ProxyHandlerShared.headerOperations(of: headerRules)
+            let rewritten = ProxyHandlerShared.applyRequestHeaderOperations(
+                headerOperations.request,
+                head: head,
+                requestData: requestData
+            )
+            self.pendingResponseHeaderOperations = headerOperations.response.isEmpty
+                ? nil
+                : headerOperations.response
+
             if let breakpointRule,
                case let .breakpoint(phase) = breakpointRule.action,
                phase == .request || phase == .both
@@ -295,8 +347,8 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 self.handleRuleAction(
                     breakpointRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: rewritten.head,
+                    requestData: rewritten.requestData,
                     callback: self.makeTransactionCallback(for: breakpointRule),
                     matchContext: MapLocalMatchContext(matchCondition: breakpointRule.matchCondition)
                 )
@@ -307,81 +359,53 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 self.handleRuleAction(
                     matchedRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: rewritten.head,
+                    requestData: rewritten.requestData,
                     callback: callback,
                     matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                 )
                 return
             }
 
-            if let scriptPluginManager = self.scriptPluginManager {
-                let eventLoop = context.eventLoop
-                eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHook(on: requestData)
-                }.whenSuccess { [weak self] outcome in
-                    guard let self else {
-                        return
-                    }
-                    switch outcome {
-                    case let .forward(modifiedRequest):
-                        self.forwardRequest(
-                            context: context,
-                            head: head,
-                            requestData: modifiedRequest,
-                            callback: self.onTransactionComplete
-                        )
-                    case .blockLocally:
-                        self.sendErrorResponse(
-                            context: context,
-                            status: 403,
-                            requestData: requestData,
-                            callback: self.onTransactionComplete
-                        )
-                    case let .mock(mockResponse):
-                        self.sendResponse(
-                            context: context,
-                            responseData: mockResponse,
-                            requestData: requestData,
-                            callback: self.onTransactionComplete
-                        )
-                    case .mockFailure:
-                        self.sendErrorResponse(
-                            context: context,
-                            status: 502,
-                            requestData: requestData,
-                            callback: self.onTransactionComplete
-                        )
-                    }
-                }
-            } else {
-                self.forwardRequest(
-                    context: context,
-                    head: head,
-                    requestData: requestData,
-                    callback: self.onTransactionComplete
-                )
-            }
+            // Only header rules matched: keep their attribution on the transaction.
+            let forwardCallback = headerRules.isEmpty ? self.onTransactionComplete : callback
+            self.forwardThroughScripts(
+                context: context,
+                head: rewritten.head,
+                requestData: rewritten.requestData,
+                callback: forwardCallback
+            )
         }
     }
 
-    /// Resolves the request target to an absolute URL string. A proxied WebSocket client may send
-    /// its absolute-form target with its own scheme (`GET ws://host:port/socket`); the upgrade
-    /// travels over HTTP, so `ws`/`wss` map to `http`/`https`. Treating that target as a path
-    /// glued it onto the Host into an unparseable URL, which fell back to `http://host/` — the
-    /// upgrade then went to the wrong path and port.
-    nonisolated static func requestURLString(uri: String, host: String) -> String {
-        let lowered = uri.lowercased()
-        if lowered.hasPrefix("http://") || lowered.hasPrefix("https://") {
-            return uri
+    /// Runs request-side scripts, then forwards, blocks, or mocks as they decide.
+    nonisolated private func forwardThroughScripts(
+        context: ChannelHandlerContext,
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
+        guard let scriptPluginManager else {
+            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            return
         }
-        if lowered.hasPrefix("ws://") {
-            return "http://" + uri.dropFirst("ws://".count)
+        context.eventLoop.makeFutureWithTask {
+            await scriptPluginManager.runRequestHook(on: requestData)
+        }.whenSuccess { [weak self] outcome in
+            guard let self else {
+                return
+            }
+            switch outcome {
+            case let .forward(modifiedRequest):
+                self.forwardRequest(context: context, head: head, requestData: modifiedRequest, callback: callback)
+            case .blockLocally:
+                self.sendErrorResponse(context: context, status: 403, requestData: requestData, callback: callback)
+            case let .mock(mockResponse):
+                self.sendResponse(context: context, responseData: mockResponse, requestData: requestData, callback: callback)
+            case .mockFailure:
+                self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
+            }
         }
-        if lowered.hasPrefix("wss://") {
-            return "https://" + uri.dropFirst("wss://".count)
-        }
-        return "http://\(host)\(uri)"
     }
 
     nonisolated private func buildRequestData(from head: HTTPRequestHead) -> HTTPRequestData {
@@ -494,8 +518,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
             }
 
-        case let .networkCondition(preset, delayMs):
-            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs)
+        case let .networkCondition(preset, delayMs, custom):
+            if preset.isOffline {
+                ProxyHandlerShared.simulateOffline(
+                    context: context,
+                    requestData: requestData,
+                    elapsed: requestElapsedDuration(),
+                    sourcePort: clientSourcePort,
+                    callback: callback
+                )
+                return
+            }
+            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom)
             pendingThrottleTask = context.eventLoop.scheduleTask(in: profile.latencyDelay) { [weak self] in
                 guard let self else {
                     return
@@ -755,7 +789,7 @@ extension HTTPProxyHandler {
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: host,
+               host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost
@@ -769,24 +803,138 @@ extension HTTPProxyHandler {
         var responseHead = HTTPResponseHead(version: head.version, status: .ok)
         responseHead.headers.add(name: "content-length", value: "0")
         context.write(wrapOutboundOut(.head(responseHead)), promise: nil)
-        context.writeAndFlush(wrapOutboundOut(.end(nil))).flatMap {
+        context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
             proxyHandlerLogger.info("CONNECT tunnel for \(host):\(port)")
-            return context.channel.setOption(ChannelOptions.autoRead, value: false)
-        }.flatMap {
+            self.beginTunnel(
+                context: context,
+                host: host,
+                port: port,
+                captureContext: requestData.captureContext,
+                networkProfile: self.connectNetworkProfile
+            )
+        }
+    }
+
+    /// Returns `true` when the CONNECT was answered (Offline); otherwise remembers the profile
+    /// for the tunnel that is about to be established.
+    private func applyConnectNetworkCondition(
+        _ profile: NetworkConditionProfile,
+        context: ChannelHandlerContext,
+        requestData: HTTPRequestData,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    )
+        -> Bool
+    {
+        guard profile.preset.isOffline else {
+            connectNetworkProfile = profile
+            return false
+        }
+        ProxyHandlerShared.simulateOffline(
+            context: context,
+            requestData: requestData,
+            elapsed: requestElapsedDuration(),
+            sourcePort: clientSourcePort,
+            callback: callback
+        )
+        return true
+    }
+
+    /// Outcome of applying CONNECT policy to a tunnel requested outside HTTP (SOCKS5).
+    enum TunnelAdmission: Equatable {
+        case allowed
+        case blocked
+        case unreachable
+    }
+
+    /// Applies the same policy an HTTP CONNECT gets — the listener loop guard, Block
+    /// rules, and the Offline network condition — to a SOCKS5 destination, recording
+    /// refused tunnels like refused CONNECTs.
+    nonisolated func admitTunnel(
+        context: ChannelHandlerContext,
+        host: String,
+        port: Int
+    )
+        -> EventLoopFuture<TunnelAdmission>
+    {
+        if let descriptor = clientConnectionDescriptor,
+           ProxyLoopGuard.targetsOwnListener(
+               host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
+               port: port,
+               proxyPort: descriptor.proxyPort,
+               proxyHost: descriptor.proxyHost
+           )
+        {
+            proxyHandlerLogger.warning("SECURITY: Refused SOCKS tunnel that targets the proxy listener itself")
+            return context.eventLoop.makeSucceededFuture(.blocked)
+        }
+        let authority = host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+        var headers = HTTPHeaders()
+        headers.add(name: "Host", value: authority)
+        let requestData = buildRequestData(from: HTTPRequestHead(
+            version: .http1_1,
+            method: .CONNECT,
+            uri: authority,
+            headers: headers
+        ))
+        let ruleEngine = self.ruleEngine
+        let identityHandle = self.clientIdentityHandle
+        return context.eventLoop.makeFutureWithTask {
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: nil,
+                clientApplication: { await identityHandle?.awaitIdentity() }
+            )
+        }.map { evaluation in
+            guard let rule = evaluation.matched else {
+                return .allowed
+            }
+            let callback = self.makeTransactionCallback(for: rule)
+            switch rule.action {
+            case .block:
+                callback(HTTPTransaction(request: requestData, response: nil, state: .blocked))
+                return .blocked
+            case let .networkCondition(preset, _, _) where preset.isOffline:
+                callback(HTTPTransaction(request: requestData, response: nil, state: .failed))
+                return .unreachable
+            default:
+                return .allowed
+            }
+        }
+    }
+
+    /// Turns this connection into a tunnel to `host:port`: removes the HTTP layer and
+    /// hands the socket to `TLSInterceptHandler`, which intercepts or relays per policy.
+    /// Used after an HTTP CONNECT and after a SOCKS5 CONNECT whose client speaks TLS.
+    @discardableResult
+    nonisolated func beginTunnel(
+        context: ChannelHandlerContext,
+        host: String,
+        port: Int,
+        captureContext: TrafficCaptureContext?,
+        networkProfile: NetworkConditionProfile? = nil
+    )
+        -> EventLoopFuture<Void>
+    {
+        let installed = context.channel.setOption(ChannelOptions.autoRead, value: false).flatMap {
             context.pipeline.removeHandler(context: context)
         }.flatMap {
             ProxyPipeline.removeHTTPServerPipeline(from: context.pipeline, on: context.eventLoop)
         }.flatMap { () -> EventLoopFuture<ClientApplicationIdentity?> in
-            let identityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
+            let sslIdentityCanAffectDecision = self.sslProxyingManager.hasEnabledApplicationRules()
                 || self.sslProxyingManager.shouldIntercept(host: host, application: nil)
-            guard identityCanAffectDecision else {
-                return context.eventLoop.makeSucceededFuture(nil)
-            }
+            let ruleEngine = self.ruleEngine
             // Start and await bounded resolution only when host or application policy can lead
-            // to interception. autoRead is already false so no client bytes are lost; an
-            // unresolved identity fails closed for application-only rules.
+            // to interception, or an application-scoped rule needs to know the caller.
+            // autoRead is already false so no client bytes are lost; an unresolved identity
+            // fails closed for application-only SSL rules and never matches a rule.
             return context.eventLoop.makeFutureWithTask {
-                await self.clientIdentityHandle?.awaitIdentity()
+                guard sslIdentityCanAffectDecision else {
+                    return await ruleEngine.hasApplicationScopedRules
+                        ? await self.clientIdentityHandle?.awaitIdentity()
+                        : nil
+                }
+                return await self.clientIdentityHandle?.awaitIdentity()
             }
         }.flatMap { clientApplicationIdentity in
             let tlsHandler = TLSInterceptHandler(
@@ -802,7 +950,8 @@ extension HTTPProxyHandler {
                 upstreamProxySnapshotProvider: self.upstreamProxySnapshotProvider,
                 upstreamTrustProvider: self.upstreamTrustProvider,
                 captureContextProvider: self.captureContextProvider,
-                tunnelCaptureContext: requestData.captureContext,
+                tunnelCaptureContext: captureContext,
+                tunnelNetworkProfile: networkProfile,
                 clientSourcePort: self.clientSourcePort,
                 clientApplicationIdentity: clientApplicationIdentity,
                 clientConnectionDescriptor: self.clientConnectionDescriptor,
@@ -812,7 +961,8 @@ extension HTTPProxyHandler {
                 breakpointBridgeTracker: self.breakpointBridgeTracker
             )
             return context.pipeline.addHandler(tlsHandler)
-        }.whenFailure { error in
+        }
+        installed.whenFailure { error in
             proxyHandlerLogger.error(
                 "Failed to set up TLS handler for \(host): \(String(describing: error))"
             )
@@ -824,7 +974,7 @@ extension HTTPProxyHandler {
                     statusMessage: "TLS Handler Setup Failed",
                     state: .failed,
                     sourcePort: self.clientSourcePort,
-                    captureContext: requestData.captureContext,
+                    captureContext: captureContext,
                     clientIdentifier: TLSInterceptHandler.clientScopeIdentifier(
                         application: nil,
                         connectionDescriptor: self.clientConnectionDescriptor
@@ -833,6 +983,7 @@ extension HTTPProxyHandler {
             )
             context.close(promise: nil)
         }
+        return installed
     }
 
     nonisolated func forwardRequest(
@@ -879,10 +1030,11 @@ extension HTTPProxyHandler {
         }
 
         let port: Int = requestData.url.port ?? (requestData.url.scheme == "https" ? 443 : 80)
+        let connectHost = UpstreamConnectHost.resolve(for: host, clientHost: clientConnectionDescriptor?.clientHost)
 
         if let descriptor = clientConnectionDescriptor,
            ProxyLoopGuard.targetsOwnListener(
-               host: host,
+               host: connectHost,
                port: port,
                proxyPort: descriptor.proxyPort,
                proxyHost: descriptor.proxyHost
@@ -906,7 +1058,7 @@ extension HTTPProxyHandler {
         UpstreamProxyConnector.connect(
             eventLoop: context.eventLoop,
             targetScheme: requestData.url.scheme ?? "http",
-            targetHost: host,
+            targetHost: connectHost,
             targetPort: port,
             configuration: bypassUserModifications ? nil : upstreamProxySnapshotProvider()
         ) { channel in
@@ -914,12 +1066,13 @@ extension HTTPProxyHandler {
                 do {
                     let tlsConfig = try HTTPSProxyRelayHandler.makeClientTLSConfiguration(
                         clientIdentity: self.customCertificateManager.clientIdentity(for: host),
-                        acceptsUntrustedCertificates: self.upstreamTrustProvider()
+                        acceptsUntrustedCertificates: self.upstreamTrustProvider(),
+                        host: host
                     )
                     let sslContext = try NIOSSLContext(configuration: tlsConfig)
                     let sslHandler = try NIOSSLClientHandler(
                         context: sslContext,
-                        serverHostname: host
+                        serverHostname: TLSServerName.sni(for: host)
                     )
                     return channel.pipeline.addHandler(sslHandler).flatMap {
                         channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
@@ -960,7 +1113,18 @@ extension HTTPProxyHandler {
             case let .failure(error):
                 proxyHandlerLogger.error("Connection failed: \(error.localizedDescription)")
                 limiter.release(host: host, port: port)
-                self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
+                self.sendErrorResponse(
+                    context: context,
+                    status: 502,
+                    requestData: requestData,
+                    callback: ConnectionLogCapture.attachingFailure(
+                        error,
+                        host: host,
+                        port: port,
+                        connectHost: connectHost,
+                        to: callback
+                    )
+                )
             }
         }
     }
@@ -988,10 +1152,18 @@ extension HTTPProxyHandler {
             connectTime: connectTime,
             tcpTime: tcpTime,
             clientContext: context,
+            tlsIntent: requestData.url.scheme == "https"
+                ? UpstreamTLSIntent(offeredProtocols: [], acceptsUntrustedCertificates: upstreamTrustProvider())
+                : nil,
             sourcePort: clientSourcePort,
             breakpointPhase: pendingBreakpointPhase,
             breakpointRuleName: pendingBreakpointRuleName,
-            headerResponseOperations: responseHeaderOperations,
+            headerResponseOperations: bypassUserModifications
+                ? responseHeaderOperations
+                : ProxyHandlerShared.mergedResponseOperations(
+                    pendingResponseHeaderOperations,
+                    responseHeaderOperations
+                ),
             disablesResponseCaching: disablesResponseCaching,
             networkConditionProfile: networkConditionProfile,
             scriptPluginManager: bypassUserModifications ? nil : scriptPluginManager,
@@ -1019,13 +1191,15 @@ extension HTTPProxyHandler {
                     NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                         bodyData: bodyData,
                         to: clientChannel,
-                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                        packetLoss: networkConditionProfile?.packetLoss
                     )
                 } else {
                     NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                         bodyData: nil,
                         to: clientChannel,
-                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                        uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                        packetLoss: networkConditionProfile?.packetLoss
                     )
                 }
             case let .failure(error):
@@ -1101,6 +1275,10 @@ extension HTTPProxyHandler {
         requestData: HTTPRequestData,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
+        let responseData = ProxyHandlerShared.applyResponseHeaderOperations(
+            pendingResponseHeaderOperations,
+            to: responseData
+        )
         let status = HTTPResponseStatus(statusCode: responseData.statusCode)
         var responseHead = HTTPResponseHead(version: .http1_1, status: status)
         for header in responseData.headers {

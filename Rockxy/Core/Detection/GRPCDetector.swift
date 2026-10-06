@@ -19,9 +19,15 @@ nonisolated enum GRPCDetector {
             return true
         }
 
-        let hasGRPCTrailers = headerValue(named: "grpc-status", in: response?.headers ?? []) != nil
-            || headerValue(named: "grpc-message", in: response?.headers ?? []) != nil
+        let statusFields = statusHeaders(of: response)
+        let hasGRPCTrailers = headerValue(named: "grpc-status", in: statusFields) != nil
+            || headerValue(named: "grpc-message", in: statusFields) != nil
         return hasGRPCTrailers && looksLikeGRPCMethodPath(request.path)
+    }
+
+    /// gRPC status travels in trailers over HTTP/2 and in headers for trailers-only responses.
+    static func statusHeaders(of response: HTTPResponseData?) -> [HTTPHeader] {
+        (response?.trailers ?? []) + (response?.headers ?? [])
     }
 
     static func detect(
@@ -47,9 +53,9 @@ nonisolated enum GRPCDetector {
             responseEncoding: headerValue(named: "grpc-encoding", in: response?.headers ?? []),
             httpStatusCode: response?.statusCode,
             httpStatusMessage: response?.statusMessage,
-            grpcStatus: headerValue(named: "grpc-status", in: response?.headers ?? []),
-            grpcMessage: headerValue(named: "grpc-message", in: response?.headers ?? []),
-            grpcStatusDetails: headerValue(named: "grpc-status-details-bin", in: response?.headers ?? []),
+            grpcStatus: headerValue(named: "grpc-status", in: statusHeaders(of: response)),
+            grpcMessage: headerValue(named: "grpc-message", in: statusHeaders(of: response)),
+            grpcStatusDetails: headerValue(named: "grpc-status-details-bin", in: statusHeaders(of: response)),
             duration: timingInfo?.totalDuration ?? measuredDuration,
             requestFrames: parseFrames(
                 request.body,

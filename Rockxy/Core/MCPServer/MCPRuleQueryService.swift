@@ -77,7 +77,7 @@ struct MCPRuleQueryService {
         guard redactionPolicy.isEnabled else {
             return value
         }
-        if let name, MCPRedactionPolicy.sensitiveHeaders.contains(name.lowercased()) {
+        if let name, SensitiveDataRedactor.isSensitiveName(name, exact: MCPRedactionPolicy.sensitiveHeaders) {
             return "[REDACTED]"
         }
         return redactionPolicy.redactGenericText(value)

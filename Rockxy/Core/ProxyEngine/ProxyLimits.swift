@@ -32,6 +32,9 @@ enum ProxyLimits {
     /// Maximum total Protobuf heuristic decode nodes.
     static let maxProtobufDecodeNodes = 10_000
 
+    /// Maximum nesting of message types inside an uploaded schema (`.proto` source or descriptor set).
+    static let maxProtobufSchemaNesting = 32
+
     /// Maximum uploaded .proto schema file size (1 MB).
     static let maxProtobufSchemaFileSize = 1 * 1_024 * 1_024
 }

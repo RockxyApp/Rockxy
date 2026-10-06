@@ -27,6 +27,19 @@ struct CustomCertificatesWindowReadabilityTests {
         #expect(!source.contains(".font(.caption)"))
     }
 
+    @Test("Import actions are direct buttons, not a pull-down holding one or two items")
+    func importActionsAreDirectButtons() throws {
+        let source = try readProjectFile("Rockxy/Views/Certificate/CustomCertificatesView.swift")
+
+        // A one-item pull-down hid the only Root import behind an extra click that VoiceOver and
+        // accessibility automation could not press directly.
+        #expect(source.contains("private var importButtons: some View"))
+        #expect(source.contains("importPEMOrDER(kind: viewModel.mode.kind)"))
+        #expect(source.contains("importPKCS12(kind: viewModel.mode.kind)"))
+        #expect(!source.contains("Menu {"))
+        #expect(!source.contains(".menuStyle(.button)"))
+    }
+
     @Test("Selection-safe actions never fall back to newest or delete an entire list")
     func actionsAreSelectionSafe() throws {
         let viewSource = try readProjectFile("Rockxy/Views/Certificate/CustomCertificatesView.swift")

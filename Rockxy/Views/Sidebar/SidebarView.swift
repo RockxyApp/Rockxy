@@ -455,12 +455,60 @@ struct SidebarView: View {
             ForEach(filteredFavorites, id: \.self) { item in
                 favoriteRow(item)
             }
+            .dropDestination(for: String.self) { payloads, _ in
+                pinDroppedItems(payloads)
+            }
         } header: {
             Text(String(localized: "Favorites", bundle: RockxyLocalization.bundle))
                 .foregroundStyle(Theme.Sidebar.favoritesHeader)
                 .font(.system(size: metrics.sidebarSectionHeaderFontSize, weight: .semibold))
+                .dropDestination(for: String.self) { payloads, _ in
+                    pinDroppedItems(payloads)
+                }
         }
         .headerProminence(.increased)
+    }
+
+    /// Pins a host and turns on its HTTPS decryption in one explicit step; the choice is visible in
+    /// the menu, so decryption is never enabled as a side effect of pinning alone.
+    @ViewBuilder
+    private func pinAndDecryptButton(
+        item: SidebarItem,
+        domain: String,
+        groupHosts: [String]? = nil,
+        isPinned: Bool,
+        isPathScope: Bool
+    )
+        -> some View
+    {
+        let isDecrypted = groupHosts.map { coordinator.isSSLProxyingEnabled(forDomainGroup: domain, hosts: $0) }
+            ?? coordinator.isSSLProxyingEnabled(for: domain)
+        if !isPinned, !isPathScope, !isDecrypted,
+           coordinator.sslProxyingHostDecryptBlockedReason(for: domain) == nil
+        {
+            Button {
+                coordinator.addFavorite(item)
+                if let groupHosts {
+                    coordinator.enableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+                } else {
+                    coordinator.enableSSLProxyingForDomain(domain)
+                }
+            } label: {
+                Label(
+                    String(localized: "Pin and Decrypt This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "pin.circle"
+                )
+            }
+        }
+    }
+
+    /// Pins the domains and apps dragged onto Favorites. Pinning never changes HTTPS decryption.
+    private func pinDroppedItems(_ payloads: [String]) -> Bool {
+        let items = payloads.compactMap(SidebarPinDragPayload.decode)
+        for item in items {
+            coordinator.addFavorite(item)
+        }
+        return !items.isEmpty
     }
 
     private var allSection: some View {
@@ -483,6 +531,9 @@ struct SidebarView: View {
                         .tag(SidebarItem.app(name: app.name, bundleId: nil))
                         .frame(minHeight: metrics.sidebarRowHeight)
                         .contextMenu { appContextMenu(app) }
+                        .draggable(SidebarPinDragPayload.encode(
+                            .app(name: app.name, bundleId: app.identity?.bundleIdentifier)
+                        ) ?? "")
                     }
                 }
             } label: {
@@ -628,7 +679,7 @@ struct SidebarView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if coordinator.isSSLProxyingEnabled(for: node.selectionDomain), node.kind != .path {
+                if node.kind != .path, isDecryptionEnabled(for: node) {
                     Image(systemName: "lock.shield.fill")
                         .font(.system(size: metrics.sidebarBadgeFontSize))
                         .foregroundStyle(.green)
@@ -655,49 +706,39 @@ struct SidebarView: View {
         .badge(node.requestCount)
         .tag(sidebarItem(for: node))
         .frame(minHeight: metrics.sidebarRowHeight)
-        .contextMenu { domainContextMenu(node.selectionDomain, pathPrefix: node.pathPrefix) }
+        .contextMenu {
+            domainContextMenu(node.selectionDomain, pathPrefix: node.pathPrefix, groupHosts: groupHosts(for: node))
+        }
+        .draggable(SidebarPinDragPayload.encode(sidebarItem(for: node)) ?? "")
         .help(domainHelpText(for: node))
     }
 
     // MARK: - Context Menus
 
+    /// Decrypt or Tunnel for a domain row (the domain and its hosts) or a single host row.
     @ViewBuilder
-    private func domainContextMenu(_ domain: String, pathPrefix: String? = nil) -> some View {
-        let item = pathPrefix.map { SidebarItem.domainPath(domain: domain, pathPrefix: $0) }
-            ?? SidebarItem.domainNode(domain: domain)
-        let isPinned = coordinator.isFavorite(item)
-
-        Button {
-            coordinator.toggleSidebarFavorite(item)
-        } label: {
-            Label(
-                isPinned ? String(localized: "Unpin", bundle: RockxyLocalization.bundle) : String(localized: "Pin", bundle: RockxyLocalization.bundle),
-                systemImage: isPinned ? "pin.slash" : "pin"
-            )
-        }
-
-        Button {
-            guard coordinator.workspaceStore.canCreateWorkspace else {
-                return
+    private func decryptionToggleButton(domain: String, groupHosts: [String]?) -> some View {
+        if let groupHosts, coordinator.isSSLProxyingEnabled(forDomainGroup: domain, hosts: groupHosts) {
+            Button {
+                coordinator.disableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+            } label: {
+                Label(
+                    String(localized: "Tunnel This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
             }
-            var filter = FilterCriteria.empty
-            filter.sidebarDomain = domain
-            filter.sidebarPathPrefix = pathPrefix
-            let title = pathPrefix.map { "\(domain)\($0)" } ?? domain
-            let ws = coordinator.workspaceStore.createWorkspace(title: title, filter: filter)
-            RockxyWorkspaceWindowManager.shared.openWorkspaceTab(coordinator: coordinator, workspaceID: ws.id)
-            RockxyWorkspaceWindowManager.shared.prepareWorkspaceContent(ws, coordinator: coordinator)
-        } label: {
-            Label(
-                String(localized: "Open in New Tab", bundle: RockxyLocalization.bundle),
-                systemImage: "plus.rectangle.on.rectangle"
-            )
-        }
-        .disabled(!coordinator.workspaceStore.canCreateWorkspace)
-
-        Divider()
-
-        if coordinator.isSSLProxyingEnabled(for: domain) {
+        } else if let groupHosts {
+            Button {
+                coordinator.enableSSLProxying(forDomainGroup: domain, hosts: groupHosts)
+            } label: {
+                Label(
+                    String(localized: "Decrypt This Host", bundle: RockxyLocalization.bundle),
+                    systemImage: "lock.shield"
+                )
+            }
+            .disabled(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) != nil)
+            .help(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) ?? "")
+        } else if coordinator.isSSLProxyingEnabled(for: domain) {
             Button {
                 coordinator.disableSSLProxyingForDomain(domain)
             } label: {
@@ -718,6 +759,80 @@ struct SidebarView: View {
             .disabled(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) != nil)
             .help(coordinator.sslProxyingHostDecryptBlockedReason(for: domain) ?? "")
         }
+    }
+
+    /// The hosts a domain row stands for, or nil for a row that is a single host or a path.
+    private func groupHosts(for node: DomainNode) -> [String]? {
+        guard node.kind == .domain else {
+            return nil
+        }
+        var hosts = node.children.filter { $0.kind == .host }.map(\.domain)
+        // Requests to the root itself show up as path rows directly under it.
+        if hosts.isEmpty || node.children.contains(where: { $0.kind == .path }) {
+            hosts.append(node.selectionDomain)
+        }
+        return hosts
+    }
+
+    private func isDecryptionEnabled(for node: DomainNode) -> Bool {
+        if let hosts = groupHosts(for: node) {
+            return coordinator.isSSLProxyingEnabled(forDomainGroup: node.selectionDomain, hosts: hosts)
+        }
+        return coordinator.isSSLProxyingEnabled(for: node.selectionDomain)
+    }
+
+    @ViewBuilder
+    private func domainContextMenu(_ domain: String, pathPrefix: String? = nil, groupHosts: [String]? = nil) -> some View {
+        let item = pathPrefix.map { SidebarItem.domainPath(domain: domain, pathPrefix: $0) }
+            ?? SidebarItem.domainNode(domain: domain)
+        let isPinned = coordinator.isFavorite(item)
+
+        Button {
+            coordinator.toggleSidebarFavorite(item)
+        } label: {
+            Label(
+                isPinned ? String(localized: "Unpin", bundle: RockxyLocalization.bundle) : String(localized: "Pin", bundle: RockxyLocalization.bundle),
+                systemImage: isPinned ? "pin.slash" : "pin"
+            )
+        }
+
+        pinAndDecryptButton(
+            item: item,
+            domain: domain,
+            groupHosts: groupHosts,
+            isPinned: isPinned,
+            isPathScope: pathPrefix != nil
+        )
+
+        Button {
+            guard coordinator.workspaceStore.canCreateWorkspace else {
+                return
+            }
+            var filter = FilterCriteria.empty
+            filter.sidebarDomain = domain
+            filter.sidebarPathPrefix = pathPrefix
+            let title = pathPrefix.map { "\(domain)\($0)" } ?? domain
+            let ws = coordinator.workspaceStore.createWorkspace(title: title, filter: filter)
+            RockxyWorkspaceWindowManager.shared.openWorkspaceTab(coordinator: coordinator, workspaceID: ws.id)
+            RockxyWorkspaceWindowManager.shared.prepareWorkspaceContent(ws, coordinator: coordinator)
+        } label: {
+            Label(
+                String(localized: "Open in New Tab", bundle: RockxyLocalization.bundle),
+                systemImage: "plus.rectangle.on.rectangle"
+            )
+        }
+        .disabled(!coordinator.workspaceStore.canCreateWorkspace)
+
+        OpenInSplitViewButton(coordinator: coordinator, filter: {
+            var filter = FilterCriteria.empty
+            filter.sidebarDomain = domain
+            filter.sidebarPathPrefix = pathPrefix
+            return filter
+        }())
+
+        Divider()
+
+        decryptionToggleButton(domain: domain, groupHosts: groupHosts)
 
         SidebarOpenHTTPSDecryptionButton()
 
@@ -812,28 +927,13 @@ struct SidebarView: View {
             Label(String(localized: "Tools", bundle: RockxyLocalization.bundle), systemImage: "wrench")
         }
 
-        Menu {
-            Button {
-                coordinator.copyDomainToClipboard(pathPrefix.map { "\(domain)\($0)" } ?? domain)
-            } label: {
-                Label(
-                    pathPrefix == nil
-                        ? String(localized: "Copy Domain", bundle: RockxyLocalization.bundle)
-                        : String(localized: "Copy Path Filter", bundle: RockxyLocalization.bundle),
-                    systemImage: "doc.on.doc"
-                )
-            }
-            Button {
-                coordinator.exportTransactionsForDomain(domain, pathPrefix: pathPrefix)
-            } label: {
-                Label(
-                    String(localized: "Export Transactions", bundle: RockxyLocalization.bundle),
-                    systemImage: "square.and.arrow.up"
-                )
-            }
-        } label: {
-            Label(String(localized: "Export", bundle: RockxyLocalization.bundle), systemImage: "square.and.arrow.up")
-        }
+        SidebarExportMenu(
+            copyTitle: pathPrefix == nil
+                ? String(localized: "Copy Domain", bundle: RockxyLocalization.bundle)
+                : String(localized: "Copy Path Filter", bundle: RockxyLocalization.bundle),
+            copy: { coordinator.copyDomainToClipboard(pathPrefix.map { "\(domain)\($0)" } ?? domain) },
+            export: { coordinator.exportTransactionsForDomain(domain, pathPrefix: pathPrefix, format: $0) }
+        )
 
         Divider()
 
@@ -988,6 +1088,12 @@ struct SidebarView: View {
         }
         .disabled(!coordinator.workspaceStore.canCreateWorkspace)
 
+        OpenInSplitViewButton(coordinator: coordinator, filter: {
+            var filter = FilterCriteria.empty
+            filter.sidebarApp = app.name
+            return filter
+        }())
+
         Divider()
 
         if let identity = app.identity {
@@ -1073,23 +1179,11 @@ struct SidebarView: View {
 
         Divider()
 
-        Menu {
-            Button {
-                coordinator.copyDomainToClipboard(app.name)
-            } label: {
-                Label(String(localized: "Copy App Name", bundle: RockxyLocalization.bundle), systemImage: "doc.on.doc")
-            }
-            Button {
-                coordinator.exportTransactionsForApp(app.name)
-            } label: {
-                Label(
-                    String(localized: "Export Transactions", bundle: RockxyLocalization.bundle),
-                    systemImage: "square.and.arrow.up"
-                )
-            }
-        } label: {
-            Label(String(localized: "Export", bundle: RockxyLocalization.bundle), systemImage: "square.and.arrow.up")
-        }
+        SidebarExportMenu(
+            copyTitle: String(localized: "Copy App Name", bundle: RockxyLocalization.bundle),
+            copy: { coordinator.copyDomainToClipboard(app.name) },
+            export: { coordinator.exportTransactionsForApp(app.name, format: $0) }
+        )
 
         Divider()
 

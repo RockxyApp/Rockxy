@@ -73,6 +73,13 @@ enum MimeTypeResolver {
         "gz": "application/gzip",
         "wasm": "application/wasm",
         "map": "application/json",
+        "yaml": "application/yaml",
+        "yml": "application/yaml",
+        "ndjson": "application/x-ndjson",
+        "avif": "image/avif",
+        "m3u8": "application/vnd.apple.mpegurl",
+        "md": "text/markdown",
+        "tsv": "text/tab-separated-values",
     ]
 
     private static let extensionsByMime: [String: String] = [

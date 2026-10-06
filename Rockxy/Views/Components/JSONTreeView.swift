@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 // Renders the json tree interface for shared app surfaces.
@@ -7,6 +8,14 @@ import SwiftUI
 /// Collapsible JSON tree with JSONPath/key/value filtering. Parsing and query evaluation
 /// happen off-main and are keyed to the current body/query so stale results are ignored.
 struct JSONTreeView: View {
+    // MARK: Lifecycle
+
+    init(data: Data, filterMode: JSONTreeFilterMode = .jsonPath, query: String = "") {
+        self.data = data
+        _filterMode = State(initialValue: filterMode)
+        _query = State(initialValue: query)
+    }
+
     // MARK: Internal
 
     let data: Data
@@ -56,6 +65,7 @@ struct JSONTreeView: View {
     @State private var queryResult: JSONPathQueryResult = .empty
     @State private var queryError: String?
     @State private var selectedMatchPath: String?
+    @State private var jqResult: JQTreeResult?
 
     @FocusState private var isSearchFocused: Bool
     @Environment(\.appUIDisplayMetrics) private var metrics
@@ -69,9 +79,13 @@ struct JSONTreeView: View {
         }
     }
 
+    private var isJQActive: Bool {
+        filterMode == .jq && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var activeFilter: JSONTreeRenderFilter? {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, queryError == nil else {
+        guard !trimmed.isEmpty, queryError == nil, filterMode != .jq else {
             return nil
         }
         return JSONTreeRenderFilter(
@@ -88,6 +102,20 @@ struct JSONTreeView: View {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return ""
+        }
+        if filterMode == .jq {
+            guard let jqResult else {
+                return ""
+            }
+            let count = jqResult.count
+            if jqResult.isTruncated {
+                return String(localized: "\(count)+ results", bundle: RockxyLocalization.bundle)
+            }
+            return String(AttributedString(
+                localized: "^[\(count) result](inflect: true)",
+                bundle: RockxyLocalization.bundle,
+                locale: RockxyLocalization.locale
+            ).characters)
         }
         let count = queryResult.matches.count
         guard queryResult.isTruncated else {
@@ -109,12 +137,20 @@ struct JSONTreeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
         case let .parsed(document):
-            JSONTreeNodeView(
-                node: document.root,
-                depth: 0,
-                isLast: true,
-                filter: activeFilter
-            )
+            if isJQActive, queryError == nil, let jqResult {
+                Text(jqResult.text)
+                    .font(.system(size: metrics.fontSize, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel(String(localized: "jq output", bundle: RockxyLocalization.bundle))
+            } else {
+                JSONTreeNodeView(
+                    node: document.root,
+                    depth: 0,
+                    isLast: true,
+                    filter: activeFilter
+                )
+            }
 
         case let .text(text):
             Text(text)
@@ -212,6 +248,7 @@ struct JSONTreeView: View {
         queryResult = .empty
         queryError = nil
         selectedMatchPath = nil
+        jqResult = nil
 
         let result = try? await Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
@@ -232,6 +269,7 @@ struct JSONTreeView: View {
         guard case let .parsed(document) = state, !trimmed.isEmpty else {
             queryResult = .empty
             queryError = nil
+            jqResult = nil
             return
         }
 
@@ -239,6 +277,12 @@ struct JSONTreeView: View {
         guard !Task.isCancelled else {
             return
         }
+
+        if filterMode == .jq {
+            await evaluateJQ(trimmed)
+            return
+        }
+        jqResult = nil
 
         let mode = filterMode
         let result = await Task.detached(priority: .userInitiated) {
@@ -271,6 +315,36 @@ struct JSONTreeView: View {
             queryResult = .empty
             queryError = error.localizedDescription
             selectedMatchPath = nil
+        }
+    }
+
+    @MainActor
+    private func evaluateJQ(_ filter: String) async {
+        queryResult = .empty
+        selectedMatchPath = nil
+        let body = data
+        let result: Result<JQTreeResult, Error> = await Task.detached(priority: .userInitiated) {
+            do {
+                let output = try await JQFilter(filter).run(json: body)
+                try Task.checkCancellation()
+                return .success(JQTreeResult(output: output))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        guard !Task.isCancelled else {
+            return
+        }
+        switch result {
+        case let .success(value):
+            jqResult = value
+            queryError = nil
+        case let .failure(error):
+            guard !(error is CancellationError) else {
+                return
+            }
+            jqResult = nil
+            queryError = error.localizedDescription
         }
     }
 
@@ -466,12 +540,14 @@ private struct JSONTreeNodeView: View {
                             locale: RockxyLocalization.locale
                         ).characters
                     ))
-                        .font(.system(size: metrics.secondaryFontSize))
-                        .foregroundStyle(.tertiary)
+                    .font(.system(size: metrics.secondaryFontSize))
+                    .foregroundStyle(.tertiary)
                 }
             }
             .padding(.leading, CGFloat(depth) * Self.indentWidth)
             .background(matchBackground)
+            .contentShape(Rectangle())
+            .contextMenu { copyMenu }
             .id(node.path)
 
             if effectiveExpanded {
@@ -505,7 +581,32 @@ private struct JSONTreeNodeView: View {
         }
         .padding(.leading, CGFloat(depth) * Self.indentWidth)
         .background(matchBackground)
+        .contentShape(Rectangle())
+        .contextMenu { copyMenu }
         .id(node.path)
+    }
+
+    @ViewBuilder private var copyMenu: some View {
+        Button(String(localized: "Copy Value", bundle: RockxyLocalization.bundle)) {
+            Self.copy(node.jsonText(unquotedStrings: true))
+        }
+        if let key = node.key {
+            Button(String(localized: "Copy Key", bundle: RockxyLocalization.bundle)) {
+                Self.copy(key)
+            }
+            Button(String(localized: "Copy Key and Value", bundle: RockxyLocalization.bundle)) {
+                Self.copy("\(JSONPathNode.quoted(key)): \(node.jsonText())")
+            }
+        }
+        Divider()
+        Button(String(localized: "Copy JSONPath", bundle: RockxyLocalization.bundle)) {
+            Self.copy(node.path)
+        }
+    }
+
+    private static func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func visibleObjectPairs(_ pairs: [(key: String, value: JSONPathNode)]) -> [(
@@ -524,4 +625,36 @@ private struct JSONTreeNodeView: View {
         }
         return items.filter(filter.includes)
     }
+}
+
+// MARK: - JQTreeResult
+
+/// jq output rendered as text, one pretty-printed value per result like the jq command.
+struct JQTreeResult: Sendable, Equatable {
+    // MARK: Lifecycle
+
+    init(output: JQFilter.Output, maxCharacters: Int = 1_000_000) {
+        var text = ""
+        var isTruncated = output.isTruncated
+        for (index, value) in output.values.enumerated() {
+            if index > 0 {
+                text += "\n"
+            }
+            text += value.jsonText(pretty: true)
+            if text.count > maxCharacters {
+                text = String(text.prefix(maxCharacters)) + "\n…"
+                isTruncated = true
+                break
+            }
+        }
+        self.text = text
+        count = output.values.count
+        self.isTruncated = isTruncated
+    }
+
+    // MARK: Internal
+
+    let text: String
+    let count: Int
+    let isTruncated: Bool
 }

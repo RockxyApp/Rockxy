@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 final class AppLifecycleState {
     var showWelcome = false
     var showKeyboardShortcuts = false
+    var showCommandPalette = false
 }
 
 // MARK: - RockxyApp
@@ -28,6 +29,7 @@ struct RockxyApp: App {
             : ProjectCatalogRepository()
         let coordinator = MainContentCoordinator(projectCatalogRepository: projectRepository)
         _mainCoordinator = State(initialValue: coordinator)
+        ExternalDocumentOpenRouter.shared.register(coordinator: coordinator)
 
         // Nearby transfer belongs to the app lifecycle, not the main-window
         // lifecycle. macOS can restore Rockxy with no open windows, and the
@@ -98,6 +100,10 @@ struct RockxyApp: App {
         developerSetupWindow
 
         settingsWindow
+
+        ReverseProxyWindowScene()
+        DNSSpoofingWindowScene()
+        TLSKeyLogWindowScene()
 
         macCertificateSetupGuideWindow
 
@@ -612,6 +618,7 @@ private struct MainWindowContent: View {
             )) {
                 KeyboardShortcutsView()
             }
+            .modifier(CommandPaletteSheet(lifecycleState: lifecycleState, coordinator: coordinator))
             .task {
                 guard !setupChecked else {
                     return
@@ -766,6 +773,8 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command])
 
+            OpenRecentCaptureMenu(recents: RecentCaptureDocuments.shared)
+
             Button(String(localized: "Save Session…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.saveSession()
             }
@@ -782,6 +791,16 @@ struct RockxyMenuCommands: Commands {
                 proxyActions.exportHAR()
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Button(String(localized: "Export CSV…", bundle: RockxyLocalization.bundle)) {
+                proxyActions.exportCSV()
+            }
+            .disabled(!proxyActions.hasVisibleTransactions)
+
+            Button(String(localized: "Export Rockxy Session…", bundle: RockxyLocalization.bundle)) {
+                proxyActions.exportRockxySession()
+            }
+            .disabled(!proxyActions.hasVisibleTransactions)
 
             Button(String(localized: "Export OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.exportOpenAPIYAML()
@@ -878,10 +897,21 @@ struct RockxyMenuCommands: Commands {
 
     private var viewMenu: some Commands {
         CommandGroup(after: .toolbar) {
-            Button(String(localized: "Filter Domain or App", bundle: RockxyLocalization.bundle)) {
+            Button(proxyActions.advancedFiltersMenuTitle) {
                 proxyActions.toggleFilterBar()
             }
             .keyboardShortcut("f", modifiers: [.command, .shift])
+
+            Button(String(localized: "Search Apps and Domains", bundle: RockxyLocalization.bundle)) {
+                proxyActions.focusSidebarSearchField()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .option])
+
+            Button(String(localized: "Command Palette…", bundle: RockxyLocalization.bundle)) {
+                openWindow(id: "main")
+                lifecycleState.showCommandPalette = true
+            }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
 
             Divider()
 
@@ -933,6 +963,14 @@ struct RockxyMenuCommands: Commands {
             }
             .keyboardShortcut("\\", modifiers: [.command, .control])
 
+            Button(
+                proxyActions.isTrafficSplitViewVisible
+                    ? String(localized: "Hide Split View", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Show Split View", bundle: RockxyLocalization.bundle)
+            ) {
+                proxyActions.toggleTrafficSplitView()
+            }
+
             Divider()
 
             Button(String(localized: "Select Next Tab", bundle: RockxyLocalization.bundle)) {
@@ -944,6 +982,8 @@ struct RockxyMenuCommands: Commands {
                 proxyActions.previousWorkspaceTab()
             }
             .keyboardShortcut("[", modifiers: [.command, .shift])
+
+            WorkspaceTabNumberCommands(actions: proxyActions)
 
             Divider()
 
@@ -972,7 +1012,12 @@ struct RockxyMenuCommands: Commands {
                 proxyActions.replayRequest()
             }
             .keyboardShortcut("r", modifiers: [.command])
-            .disabled(!proxyActions.hasSelectedTransaction)
+            .disabled(!proxyActions.canRepeatSelection)
+
+            Button(String(localized: "Repeat Through Rules", bundle: RockxyLocalization.bundle)) {
+                proxyActions.replayThroughRules()
+            }
+            .disabled(!proxyActions.canRepeatSelection)
 
             Button(String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle)) {
                 proxyActions.editAndRepeat()
@@ -982,28 +1027,7 @@ struct RockxyMenuCommands: Commands {
 
             Divider()
 
-            Menu(String(localized: "Export", bundle: RockxyLocalization.bundle)) {
-                Button(String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportHAR()
-                }
-
-                Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportOpenAPIYAML()
-                }
-                .disabled(!proxyActions.canExportOpenAPI)
-
-                Button(String(localized: "Export as OpenAPI HTML…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.exportOpenAPIHTML()
-                }
-                .disabled(!proxyActions.canExportOpenAPI)
-
-                Divider()
-
-                Button(String(localized: "Publish Selected to Gist…", bundle: RockxyLocalization.bundle)) {
-                    proxyActions.publishSelectedToGist()
-                }
-                .disabled(!proxyActions.canPublishGist)
-            }
+            FlowExportMenu(actions: proxyActions)
 
             Divider()
 
@@ -1014,7 +1038,7 @@ struct RockxyMenuCommands: Commands {
 
             Menu(String(localized: "Highlight", bundle: RockxyLocalization.bundle)) {
                 ForEach(HighlightColor.allCases, id: \.self) { color in
-                    Button(color.rawValue.capitalized) {
+                    Button(color.displayName) {
                         proxyActions.setHighlight(color)
                     }
                 }
@@ -1022,8 +1046,9 @@ struct RockxyMenuCommands: Commands {
                 Button(String(localized: "Remove Highlight", bundle: RockxyLocalization.bundle)) {
                     proxyActions.setHighlight(nil)
                 }
+                Button(String(localized: "Strikethrough", bundle: RockxyLocalization.bundle), action: proxyActions.toggleStrikethrough)
             }
-            .disabled(!proxyActions.hasSelectedTransaction)
+            .disabled(!proxyActions.canRepeatSelection)
 
             Divider()
 
@@ -1085,6 +1110,7 @@ struct RockxyMenuCommands: Commands {
             Divider()
 
             Toggle(String(localized: "No Caching", bundle: RockxyLocalization.bundle), isOn: $isNoCachingEnabled)
+                .keyboardShortcut("c", modifiers: [.command, .option])
 
             Divider()
 
@@ -1170,6 +1196,7 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Network Conditions…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "networkConditions")
             }
+            ConnectionToolsMenuItems()
 
             Divider()
 
@@ -1184,20 +1211,7 @@ struct RockxyMenuCommands: Commands {
     }
 
     private var diffMenu: some Commands {
-        CommandMenu(String(localized: "Diff", bundle: RockxyLocalization.bundle)) {
-            Button(String(localized: "Open Diff View…", bundle: RockxyLocalization.bundle)) {
-                openWindow(id: "diff")
-            }
-            .keyboardShortcut("y", modifiers: [.command, .option])
-
-            Divider()
-
-            Button(String(localized: "Compare Selected", bundle: RockxyLocalization.bundle)) {
-                proxyActions.compareSelected()
-            }
-            .keyboardShortcut("d", modifiers: [.command, .option])
-            .disabled(!proxyActions.canCompareSelected)
-        }
+        DiffCommands(proxyActions: proxyActions)
     }
 
     private var scriptingMenu: some Commands {

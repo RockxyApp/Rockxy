@@ -74,7 +74,14 @@ struct GRPCInspectorView: View {
                     inspection.requestContentType ?? inspection.responseContentType ?? "application/grpc",
                     color: .secondary
                 )
-                badge(String(localized: "Wire-format heuristic", bundle: RockxyLocalization.bundle), color: .orange)
+                if schemaMethod(for: inspection) != nil {
+                    badge(String(localized: "Schema decoded", bundle: RockxyLocalization.bundle), color: .green)
+                } else {
+                    badge(
+                        String(localized: "Wire-format heuristic", bundle: RockxyLocalization.bundle),
+                        color: .orange
+                    )
+                }
                 if let grpcStatus = inspection.grpcStatus {
                     badge(
                         String(localized: "grpc-status: \(grpcStatus)", bundle: RockxyLocalization.bundle),
@@ -211,38 +218,28 @@ struct GRPCInspectorView: View {
                     Spacer(minLength: 0)
                 }
 
-                if frame.isCompressed {
+                if let payload = decodablePayload(frame, in: inspection) {
+                    ProtobufPayloadInspectorView(
+                        payload: payload,
+                        context: ProtobufPayloadContext(
+                            url: transaction.request.url,
+                            method: transaction.request.method,
+                            direction: frame.direction == .request ? .request : .response
+                        ),
+                        payloadID: "\(transaction.id.uuidString)-\(frame.id)"
+                    )
+                    .frame(minHeight: 240)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    }
+                } else {
                     InspectorEmptyStateView(
                         String(localized: "Compressed Message", bundle: RockxyLocalization.bundle),
                         systemImage: "archivebox",
                         description: String(
-                            localized: "This gRPC message is compressed. Rockxy preserves the frame boundary but does not decode compressed message payloads yet.",
-                            bundle: RockxyLocalization.bundle
-                        )
-                    )
-                    .frame(minHeight: 160)
-                } else if let tree = frame.heuristicTree {
-                    ProtobufTreeView(tree: tree)
-                        .frame(minHeight: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                        }
-                    Text(
-                        String(
-                            localized: "Field numbers are inferred heuristically; saved schemas are not applied in this build.",
-                            bundle: RockxyLocalization.bundle
-                        )
-                    )
-                    .font(.system(size: metrics.secondaryFontSize))
-                    .foregroundStyle(.secondary)
-                } else {
-                    InspectorEmptyStateView(
-                        String(localized: "Raw Protobuf Payload", bundle: RockxyLocalization.bundle),
-                        systemImage: "doc.binary",
-                        description: String(
-                            localized: "Rockxy captured the gRPC frame, but heuristic Protobuf decoding could not infer a safe tree.",
+                            localized: "This gRPC message uses a compression Rockxy cannot decode, so its fields cannot be shown.",
                             bundle: RockxyLocalization.bundle
                         )
                     )
@@ -309,6 +306,10 @@ struct GRPCInspectorView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            Button(String(localized: "Manage Schemas…", bundle: RockxyLocalization.bundle)) {
+                onOpenToolWindow("protobufSchemaList")
+            }
+            .controlSize(.small)
             Button(String(localized: "Protobuf Mapping…", bundle: RockxyLocalization.bundle)) {
                 onOpenToolWindow("protobufSettings")
             }
@@ -460,6 +461,9 @@ struct GRPCInspectorView: View {
         if frame.isCompressed {
             return String(localized: "Compressed", bundle: RockxyLocalization.bundle)
         }
+        if ProtobufSchemaStore.shared.combinedSchema().method(forGRPCPath: transaction.request.url.path) != nil {
+            return String(localized: "Schema", bundle: RockxyLocalization.bundle)
+        }
         if frame.heuristicTree != nil {
             return String(localized: "Heuristic tree", bundle: RockxyLocalization.bundle)
         }
@@ -505,14 +509,39 @@ struct GRPCInspectorView: View {
     }
 
     private func descriptorCopy(_ inspection: GRPCInspection) -> String {
-        _ = inspection
+        if let method = schemaMethod(for: inspection) {
+            return String(
+                localized: "Messages decode as \(method.inputType) and \(method.outputType) from your imported schemas.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
         return String(
-            localized:
-            """
-            This view uses heuristic Protobuf decoding. Saved schemas and mapping definitions are \
-            stored locally and are not applied to gRPC traffic in this build.
-            """, bundle: RockxyLocalization.bundle
+            localized: """
+            Import this service's .proto or .desc file in Local Protobuf Schemas to see field names. \
+            Until then, field numbers and values are inferred from the wire format.
+            """,
+            bundle: RockxyLocalization.bundle
         )
+    }
+
+    private func schemaMethod(for inspection: GRPCInspection) -> ProtobufMethodSchema? {
+        guard let path = inspection.fullMethodPath else {
+            return nil
+        }
+        return ProtobufSchemaStore.shared.combinedSchema().method(forGRPCPath: path)
+    }
+
+    /// The message bytes to decode: uncompressed frames as-is, gzip/deflate frames inflated.
+    private func decodablePayload(_ frame: GRPCMessageFrame, in inspection: GRPCInspection) -> Data? {
+        guard frame.isCompressed else {
+            return frame.payload
+        }
+        let encoding = frame.direction == .request ? inspection.requestEncoding : inspection.responseEncoding
+        guard let encoding, encoding.lowercased() != "identity" else {
+            return nil
+        }
+        let result = BodyDecoder.decodeReportingChange(frame.payload, encoding: encoding)
+        return result.didDecode ? result.data : nil
     }
 }
 

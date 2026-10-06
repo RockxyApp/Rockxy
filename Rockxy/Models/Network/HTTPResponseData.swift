@@ -9,6 +9,8 @@ struct HTTPResponseData: Sendable {
     var headers: [HTTPHeader]
     var body: Data?
     var bodyTruncated: Bool = false
+    /// Headers sent after the body, such as gRPC's `grpc-status`; nil when none were sent.
+    var trailers: [HTTPHeader]?
     var contentType: ContentType?
 
     var setCookies: [HTTPCookie] {

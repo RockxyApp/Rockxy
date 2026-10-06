@@ -137,7 +137,7 @@ struct InvestigationContextBuilder {
     {
         let boundedHeaders = Array(headers.prefix(max(0, limits.maxHeaders)))
         let redactedCount = boundedHeaders.count {
-            SensitiveDataRedactor.sensitiveHeaders.contains($0.name.lowercased())
+            SensitiveDataRedactor.isSensitiveName($0.name, exact: SensitiveDataRedactor.sensitiveHeaders)
         }
         let sanitized = redactor.redactHeaders(boundedHeaders).map {
             PayloadHeader(
@@ -181,7 +181,7 @@ struct InvestigationContextBuilder {
         guard let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else {
             return 0
         }
-        return items.count { SensitiveDataRedactor.sensitiveQueryParams.contains($0.name.lowercased()) }
+        return items.count { SensitiveDataRedactor.isSensitiveName($0.name, exact: SensitiveDataRedactor.sensitiveQueryParams) }
     }
 
     private func sensitiveURLCredentialCount(in url: URL) -> Int {

@@ -30,11 +30,105 @@ final class WorkspaceStore {
     /// Refreshable at runtime via ``refreshCapacity(maxWorkspaces:)``.
     private(set) var maxWorkspaces: Int
 
+    /// The traffic tabs, in tab-strip order. Split-view companion panes are not tabs and
+    /// live in ``splitCompanions`` instead.
     var workspaces: [WorkspaceState]
+    /// The selected tab. When that tab's companion pane has focus, ``activeWorkspace`` is the
+    /// companion rather than the tab itself.
     var activeWorkspaceID: UUID
 
-    var activeWorkspace: WorkspaceState {
+    /// Second traffic pane shown beside a tab in split view, keyed by the owning tab's id.
+    /// A companion reads the same capture with its own filters and selection, never appears
+    /// in the tab strip, and is not saved with the Project.
+    private(set) var splitCompanions: [UUID: WorkspaceState] = [:]
+
+    /// Tabs whose companion pane currently has focus.
+    private(set) var focusedCompanionTabIDs: Set<UUID> = []
+
+    /// The selected tab, ignoring which of its panes has focus.
+    var activeTab: WorkspaceState {
         workspaces.first { $0.id == activeWorkspaceID } ?? workspaces[0]
+    }
+
+    /// The pane that commands, filters, and the inspector act on: the selected tab, or its
+    /// companion pane when that pane has focus.
+    var activeWorkspace: WorkspaceState {
+        let tab = activeTab
+        if focusedCompanionTabIDs.contains(tab.id), let companion = splitCompanions[tab.id] {
+            return companion
+        }
+        return tab
+    }
+
+    /// Every tab and companion pane. Capture updates, eviction, and resets fan out over this
+    /// so a companion pane stays live even while it is not focused.
+    var allWorkspaces: [WorkspaceState] {
+        workspaces + workspaces.compactMap { splitCompanions[$0.id] }
+    }
+
+    func workspace(id: UUID) -> WorkspaceState? {
+        allWorkspaces.first { $0.id == id }
+    }
+
+    func splitCompanion(for tabID: UUID) -> WorkspaceState? {
+        splitCompanions[tabID]
+    }
+
+    /// The tab that owns a companion pane, or `nil` when `workspaceID` is not a companion.
+    func ownerTabID(ofCompanion workspaceID: UUID) -> UUID? {
+        splitCompanions.first { $0.value.id == workspaceID }?.key
+    }
+
+    /// Opens (or reuses) the companion pane for `tabID` and focuses it. A non-empty `filter`
+    /// replaces the companion's filter so a sidebar source can open directly in the pane.
+    @discardableResult
+    func openSplit(for tabID: UUID, filter: FilterCriteria = .empty) -> WorkspaceState? {
+        guard let tab = workspaces.first(where: { $0.id == tabID }) else {
+            return nil
+        }
+        let companion: WorkspaceState
+        if let existing = splitCompanions[tabID] {
+            companion = existing
+            if !filter.isEmpty {
+                companion.filterCriteria = filter
+            }
+        } else {
+            companion = WorkspaceState(
+                title: tab.title,
+                isClosable: true,
+                initialFilter: filter,
+                inspectorLayout: .bottom,
+                isContextDockVisible: false,
+                allowsAutomaticInspectorReveal: true
+            )
+            companion.activeSortDescriptors = tab.activeSortDescriptors
+            splitCompanions[tabID] = companion
+        }
+        if !filter.isEmpty {
+            // The sidebar row that produced this filter is not the pane's own selection.
+            companion.sidebarSelection = nil
+        }
+        activeWorkspaceID = tabID
+        focusedCompanionTabIDs.insert(tabID)
+        return companion
+    }
+
+    /// Closes the companion pane of `tabID`; the tab's own pane takes focus again.
+    func closeSplit(for tabID: UUID) {
+        splitCompanions[tabID] = nil
+        focusedCompanionTabIDs.remove(tabID)
+    }
+
+    /// Gives focus to a pane: a tab id selects that tab's own pane, a companion id selects its
+    /// owning tab with the companion focused. Unknown ids are ignored.
+    func focusPane(_ workspaceID: UUID) {
+        if workspaces.contains(where: { $0.id == workspaceID }) {
+            activeWorkspaceID = workspaceID
+            focusedCompanionTabIDs.remove(workspaceID)
+        } else if let ownerID = ownerTabID(ofCompanion: workspaceID) {
+            activeWorkspaceID = ownerID
+            focusedCompanionTabIDs.insert(ownerID)
+        }
     }
 
     var activeWorkspaceIndex: Int {
@@ -93,6 +187,7 @@ final class WorkspaceStore {
 
         let wasActive = id == activeWorkspaceID
         workspaces.remove(at: index)
+        closeSplit(for: id)
 
         if wasActive {
             let newIndex = min(index, workspaces.count - 1)
@@ -207,6 +302,10 @@ final class WorkspaceStore {
 
     func closeOtherWorkspaces(except id: UUID) {
         workspaces.removeAll { $0.id != id && $0.isClosable }
+        let remaining = Set(workspaces.map(\.id))
+        for tabID in splitCompanions.keys where !remaining.contains(tabID) {
+            closeSplit(for: tabID)
+        }
         if !workspaces.contains(where: { $0.id == activeWorkspaceID }) {
             activeWorkspaceID = workspaces[0].id
         }
@@ -269,6 +368,8 @@ final class WorkspaceStore {
         }
 
         workspaces = hydrated
+        splitCompanions.removeAll()
+        focusedCompanionTabIDs.removeAll()
         activeWorkspaceID = hydrated.contains { $0.id == activeTabID }
             ? activeTabID
             : hydrated[0].id

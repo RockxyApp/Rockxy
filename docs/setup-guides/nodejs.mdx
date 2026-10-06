@@ -137,6 +137,10 @@ Automatic Setup and Manual Setup prepare the shell session with proxy and certif
 
 The library snippets remain useful even inside a prepared terminal because they show the exact proxy and certificate options your Node client needs.
 
+<Note>
+`NODE_USE_ENV_PROXY` makes Node's built-in `fetch` and `http`/`https` honor the proxy variables from **Node 22.21 or 24.5** onward. On older Node versions, and for libraries such as `got`, `superagent`, or `node-fetch` that build their own agents, the prepared terminal captures nothing: configure the proxy in the client with the snippet instead. `NODE_EXTRA_CA_CERTS` is set automatically from Rockxy's root certificate, so no export step is needed after Install & Trust.
+</Note>
+
 ## Troubleshooting
 
 | Problem | Next action |

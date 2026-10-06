@@ -32,6 +32,11 @@ struct MainContentCommandActions {
         coordinator.selectedTransaction != nil
     }
 
+    /// Repeat also works on a multi-row selection, which may have no single focused row.
+    var canRepeatSelection: Bool {
+        coordinator.selectedTransaction != nil || !coordinator.selectedTransactionIDs.isEmpty
+    }
+
     var hasVisibleTransactions: Bool {
         !coordinator.filteredTransactions.isEmpty
     }
@@ -69,7 +74,7 @@ struct MainContentCommandActions {
     }
 
     var canCloseWorkspaceTab: Bool {
-        coordinator.workspaceStore.activeWorkspace.isClosable
+        coordinator.workspaceStore.activeTab.isClosable
     }
 
     var canRenameWorkspaceTab: Bool {
@@ -151,6 +156,26 @@ struct MainContentCommandActions {
         coordinator.exportHAR()
     }
 
+    func exportCSV() {
+        coordinator.exportCSV()
+    }
+
+    func exportPostmanCollection() {
+        coordinator.exportPostmanCollection()
+    }
+
+    func exportRockxySession() {
+        coordinator.exportRockxySession()
+    }
+
+    var isTrafficSplitViewVisible: Bool {
+        coordinator.isTrafficSplitViewVisible
+    }
+
+    func toggleTrafficSplitView() {
+        coordinator.toggleTrafficSplitView()
+    }
+
     func exportOpenAPIYAML() {
         coordinator.exportOpenAPIYAML()
     }
@@ -175,6 +200,10 @@ struct MainContentCommandActions {
         coordinator.replaySelectedRequest()
     }
 
+    func replayThroughRules() {
+        coordinator.replaySelectedThroughRules()
+    }
+
     func composeFreshRequest() {
         ComposeStore.shared.requestBlankDraft()
         NotificationCenter.default.post(name: .openComposeWindow, object: nil)
@@ -195,10 +224,21 @@ struct MainContentCommandActions {
     }
 
     func setHighlight(_ color: HighlightColor?) {
-        guard let transaction = coordinator.selectedTransaction else {
-            return
+        let selected = coordinator.resolveSelectedTransactions()
+        if selected.isEmpty, let transaction = coordinator.selectedTransaction {
+            coordinator.setHighlight(color, for: [transaction])
+        } else {
+            coordinator.setHighlight(color, for: selected)
         }
-        coordinator.setHighlight(color, for: transaction)
+    }
+
+    func toggleStrikethrough() {
+        let selected = coordinator.resolveSelectedTransactions()
+        if selected.isEmpty, let transaction = coordinator.selectedTransaction {
+            coordinator.toggleStrikethrough(for: [transaction])
+        } else {
+            coordinator.toggleStrikethrough(for: selected)
+        }
     }
 
     func setFollowingLiveTraffic(_ isEnabled: Bool) {
@@ -217,6 +257,21 @@ struct MainContentCommandActions {
     func toggleFilterBar() {
         coordinator.isFilterBarVisible.toggle()
         coordinator.recomputeFilteredTransactions()
+    }
+
+    var isFilterBarVisible: Bool {
+        coordinator.isFilterBarVisible
+    }
+
+    var advancedFiltersMenuTitle: String {
+        isFilterBarVisible
+            ? String(localized: "Hide Advanced Filters", bundle: RockxyLocalization.bundle)
+            : String(localized: "Show Advanced Filters", bundle: RockxyLocalization.bundle)
+    }
+
+    /// Reveals the sidebar if needed and moves keyboard focus to its app/domain search field.
+    func focusSidebarSearchField() {
+        NotificationCenter.default.post(name: .focusSidebarSearchField, object: nil)
     }
 
     func focusSearchField() {
@@ -251,6 +306,11 @@ struct MainContentCommandActions {
     // MARK: - Selection
 
     func deleteSelected() {
+        // The same shortcut removes a rule in the tool windows; it must never reach traffic rows
+        // from there.
+        guard RockxyWorkspaceWindowManager.shared.isWorkspaceWindowKey else {
+            return
+        }
         coordinator.deleteSelectedTransaction()
     }
 
@@ -267,6 +327,24 @@ struct MainContentCommandActions {
             return
         }
         coordinator.createBreakpointRule(for: transaction)
+    }
+
+    var canSetDiffSide: Bool {
+        coordinator.selectedTransaction != nil
+    }
+
+    /// Puts the selected request on one side of the Diff window and opens it, so a comparison
+    /// can be assembled one request at a time.
+    func setDiffSide(left: Bool) {
+        guard let transaction = coordinator.selectedTransaction else {
+            return
+        }
+        if left {
+            DiffTransactionStore.shared.pendingLeft = transaction
+        } else {
+            DiffTransactionStore.shared.pendingRight = transaction
+        }
+        NotificationCenter.default.post(name: .openDiffWindow, object: nil)
     }
 
     func compareSelected() {
@@ -299,6 +377,10 @@ struct MainContentCommandActions {
 
     func renameWorkspaceTab() {
         RockxyWorkspaceWindowManager.shared.beginRenameForActiveWorkspace(coordinator: coordinator)
+    }
+
+    var workspaceTabCount: Int {
+        coordinator.workspaceStore.workspaces.count
     }
 
     func selectWorkspaceTab(at index: Int) {

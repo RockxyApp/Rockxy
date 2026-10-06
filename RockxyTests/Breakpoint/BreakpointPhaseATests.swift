@@ -47,12 +47,12 @@ struct BreakpointPhaseATests {
     @Test("ruleEditorOpensWithDefaultDraft")
     func ruleEditorOpensWithDefaultDraft() {
         let store = BreakpointRuleEditorStore.shared
-        store.openNew { _, _, _, _, _, _, _ in true }
+        store.openNew { _, _, _, _, _, _, _, _ in true }
         let firstVersion = store.draftVersion
         #expect(store.editingRule == nil)
         #expect(store.editorContext == nil)
 
-        store.openNew { _, _, _, _, _, _, _ in true }
+        store.openNew { _, _, _, _, _, _, _, _ in true }
         #expect(store.editingRule == nil)
         #expect(store.editorContext == nil)
         #expect(store.draftVersion == firstVersion + 1)

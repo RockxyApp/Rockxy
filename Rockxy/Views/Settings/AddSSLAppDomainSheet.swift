@@ -226,7 +226,7 @@ struct AddSSLAppDomainSheet: View {
             TextField(
                 String(localized: "Search app or domain", bundle: RockxyLocalization.bundle),
                 text: $searchText,
-                prompt: Text(String(localized: "Search app or domain (⌘F)", bundle: RockxyLocalization.bundle))
+                prompt: Text(String(localized: "Search app or domain", bundle: RockxyLocalization.bundle))
             )
             .textFieldStyle(.roundedBorder)
             .font(toolMetrics.font())

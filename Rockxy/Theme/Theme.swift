@@ -154,6 +154,14 @@ enum Theme {
 
     // MARK: - JSON Syntax
 
+    enum DropTarget {
+        static let cornerRadius: CGFloat = 10
+        static let inset: CGFloat = 8
+        static let lineWidth: CGFloat = 2
+        static let dash: [CGFloat] = [8, 5]
+        static let fillOpacity = 0.08
+    }
+
     enum JSON {
         static let key = Color(nsColor: keyNS)
         static let string = Color(nsColor: stringNS)
@@ -173,6 +181,19 @@ enum Theme {
     }
 
     // MARK: - Filter Pills
+
+    /// Connection Log roles. Semantic system colors keep contrast in Light and Dark.
+    enum ConnectionLog {
+        static let markerNS = NSColor.tertiaryLabelColor
+        static let eventNS = NSColor.labelColor
+        static let hostNS = NSColor.systemTeal
+        static let tlsNS = NSColor.systemPurple
+        static let successNS = NSColor.systemGreen
+        static let warningNS = NSColor.systemOrange
+        static let failureNS = NSColor.systemRed
+        static let headerNameNS = JSON.headerNS
+        static let noteNS = NSColor.secondaryLabelColor
+    }
 
     enum FilterPill {
         static let activeBackground = Color.accentColor.opacity(0.15)
@@ -359,12 +380,14 @@ enum Theme {
         static let green = Color(nsColor: .systemGreen)
         static let blue = Color(nsColor: .systemBlue)
         static let purple = Color(nsColor: .systemPurple)
+        static let gray = Color(nsColor: .systemGray)
 
         static let redNS: NSColor = .systemRed
         static let orangeNS: NSColor = .systemOrange
         static let yellowNS: NSColor = .systemYellow
         static let greenNS: NSColor = .systemGreen
         static let blueNS: NSColor = .systemBlue
+        static let grayNS: NSColor = .systemGray
         static let purpleNS: NSColor = .systemPurple
     }
 

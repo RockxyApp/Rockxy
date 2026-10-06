@@ -9,7 +9,10 @@ import Foundation
 
 /// User-facing traffic export formats available from the main capture workspace.
 enum TrafficExportFormat: String, CaseIterable {
+    case rockxySession
     case har
+    case csv
+    case postman
     case openAPIYAML
     case openAPIHTML
 
@@ -17,8 +20,14 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var title: String {
         switch self {
+        case .rockxySession:
+            String(localized: "Export as Rockxy Session", bundle: RockxyLocalization.bundle)
         case .har:
             String(localized: "Export as HAR", bundle: RockxyLocalization.bundle)
+        case .csv:
+            String(localized: "Export as CSV", bundle: RockxyLocalization.bundle)
+        case .postman:
+            String(localized: "Export as Postman Collection", bundle: RockxyLocalization.bundle)
         case .openAPIYAML:
             String(localized: "Export as OpenAPI YAML", bundle: RockxyLocalization.bundle)
         case .openAPIHTML:
@@ -26,9 +35,18 @@ enum TrafficExportFormat: String, CaseIterable {
         }
     }
 
+    /// Formats that write headers, bodies, or full URLs can have recognized secrets replaced
+    /// before the file is written. OpenAPI already leaves those values out.
+    var supportsRedaction: Bool {
+        !isOpenAPI
+    }
+
     var isOpenAPI: Bool {
         switch self {
-        case .har:
+        case .rockxySession,
+             .har,
+             .csv,
+             .postman:
             false
         case .openAPIYAML,
              .openAPIHTML:
@@ -38,9 +56,27 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var privacyNote: String {
         switch self {
+        case .rockxySession:
+            String(
+                localized: "Rockxy sessions keep full URLs, headers, cookies, bodies, timing, notes, and highlights. Review the file before sharing.",
+                bundle: RockxyLocalization.bundle
+            )
         case .har:
             String(
                 localized: "HAR files can include captured URLs, headers, cookies, authorization and query values, and request/response bodies. Review the file before sharing.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .csv:
+            String(
+                localized: "CSV files list full URLs with query strings, client apps, and notes. Headers and bodies are not included. Review the file before sharing.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .postman:
+            String(
+                localized: """
+                Postman collections keep full URLs, request headers including authorization and cookies, \
+                request bodies, and captured responses as examples. Review the file before sharing.
+                """,
                 bundle: RockxyLocalization.bundle
             )
         case .openAPIYAML,
@@ -56,9 +92,24 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var subtitle: String {
         switch self {
+        case .rockxySession:
+            String(
+                localized: "Choose which captured transactions to save in a session file that Rockxy can reopen.",
+                bundle: RockxyLocalization.bundle
+            )
         case .har:
             String(
                 localized: "Choose which captured transactions to save in this HAR archive.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .csv:
+            String(
+                localized: "Choose which captured transactions to list, one row each, in this CSV file.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .postman:
+            String(
+                localized: "Choose which HTTP requests to save as a Postman collection, grouped by host.",
                 bundle: RockxyLocalization.bundle
             )
         case .openAPIYAML,
@@ -72,8 +123,14 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var defaultFileName: String {
         switch self {
+        case .rockxySession:
+            "rockxy-export.rockxysession"
         case .har:
             "rockxy-export.har"
+        case .csv:
+            "rockxy-export.csv"
+        case .postman:
+            "rockxy-export.postman_collection.json"
         case .openAPIYAML:
             "rockxy-openapi.yaml"
         case .openAPIHTML:
@@ -83,8 +140,14 @@ enum TrafficExportFormat: String, CaseIterable {
 
     var successLabel: String {
         switch self {
+        case .rockxySession:
+            String(localized: "Rockxy Session", bundle: RockxyLocalization.bundle)
         case .har:
             "HAR"
+        case .csv:
+            "CSV"
+        case .postman:
+            String(localized: "Postman Collection", bundle: RockxyLocalization.bundle)
         case .openAPIYAML:
             "OpenAPI YAML"
         case .openAPIHTML:
@@ -93,12 +156,16 @@ enum TrafficExportFormat: String, CaseIterable {
     }
 
     /// Whether a single captured transaction can appear in this format's output.
-    /// HAR carries every transaction verbatim; OpenAPI only accepts requests it
-    /// can infer a schema from.
+    /// Sessions, HAR, and CSV carry every transaction verbatim; OpenAPI only
+    /// accepts requests it can infer a schema from.
     func isEligible(_ transaction: HTTPTransaction) -> Bool {
         switch self {
-        case .har:
+        case .rockxySession,
+             .har,
+             .csv:
             true
+        case .postman:
+            PostmanCollectionExporter.isEligible(transaction)
         case .openAPIYAML,
              .openAPIHTML:
             OpenAPIExporter.isEligible(transaction)
@@ -388,4 +455,16 @@ struct ExportExecutionPlan {
 
     /// Count of reviewed transactions this format cannot emit.
     let skippedCount: Int
+
+    /// The same plan with recognized secrets (sensitive headers, URL tokens, body values)
+    /// replaced in copies of the transactions; the captured session is left untouched.
+    func redactingSensitiveData(using redactor: SensitiveDataRedactor = SensitiveDataRedactor()) -> ExportExecutionPlan {
+        ExportExecutionPlan(
+            format: format,
+            scope: scope,
+            reviewedSource: reviewedSource,
+            eligibleTransactions: eligibleTransactions.map(redactor.redactTransaction),
+            skippedCount: skippedCount
+        )
+    }
 }

@@ -40,6 +40,25 @@ struct BreakpointPhaseETests {
         _ = await task.value
     }
 
+    @Test("A blank header row from Add Header is not an error and is dropped on apply")
+    func blankHeaderRowIsIgnored() async throws {
+        let blank = EditableHeader(name: "", value: " ")
+        var draft = BreakpointRequestData.test(headers: [EditableHeader(name: "X-Test", value: "1"), blank], phase: .response)
+        #expect(draft.executionValidationMessage == nil)
+        draft.headers.append(EditableHeader(name: "", value: "orphan value"))
+        #expect(draft.executionValidationMessage != nil)
+
+        let manager = BreakpointManager()
+        let harness = BreakpointTestHarness(manager: manager, ruleEngine: RuleEngine())
+        let task = Task {
+            await manager.enqueueAndWait(.test(headers: [EditableHeader(name: "X-Test", value: "1"), blank], phase: .response))
+        }
+        let item = try await harness.awaitNextPause(timeout: 2)
+        manager.resolve(id: item.id, decision: .execute)
+        let (_, applied) = await task.value
+        #expect(applied.headers.map(\.name) == ["X-Test"])
+    }
+
     @Test("custom response status validation accepts non-preset HTTP codes")
     func customResponseStatusValidation() {
         var draft = BreakpointRequestData.test(statusCode: 200, phase: .response)

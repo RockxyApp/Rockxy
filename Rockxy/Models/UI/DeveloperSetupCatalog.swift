@@ -304,8 +304,10 @@ extension SetupTarget {
                 """, bundle: RockxyLocalization.bundle
             ),
             currentSupportSummary: String(
-                localized: "Rockxy does not drive simctl or inject the certificate into a simulator; reinstall or cold-launch the target app after the certificate is trusted.",
-                bundle: RockxyLocalization.bundle
+                localized: """
+                Rockxy can install the root certificate into booted simulators with simctl after you confirm; \
+                reinstall or cold-launch the target app after the certificate is trusted.
+                """, bundle: RockxyLocalization.bundle
             )
         )
     }
@@ -356,8 +358,10 @@ extension SetupTarget {
                 """, bundle: RockxyLocalization.bundle
             ),
             currentSupportSummary: String(
-                localized: "Rockxy provides the Dev Hub guide and temporary certificate share link; app-level TLS still depends on a debug network-security-config.",
-                bundle: RockxyLocalization.bundle
+                localized: """
+                Rockxy can set running emulators' proxy with adb, copy the certificate to them, and revert \
+                afterwards; app-level TLS still depends on a debug network-security-config.
+                """, bundle: RockxyLocalization.bundle
             )
         )
     }

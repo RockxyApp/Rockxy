@@ -254,33 +254,12 @@ final class ScriptingListViewModel {
         let id = UUID().uuidString.lowercased()
         let name = "Untitled Script \(plugins.count + 1)"
         let pluginsDir = pluginDir(for: id)
-        var createdDirectory = false
         do {
-            try FileManager.default.createDirectory(at: pluginsDir, withIntermediateDirectories: true)
-            createdDirectory = true
-
-            let manifest = PluginManifest(
+            try ScriptPluginFactory.create(
                 id: id,
                 name: name,
-                version: "1.0.0",
-                author: PluginAuthor(name: "User", url: nil),
-                description: "",
-                types: [.script],
-                entryPoints: ["script": "index.js"],
-                capabilities: ["modifyRequest", "modifyResponse"],
-                configuration: nil,
-                minRockxyVersion: nil,
-                homepage: nil,
-                license: nil,
-                scriptBehavior: ScriptBehavior.defaults()
-            )
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(manifest).write(to: pluginsDir.appendingPathComponent("plugin.json"))
-            try ScriptTemplates.defaultSource.write(
-                to: pluginsDir.appendingPathComponent("index.js"),
-                atomically: true,
-                encoding: .utf8
+                source: ScriptTemplates.defaultSource,
+                in: pluginsDir.deletingLastPathComponent()
             )
             await pluginManager.loadAllPlugins()
             await refresh()
@@ -292,13 +271,6 @@ final class ScriptingListViewModel {
             ScriptEditorSession.shared.setPending(.edit(pluginID: id))
             return id
         } catch {
-            if createdDirectory, FileManager.default.fileExists(atPath: pluginsDir.path) {
-                do {
-                    try FileManager.default.removeItem(at: pluginsDir)
-                } catch {
-                    Self.logger.error("Create script cleanup failed: \(error.localizedDescription)")
-                }
-            }
             Self.logger.error("Create script failed: \(error.localizedDescription)")
             operationError = String(
                 localized: "Could not create the script. \(error.localizedDescription)",
