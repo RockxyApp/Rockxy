@@ -42,6 +42,27 @@ enum RequestTableBoundaryNavigation: Equatable {
 /// Command-Up/Down retain their standard behavior everywhere else, including editable fields.
 final class NavigableRequestTableView: NSTableView {
     var onBoundaryNavigation: ((RequestTableBoundaryNavigation) -> Void)?
+    /// Called before a click or keyboard focus reaches the table, so a split-view pane takes
+    /// focus before its selection or context menu acts.
+    var onActivate: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onActivate?()
+        super.mouseDown(with: event)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onActivate?()
+        super.rightMouseDown(with: event)
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted {
+            onActivate?()
+        }
+        return accepted
+    }
 
     override func keyDown(with event: NSEvent) {
         guard let navigation = RequestTableBoundaryNavigation.resolve(
@@ -78,6 +99,7 @@ struct RequestTableView: NSViewRepresentable {
     var onSelectionChanged: ((Set<UUID>, UUID?) -> Void)?
     var onUserScroll: (() -> Void)?
     var onDoubleClick: ((HTTPTransaction) -> Void)?
+    var onActivate: (() -> Void)?
     var mainCoordinator: MainContentCoordinator?
     var headerColumns: [HeaderColumn] = []
 
@@ -162,6 +184,12 @@ struct RequestTableView: NSViewRepresentable {
                 width: 110,
                 minWidth: 70
             ),
+            ColumnSpec(
+                id: "version",
+                title: String(localized: "Version", bundle: RockxyLocalization.bundle),
+                width: 64,
+                minWidth: 48
+            ),
         ]
 
         return specs.map { spec in
@@ -206,7 +234,7 @@ struct RequestTableView: NSViewRepresentable {
         guard columnIDs.count >= legacyBuiltInOrder.count,
               Array(columnIDs.prefix(legacyBuiltInOrder.count)) == legacyBuiltInOrder,
               columnIDs.dropFirst(legacyBuiltInOrder.count).allSatisfy({ columnID in
-                  columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.")
+                  columnID == "version" || HeaderColumn.isCustomColumnID(columnID)
               }),
               let protocolIndex = columnIDs.firstIndex(of: "ai"),
               let rowIndex = columnIDs.firstIndex(of: "row") else
@@ -235,6 +263,7 @@ struct RequestTableView: NSViewRepresentable {
         tableView.delegate = context.coordinator
         tableView.target = context.coordinator
         tableView.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
+        tableView.onActivate = onActivate
         tableView.onBoundaryNavigation = { [weak coordinator = context.coordinator] navigation in
             MainActor.assumeIsolated {
                 switch navigation {
@@ -268,7 +297,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -287,7 +316,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -315,6 +344,7 @@ struct RequestTableView: NSViewRepresentable {
         let workspaceChanged = oldWorkspaceID != workspaceID
 
         coordinator.parent = self
+        (tableView as? NavigableRequestTableView)?.onActivate = onActivate
         coordinator.rows = rows
         coordinator.mainCoordinator = mainCoordinator
         coordinator.lastRefreshToken = newToken
@@ -369,7 +399,7 @@ struct RequestTableView: NSViewRepresentable {
         if let store = mainCoordinator?.headerColumnStore {
             for column in tableView.tableColumns {
                 let colID = column.identifier.rawValue
-                if !colID.hasPrefix("reqHeader."), !colID.hasPrefix("resHeader.") {
+                if !HeaderColumn.isCustomColumnID(colID) {
                     column.isHidden = !store.isBuiltInColumnVisible(colID)
                 }
             }
@@ -377,17 +407,19 @@ struct RequestTableView: NSViewRepresentable {
 
         // Sync per-workspace sort state into AppKit (e.g., after workspace switch).
         // A removed custom column must not leave the traffic list sorted invisibly.
-        let currentSortDescriptors = mainCoordinator?.activeSortDescriptors ?? []
+        let paneWorkspace = mainCoordinator?.workspaceStore.workspace(id: workspaceID)
+        let currentSortDescriptors = paneWorkspace?.activeSortDescriptors ?? []
         let reconciledSortDescriptors = coordinator.sortDescriptors(
             currentSortDescriptors,
             availableIn: tableView
         )
         if reconciledSortDescriptors != currentSortDescriptors,
-           let mainCoordinator
+           let mainCoordinator,
+           let paneWorkspace
         {
-            mainCoordinator.activeSortDescriptors = reconciledSortDescriptors
-            mainCoordinator.activeWorkspace.lastDeriveWasAppendOnly = false
-            mainCoordinator.deriveFilteredRows()
+            paneWorkspace.activeSortDescriptors = reconciledSortDescriptors
+            paneWorkspace.lastDeriveWasAppendOnly = false
+            mainCoordinator.deriveFilteredRows(for: paneWorkspace)
         }
         coordinator.syncSortDescriptors(from: reconciledSortDescriptors, into: tableView)
 
@@ -770,9 +802,12 @@ extension RequestTableView {
                 guard let coordinator = mainCoordinator else {
                     return
                 }
-                coordinator.activeSortDescriptors = tableView.sortDescriptors
-                coordinator.activeWorkspace.lastDeriveWasAppendOnly = false
-                coordinator.deriveFilteredRows()
+                // Sort the pane this table belongs to, which may not have focus in split view.
+                let workspace = lastWorkspaceID.flatMap { coordinator.workspaceStore.workspace(id: $0) }
+                    ?? coordinator.activeWorkspace
+                workspace.activeSortDescriptors = tableView.sortDescriptors
+                workspace.lastDeriveWasAppendOnly = false
+                coordinator.deriveFilteredRows(for: workspace)
             }
         }
 
@@ -824,6 +859,9 @@ extension RequestTableView {
 
             if let textField = cell.subviews.first as? NSTextField {
                 configureCellContent(textField, column: columnID, row: row, rowData: rowData)
+                if rowData.isStruckThrough {
+                    Self.applyStrikethrough(to: textField)
+                }
             }
 
             return cell
@@ -925,6 +963,9 @@ extension RequestTableView {
                 case "responseSize":
                     text = rowData.responseSize.map { SizeFormatter.format(bytes: $0) } ?? "—"
                     font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
+                case "version":
+                    text = RequestListRow.displayVersion(rowData.httpVersion)
+                    font = metrics.appKitFont()
                 case "queryName":
                     // Unified display: WS rows show frame count, Web3 rows show RPC method, GraphQL rows show operation
                     // name.
@@ -942,7 +983,7 @@ extension RequestTableView {
                     }
                     font = metrics.appKitFont()
                 default:
-                    if columnID.hasPrefix("reqHeader.") || columnID.hasPrefix("resHeader.") {
+                    if HeaderColumn.isCustomColumnID(columnID) {
                         text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
                         font = metrics.appKitFont(monospaced: true)
                     } else {
@@ -1179,6 +1220,11 @@ extension RequestTableView {
         }
 
         @objc
+        func handleRepeatThroughRules(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.replayThroughRules(clicked: $1) }
+        }
+
+        @objc
         func handleEditAndRepeat(_ sender: NSMenuItem) {
             withCoordinator(sender) { $0.editAndReplayTransaction($1) }
         }
@@ -1206,13 +1252,18 @@ extension RequestTableView {
                 guard tag >= 0, tag < allColors.count else {
                     return
                 }
-                coordinator.setHighlight(allColors[tag], for: transaction)
+                coordinator.setHighlight(allColors[tag], clicked: transaction)
             }
         }
 
         @objc
         func handleRemoveHighlight(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.setHighlight(nil, for: $1) }
+            withCoordinator(sender) { $0.setHighlight(nil, clicked: $1) }
+        }
+
+        @objc
+        func handleStrikethrough(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.toggleStrikethrough(clicked: $1) }
         }
 
         @objc
@@ -1288,18 +1339,33 @@ extension RequestTableView {
         }
 
         @objc
+        func handleExportRockxySession(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .rockxySession) }
+        }
+
+        @objc
         func handleExportHAR(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportTransactionAsHAR($1) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .har) }
+        }
+
+        @objc
+        func handleExportCSV(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .csv) }
+        }
+
+        @objc
+        func handleExportPostman(_ sender: NSMenuItem) {
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .postman) }
         }
 
         @objc
         func handleExportOpenAPIYAML(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportOpenAPIContextSelection(clicked: $1, format: .openAPIYAML) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .openAPIYAML) }
         }
 
         @objc
         func handleExportOpenAPIHTML(_ sender: NSMenuItem) {
-            withCoordinator(sender) { $0.exportOpenAPIContextSelection(clicked: $1, format: .openAPIHTML) }
+            withCoordinator(sender) { $0.exportContextSelection(clicked: $1, format: .openAPIHTML) }
         }
 
         @objc
@@ -1445,7 +1511,7 @@ extension RequestTableView {
                 let existingCustomIDs = Set(
                     tableView.tableColumns
                         .map(\.identifier.rawValue)
-                        .filter { $0.hasPrefix("reqHeader.") || $0.hasPrefix("resHeader.") }
+                        .filter { HeaderColumn.isCustomColumnID($0) }
                 )
 
                 var columnsChanged = false
@@ -1771,6 +1837,13 @@ extension RequestTableView {
             )
             repeatItem.isEnabled = canReplay
             menu.addItem(repeatItem)
+            let throughRulesItem = menuItem(
+                String(localized: "Repeat Through Rules", bundle: RockxyLocalization.bundle),
+                action: #selector(handleRepeatThroughRules(_:)),
+                transaction: transaction
+            )
+            throughRulesItem.isEnabled = canReplay
+            menu.addItem(throughRulesItem)
             let editAndRepeatItem = menuItem(
                 String(localized: "Edit and Repeat…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleEditAndRepeat(_:)),
@@ -1887,17 +1960,9 @@ extension RequestTableView {
             ))
 
             let highlightSubmenu = NSMenu()
-            let colors: [(String, HighlightColor)] = [
-                (String(localized: "Red", bundle: RockxyLocalization.bundle), .red),
-                (String(localized: "Orange", bundle: RockxyLocalization.bundle), .orange),
-                (String(localized: "Yellow", bundle: RockxyLocalization.bundle), .yellow),
-                (String(localized: "Green", bundle: RockxyLocalization.bundle), .green),
-                (String(localized: "Blue", bundle: RockxyLocalization.bundle), .blue),
-                (String(localized: "Purple", bundle: RockxyLocalization.bundle), .purple),
-            ]
-            for (name, color) in colors {
+            for color in HighlightColor.allCases {
                 let item = menuItem(
-                    name, action: #selector(handleHighlight(_:)), transaction: transaction
+                    color.displayName, action: #selector(handleHighlight(_:)), transaction: transaction
                 )
                 item.tag = HighlightColor.allCases.firstIndex(of: color) ?? 0
                 item.image = colorCircleImage(color.nsColor)
@@ -1914,6 +1979,14 @@ extension RequestTableView {
             )
             removeItem.isEnabled = transaction.highlightColor != nil
             highlightSubmenu.addItem(removeItem)
+            let strikeItem = menuItem(
+                String(localized: "Strikethrough", bundle: RockxyLocalization.bundle),
+                action: #selector(handleStrikethrough(_:)),
+                symbol: "strikethrough",
+                transaction: transaction
+            )
+            strikeItem.state = transaction.isStruckThrough ? .on : .off
+            highlightSubmenu.addItem(strikeItem)
 
             let highlightItem = NSMenuItem(
                 title: String(localized: "Highlight", bundle: RockxyLocalization.bundle), action: nil, keyEquivalent: ""
@@ -1924,11 +1997,36 @@ extension RequestTableView {
 
         private func buildExportGroup(_ menu: NSMenu, transaction: HTTPTransaction) {
             let exportSubmenu = NSMenu()
+            let exportsSelection = exportContextTransactions(for: transaction).count > 1
             exportSubmenu.addItem(menuItem(
-                String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle),
+                exportsSelection
+                    ? String(localized: "Export Selected as Rockxy Session…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as Rockxy Session…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportRockxySession(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as HAR…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle),
                 action: #selector(handleExportHAR(_:)),
                 transaction: transaction
             ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as CSV…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportCSV(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(menuItem(
+                exportsSelection
+                    ? String(localized: "Export Selected as Postman Collection…", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Export as Postman Collection…", bundle: RockxyLocalization.bundle),
+                action: #selector(handleExportPostman(_:)),
+                transaction: transaction
+            ))
+            exportSubmenu.addItem(.separator())
 
             let openAPITitle = openAPIExportTitle(for: transaction)
             let openAPIYAMLItem = menuItem(
@@ -1941,7 +2039,7 @@ extension RequestTableView {
                 action: #selector(handleExportOpenAPIHTML(_:)),
                 transaction: transaction
             )
-            let hasEligibleOpenAPI = openAPIContextTransactions(for: transaction)
+            let hasEligibleOpenAPI = exportContextTransactions(for: transaction)
                 .contains(where: OpenAPIExporter.isEligible)
             openAPIYAMLItem.isEnabled = hasEligibleOpenAPI
             openAPIHTMLItem.isEnabled = hasEligibleOpenAPI
@@ -2049,7 +2147,7 @@ extension RequestTableView {
             }
         }
 
-        private func openAPIContextTransactions(for transaction: HTTPTransaction) -> [HTTPTransaction] {
+        private func exportContextTransactions(for transaction: HTTPTransaction) -> [HTTPTransaction] {
             MainActor.assumeIsolated {
                 guard let coordinator = mainCoordinator,
                       coordinator.selectedTransactionIDs.contains(transaction.id),
@@ -2146,6 +2244,7 @@ extension RequestTableView {
                 ("responseSize", String(localized: "Response", bundle: RockxyLocalization.bundle)),
                 ("ssl", String(localized: "SSL", bundle: RockxyLocalization.bundle)),
                 ("queryName", String(localized: "Operation", bundle: RockxyLocalization.bundle)),
+                ("version", String(localized: "Version", bundle: RockxyLocalization.bundle)),
             ]
 
             for col in builtInColumns {
@@ -2707,6 +2806,19 @@ extension RequestTableView {
             return container
         }
 
+        private static func applyStrikethrough(to field: NSTextField) {
+            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
+            guard text.length > 0 else {
+                return
+            }
+            text.addAttribute(
+                .strikethroughStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: NSRange(location: 0, length: text.length)
+            )
+            field.attributedStringValue = text
+        }
+
         private func configureCellContent(
             _ cell: NSTextField,
             column: String,
@@ -2739,10 +2851,18 @@ extension RequestTableView {
                 cell.textColor = .secondaryLabelColor
 
             case "url":
-                cell.stringValue = rowData.host + rowData.path
-                cell.toolTip = cell.stringValue
+                let address = rowData.host + rowData.path
                 cell.font = metrics.appKitFont(monospaced: true)
                 cell.textColor = .labelColor
+                if let summary = rowData.modificationSummary {
+                    cell.attributedStringValue = Self.modifiedURLString(address, font: cell.font)
+                    cell.toolTip = address + "\n" + summary
+                    cell.setAccessibilityValue(address + ", " + summary)
+                } else {
+                    cell.stringValue = address
+                    cell.toolTip = address
+                    cell.setAccessibilityValue(nil)
+                }
 
             case "ai":
                 cell.alignment = .center
@@ -2821,6 +2941,11 @@ extension RequestTableView {
                 cell.font = .monospacedDigitSystemFont(ofSize: metrics.secondaryFontSize, weight: .regular)
                 cell.textColor = .secondaryLabelColor
 
+            case "version":
+                cell.stringValue = RequestListRow.displayVersion(rowData.httpVersion)
+                cell.textColor = .secondaryLabelColor
+                cell.toolTip = nil
+
             case "queryName":
                 if rowData.isWebSocket {
                     let count = rowData.webSocketFrameCount
@@ -2844,7 +2969,7 @@ extension RequestTableView {
                 }
 
             default:
-                if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
+                if HeaderColumn.isCustomColumnID(column) {
                     let headerValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
                     cell.stringValue = headerValue
                     cell.toolTip = headerValue.isEmpty ? nil : headerValue
@@ -2873,6 +2998,32 @@ extension RequestTableView {
             default:
                 .secondaryLabelColor
             }
+        }
+
+        /// URL text led by a small marker for exchanges a rule or script changed.
+        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            let configuration = NSImage.SymbolConfiguration(pointSize: (font?.pointSize ?? 12) - 1, weight: .semibold)
+            if let symbol = NSImage(
+                systemSymbolName: "wand.and.rays",
+                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle)
+            )?.withSymbolConfiguration(configuration) {
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                result.append(NSAttributedString(attachment: attachment))
+                result.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.systemOrange,
+                    range: NSRange(location: 0, length: result.length)
+                )
+                result.append(NSAttributedString(string: " "))
+            }
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
+            if let font {
+                attributes[.font] = font
+            }
+            result.append(NSAttributedString(string: address, attributes: attributes))
+            return result
         }
 
         private func methodColor(for method: String) -> NSColor {

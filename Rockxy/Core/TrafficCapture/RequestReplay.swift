@@ -25,14 +25,35 @@ enum RequestReplay {
         return URLSession(configuration: config)
     }()
 
-    static func replay(_ request: HTTPRequestData) async throws -> HTTPResponseData {
+    /// A session that sends through Rockxy's own listener, so active rules (Breakpoint,
+    /// Map Local, Map Remote, Block, Scripting, Modify Headers) apply and the proxy records
+    /// the request itself. Cookie handling matches the bypass session.
+    static func configurationThroughProxy(port: Int) -> URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: true,
+            kCFNetworkProxiesHTTPProxy as String: "127.0.0.1",
+            kCFNetworkProxiesHTTPPort as String: port,
+            kCFNetworkProxiesHTTPSEnable as String: true,
+            kCFNetworkProxiesHTTPSProxy as String: "127.0.0.1",
+            kCFNetworkProxiesHTTPSPort as String: port,
+        ]
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.httpCookieStorage = nil
+        return config
+    }
+
+    /// Re-sends `request` directly to the origin, or through Rockxy's listener on
+    /// `throughProxyPort` so the request goes through the active rules.
+    static func replay(_ request: HTTPRequestData, throughProxyPort: Int? = nil) async throws -> HTTPResponseData {
         logger.info("Replaying request: \(request.method) \(request.url.absoluteString)")
 
         let urlRequest = makeURLRequest(from: request)
 
         let responses = BoundedComposeRequestOperation.responses(
             for: urlRequest,
-            configuration: proxyBypassSession.configuration,
+            configuration: throughProxyPort.map(configurationThroughProxy(port:)) ?? proxyBypassSession.configuration,
             followsRedirects: false,
             maximumBytes: ProxyLimits.maxResponseBodySize
         )
@@ -73,9 +94,10 @@ enum RequestReplay {
     /// Headers the transport derives itself when a captured request is re-sent directly to the
     /// origin. `Host` and `Content-Length` come from the URL and body (a copied `Host` would
     /// otherwise survive a URL edit and hit the wrong virtual host), and the `Proxy-*` hop
-    /// headers only meant something between the client and Rockxy.
+    /// headers only meant something between the client and Rockxy. HTTP/2 pseudo-headers
+    /// (`:authority`, `:path`, ...) from an imported capture are never valid header fields.
     static func isTransportManagedHeader(_ name: String) -> Bool {
-        Self.transportManagedHeaders.contains(name.lowercased())
+        name.hasPrefix(":") || Self.transportManagedHeaders.contains(name.lowercased())
     }
 
     private static let transportManagedHeaders: Set<String> = [

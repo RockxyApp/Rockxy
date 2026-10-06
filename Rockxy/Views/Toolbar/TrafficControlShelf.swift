@@ -63,6 +63,10 @@ struct TrafficControlShelf: View {
                                 }
                             ),
                             presetStore: coordinator.filterPresetStore,
+                            onHide: {
+                                coordinator.isFilterBarVisible = false
+                                coordinator.recomputeFilteredTransactions()
+                            },
                             isEmbeddedInControlShelf: true
                         )
                     }

@@ -31,8 +31,10 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
         postHandshake: PostHandshakeHandler,
         connectionLimiter: ConnectionLimiter,
         upstreamProxySnapshotProvider: @escaping @Sendable () -> UpstreamProxyResolvedConfiguration? = { nil },
-        rawTunnelConnector: @escaping TLSInterceptHandler.RawTunnelConnector = TLSInterceptHandler.connectRawTunnel
+        rawTunnelConnector: @escaping TLSInterceptHandler.RawTunnelConnector = TLSInterceptHandler.connectRawTunnel,
+        networkProfile: NetworkConditionProfile? = nil
     ) {
+        self.networkProfile = networkProfile
         self.sslHandler = sslHandler
         self.host = host
         self.port = port
@@ -133,6 +135,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
 
     // MARK: Private
 
+    private let networkProfile: NetworkConditionProfile?
     private let sslHandler: NIOSSLServerHandler
     private let host: String
     private let port: Int
@@ -167,7 +170,7 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
             case .success:
                 // The CONNECT itself succeeded; its row is the tunnel, the relayed requests
                 // become their own transactions like a decrypted tunnel's would.
-                postHandshake.recordSuccessfulTunnel()
+                postHandshake.recordSuccessfulTunnel(scheme: "http")
                 context.fireChannelRead(NIOAny(firstBuffer))
                 pipeline.removeHandler(context: context, promise: nil)
             case let .failure(error):
@@ -210,6 +213,14 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                 serverChannel.closeFuture.whenComplete { _ in
                     limiter.release(host: host, port: port)
                 }
+                self.postHandshake.tunnelConnectionLog = ConnectionLogCapture.log(
+                    for: serverChannel,
+                    host: host,
+                    port: port,
+                    tlsIntent: nil,
+                    handshakeDuration: nil,
+                    negotiatedProtocol: nil
+                )
                 let replayClientReads = self.bufferedRawTunnelData
                 self.bufferedRawTunnelData.removeAll(keepingCapacity: false)
                 self.bufferedRawTunnelByteCount = 0
@@ -227,7 +238,8 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
                     clientChannel: channel,
                     prepareClientChannel: prepareClientChannel,
                     replayClientReads: replayClientReads,
-                    enableClientAutoRead: true
+                    enableClientAutoRead: true,
+                    networkProfile: self.networkProfile
                 ) {
                     self.postHandshake.recordSuccessfulTunnel()
                 } onFailure: { error in
@@ -239,6 +251,12 @@ final class ProtocolDetectorHandler: ChannelInboundHandler, RemovableChannelHand
             case let .failure(error):
                 limiter.release(host: host, port: port)
                 tlsLogger.error("Raw tunnel connection failed to \(host):\(port): \(String(describing: error))")
+                self.postHandshake.tunnelConnectionLog = ConnectionLogCapture.failedConnection(
+                    host: host,
+                    port: port,
+                    connectHost: host,
+                    error: error
+                )
                 self.postHandshake.recordTunnelFailure(statusCode: 502, statusMessage: "Upstream Connection Failed")
                 channel.close(promise: nil)
             }

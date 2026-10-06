@@ -39,7 +39,7 @@ struct BreakpointEditorView: View {
 
     // MARK: Private
 
-    private static let httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+    private static let httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "QUERY"]
 
     private static let statusCodes: [(code: Int, text: String)] = [
         (200, "OK"),
@@ -173,6 +173,11 @@ struct BreakpointEditorView: View {
                     Divider()
                 }
                 requestLine(itemId: itemId)
+                if let origin = item.editableDraft.redirectedOrigin,
+                   let original = item.editableDraft.fixedHTTPSAuthority
+                {
+                    redirectNotice(to: origin, from: original)
+                }
                 Divider()
                 tabContent(itemId: itemId)
             }
@@ -180,6 +185,21 @@ struct BreakpointEditorView: View {
         } else {
             emptyState
         }
+    }
+
+    private func redirectNotice(to origin: String, from original: String) -> some View {
+        Label(
+            String(
+                localized: "Execute sends this request to \(origin) over a new connection instead of \(original).",
+                bundle: RockxyLocalization.bundle
+            ),
+            systemImage: "arrow.triangle.turn.up.right.diamond"
+        )
+        .font(toolMetrics.secondaryFont())
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
     private func validationBanner(_ message: String) -> some View {
@@ -255,45 +275,22 @@ struct BreakpointEditorView: View {
         .accessibilityLabel(String(localized: "HTTP method", bundle: RockxyLocalization.bundle))
     }
 
-    @ViewBuilder
     private func requestURLField(itemId: UUID) -> some View {
-        if draftFor(itemId)?.fixedHTTPSAuthority != nil || draftFor(itemId)?.isHTTPS == true {
-            Text(httpsAuthority(itemId: itemId))
-                .font(toolMetrics.secondaryFont(monospaced: true))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help(String(
-                    localized: "The HTTPS authority is fixed for this connection",
-                    bundle: RockxyLocalization.bundle
-                ))
-
-            TextField(String(localized: "Path and query", bundle: RockxyLocalization.bundle), text: Binding(
-                get: { httpsPathAndQuery(itemId: itemId) },
-                set: { updateHTTPSPathAndQuery($0, itemId: itemId) }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .font(toolMetrics.font(monospaced: true))
-            .frame(minHeight: toolMetrics.formControlHeight)
-        } else {
-            Text(httpSchemePrefix(itemId: itemId))
-                .font(toolMetrics.secondaryFont(monospaced: true))
-                .foregroundStyle(.secondary)
-                .help(String(
-                    localized: "The scheme is fixed for this cleartext connection",
-                    bundle: RockxyLocalization.bundle
-                ))
-
-            TextField(
-                String(localized: "Host, path, and query", bundle: RockxyLocalization.bundle),
-                text: Binding(
-                    get: { httpAuthorityPathAndQuery(itemId: itemId) },
-                    set: { updateHTTPAuthorityPathAndQuery($0, itemId: itemId) }
-                )
+        TextField(
+            String(localized: "Request URL", bundle: RockxyLocalization.bundle),
+            text: Binding(
+                get: { draftFor(itemId)?.url ?? "" },
+                set: { newValue in manager.updateDraft(id: itemId) { $0.url = newValue } }
             )
-            .textFieldStyle(.roundedBorder)
-            .font(toolMetrics.font(monospaced: true))
-            .frame(minHeight: toolMetrics.formControlHeight)
-        }
+        )
+        .textFieldStyle(.roundedBorder)
+        .font(toolMetrics.font(monospaced: true))
+        .frame(minHeight: toolMetrics.formControlHeight)
+        .accessibilityLabel(String(localized: "Request URL", bundle: RockxyLocalization.bundle))
+        .help(String(
+            localized: "Edit the method, scheme, host, port, path, or query. Another host or port sends the request to that server.",
+            bundle: RockxyLocalization.bundle
+        ))
     }
 
     private func readOnlyURL(itemId: UUID) -> some View {
@@ -667,80 +664,6 @@ struct BreakpointEditorView: View {
 
     private func draftFor(_ itemId: UUID) -> BreakpointRequestData? {
         manager.pausedItems.first(where: { $0.id == itemId })?.editableDraft
-    }
-
-    private func httpsAuthority(itemId: UUID) -> String {
-        if let authority = draftFor(itemId)?.fixedHTTPSAuthority {
-            return "https://\(authority)"
-        }
-        guard let url = draftFor(itemId)?.url,
-              let components = URLComponents(string: url),
-              let scheme = components.scheme,
-              let host = components.host else
-        {
-            return String(localized: "HTTPS connection", bundle: RockxyLocalization.bundle)
-        }
-
-        var authority = "\(scheme)://\(host)"
-        if let port = components.port {
-            authority += ":\(port)"
-        }
-        return authority
-    }
-
-    private func httpsPathAndQuery(itemId: UUID) -> String {
-        guard let url = draftFor(itemId)?.url,
-              let components = URLComponents(string: url) else
-        {
-            return "/"
-        }
-
-        var value = components.percentEncodedPath.isEmpty ? "/" : components.percentEncodedPath
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            value += "?\(query)"
-        }
-        return value
-    }
-
-    private func updateHTTPSPathAndQuery(_ value: String, itemId: UUID) {
-        guard let currentURL = draftFor(itemId)?.url,
-              let updatedURL = BreakpointRequestData.applyingOriginForm(value, to: currentURL) else
-        {
-            return
-        }
-        manager.updateDraft(id: itemId) { $0.url = updatedURL }
-    }
-
-    private func httpSchemePrefix(itemId: UUID) -> String {
-        guard let url = draftFor(itemId)?.url,
-              let scheme = URLComponents(string: url)?.scheme,
-              !scheme.isEmpty else
-        {
-            return "http://"
-        }
-        return "\(scheme)://"
-    }
-
-    private func httpAuthorityPathAndQuery(itemId: UUID) -> String {
-        guard let url = draftFor(itemId)?.url else {
-            return ""
-        }
-        let prefix = httpSchemePrefix(itemId: itemId)
-        guard url.lowercased().hasPrefix(prefix.lowercased()) else {
-            return url
-        }
-        return String(url.dropFirst(prefix.count))
-    }
-
-    private func updateHTTPAuthorityPathAndQuery(_ value: String, itemId: UUID) {
-        let authorityAndTarget: String
-        if let separator = value.range(of: "://") {
-            authorityAndTarget = String(value[separator.upperBound...])
-        } else {
-            authorityAndTarget = value
-        }
-        let schemePrefix = httpSchemePrefix(itemId: itemId)
-        manager.updateDraft(id: itemId) { $0.url = schemePrefix + authorityAndTarget }
     }
 
     private func headerValue(itemId: UUID, headerId: UUID) -> EditableHeader? {

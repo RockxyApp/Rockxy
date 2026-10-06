@@ -15,6 +15,7 @@ struct RequestListRow: Identifiable {
 
     init(from transaction: HTTPTransaction, sslState: SSLState? = nil) {
         id = transaction.id
+        source = transaction
         timestamp = transaction.timestamp
         method = transaction.request.method
         scheme = transaction.request.url.scheme ?? "http"
@@ -32,6 +33,7 @@ struct RequestListRow: Identifiable {
         responseContentType = transaction.response?.contentType
         isPinned = transaction.isPinned
         isSaved = transaction.isSaved
+        isStruckThrough = transaction.isStruckThrough
         comment = transaction.comment
         highlightColor = transaction.highlightColor
         isTLSFailure = transaction.isTLSFailure
@@ -47,6 +49,7 @@ struct RequestListRow: Identifiable {
         isGRPC = GRPCDetector.isGRPC(transaction: transaction)
         webSocketFrameCount = transaction.webSocketConnection?.frameCount ?? 0
         sourcePort = transaction.sourcePort
+        modificationSummary = Self.modificationSummary(for: transaction)
         sequenceNumber = transaction.sequenceNumber
         requestHeaders = transaction.request.headers
         responseHeaders = transaction.response?.headers
@@ -78,6 +81,8 @@ struct RequestListRow: Identifiable {
     }
 
     let id: UUID
+    /// The captured transaction, read lazily by query and body columns.
+    weak var source: HTTPTransaction?
     let timestamp: Date
     let method: String
     let scheme: String
@@ -94,6 +99,7 @@ struct RequestListRow: Identifiable {
     let requestContentType: ContentType?
     let responseContentType: ContentType?
     let isPinned: Bool
+    let isStruckThrough: Bool
     let isSaved: Bool
     let comment: String?
     let highlightColor: HighlightColor?
@@ -112,6 +118,8 @@ struct RequestListRow: Identifiable {
     let isGRPC: Bool
     let webSocketFrameCount: Int
     let sourcePort: UInt16?
+    /// Which rule or scripts changed this exchange, for the list's modified marker.
+    let modificationSummary: String?
 
     /// Request-list ordering metadata. Tracks the order transactions were received by the
     /// coordinator, independent of `timestamp`. This must not be used by unrelated features
@@ -155,6 +163,17 @@ struct RequestListRow: Identifiable {
 
     var isConnectTunnel: Bool {
         method.caseInsensitiveCompare("CONNECT") == .orderedSame
+    }
+
+    static func modificationSummary(for transaction: HTTPTransaction) -> String? {
+        var lines: [String] = []
+        if let ruleName = transaction.matchedRuleName {
+            lines.append(transaction.matchedRuleActionSummary.map { "\(ruleName) — \($0)" } ?? ruleName)
+        }
+        if !transaction.appliedScriptNames.isEmpty {
+            lines.append(transaction.appliedScriptNames.joined(separator: ", "))
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }
 
@@ -210,12 +229,14 @@ extension RequestListRow {
             lhs.smartBadgeText.localizedCompare(rhs.smartBadgeText)
         case "queryName":
             compareQueryName(lhs, rhs)
+        case "version":
+            lhs.httpVersion.localizedStandardCompare(rhs.httpVersion)
         case "client":
             (lhs.clientApp ?? "").localizedCompare(rhs.clientApp ?? "")
         case "row":
             compareInt(lhs.sequenceNumber, rhs.sequenceNumber)
         default:
-            if key.hasPrefix("reqHeader.") || key.hasPrefix("resHeader.") {
+            if HeaderColumn.isCustomColumnID(key) {
                 compareHeaderValue(lhs, rhs, columnID: key)
             } else {
                 .orderedSame
@@ -433,19 +454,41 @@ extension RequestListRow {
         return lhsVal.localizedCompare(rhsVal)
     }
 
-    static func resolveHeaderValue(for columnID: String, row: RequestListRow) -> String {
-        if columnID.hasPrefix("reqHeader.") {
-            let headerName = String(columnID.dropFirst("reqHeader.".count))
-            return row.requestHeaders
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
-        } else if columnID.hasPrefix("resHeader.") {
-            let headerName = String(columnID.dropFirst("resHeader.".count))
-            return row.responseHeaders?
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
+    /// Normalizes captured versions (`1.1`, `HTTP/1.1`, `2.0`) to `HTTP/1.1` or `HTTP/2`.
+    static func displayVersion(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let number = trimmed.uppercased().hasPrefix("HTTP/") ? String(trimmed.dropFirst(5)) : trimmed
+        switch number {
+        case "": return ""
+        case "2",
+             "2.0": return "HTTP/2"
+        case "3",
+             "3.0": return "HTTP/3"
+        default: return "HTTP/\(number)"
         }
-        return ""
+    }
+
+    static func resolveHeaderValue(for columnID: String, row: RequestListRow) -> String {
+        guard let (source, name) = HeaderColumn.parse(columnID: columnID) else {
+            return ""
+        }
+        switch source {
+        case .request:
+            return row.requestHeaders
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .response:
+            return row.responseHeaders?
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .query,
+             .requestBody,
+             .responseBody:
+            guard let transaction = row.source else {
+                return ""
+            }
+            return HeaderColumnStore.resolveValue(for: columnID, transaction: transaction)
+        }
     }
 }
 

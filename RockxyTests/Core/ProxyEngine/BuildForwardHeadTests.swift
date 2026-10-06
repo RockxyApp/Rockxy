@@ -20,6 +20,33 @@ struct BuildForwardHeadTests {
         #expect(forward.method == .POST)
     }
 
+    @Test("A WebSocket handshake is forwarded without offering compression extensions")
+    func webSocketHandshakeDropsExtensions() {
+        let req = makeRequest(url: "https://example.com/socket", headers: [
+            HTTPHeader(name: "Upgrade", value: "websocket"),
+            HTTPHeader(name: "Connection", value: "Upgrade"),
+            HTTPHeader(name: "Sec-WebSocket-Extensions", value: "permessage-deflate; client_max_window_bits"),
+            HTTPHeader(name: "Sec-WebSocket-Key", value: "dGhlIHNhbXBsZSBub25jZQ=="),
+        ])
+        let forward = ProxyHandlerShared.buildForwardHead(from: req, originalHead: makeOriginalHead(uri: "/socket"))
+
+        #expect(!forward.headers.contains(name: "Sec-WebSocket-Extensions"))
+        #expect(forward.headers.contains(name: "Sec-WebSocket-Key"))
+    }
+
+    @Test("Mocked responses are marked only when the setting is on")
+    func mapLocalMarkerFollowsSetting() throws {
+        let defaults = try #require(UserDefaults(suiteName: "RockxyMapLocalMarkTests-\(UUID().uuidString)"))
+        let headers = [HTTPHeader(name: "Content-Type", value: "text/plain")]
+        #expect(MapLocalMarkerSetting.markedHeaders(headers, defaults: defaults) == headers)
+
+        defaults.set(true, forKey: MapLocalMarkerSetting.markKey)
+        let marked = MapLocalMarkerSetting.markedHeaders(headers, defaults: defaults)
+        #expect(marked.contains { $0.name == "X-Rockxy-Applied" && $0.value == "Map Local" })
+        // A header the rule already sets is never duplicated.
+        #expect(MapLocalMarkerSetting.markedHeaders(marked, defaults: defaults).count == marked.count)
+    }
+
     @Test("Mutated path + query appear on forwarded URI in origin form")
     func mutatedPathQuery() {
         let req = makeRequest(url: "https://example.com/v2/users?id=42")
@@ -87,6 +114,20 @@ struct BuildForwardHeadTests {
         let originalHead = makeOriginalHead(uri: "/")
         let forward = ProxyHandlerShared.buildForwardHead(from: req, originalHead: originalHead)
         #expect(forward.uri == "/")
+    }
+
+    @Test("Script-set QUERY method is forwarded with its body length")
+    func queryMethodForwarded() {
+        let body = Data("{\"q\":\"rockxy\"}".utf8)
+        let req = makeRequest(
+            method: "query",
+            headers: [HTTPHeader(name: "Content-Length", value: "2")],
+            body: body
+        )
+        let originalHead = makeOriginalHead(method: .POST, uri: "/search", headers: [("Content-Length", "2")])
+        let forward = ProxyHandlerShared.buildForwardHead(from: req, originalHead: originalHead)
+        #expect(forward.method.rawValue == "QUERY")
+        #expect(forward.headers.first(name: "Content-Length") == "\(body.count)")
     }
 
     @Test("Invalid method falls back to original head's method")

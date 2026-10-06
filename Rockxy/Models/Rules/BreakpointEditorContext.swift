@@ -21,4 +21,7 @@ struct BreakpointEditorContext {
     let includeSubpaths: Bool
     let breakpointRequest: Bool
     let breakpointResponse: Bool
+    /// Prefilled when the rule is created from a GraphQL request, so the breakpoint
+    /// pauses that operation only instead of every call to the shared endpoint.
+    var graphQLOperationName: String?
 }

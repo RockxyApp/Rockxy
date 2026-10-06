@@ -21,6 +21,8 @@ Rockxy detects WebSocket connections by monitoring HTTP upgrade requests. When a
 
 The upgrade request itself appears as a normal HTTP transaction in the traffic list. Once upgraded, the connection switches to the **WebSocket** tab in the inspector, where all frames are displayed in chronological order.
 
+Rockxy forwards the handshake without offering compression extensions such as `permessage-deflate`, so frames arrive uncompressed and stay readable; the connection simply runs without compression. A connection that was already open before capture or before you enabled HTTPS decryption keeps its old state: reconnect the socket (or restart the app) so it goes through Rockxy.
+
 For HTTPS WebSocket connections (`wss://`), Rockxy decrypts frames using the same MITM approach as regular HTTPS traffic — the [HTTPS Interception](/features/https-interception) setup is required.
 
 Plain `ws://` connections are captured whether the client sends the upgrade as an absolute-form request or tunnels it through `CONNECT` (browsers and most WebSocket libraries do the latter). When HTTPS interception is active, Rockxy looks at the first bytes of every tunnel: TLS is decrypted, a plain HTTP request line is relayed as `http://` traffic with its frames, and anything else stays a raw tunnel.
@@ -47,8 +49,10 @@ Click any frame to expand its full payload in the detail pane below the frame li
 
 Rockxy automatically decodes frame payloads based on the opcode and detected content:
 
-- **Text frames** — displayed as text. If the payload is valid JSON, it is automatically pretty-printed with syntax highlighting and a collapsible tree view.
-- **Binary frames** — displayed as a hex dump with an ASCII sidebar. The byte count and offset are shown for each row.
+- **Text frames** — displayed as text. If the payload is valid JSON, **Format JSON** pretty-prints it.
+- **Binary frames** — displayed as a hex dump with an ASCII sidebar. Binary frames that carry JSON are decoded and shown as text instead.
+
+Switch the frame detail between **Payload**, **Tree** (a collapsible JSON tree with JSONPath filtering), **Hex**, and **Protobuf**. **Open with** below the payload opens the frame in an installed editor or reveals it in Finder, and **Save Payload As…** writes its exact bytes to a file.
 
 <Tip>
 Many real-time APIs (Socket.IO, GraphQL subscriptions, Firebase) send JSON over text frames. Rockxy's auto-detection formats these payloads for easy reading without any configuration.

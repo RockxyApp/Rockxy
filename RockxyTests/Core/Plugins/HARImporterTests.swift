@@ -28,6 +28,60 @@ struct HARImporterTests {
         #expect(request.headers.count == 2)
     }
 
+    @Test("Names the client from the User-Agent, as live capture does")
+    func namesClientFromUserAgent() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"WebInspector","version":"537.36"},"entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.000Z","time":10,
+           "request":{"method":"GET","url":"https://httpbin.org/get","httpVersion":"http/2.0","headers":[
+             {"name":"user-agent","value":"Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"}],
+             "queryString":[],"cookies":[],"headersSize":-1,"bodySize":0},
+           "response":{"status":200,"statusText":"","httpVersion":"http/2.0","headers":[],"cookies":[],
+             "content":{"size":0,"mimeType":"application/json"},"redirectURL":"","headersSize":-1,"bodySize":0},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:01.000Z","time":10,
+           "request":{"method":"GET","url":"https://httpbin.org/get","httpVersion":"HTTP/1.1","headers":[
+             {"name":"User-Agent","value":"okhttp/4.12.0"}],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":0},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        #expect(transactions.map(\.clientApp) == ["Google Chrome", "okhttp"])
+    }
+
+    @Test("A request body without a Content-Type header takes postData.mimeType")
+    func postDataMimeTypeBecomesContentType() throws {
+        let har = #"""
+        {"log":{"version":"1.2","entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.000Z","time":10,
+           "request":{"method":"POST","url":"https://httpbin.org/post","httpVersion":"http/2.0",
+             "headers":[{"name":"accept","value":"*/*"}],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":12,
+             "postData":{"mimeType":"application/json","text":"{\"a\":1}"}},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:01.000Z","time":10,
+           "request":{"method":"POST","url":"https://httpbin.org/post","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"text/plain"}],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":2,
+             "postData":{"mimeType":"application/json","text":"hi"}},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        let first = transactions[0].request.headers.filter { $0.name.lowercased() == "content-type" }
+        #expect(first.map(\.value) == ["application/json"])
+        let second = transactions[1].request.headers.filter { $0.name.lowercased() == "content-type" }
+        #expect(second.map(\.value) == ["text/plain"])
+    }
+
+    @Test("Browser HTTP versions are normalized to the captured HTTP/x.y form")
+    func normalizesBrowserHTTPVersions() {
+        #expect(HARImporter.normalizedHTTPVersion("http/2.0") == "HTTP/2.0")
+        #expect(HARImporter.normalizedHTTPVersion("HTTP/2") == "HTTP/2.0")
+        #expect(HARImporter.normalizedHTTPVersion("h3") == "HTTP/3.0")
+        #expect(HARImporter.normalizedHTTPVersion("http/1.1") == "HTTP/1.1")
+        #expect(HARImporter.normalizedHTTPVersion(nil) == "HTTP/1.1")
+        #expect(HARImporter.normalizedHTTPVersion("unknown") == "unknown")
+    }
+
     @Test("Parses response fields from HAR entry")
     func parsesResponseFields() throws {
         let data = TestFixtures.makeHARJSON(entryCount: 1)

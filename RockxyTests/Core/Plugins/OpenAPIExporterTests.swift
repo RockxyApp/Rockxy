@@ -48,6 +48,25 @@ struct OpenAPIExporterTests {
         #expect(yaml.contains(#""openapi": "3.0.3""#))
     }
 
+    @Test("Path parameter names keep singular words and skip version segments")
+    func pathParameterNaming() throws {
+        let status = jsonTransaction(
+            method: "GET",
+            url: "https://api.example.com/status/5",
+            responseBody: ["ok": true]
+        )
+        let versioned = jsonTransaction(
+            method: "GET",
+            url: "https://api.example.com/v1/123",
+            responseBody: ["ok": true]
+        )
+
+        let paths = try paths(from: [status, versioned])
+
+        #expect(paths["/status/{statusId}"] is [String: Any])
+        #expect(paths["/v1/{id}"] is [String: Any])
+    }
+
     @Test("Infers path parameters while preserving static slugs")
     func pathParameterInference() throws {
         let users = jsonTransaction(
@@ -86,8 +105,25 @@ struct OpenAPIExporterTests {
 
         #expect(names.contains("q"))
         #expect(names.contains("page"))
-        #expect(!names.contains("token"))
+        #expect(names.contains("token"))
         #expect(schema["type"] as? String == "array")
+        // The credential parameter is documented by name only; its captured value never appears.
+        let serialized = String(data: try JSONSerialization.data(withJSONObject: operation), encoding: .utf8) ?? ""
+        #expect(!serialized.contains("secret"))
+    }
+
+    @Test("A query name seen once per request in several requests stays a scalar")
+    func queryValuesAcrossRequestsAreNotArrays() throws {
+        let first = jsonTransaction(method: "GET", url: "https://api.example.com/search?user=123", responseBody: ["ok": true])
+        let second = jsonTransaction(method: "GET", url: "https://api.example.com/search?user=456", responseBody: ["ok": true])
+
+        let operation = try operation(from: [first, second], path: "/search", method: "get")
+        let parameters = try #require(operation["parameters"] as? [[String: Any]])
+        let user = try #require(parameters.first { $0["name"] as? String == "user" })
+        let schema = try #require(user["schema"] as? [String: Any])
+
+        #expect(schema["type"] as? String == "integer")
+        #expect(user["explode"] == nil)
     }
 
     @Test("Merges JSON schemas and intersects required keys")
@@ -218,9 +254,9 @@ struct OpenAPIExporterTests {
         let parameters = try #require(operation["parameters"] as? [[String: Any]])
 
         #expect(!serialized.contains("secret-token"))
-        #expect(!serialized.contains("password"))
-        #expect(!serialized.contains("access_token"))
-        #expect(!parameters.contains { $0["name"] as? String == "api_key" })
+        // Credential fields stay in the documented contract; only their values are dropped.
+        #expect(serialized.contains("password"))
+        #expect(parameters.contains { $0["name"] as? String == "api_key" })
         #expect(serialized.contains("bearerAuth"))
     }
 

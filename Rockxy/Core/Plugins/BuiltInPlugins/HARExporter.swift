@@ -81,7 +81,7 @@ private struct HAREntry {
         )
         let timeMs = (transaction.timingInfo?.totalDuration ?? transaction.measuredDuration ?? 0) * 1_000.0
 
-        var dict: [String: Any] = [
+        let dict: [String: Any] = [
             "startedDateTime": startedDateTime,
             "time": timeMs,
             "request": requestDictionary(),
@@ -90,11 +90,8 @@ private struct HAREntry {
             "timings": timingsDictionary()
         ]
 
-        let host = transaction.request.host
-        if !host.isEmpty {
-            dict["pageref"] = host
-        }
-
+        // No `pageref`: the log declares no `pages`, and a reference to a missing page is
+        // invalid for strict HAR consumers.
         return dict
     }
 
@@ -120,12 +117,22 @@ private struct HAREntry {
         ]
     }
 
+    /// The protocol the response actually used: Rockxy records how it reached the server, and
+    /// falls back to the request's version for exchanges that never recorded one.
+    private func responseHTTPVersion() -> String {
+        switch transaction.serverHTTPVersion {
+        case "2": "HTTP/2"
+        case "1.1": "HTTP/1.1"
+        default: transaction.request.httpVersion
+        }
+    }
+
     private func responseDictionary() -> [String: Any] {
         guard let resp = transaction.response else {
             return [
                 "status": 0,
                 "statusText": "",
-                "httpVersion": "HTTP/1.1",
+                "httpVersion": transaction.request.httpVersion,
                 "cookies": [[String: Any]](),
                 "headers": [[String: Any]](),
                 "content": contentDictionary(body: nil, headers: [], contentType: nil),
@@ -145,7 +152,7 @@ private struct HAREntry {
         return [
             "status": resp.statusCode,
             "statusText": resp.statusMessage,
-            "httpVersion": "HTTP/1.1",
+            "httpVersion": responseHTTPVersion(),
             "cookies": resp.setCookies.map { ["name": $0.name, "value": $0.value] },
             "headers": resp.headers.map { headerToDict($0) },
             "content": contentDictionary(body: decodedBody, headers: resp.headers, contentType: resp.contentType),

@@ -208,7 +208,8 @@ struct ScriptRequestContext {
             headers: newHeaders,
             body: newBody,
             contentType: request.contentType,
-            captureContext: request.captureContext
+            captureContext: request.captureContext,
+            flowID: request.flowID
         )
     }
 

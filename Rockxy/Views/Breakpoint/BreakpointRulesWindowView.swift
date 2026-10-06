@@ -6,14 +6,51 @@ import SwiftUI
 final class BreakpointRulesViewModel {
     // MARK: Lifecycle
 
-    init(syncsChanges: Bool = !RockxyIdentity.isRunningTests) {
+    init(syncsChanges: Bool = !RockxyIdentity.isRunningTests, folderStore: RuleFolderStore = .breakpoint) {
         self.syncsChanges = syncsChanges
+        self.folderStore = folderStore
     }
 
     // MARK: Internal
 
     var selectedRuleID: UUID?
     var mutationError: String?
+    let folderStore: RuleFolderStore
+
+    /// Folder-grouped rows; flat while searching so every match shows.
+    var rows: [RuleListRow] {
+        let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return RuleListRow.rows(rules: filteredBreakpointRules, folders: folderStore.folders, flat: searching)
+    }
+
+    func dropRules(_ payloads: [String], onto row: RuleListRow) {
+        folderStore.drop(payloads, onto: row, knownRuleIDs: Set(breakpointRules.map(\.id)))
+    }
+
+    func rules(in folder: RuleFolder) -> [ProxyRule] {
+        let members = Set(folder.ruleIDs)
+        return breakpointRules.filter { members.contains($0.id) }
+    }
+
+    /// Enables or disables several rules through the quota gate; reports rules the limit refused.
+    func setRulesEnabled(_ ids: [UUID], enabled: Bool) {
+        for index in allRules.indices where ids.contains(allRules[index].id) {
+            allRules[index].isEnabled = enabled
+        }
+        guard syncsChanges else {
+            return
+        }
+        enqueueMutation { [self] in
+            var refused = false
+            for id in ids where await !RulePolicyGate.shared.setRuleEnabled(id: id, enabled: enabled) {
+                refused = true
+            }
+            await refreshAfterMutation(selecting: selectedRuleID)
+            if refused {
+                mutationError = quotaError
+            }
+        }
+    }
     private(set) var allRules: [ProxyRule] = []
 
     var isBreakpointToolEnabled: Bool = UserDefaults.standard.object(
@@ -66,6 +103,7 @@ final class BreakpointRulesViewModel {
 
     func refreshFromEngine() async {
         allRules = await RuleEngine.shared.allRules
+        folderStore.reconcile(existingRuleIDs: Set(breakpointRules.map(\.id)))
         reconcileSelection()
     }
 
@@ -74,6 +112,7 @@ final class BreakpointRulesViewModel {
             return
         }
         allRules = rules
+        folderStore.reconcile(existingRuleIDs: Set(breakpointRules.map(\.id)))
         reconcileSelection()
     }
 
@@ -157,6 +196,7 @@ final class BreakpointRulesViewModel {
         phaseRequest: Bool,
         phaseResponse: Bool,
         includeSubpaths: Bool,
+        graphQLOperationName: String? = nil,
         using gate: RulePolicyGate = .shared
     )
         async -> Bool
@@ -169,7 +209,8 @@ final class BreakpointRulesViewModel {
             matchType: matchType,
             phaseRequest: phaseRequest,
             phaseResponse: phaseResponse,
-            includeSubpaths: includeSubpaths
+            includeSubpaths: includeSubpaths,
+            graphQLOperationName: graphQLOperationName
         )
 
         guard syncsChanges else {
@@ -201,6 +242,12 @@ final class BreakpointRulesViewModel {
 
     func removeSelected() {
         guard let selectedRuleID else {
+            return
+        }
+        if folderStore.folders.contains(where: { $0.id == selectedRuleID }) {
+            // Deleting a folder keeps its rules; they move back to the top level.
+            folderStore.deleteFolder(id: selectedRuleID)
+            self.selectedRuleID = nil
             return
         }
         removeRule(id: selectedRuleID)
@@ -361,7 +408,8 @@ final class BreakpointRulesViewModel {
             return
         }
         let candidates = requireVisible ? filteredBreakpointRules : breakpointRules
-        if !candidates.contains(where: { $0.id == selectedRuleID }) {
+        let isFolder = folderStore.folders.contains { $0.id == selectedRuleID }
+        if !isFolder, !candidates.contains(where: { $0.id == selectedRuleID }) {
             self.selectedRuleID = nil
         }
     }
@@ -418,6 +466,7 @@ struct BreakpointRulesWindowView: View {
                 Text(mutationError)
             }
         }
+        .ruleFolderRenameAlert(store: viewModel.folderStore, folder: $renamingFolder)
     }
 
     // MARK: Private
@@ -425,6 +474,7 @@ struct BreakpointRulesWindowView: View {
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.openWindow) private var openWindow
     @State private var viewModel = BreakpointRulesViewModel()
+    @State private var renamingFolder: RuleFolder?
     @FocusState private var searchIsFocused: Bool
 
     private var enableDisableLabel: String {
@@ -527,65 +577,108 @@ struct BreakpointRulesWindowView: View {
         .background(Color.accentColor.opacity(0.055))
     }
 
+    @TableRowBuilder<RuleListRow>
+    private func draggableRuleRow(_ row: RuleListRow) -> some TableRowContent<RuleListRow> {
+        TableRow(row)
+            .draggable(RuleFolderDrag.payload(
+                for: row.id,
+                selection: viewModel.selectedRuleID.map { [$0] } ?? []
+            ))
+            .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+    }
+
     private var tableContent: some View {
-        Table(viewModel.filteredBreakpointRules, selection: $viewModel.selectedRuleID) {
-            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { rule in
+        Table(of: RuleListRow.self, selection: $viewModel.selectedRuleID) {
+            TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle)) { row in
                 HStack {
                     Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { rule.isEnabled },
-                        set: { _ in viewModel.toggleRule(id: rule.id) }
-                    ))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-                    .accessibilityLabel(
-                        rule.isEnabled
-                            ? String(localized: "Disable \(rule.name)", bundle: RockxyLocalization.bundle)
-                            : String(localized: "Enable \(rule.name)", bundle: RockxyLocalization.bundle)
-                    )
+                    switch row.kind {
+                    case let .rule(rule):
+                        Toggle("", isOn: Binding(
+                            get: { rule.isEnabled },
+                            set: { _ in viewModel.toggleRule(id: rule.id) }
+                        ))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                        .accessibilityLabel(
+                            rule.isEnabled
+                                ? String(localized: "Disable \(rule.name)", bundle: RockxyLocalization.bundle)
+                                : String(localized: "Enable \(rule.name)", bundle: RockxyLocalization.bundle)
+                        )
+                    case let .folder(folder):
+                        RuleFolderToggle(folder: folder, rules: viewModel.rules(in: folder)) { ids, enabled in
+                            viewModel.setRulesEnabled(ids, enabled: enabled)
+                        }
+                    }
                     Spacer()
                 }
             }
             .width(72)
 
-            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { rule in
-                Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .opacity(rule.isEnabled ? 1 : 0.5)
-                    .help(rule.name)
+            TableColumn(String(localized: "Name", bundle: RockxyLocalization.bundle)) { row in
+                switch row.kind {
+                case let .folder(folder):
+                    RuleFolderNameLabel(folder: folder, ruleCount: viewModel.rules(in: folder).count)
+                case let .rule(rule):
+                    Text(rule.name.isEmpty ? String(localized: "Untitled", bundle: RockxyLocalization.bundle) : rule.name)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .opacity(rule.isEnabled ? 1 : 0.5)
+                        .help(rule.name)
+                }
             }
             .width(min: 170, ideal: 220)
 
-            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.methodLabel(for: rule))
-                    .lineLimit(1)
-                    .opacity(rule.isEnabled ? 1 : 0.5)
+            TableColumn(String(localized: "Method", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.methodLabel(for: rule))
+                        .lineLimit(1)
+                        .opacity(rule.isEnabled ? 1 : 0.5)
+                }
             }
             .width(82)
 
-            TableColumn(String(localized: "Match Type", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.matchTypeLabel(for: rule))
-                    .lineLimit(1)
-                    .opacity(rule.isEnabled ? 1 : 0.5)
+            TableColumn(String(localized: "Match Type", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.matchTypeLabel(for: rule))
+                        .lineLimit(1)
+                        .opacity(rule.isEnabled ? 1 : 0.5)
+                }
             }
             .width(92)
 
-            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.matchingRuleLabel(for: rule))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .opacity(rule.isEnabled ? 1 : 0.5)
-                    .help(viewModel.matchingRuleLabel(for: rule))
+            TableColumn(String(localized: "Matching Rule", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.matchingRuleLabel(for: rule))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .opacity(rule.isEnabled ? 1 : 0.5)
+                        .help(viewModel.matchingRuleLabel(for: rule))
+                }
             }
             .width(min: 280, ideal: 420)
 
-            TableColumn(String(localized: "Pause Phase", bundle: RockxyLocalization.bundle)) { rule in
-                Text(viewModel.phaseLabel(for: rule))
-                    .lineLimit(1)
-                    .opacity(rule.isEnabled ? 1 : 0.5)
+            TableColumn(String(localized: "Pause Phase", bundle: RockxyLocalization.bundle)) { row in
+                if let rule = row.rule {
+                    Text(viewModel.phaseLabel(for: rule))
+                        .lineLimit(1)
+                        .opacity(rule.isEnabled ? 1 : 0.5)
+                }
             }
             .width(min: 116, ideal: 138)
+        } rows: {
+            ForEach(viewModel.rows) { row in
+                if let children = row.children {
+                    DisclosureTableRow(row) {
+                        ForEach(children) { child in
+                            draggableRuleRow(child)
+                        }
+                    }
+                    .dropDestination(for: String.self) { viewModel.dropRules($0, onto: row) }
+                } else {
+                    draggableRuleRow(row)
+                }
+            }
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             tableContextMenu(ids: ids)
@@ -731,6 +824,21 @@ struct BreakpointRulesWindowView: View {
 
             Divider()
 
+            Button(String(localized: "New Folder", bundle: RockxyLocalization.bundle)) {
+                if let id = viewModel.folderStore.createFolder(
+                    named: String(localized: "New Folder", bundle: RockxyLocalization.bundle),
+                    containing: viewModel.selectedRule.map { [$0.id] } ?? []
+                ) {
+                    viewModel.selectedRuleID = id
+                }
+            }
+            RuleFolderMenuItems(
+                store: viewModel.folderStore,
+                ruleIDs: viewModel.selectedRule.map { [$0.id] } ?? []
+            ) { viewModel.selectedRuleID = $0 }
+
+            Divider()
+
             Button(String(localized: "Delete Rule", bundle: RockxyLocalization.bundle), role: .destructive) {
                 viewModel.removeSelected()
             }
@@ -758,7 +866,9 @@ struct BreakpointRulesWindowView: View {
 
     @ViewBuilder
     private func tableContextMenu(ids: Set<UUID>) -> some View {
-        if let id = ids.first {
+        if let id = ids.first, let folder = viewModel.folderStore.folders.first(where: { $0.id == id }) {
+            RuleFolderContextItems(store: viewModel.folderStore, folder: folder) { renamingFolder = $0 }
+        } else if let id = ids.first {
             Button(String(localized: "Edit Rule", bundle: RockxyLocalization.bundle)) {
                 if let rule = viewModel.breakpointRules.first(where: { $0.id == id }) {
                     openEditor(for: rule)
@@ -776,6 +886,8 @@ struct BreakpointRulesWindowView: View {
                 viewModel.toggleRule(id: id)
             }
             Divider()
+            RuleFolderMenuItems(store: viewModel.folderStore, ruleIDs: [id]) { viewModel.selectedRuleID = $0 }
+            Divider()
             Button(String(localized: "Delete Rule", bundle: RockxyLocalization.bundle), role: .destructive) {
                 viewModel.removeRule(id: id)
             }
@@ -792,7 +904,8 @@ struct BreakpointRulesWindowView: View {
                 matchType: $3,
                 phaseRequest: $4,
                 phaseResponse: $5,
-                includeSubpaths: $6
+                includeSubpaths: $6,
+                graphQLOperationName: $7
             )
         }
         openWindow(id: "breakpointRuleEditor")
@@ -808,7 +921,8 @@ struct BreakpointRulesWindowView: View {
                 matchType: $3,
                 phaseRequest: $4,
                 phaseResponse: $5,
-                includeSubpaths: $6
+                includeSubpaths: $6,
+                graphQLOperationName: $7
             )
         }
         openWindow(id: "breakpointRuleEditor")

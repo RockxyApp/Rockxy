@@ -91,6 +91,30 @@ struct BreakpointViewModelTests {
         #expect(data.headers.count == 2)
     }
 
+    @Test("An HTTPS request edited to another server names its new origin")
+    func redirectedOrigin() {
+        func draft(_ url: String) -> BreakpointRequestData {
+            BreakpointRequestData(
+                method: "GET",
+                url: url,
+                headers: [],
+                body: "",
+                statusCode: 200,
+                fixedHTTPSAuthority: "api.example.com"
+            )
+        }
+        #expect(draft("https://api.example.com/v2").redirectedOrigin == nil)
+        #expect(draft("https://API.example.com:443/v2").redirectedOrigin == nil)
+        #expect(draft("https://staging.example.com/v2").redirectedOrigin == "https://staging.example.com")
+        #expect(draft("http://localhost:3000/v2").redirectedOrigin == "http://localhost:3000")
+        #expect(draft("/v2").redirectedOrigin == nil)
+
+        let cleartext = BreakpointRequestData(
+            method: "GET", url: "http://other.example/", headers: [], body: "", statusCode: 200
+        )
+        #expect(cleartext.redirectedOrigin == nil)
+    }
+
     @Test("BreakpointRequestData isHTTPS detects https scheme")
     func isHTTPSDetection() {
         let httpsData = BreakpointRequestData(

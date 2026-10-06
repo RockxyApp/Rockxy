@@ -380,6 +380,50 @@ struct ComposeViewModelTests {
         #expect(vm.history.first?.url == "https://api.example.com/current")
     }
 
+    @Test("A finished send is handed to the session as a Rockxy row with the edited request")
+    func sendHandsExchangeToSession() async throws {
+        let response = try makeResponse(statusCode: 200)
+        let executor = MockComposeExecutor { _, _ in (Data(#"{"ok":true}"#.utf8), response) }
+        let vm = ComposeViewModel(executor: executor, historyStore: makeHistoryStore())
+        var recorded: [HTTPTransaction] = []
+        vm.onExchangeCompleted = { recorded.append($0) }
+        vm.method = "POST"
+        vm.url = "https://httpbin.org/post?from=har-edited"
+        vm.headers = [
+            EditableReplayHeader(name: "Content-Type", value: "application/json"),
+            EditableReplayHeader(name: "X-Disabled", value: "1", isEnabled: false),
+        ]
+        vm.body = #"{"plan":"pro"}"#
+
+        await vm.send()
+
+        let row = try #require(recorded.first)
+        #expect(recorded.count == 1)
+        #expect(row.request.method == "POST")
+        #expect(row.request.url.absoluteString == "https://httpbin.org/post?from=har-edited")
+        #expect(row.request.headers.map(\.name) == ["Content-Type"])
+        #expect(row.request.body == Data(#"{"plan":"pro"}"#.utf8))
+        #expect(row.response?.statusCode == 200)
+        #expect(row.response?.body == Data(#"{"ok":true}"#.utf8))
+        #expect(row.state == .completed)
+        #expect(row.clientApp == RockxyIdentity.current.displayName)
+    }
+
+    @Test("A failed send is handed to the session as a failed row")
+    func failedSendHandsFailedExchangeToSession() async {
+        let executor = MockComposeExecutor { _, _ in throw URLError(.cannotConnectToHost) }
+        let vm = ComposeViewModel(executor: executor, historyStore: makeHistoryStore())
+        var recorded: [HTTPTransaction] = []
+        vm.onExchangeCompleted = { recorded.append($0) }
+        vm.url = "https://unreachable.example/"
+
+        await vm.send()
+
+        #expect(recorded.count == 1)
+        #expect(recorded.first?.state == .failed)
+        #expect(recorded.first?.response == nil)
+    }
+
     @Test("Cancel invalidates an in-flight response without recording history")
     func cancelInvalidatesInFlightResponse() async throws {
         let continuation: AsyncStream<Void>.Continuation

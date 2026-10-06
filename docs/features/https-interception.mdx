@@ -126,6 +126,18 @@ Rockxy verifies the certificate of every server it connects to on your behalf ag
 
 Turn on **Settings > Tools > Accept untrusted upstream certificates** to decrypt such servers. Rockxy then stops verifying the upstream server (the client-facing certificate is unchanged), so leave it off on networks you do not control.
 
+### TLS key log for Wireshark
+
+**Tools > TLS Key Log…** writes the secrets of every TLS connection Rockxy decrypts (both the
+app-to-Rockxy and the Rockxy-to-server connection) to a file in the `SSLKEYLOGFILE` format.
+Point Wireshark at it (**Settings > Protocols > TLS > (Pre)-Master-Secret log filename**) to
+decrypt a packet capture of the same traffic.
+
+Logging is off by default and starts with the next handshake when you turn it on. The file is
+created readable only by your user account and is appended to, never truncated. Anyone with the
+file and a capture can read that traffic, so turn logging off and delete the file when you are
+done.
+
 ## Troubleshooting
 
 ### Certificate not trusted

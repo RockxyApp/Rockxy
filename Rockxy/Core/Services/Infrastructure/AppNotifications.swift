@@ -36,6 +36,8 @@ extension Notification.Name {
     static let scriptConsoleDidAppend = identity.notificationName("scriptConsoleDidAppend")
     static let openDiffWindow = identity.notificationName("openDiffWindow")
     static let openComposeWindow = identity.notificationName("openComposeWindow")
+    /// Posted with the `HTTPTransaction` a Compose send produced, so the workspace can list it.
+    static let composeExchangeDidComplete = identity.notificationName("composeExchangeDidComplete")
     static let openBlockListWindow = identity.notificationName("openBlockListWindow")
     static let openAllowListWindow = identity.notificationName("openAllowListWindow")
     static let openMapLocalWindow = identity.notificationName("openMapLocalWindow")
@@ -46,6 +48,9 @@ extension Notification.Name {
     static let openScriptingListWindow = identity.notificationName("openScriptingListWindow")
     static let openScriptEditorWindow = identity.notificationName("openScriptEditorWindow")
     static let focusMainSearchField = identity.notificationName("focusMainSearchField")
+    static let focusSidebarSearchField = identity.notificationName("focusSidebarSearchField")
+    static let reverseProxyRulesDidChange = identity.notificationName("reverseProxyRulesDidChange")
+    static let socksListenerSettingsDidChange = identity.notificationName("socksListenerSettingsDidChange")
     static let focusComposeURLField = identity.notificationName("focusComposeURLField")
     static let mcpServerDidStart = identity.notificationName("mcpServerDidStart")
     static let mcpServerDidStop = identity.notificationName("mcpServerDidStop")

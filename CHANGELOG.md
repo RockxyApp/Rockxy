@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
+- Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
+- Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.
+- Opening a Charles session (.chls) converts it with the installed Charles app after a one-time confirmation, then shows the import review.
+- Prepared terminals give Java a trust store with Rockxy's certificate, without changing system trust.
+- Custom root certificates with SHA-1 signatures or RSA keys under 2048 bits are rejected with a clear reason.
 - Showed streaming responses (Server-Sent Events and NDJSON, such as LLM completions) in the request list as Active rows as soon as their headers arrive, completed in place when the stream ends, instead of appearing only after a long stream finished.
 - Added Traffic Insights: an Insights destination at the top of the Focus Navigator that turns the active Traffic Tab into a live report — findings with one-click handoffs, traffic over time by bytes, outcome, or latency, protocol share, outcome/content/method breakdowns, top apps and hosts, slowest requests, largest responses, an All/Visible scope that follows the current filters, trailing time windows, pause/resume, and Markdown export.
 - Added persistent application-scoped HTTPS Decrypt and Tunnel rules, with a unified app/host rule list and observed-host picker.
@@ -30,6 +36,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Opening a HAR file, a Rockxy session, or a nearby iPhone transfer keeps every request; imports were cut down to the live history limit without a warning, and live capture no longer trims imported requests.
+- When live history is full, the oldest finished requests are removed first; an open WebSocket, Server-Sent Events stream, or pending request is no longer dropped while newer requests stay, and a closing WebSocket no longer reappears as a new row.
+- Decrypt This Host and Pin and Decrypt This Host on a sidebar domain row (such as example.org) now cover the hosts grouped under it (www.example.org, api.example.org); before, only the bare domain was decrypted while the row showed everything as decrypted.
+- Fixed deleted requests, and requests removed with their domain or app from the sidebar, coming back as soon as new traffic arrived; they were also still included in command-line log exports.
+- Babylon capture keeps working when another app (often a second Rockxy) holds port 10909: Rockxy listens on another port that iPhone and iPad clients find over Bonjour, shows the port and the service name to pin, and offers to switch back to 10909.
+- Requests from Babylon SDK clients now carry their GraphQL operation name, like proxied traffic.
+- Relaunching an app that uses the Babylon SDK reuses its traffic tab instead of opening a new one on every launch.
+- Simulator certificate installs name Vision Pro simulators visionOS instead of xrOS.
+- Pressing Esc in an advanced filter's value field now hides the filter bar, as its hint says.
+- Custom Certificates file choosers now say which file they want (certificate, private key, or P12), so the two steps of a PEM / DER import can be told apart, and a tab's result message no longer carries over to the next tab.
+- Fixed Custom Certificates ignoring a confirmed **Revert to Default** or **Delete**: the dialog closed but the custom root stayed active and server/client certificates were not removed.
+- Custom Certificates imports are direct **Import P12…** and **Import PEM / DER…** buttons instead of an Import pull-down that, on the Root tab, held a single item.
+- Fixed GraphQL requests that Rockxy answered itself (Map Local, Block, a breakpoint abort or redirect, an unreachable server) losing their operation name, so they were missing from the Operation column and its filter.
+- Fixed `ws://` and other plain HTTP sent through a CONNECT tunnel showing its CONNECT row as HTTPS; it is now labelled HTTP.
+- Developer Setup's Flutter snippets now fill in the Mac's LAN address for physical devices when Rockxy listens beyond localhost, instead of a placeholder.
+- Fixed a crash when several connections looked up their app at the same moment: the app lookup cache could compute a negative age and trap.
+- Fixed Edit and Repeat and Compose results never reaching the traffic list, so an edited request could not be inspected, diffed, or exported (for example to re-export an edited HAR); each send now adds a row attributed to Rockxy, like Repeat.
+- Fixed imported HAR files and Charles sessions listing every request under an "Unknown" client; the client is now named from the User-Agent, as it is for live traffic.
+- Fixed requests imported from a Chrome HAR showing `HTTP/http/2.0` in Diff; browser HTTP versions (`http/2.0`, `h2`, `h3`) are normalized on import.
+- Fixed repeating a request imported from a browser HAR sending its JSON body as form data when the HAR kept the body type only in `postData.mimeType`.
+- Fixed the Breakpoint Queue showing every paused response as coming from an "Unknown" client (or from a response header such as Rails' `X-Runtime`); response pauses now name the app that sent the request.
+- Fixed sensitive-data redaction hiding CORS headers such as `Access-Control-Allow-Credentials: true` in MCP flow details, AI Assistant context, and Gist publishing, which made CORS problems impossible to diagnose there; real credentials stay redacted.
+- Fixed the Flutter setup guide not mentioning iOS Local Network permission: on a physical iPhone or iPad, a Dart client that dials the Mac's LAN proxy fails with "No route to host" (errno 65) until the app is allowed, and the guide now says so.
+- Fixed the Flutter setup snippet leaving WebSockets uncaptured: Dart's `WebSocket.connect` ignores the proxy unless it gets the configured client, so the snippet and guide now show `customClient`.
+- Fixed Route Emulators Through Rockxy failing with "Permission denied" when the certificate in the emulator's Download folder had been opened by another app; Rockxy now reuses an identical copy or writes a uniquely named one, and always reverts the proxy it set when quitting.
+- Fixed sensitive-data redaction (MCP flow details, AI Assistant context, Gist publishing) missing credentials that a server echoes back in a JSON body — `Authorization`, API-key headers, tokens in URLs, and `Bearer`/`Basic` values — while keeping usage counters such as `total_tokens` readable.
+- Fixed WebSocket connections failing with HTTP/2 enabled: the handshake is now always sent to the server over HTTP/1.1.
+- Fixed Chrome on Android emulators rejecting Rockxy's certificate after system-wide trust; Rockxy also adds it as a user CA, which Chrome trusts, and Revert removes it.
+- Fixed the Ruby that ships with macOS rejecting Rockxy's certificate in prepared terminals.
+- Fixed `rockxy-cli proxy on` and `proxy off` returning before macOS applied the change.
+- Fixed a Modify Headers rule turning off every Map Local, Map Remote, Block, and Network Conditions rule listed after it for the same URL. Header rules now apply on top of those rules, so a CORS rule for a host also reaches Map Local and script-mocked responses, and request scripts still run after a header rule.
+- Fixed `rockxy-cli start` returning before the proxy was listening, which made a following `rockxy-cli proxy off` have no effect and `rockxy-cli proxy on` fail; `start` now waits and prints the port or the reason it could not start.
+- Fixed iOS Safari downloading the shared root certificate as a plain file instead of offering a configuration profile.
+- Fixed WKWebView and other clients that wait before their first request inside a CONNECT tunnel going uncaptured.
+- Fixed Add Header in the breakpoint editor immediately disabling Apply with an invalid-header error.
+- Fixed OpenAPI export describing a query parameter as an array when separate requests each sent it once.
+- Fixed settings import reporting that no rules were added when it added reverse proxies or DNS Spoofing rules.
+- Fixed Android emulator setup not finding adb from Homebrew when Rockxy is opened from Finder.
+- Fixed a slow `xcode-select` lookup being reported as "Xcode is not installed" during simulator setup.
 - Fixed the inspector showing "No Selection" after a filter hid the focused row of a multi-row selection while other selected rows stayed visible; the top-most visible selected row now becomes the inspected request.
 - Localized system proxy and plugin script error messages shown in the capture readiness panel and the scripting surfaces.
 - Fixed an open WebSocket reading "Duration Unavailable" in the Context Dock while its inspector showed a running time; both now show the elapsed time of a connection or stream that is still open, updated once a second.

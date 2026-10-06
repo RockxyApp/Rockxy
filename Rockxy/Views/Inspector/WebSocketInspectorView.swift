@@ -49,14 +49,30 @@ struct WebSocketInspectorView: View {
             selectedFrameID = nil
         }
         .onChange(of: selectedFrameID) { _, _ in
-            payloadMode = selectedFrame
-                .map { ProtobufDetector.isLikelyProtobuf($0.payload) } == true ? .protobuf : .payload
+            payloadMode = selectedFrame.map(prefersProtobufView) == true ? .protobuf : .payload
         }
     }
 
     // MARK: Private
 
     private static let maxPayloadPreviewBytes = 512
+
+    /// Opens the Protobuf view for binary frames that look like Protobuf or that a mapping
+    /// definition or gRPC method assigns a message type to.
+    private func prefersProtobufView(_ frame: WebSocketFrameData) -> Bool {
+        guard frame.opcode == .binary || !frame.payload.isProbablyUTF8Text else {
+            return false
+        }
+        if ProtobufDetector.isLikelyProtobuf(frame.payload) {
+            return true
+        }
+        let context = protobufContext(for: frame)
+        return ProtobufDecodeResolver.automaticChoice(
+            url: context.url,
+            method: context.method,
+            direction: context.direction
+        ) != .bestGuess
+    }
     /// Bounds for the frame list inside the scrolling tab: a few rows minimum so the selection
     /// context never vanishes, and a cap so long sessions scroll within the list.
     private static let frameRowHeight: CGFloat = 26
@@ -72,6 +88,8 @@ struct WebSocketInspectorView: View {
     @State private var directionFilterValue: FrameDirection?
     @State private var showDetail = true
     @State private var payloadMode: WebSocketPayloadInspectorMode = .payload
+    @State private var frameSearchText = ""
+    @State private var formatsJSONPayloads = true
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var selectedFrame: WebSocketFrameData? {
@@ -102,6 +120,9 @@ struct WebSocketInspectorView: View {
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityValue(showDetail
+                ? String(localized: "Expanded", bundle: RockxyLocalization.bundle)
+                : String(localized: "Collapsed", bundle: RockxyLocalization.bundle))
             .padding(.horizontal, 12)
             .padding(.top, 6)
             .padding(.bottom, showDetail ? 4 : 6)
@@ -236,6 +257,18 @@ struct WebSocketInspectorView: View {
         }
         .pickerStyle(.segmented)
         .controlSize(.small)
+        .fixedSize()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .trailing) {
+            TextField(
+                String(localized: "Filter Frames", bundle: RockxyLocalization.bundle),
+                text: $frameSearchText
+            )
+            .textFieldStyle(.roundedBorder)
+            .controlSize(.small)
+            .frame(width: 180)
+            .accessibilityLabel(String(localized: "Filter frames by payload text", bundle: RockxyLocalization.bundle))
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)
     }
@@ -266,15 +299,21 @@ struct WebSocketInspectorView: View {
 
     private func frameRow(_ frame: WebSocketFrameData) -> some View {
         HStack(spacing: 4) {
+            // Fixed-format monospaced text keeps the column aligned without a hard width
+            // that clips at larger text sizes.
             Text(formatTimestamp(frame.timestamp))
                 .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize()
 
             Image(systemName: frame.direction == .sent ? "arrow.up.circle" : "arrow.down.circle")
                 .font(.system(size: metrics.secondaryFontSize))
                 .foregroundStyle(frame.direction == .sent ? .blue : .green)
                 .frame(width: 16)
+                .accessibilityLabel(frame.direction == .sent
+                    ? String(localized: "Sent", bundle: RockxyLocalization.bundle)
+                    : String(localized: "Received", bundle: RockxyLocalization.bundle))
 
             opcodeBadge(frame.opcode)
                 .frame(width: 42, alignment: .leading)
@@ -290,7 +329,9 @@ struct WebSocketInspectorView: View {
             Text(SizeFormatter.format(bytes: frame.payload.count))
                 .font(.system(size: metrics.metadataFontSize, design: .monospaced))
                 .foregroundStyle(.tertiary)
-                .frame(width: 48, alignment: .trailing)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(minWidth: 48, alignment: .trailing)
         }
         .padding(.vertical, 1)
     }
@@ -322,12 +363,25 @@ struct WebSocketInspectorView: View {
                     ) {
                         Text(String(localized: "Payload", bundle: RockxyLocalization.bundle))
                             .tag(WebSocketPayloadInspectorMode.payload)
+                        Text(String(localized: "Tree", bundle: RockxyLocalization.bundle))
+                            .tag(WebSocketPayloadInspectorMode.tree)
+                        Text(String(localized: "Hex", bundle: RockxyLocalization.bundle))
+                            .tag(WebSocketPayloadInspectorMode.hex)
                         Text(String(localized: "Protobuf", bundle: RockxyLocalization.bundle))
                             .tag(WebSocketPayloadInspectorMode.protobuf)
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
-                    .frame(width: 190)
+                    .fixedSize()
+
+                    if payloadMode == .payload, WebSocketFrameSearch.isTextual(frame) {
+                        Toggle(
+                            String(localized: "Format JSON", bundle: RockxyLocalization.bundle),
+                            isOn: $formatsJSONPayloads
+                        )
+                        .toggleStyle(.checkbox)
+                        .controlSize(.small)
+                    }
 
                     if ProtobufDetector.isLikelyProtobuf(frame.payload) {
                         Label(
@@ -348,24 +402,61 @@ struct WebSocketInspectorView: View {
                 switch payloadMode {
                 case .payload:
                     rawPayloadView(frame)
+                case .tree:
+                    treePayloadView(frame)
+                case .hex:
+                    AsyncHexDumpView(
+                        data: frame.payload,
+                        renderID: "\(frame.id.uuidString)-payload-hex-\(frame.payload.count)"
+                    )
+                    .frame(height: 240)
                 case .protobuf:
                     protobufPayloadView(frame)
                 }
+
+                Divider()
+                PayloadActionsBar(
+                    payload: frame.payload,
+                    fileStem: "\(frame.id.uuidString)-frame",
+                    fileExtension: WebSocketFrameSearch.jsonData(frame.payload) != nil
+                        ? "json"
+                        : WebSocketFrameSearch.isTextual(frame) ? "txt" : "bin",
+                    suggestedName: "websocket-frame",
+                    saveTitle: String(localized: "Save Payload As…", bundle: RockxyLocalization.bundle)
+                )
             }
         }
     }
 
     @ViewBuilder
+    private func treePayloadView(_ frame: WebSocketFrameData) -> some View {
+        if let json = WebSocketFrameSearch.jsonData(frame.payload) {
+            JSONTreeView(data: json)
+                .id(frame.id)
+                .frame(height: 240)
+        } else {
+            ContentUnavailableView(
+                String(localized: "Not JSON", bundle: RockxyLocalization.bundle),
+                systemImage: "curlybraces",
+                description: Text(String(
+                    localized: "This frame's payload is not a JSON object or array.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            )
+            .frame(height: 160)
+        }
+    }
+
+    @ViewBuilder
     private func rawPayloadView(_ frame: WebSocketFrameData) -> some View {
-        if frame.opcode == .text || frame.opcode == .connectionClose,
-           frame.payload.isProbablyUTF8Text
-        {
+        if WebSocketFrameSearch.isTextual(frame) {
             let payload = frame.payload
+            let formatsJSON = formatsJSONPayloads
             AsyncInspectorTextEditor(
-                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)"
+                renderID: "\(frame.id.uuidString)-payload-text-\(payload.count)-\(formatsJSON)"
             ) {
                 if let text = String(data: payload, encoding: .utf8) {
-                    return .text(text)
+                    return .text(formatsJSON ? WebSocketFrameSearch.prettyJSON(text) ?? text : text)
                 }
                 return .unavailable(
                     title: String(localized: "Binary Payload", bundle: RockxyLocalization.bundle),
@@ -373,32 +464,33 @@ struct WebSocketInspectorView: View {
                     description: SizeFormatter.format(bytes: payload.count)
                 )
             }
-            .frame(maxHeight: 200)
+            .frame(height: 200)
         } else {
             AsyncHexDumpView(
                 data: frame.payload,
                 renderID: "\(frame.id.uuidString)-payload-hex-\(frame.payload.count)"
             )
-            .frame(maxHeight: 200)
+            .frame(height: 200)
         }
     }
 
-    @ViewBuilder
     private func protobufPayloadView(_ frame: WebSocketFrameData) -> some View {
-        if let tree = frame.protobufHeuristicTree(), !tree.fields.isEmpty {
-            ProtobufTreeView(tree: tree)
-                .frame(maxHeight: 220)
-        } else {
-            InspectorEmptyStateView(
-                String(localized: "No Protobuf Fields", bundle: RockxyLocalization.bundle),
-                systemImage: "curlybraces",
-                description: String(
-                    localized: "This frame does not look like a valid Protobuf wire-format payload.",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-            .frame(maxHeight: 160)
-        }
+        ProtobufPayloadInspectorView(
+            payload: frame.payload,
+            context: protobufContext(for: frame),
+            payloadID: frame.id.uuidString,
+            choiceScopeID: transaction.id.uuidString
+        )
+        .frame(height: 240)
+    }
+
+    /// Client frames decode with a mapping's request type, server frames with its response type.
+    private func protobufContext(for frame: WebSocketFrameData) -> ProtobufPayloadContext {
+        ProtobufPayloadContext(
+            url: transaction.request.url,
+            method: transaction.request.method,
+            direction: frame.direction == .sent ? .request : .response
+        )
     }
 
     private func totalSize(_ frames: [WebSocketFrameData]) -> String {
@@ -413,10 +505,13 @@ struct WebSocketInspectorView: View {
     }
 
     private func filteredFrames(_ connection: WebSocketConnection) -> [WebSocketFrameData] {
-        guard let filter = directionFilterValue else {
-            return connection.frames
+        let query = frameSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return connection.frames.filter { frame in
+            if let filter = directionFilterValue, frame.direction != filter {
+                return false
+            }
+            return query.isEmpty || WebSocketFrameSearch.matches(frame.payload, query: query)
         }
-        return connection.frames.filter { $0.direction == filter }
     }
 
     private func opcodeInfo(_ opcode: FrameOpcode) -> (String, Color) {
@@ -449,7 +544,12 @@ struct WebSocketInspectorView: View {
             }
             return text
         case .binary:
-            return Self.sizePlaceholder(for: frame)
+            guard WebSocketFrameSearch.jsonData(frame.payload) != nil,
+                  let text = String(data: frame.payload.prefix(Self.maxPayloadPreviewBytes), encoding: .utf8) else
+            {
+                return Self.sizePlaceholder(for: frame)
+            }
+            return String(text.prefix(80))
         case .connectionClose:
             if frame.payload.count >= 2 {
                 let code = UInt16(frame.payload[0]) << 8 | UInt16(frame.payload[1])
@@ -477,11 +577,73 @@ struct WebSocketInspectorView: View {
 
 private enum WebSocketPayloadInspectorMode {
     case payload
+    case tree
+    case hex
     case protobuf
 }
 
 private extension Data {
     var isProbablyUTF8Text: Bool {
         String(data: prefix(512), encoding: .utf8) != nil
+    }
+}
+
+// MARK: - WebSocketFrameSearch
+
+/// Text search and JSON formatting for WebSocket frame payloads. Only the first
+/// `maxScannedBytes` of a payload are searched so very large frames stay cheap.
+enum WebSocketFrameSearch {
+    static let maxScannedBytes = 65_536
+
+    static func matches(_ payload: Data, query: String) -> Bool {
+        guard !query.isEmpty else {
+            return true
+        }
+        guard let text = String(data: payload.prefix(maxScannedBytes), encoding: .utf8) else {
+            return false
+        }
+        return text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+    }
+
+    /// Text frames, close reasons, and binary frames that carry JSON are shown as text.
+    static func isTextual(_ frame: WebSocketFrameData) -> Bool {
+        switch frame.opcode {
+        case .text,
+             .connectionClose:
+            String(data: frame.payload.prefix(512), encoding: .utf8) != nil
+        case .binary:
+            jsonData(frame.payload) != nil
+        case .ping,
+             .pong,
+             .continuation:
+            false
+        }
+    }
+
+    /// The payload when it parses as a JSON object or array, otherwise `nil`.
+    static func jsonData(_ payload: Data) -> Data? {
+        let first = payload.first { !($0 == 0x20 || $0 == 0x0A || $0 == 0x0D || $0 == 0x09) }
+        guard first == UInt8(ascii: "{") || first == UInt8(ascii: "["),
+              (try? JSONSerialization.jsonObject(with: payload)) != nil else
+        {
+            return nil
+        }
+        return payload
+    }
+
+    /// Pretty-printed JSON for an object or array payload, or `nil` when the text is not JSON.
+    static func prettyJSON(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("["),
+              let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(
+                  withJSONObject: object,
+                  options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+              ) else
+        {
+            return nil
+        }
+        return String(data: pretty, encoding: .utf8)
     }
 }

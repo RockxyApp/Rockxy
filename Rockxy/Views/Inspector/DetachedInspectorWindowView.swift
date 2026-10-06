@@ -1,7 +1,8 @@
 import SwiftUI
 
 // Standalone Inspector window that mirrors the main horizontal request/response
-// inspector for one pinned transaction.
+// inspector for one pinned transaction, or for the main window's selection when
+// Follow Selection is on.
 
 // MARK: - DetachedInspectorWindowView
 
@@ -18,10 +19,24 @@ struct DetachedInspectorWindowView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let selection {
-                InspectorURLBar(
-                    transaction: selection.transaction,
-                    highlightContext: selection.highlightContext
-                )
+                HStack(spacing: 0) {
+                    InspectorURLBar(
+                        transaction: selection.transaction,
+                        highlightContext: selection.highlightContext
+                    )
+                    Toggle(
+                        String(localized: "Follow Selection", bundle: RockxyLocalization.bundle),
+                        isOn: $followsSelection
+                    )
+                    .toggleStyle(.checkbox)
+                    .controlSize(.small)
+                    .fixedSize()
+                    .padding(.horizontal, 10)
+                    .help(String(
+                        localized: "Show the request selected in the main window instead of keeping this one",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
                 Divider()
                 HSplitView {
                     RequestInspectorView(
@@ -56,6 +71,12 @@ struct DetachedInspectorWindowView: View {
         .onChange(of: DetachedInspectorStore.shared.version) {
             adoptLatestSelection()
         }
+        .onChange(of: coordinator.selectedTransaction?.id) {
+            followMainSelection()
+        }
+        .onChange(of: followsSelection) {
+            followMainSelection()
+        }
         .onDisappear {
             guard let selection else {
                 return
@@ -69,6 +90,24 @@ struct DetachedInspectorWindowView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var selection: DetachedInspectorSelection?
+    @AppStorage(RockxyIdentity.current.defaultsKey("detachedInspector.followsSelection"))
+    private var followsSelection = false
+
+    /// Retargets to the main window's selected request while Follow Selection is on. An empty
+    /// or multi-row selection keeps the current request rather than blanking the window.
+    private func followMainSelection() {
+        guard followsSelection,
+              coordinator.selectedTransactionIDs.count <= 1,
+              let transaction = coordinator.selectedTransaction,
+              transaction.id != selection?.transaction.id else
+        {
+            return
+        }
+        selection = DetachedInspectorSelection(
+            transaction: transaction,
+            highlightContext: coordinator.activeInspectorHighlightContext()
+        )
+    }
 
     private func adoptLatestSelection() {
         guard let requested = DetachedInspectorStore.shared.requestedSelection else {

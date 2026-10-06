@@ -164,7 +164,7 @@ extension MainContentCoordinator {
     /// workspace, so leaving an inactive workspace's visibility lenses behind would silently
     /// hide newly captured traffic when the user returns to it.
     func clearFiltersAcrossAllWorkspaces() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             resetFilters(in: workspace)
         }
         recomputeAllWorkspaces()

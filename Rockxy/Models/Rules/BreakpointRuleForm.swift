@@ -10,6 +10,7 @@ enum BreakpointRuleForm {
         let httpMethod: HTTPMethodFilter
         let breakpointRequest: Bool
         let breakpointResponse: Bool
+        var graphQLOperationName: String = ""
     }
 
     static func decode(rule: ProxyRule) -> Decoded {
@@ -45,7 +46,8 @@ enum BreakpointRuleForm {
             includeSubpaths: includeSubpaths,
             httpMethod: method,
             breakpointRequest: phases.request,
-            breakpointResponse: phases.response
+            breakpointResponse: phases.response,
+            graphQLOperationName: rule.matchCondition.requiredGraphQLOperationName ?? ""
         )
     }
 
@@ -57,10 +59,13 @@ enum BreakpointRuleForm {
         matchType: RuleMatchType,
         phaseRequest: Bool,
         phaseResponse: Bool,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String? = nil
     )
         -> ProxyRule
     {
+        let operationName = graphQLOperationName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requiredOperation = operationName?.isEmpty == false ? operationName : nil
         let trimmedPattern = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedIncludeSubpaths = matchType == .wildcard && includeSubpaths
         let originalDecoded = original.map(decode)
@@ -69,6 +74,7 @@ enum BreakpointRuleForm {
                 && $0.httpMethod == httpMethod
                 && $0.matchType == matchType
                 && $0.includeSubpaths == normalizedIncludeSubpaths
+                && original?.matchCondition.requiredGraphQLOperationName == requiredOperation
         } ?? false
 
         let condition: RuleMatchCondition = if scopeIsUnchanged, let originalCondition = original?.matchCondition {
@@ -85,7 +91,8 @@ enum BreakpointRuleForm {
                 headerName: original?.matchCondition.headerName,
                 headerValue: original?.matchCondition.headerValue,
                 matchType: matchType,
-                includeSubpaths: matchType == .wildcard ? normalizedIncludeSubpaths : nil
+                includeSubpaths: matchType == .wildcard ? normalizedIncludeSubpaths : nil,
+                graphQLOperationName: requiredOperation
             )
         }
 

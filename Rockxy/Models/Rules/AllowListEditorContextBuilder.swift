@@ -21,7 +21,8 @@ enum AllowListEditorContextBuilder {
             defaultPattern: "*\(host)\(normalizedPath)*",
             defaultMatchType: .wildcard,
             httpMethod: httpMethod,
-            includeSubpaths: true
+            includeSubpaths: true,
+            graphQLOperationName: transaction.graphQLInfo?.operationName
         )
     }
 

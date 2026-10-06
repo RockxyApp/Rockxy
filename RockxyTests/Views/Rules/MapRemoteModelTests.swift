@@ -823,3 +823,40 @@ private struct MapRemoteQuotaPolicy: AppPolicy {
         maxActiveRulesPerTool = maxRules
     }
 }
+
+// MARK: - MapRemoteGraphQLOperationTests
+
+@MainActor
+struct MapRemoteGraphQLOperationTests {
+    @Test("A GraphQL request prefills its operation so the redirect targets one operation")
+    func draftCarriesOperation() {
+        let transaction = TestFixtures.makeGraphQLTransaction(operationName: "GetUsers")
+        let draft = MapRemoteDraftBuilder.fromTransaction(transaction)
+        #expect(draft.graphQLOperationName == "GetUsers")
+        #expect(MapRemoteDraftBuilder.fromDomain("example.com").graphQLOperationName == nil)
+
+        let vm = MapRemoteEditorViewModel()
+        vm.load(context: MapRemoteEditorContext(draft: draft))
+        #expect(vm.graphQLOperationName == "GetUsers")
+    }
+
+    @Test("Saving stores the trimmed operation, and clearing it matches every request again")
+    func saveAndReloadOperation() throws {
+        let vm = MapRemoteEditorViewModel()
+        vm.load(context: .blank)
+        vm.name = "Users to staging"
+        vm.urlText = "https://api.example.com/graphql"
+        vm.destHost = "staging.example.com"
+        vm.graphQLOperationName = "  GetUsers "
+        let rule = try #require(vm.makeRule())
+        #expect(rule.matchCondition.graphQLOperationName == "GetUsers")
+
+        let reloaded = MapRemoteEditorViewModel()
+        reloaded.load(context: MapRemoteEditorContext(existingRule: rule))
+        #expect(reloaded.graphQLOperationName == "GetUsers")
+
+        reloaded.graphQLOperationName = " "
+        let cleared = try #require(reloaded.makeRule())
+        #expect(cleared.matchCondition.graphQLOperationName == nil)
+    }
+}

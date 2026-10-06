@@ -45,6 +45,19 @@ The main traffic list displays captured requests in a high-performance virtualiz
 - **Duration** — total round-trip time in milliseconds
 - **Content Type** — detected response type (JSON, XML, HTML, image, etc.)
 
+### Custom columns
+
+**Tools > Custom Header Columns…** adds columns of your own:
+
+| Source | Shows | Example |
+|--------|-------|---------|
+| Request Headers / Response Headers | A header's value | `X-Request-Id` |
+| Query | A query parameter's first value | `page` |
+| Request Body / Response Body | A value from a JSON body, with JSONPath (starting with `$`) or a jq filter | `$.data.user.name`, `.items \| length` |
+
+Several results are joined with commas, and a body that is not JSON shows an empty cell. Custom
+columns can be sorted like any other column.
+
 Above the request list, the main content switcher gives you different perspectives on captured data:
 
 - **Traffic** — the full chronological request list
@@ -57,7 +70,7 @@ The toolbar supports protocol filters, URL search, and an optional advanced filt
 
 - **Protocol filters** — narrow to HTTP, HTTPS, WebSocket, GraphQL, AI, Web3 RPC, gRPC, and related traffic classes.
 - **URL search** — search the selected field from the search bar.
-- **Advanced filters** — combine structured rules such as method, status, domain, path, client app, or request state.
+- **Advanced filters** — combine structured rules such as method, status, domain, path, client app, or request state. **Presets** saves the current rules under a name you choose (**Save Current Filter As…**), applies a saved preset, replaces a preset's rules with the current ones (**Update Preset with Current Filter**), and renames or deletes presets.
 - **Sidebar scope** — selecting an app, domain, pinned item, or saved item scopes the request list.
 
 <Tip>
@@ -66,16 +79,20 @@ Combine multiple filters to isolate exactly the traffic you need. For example, f
 
 ## Request Inspector
 
-Select any request in the traffic list to open the inspector panel. The inspector splits into a request side (Headers, Query, Body, Cookies, Raw, Synopsis, Comments) and a response side (Headers, Body, Set-Cookie, Auth, Timeline — plus WebSocket, GraphQL, AI, Web3, and gRPC when applicable). Switch tabs to inspect each part of the transaction:
+Select any request in the traffic list to open the inspector panel. Click **Open Inspector in New Window** in the inspector's URL bar to keep a request open in its own window; turn on **Follow Selection** there to have that window show whatever you select in the main window instead. The inspector splits into a request side (Headers, Query, Body, Cookies, Raw, Synopsis, [Connection Log](/features/connection-log), Notes — plus Multipart and Protobuf when the body needs them) and a response side (Headers, Body, Set-Cookie, Auth, Timeline — plus Events, Protobuf, WebSocket, GraphQL, AI, Web3, and gRPC when applicable). Switch tabs to inspect each part of the transaction:
 
 ### Headers
 
-Request and response headers each have their own tab on their respective side of the inspector, shown as a searchable key-value table.
+Request and response headers each have their own tab on their respective side of the inspector, shown as a key-value table. Tables with six or more headers get a filter field that keeps rows whose name or value contains the text.
 
 ### Body
 
 Auto-detects the content type and renders the body accordingly:
-- **JSON** — collapsible tree view with syntax highlighting
+- **JSON** — collapsible tree view with syntax highlighting. The filter bar under the tree
+  searches by **JSON Paths** (`$.posts[*].user.name`), **Key Paths**, **All Keys**, or **All
+  Values**, or transforms the body with **jq** (`.posts[] | select(.likes > 10) | .user.name`);
+  jq results replace the tree while the filter is set. Right-click a node to copy its value,
+  key, key and value, or JSONPath
 - **XML/HTML** — formatted tree view with tag folding
 - **Images** — inline preview (PNG, JPEG, GIF, WebP, SVG)
 - **Binary** — hex dump with ASCII sidebar

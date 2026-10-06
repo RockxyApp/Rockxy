@@ -23,6 +23,8 @@ Automatic Setup prepares a scoped shell for the Java VMs target. Alongside the s
 
 Rockxy preserves any `JAVA_TOOL_OPTIONS` you already set and does not stack the proxy block if you re-source the script.
 
+When the Rockxy root certificate is exported, the prepared terminal also trusts it for that shell's JVMs. Using the `keytool` of the JDK in use (`JAVA_HOME`, or `/usr/libexec/java_home`), it builds a private PKCS12 truststore in your `$TMPDIR` that holds that JDK's own CA certificates plus the Rockxy root, and adds `-Djavax.net.ssl.trustStore` to `JAVA_TOOL_OPTIONS`. Public hosts keep validating, the JDK's `cacerts` and the macOS keychain are not changed, and the trust ends with the shell. Without a JDK nothing is added.
+
 <Note>
 Automatic Setup only affects the session or fresh application instance it launches. A JVM or IDE that is already running keeps its current environment. Launch a JVM from the prepared session, or fully quit the IDE and use **Choose & Open Developer App**.
 </Note>
@@ -42,7 +44,7 @@ A Python, Node.js, or other non-JVM Run/Debug child only inherits the environmen
 
 ## What you still need to do
 
-- import and trust the Rockxy root certificate in the exact JVM or JetBrains trust store (proxy properties alone do not make HTTPS interception work)
+- for JVMs not started from the prepared terminal (an IDE or a daemon), import and trust the Rockxy root certificate in that JVM's trust store
 - add the target host under HTTPS Decryption so Rockxy decrypts its HTTPS traffic
 - validate with one known request before broader debugging
 

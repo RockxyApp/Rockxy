@@ -55,6 +55,40 @@ final class FilterPresetStore {
         savePreset(name: generatedPresetName(for: rules), rules: rules)
     }
 
+    /// Suggested name for saving `rules`, e.g. "URL: api + 1".
+    func suggestedName(for rules: [FilterRule]) -> String {
+        generatedPresetName(for: rules)
+    }
+
+    /// Renames a preset; refuses an empty name or one another preset already uses.
+    @discardableResult
+    func renamePreset(id: UUID, to name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let index = presets.firstIndex(where: { $0.id == id }),
+              !presets.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(trimmed) == .orderedSame })
+        else {
+            return false
+        }
+        presets[index].name = trimmed
+        presets[index].updatedAt = Date()
+        persist()
+        return true
+    }
+
+    /// Replaces a preset's rules with the currently enabled rules, keeping its name.
+    @discardableResult
+    func overwritePreset(id: UUID, with rules: [FilterRule]) -> Bool {
+        let enabledRules = FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true)
+        guard !enabledRules.isEmpty, let index = presets.firstIndex(where: { $0.id == id }) else {
+            return false
+        }
+        presets[index].rules = enabledRules
+        presets[index].updatedAt = Date()
+        persist()
+        return true
+    }
+
     func deletePreset(id: UUID) {
         presets.removeAll { $0.id == id }
         persist()

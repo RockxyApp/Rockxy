@@ -75,4 +75,29 @@ struct NetworkThrottlePlannerTests {
         #expect(profile.packetLossRate == 0.0)
         #expect(profile.latencyDelay == expectedLatency)
     }
+
+    @Test("Lost chunks arrive one retransmission timeout late and delay everything after them")
+    func packetLossDelaysLostChunksAndTheirSuccessors() throws {
+        let loss = NetworkPacketLoss(rate: 0.5, latencyMs: 50)
+        var draws: [Double] = [0.9, 0.1, 0.9]
+        let lossless = try #require(NetworkThrottlePlanner.makePlan(
+            byteCount: 3 * 4_096,
+            bytesPerSecond: 4_096,
+            nowNanos: 0
+        ))
+        let lossy = try #require(NetworkThrottlePlanner.makePlan(
+            byteCount: 3 * 4_096,
+            bytesPerSecond: 4_096,
+            nowNanos: 0,
+            packetLoss: loss,
+            random: { draws.removeFirst() }
+        ))
+
+        #expect(loss.retransmissionPenaltyNanos == 200_000_000)
+        #expect(lossy.chunks[0].delayMs == lossless.chunks[0].delayMs)
+        #expect(lossy.chunks[1].delayMs == lossless.chunks[1].delayMs + 200)
+        #expect(lossy.chunks[2].delayMs == lossless.chunks[2].delayMs + 200)
+        #expect(lossy.readyAtNanos == lossless.readyAtNanos + 200_000_000)
+        #expect(NetworkPacketLoss(rate: 0.1, latencyMs: 2_000).retransmissionPenaltyNanos == 4_000_000_000)
+    }
 }

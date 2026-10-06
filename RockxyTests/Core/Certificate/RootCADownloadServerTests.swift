@@ -162,8 +162,8 @@ struct RootCADownloadResponderTests {
         )
 
         #expect(response.status == .ok)
-        #expect(header("Content-Type", in: response)?.contains("application/x-pem-file") == true)
-        #expect(header("Content-Disposition", in: response) == "attachment; filename=\"RockxyRootCA.pem\"")
+        #expect(header("Content-Type", in: response) == "application/x-x509-ca-cert")
+        #expect(header("Content-Disposition", in: response) == "attachment; filename=\"RockxyRootCA.crt\"")
         #expect(header("Cache-Control", in: response) == "no-store")
         #expect(header("X-Content-Type-Options", in: response) == "nosniff")
         #expect(String(bytes: response.body, encoding: .utf8) == pem)

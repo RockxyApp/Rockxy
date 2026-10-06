@@ -47,11 +47,14 @@ enum RootCADownloadResponder {
             return plainResponse(status: .notFound, message: "Not found")
         }
 
+        // iOS and iPadOS offer the "configuration profile" install flow (and the Apple Watch
+        // choice on a paired iPhone) only for this type; with x-pem-file plus nosniff Safari
+        // just saves a file. Android Chrome saves it to Downloads for the Settings install.
         return RootCADownloadResponse(
             status: .ok,
             headers: [
-                ("Content-Type", "application/x-pem-file; charset=utf-8"),
-                ("Content-Disposition", "attachment; filename=\"RockxyRootCA.pem\""),
+                ("Content-Type", "application/x-x509-ca-cert"),
+                ("Content-Disposition", "attachment; filename=\"RockxyRootCA.crt\""),
                 ("Cache-Control", "no-store"),
                 ("X-Content-Type-Options", "nosniff"),
             ],

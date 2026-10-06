@@ -485,11 +485,14 @@ struct TrafficCommandBar: View {
             Button(String(localized: "Add Note…", bundle: RockxyLocalization.bundle)) { actions.addComment() }
             Menu(String(localized: "Highlight", bundle: RockxyLocalization.bundle)) {
                 ForEach(HighlightColor.allCases, id: \.self) { color in
-                    Button(color.rawValue.capitalized) { actions.setHighlight(color) }
+                    Button(color.displayName) { actions.setHighlight(color) }
                 }
                 Divider()
                 Button(String(localized: "Remove Highlight", bundle: RockxyLocalization.bundle)) {
                     actions.setHighlight(nil)
+                }
+                Button(String(localized: "Strikethrough", bundle: RockxyLocalization.bundle)) {
+                    actions.toggleStrikethrough()
                 }
             }
         }
@@ -541,6 +544,12 @@ struct TrafficCommandBar: View {
         Menu(String(localized: "Export", bundle: RockxyLocalization.bundle)) {
             Button(String(localized: "Export as HAR…", bundle: RockxyLocalization.bundle)) { actions.exportHAR() }
                 .disabled(coordinator.transactions.isEmpty)
+            Button(String(localized: "Export as CSV…", bundle: RockxyLocalization.bundle)) { actions.exportCSV() }
+                .disabled(coordinator.transactions.isEmpty)
+            Button(String(localized: "Export as Rockxy Session…", bundle: RockxyLocalization.bundle)) {
+                actions.exportRockxySession()
+            }
+            .disabled(coordinator.transactions.isEmpty)
             Button(String(localized: "Export as OpenAPI YAML…", bundle: RockxyLocalization.bundle)) {
                 actions.exportOpenAPIYAML()
             }

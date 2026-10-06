@@ -18,7 +18,11 @@ extension MainContentCoordinator {
     }
 
     func copyCURL(for transaction: HTTPTransaction) {
-        copyToClipboard(RequestCopyFormatter.curl(for: transaction))
+        copyToClipboard(RequestCopyFormatter.curl(
+            for: transaction,
+            options: .current,
+            proxyPort: activeProxyPort
+        ))
     }
 
     func copyCellValue(for transaction: HTTPTransaction, column: String) {
@@ -118,8 +122,14 @@ extension MainContentCoordinator {
 
     // MARK: - Replay
 
+    /// Repeats the right-clicked row, or the whole selection when the row is part of it.
     func replayTransaction(_ transaction: HTTPTransaction) {
-        performReplay(for: transaction)
+        let targets = contextExportTransactions(clicked: transaction)
+        if targets.count > 1 {
+            performReplay(for: targets)
+        } else {
+            performReplay(for: transaction)
+        }
     }
 
     func editAndReplayTransaction(_ transaction: HTTPTransaction) {
@@ -147,7 +157,38 @@ extension MainContentCoordinator {
     }
 
     func setHighlight(_ color: HighlightColor?, for transaction: HTTPTransaction) {
-        transaction.highlightColor = color
+        setHighlight(color, for: [transaction])
+    }
+
+    /// Highlights the right-clicked row, or the whole selection when the row is part of it.
+    func setHighlight(_ color: HighlightColor?, clicked transaction: HTTPTransaction) {
+        setHighlight(color, for: contextExportTransactions(clicked: transaction))
+    }
+
+    func setHighlight(_ color: HighlightColor?, for transactions: [HTTPTransaction]) {
+        guard !transactions.isEmpty else {
+            return
+        }
+        for transaction in transactions {
+            transaction.highlightColor = color
+        }
+        refreshRowsAfterMutation()
+    }
+
+    /// Strikes through the right-clicked row, or the whole selection when the row is part of it.
+    /// Mixed selections are all struck through; only a fully struck selection is cleared.
+    func toggleStrikethrough(clicked transaction: HTTPTransaction) {
+        toggleStrikethrough(for: contextExportTransactions(clicked: transaction))
+    }
+
+    func toggleStrikethrough(for targets: [HTTPTransaction]) {
+        guard !targets.isEmpty else {
+            return
+        }
+        let enable = targets.contains { !$0.isStruckThrough }
+        for target in targets {
+            target.isStruckThrough = enable
+        }
         refreshRowsAfterMutation()
     }
 
@@ -283,45 +324,6 @@ extension MainContentCoordinator {
         invalidateSidebarFavoriteCache()
         persistTransaction(transaction)
         refreshRowsAfterMutation()
-    }
-
-    func exportTransactionAsHAR(_ transaction: HTTPTransaction) {
-        let exporter = HARExporter()
-        let data: Data
-        do {
-            data = try exporter.export(transactions: [transaction])
-        } catch {
-            Self.logger.error("Failed to serialize HAR: \(error.localizedDescription)")
-            showExportError(
-                title: String(localized: "Export Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not create HAR data.\n\n\(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-            return
-        }
-        let safeName = transaction.request.host
-            + transaction.request.path.replacingOccurrences(of: "/", with: "-")
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(safeName).har"
-        panel.allowedContentTypes = [.har]
-        guard panel.runModal() == .OK, let url = panel.url else {
-            return
-        }
-        do {
-            try data.write(to: url)
-            Self.logger.info("Saved request to \(url.path())")
-        } catch {
-            Self.logger.error("Failed to export request as HAR: \(error.localizedDescription)")
-            showExportError(
-                title: String(localized: "Export Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not save HAR file.\n\n\(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
-        }
     }
 
     func openFavoriteTransactionInNewTab(
@@ -468,7 +470,7 @@ extension MainContentCoordinator {
     /// Refreshes all workspaces after a row-visible property mutation (pin, save, note,
     /// highlight). Library scopes get a full recompute because membership may have changed.
     func refreshRowsAfterMutation() {
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             if workspace.filterCriteria.sidebarScope == .saved
                 || workspace.filterCriteria.sidebarScope == .pinned
                 || workspace.filterCriteria.sidebarScope == .notes
@@ -552,13 +554,14 @@ extension MainContentCoordinator {
     func deleteTransactions(_ transactionsToDelete: [HTTPTransaction]) {
         let ids = Set(transactionsToDelete.map(\.id))
         transactions.removeAll { ids.contains($0.id) }
+        syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
         recomputeErrorCount()
         persistedFavorites.removeAll { ids.contains($0.id) }
         invalidateSidebarFavoriteCache()
 
         // Update all workspaces (same consistency as eviction)
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             workspace.filteredTransactions.removeAll { ids.contains($0.id) }
             workspace.selectedTransactionIDs.subtract(ids)
             if workspace.selectedTransaction.map({ ids.contains($0.id) }) == true {
@@ -573,6 +576,12 @@ extension MainContentCoordinator {
         // via togglePin/saveRequest even if it was never loaded into persistedFavorites.
         // The store delete is a no-op when the IDs do not exist in SQLite.
         deleteFromSessionStore(ids: ids)
+    }
+
+    /// The list is rebuilt from the active Project's history whenever new traffic arrives, so a
+    /// removal that only touched `transactions` would bring the rows back with the next batch.
+    func syncActiveProjectHistory() {
+        transactionsByProjectID[projectStore.activeProjectID] = transactions
     }
 
     private func deleteFromSessionStore(ids: Set<UUID>) {

@@ -118,6 +118,31 @@ struct BreakpointManagerTests {
         manager.resolve(id: item.id, decision: .cancel)
     }
 
+    @Test("a response pause names the client from the request, not the response headers")
+    func responsePauseNamesClientFromRequest() async throws {
+        let manager = BreakpointManager()
+        let data = BreakpointRequestData(
+            method: "GET",
+            url: "https://api.example.com/profile",
+            headers: [
+                EditableHeader(name: "Content-Type", value: "application/json"),
+                EditableHeader(name: "X-Runtime", value: "0.0123"),
+            ],
+            body: "{}",
+            statusCode: 200,
+            phase: .response,
+            requestHeaders: [EditableHeader(name: "User-Agent", value: "AcceptanceProbe/1 CFNetwork/3860 Darwin/25.6.0")]
+        )
+
+        Task { _ = await manager.enqueueAndWait(data) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        let item = try #require(manager.pausedItems.first)
+        #expect(item.client == "AcceptanceProbe")
+
+        manager.resolve(id: item.id, decision: .cancel)
+    }
+
     // MARK: - Selection stability
 
     @Test("a newer hit does not steal selection from the edited item")
@@ -170,8 +195,10 @@ struct BreakpointManagerTests {
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
-        // A burst of three hits must auto-raise the window exactly once.
+        // A burst of three hits must auto-raise the window exactly once: the first raise
+        // opens it, so later hits find it visible.
         await enqueueItem(on: manager, url: "https://a.com")
+        manager.isQueueWindowVisible = true
         await enqueueItem(on: manager, url: "https://b.com")
         await enqueueItem(on: manager, url: "https://c.com")
         #expect(manager.pausedItems.count == 3)
@@ -183,6 +210,31 @@ struct BreakpointManagerTests {
 
         // A new hit after the queue emptied re-arms the notification.
         await enqueueItem(on: manager, url: "https://d.com")
+        #expect(counter.count == 2)
+
+        manager.resolveAll(decision: .cancel)
+    }
+
+    @Test("a hit raises the queue again when its window was closed with items waiting")
+    func raisesAgainAfterWindowClosed() async {
+        let manager = BreakpointManager()
+        let counter = NotificationCounter()
+        let token = NotificationCenter.default.addObserver(
+            forName: .breakpointHit,
+            object: manager,
+            queue: nil
+        ) { _ in
+            counter.increment()
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        await enqueueItem(on: manager, url: "https://a.com")
+        manager.isQueueWindowVisible = true
+        await enqueueItem(on: manager, url: "https://b.com")
+        #expect(counter.count == 1)
+
+        manager.isQueueWindowVisible = false
+        await enqueueItem(on: manager, url: "https://c.com")
         #expect(counter.count == 2)
 
         manager.resolveAll(decision: .cancel)

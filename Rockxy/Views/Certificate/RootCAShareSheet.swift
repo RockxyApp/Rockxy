@@ -141,6 +141,10 @@ struct RootCAShareSheet: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Color(nsColor: .separatorColor).opacity(0.8))
                 )
+                .accessibilityLabel(String(
+                    localized: "QR code for the certificate download link",
+                    bundle: RockxyLocalization.bundle
+                ))
         } else {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))

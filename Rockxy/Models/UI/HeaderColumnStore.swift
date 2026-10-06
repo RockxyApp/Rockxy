@@ -48,18 +48,28 @@ final class HeaderColumnStore {
     )
         -> String
     {
-        if columnID.hasPrefix("reqHeader.") {
-            let headerName = String(columnID.dropFirst("reqHeader.".count))
-            return transaction.request.headers
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
-        } else if columnID.hasPrefix("resHeader.") {
-            let headerName = String(columnID.dropFirst("resHeader.".count))
-            return transaction.response?.headers
-                .first { $0.name.caseInsensitiveCompare(headerName) == .orderedSame }?
-                .value ?? ""
+        guard let (source, name) = HeaderColumn.parse(columnID: columnID) else {
+            return ""
         }
-        return ""
+        switch source {
+        case .request:
+            return transaction.request.headers
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .response:
+            return transaction.response?.headers
+                .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
+                .value ?? ""
+        case .query:
+            return CustomColumnValueResolver.queryValue(named: name, in: transaction.request.url)
+        case .requestBody,
+             .responseBody:
+            return CustomColumnValueResolver.bodyValue(
+                expression: name,
+                response: source == .responseBody,
+                transaction: transaction
+            )
+        }
     }
 
     // MARK: - Column Management
@@ -67,7 +77,7 @@ final class HeaderColumnStore {
     @discardableResult
     func addColumn(headerName: String, source: HeaderColumnSource) -> HeaderColumn {
         if let existing = columns.first(where: {
-            $0.source == source && $0.headerName.caseInsensitiveCompare(headerName) == .orderedSame
+            $0.source == source && source.namesMatch($0.headerName, headerName)
         }) {
             return existing
         }
@@ -93,7 +103,7 @@ final class HeaderColumnStore {
 
     func isColumnDefined(headerName: String, source: HeaderColumnSource) -> Bool {
         columns.contains {
-            $0.source == source && $0.headerName.caseInsensitiveCompare(headerName) == .orderedSame
+            $0.source == source && source.namesMatch($0.headerName, headerName)
         }
     }
 
@@ -233,7 +243,7 @@ final class HeaderColumnStore {
     private static let discoveredResKey = RockxyIdentity.current.defaultsKey("discoveredResHeaders")
     private static let hiddenColumnsKey = RockxyIdentity.current.defaultsKey("hiddenBuiltInColumns")
     private static let visibleDefaultHiddenColumnsKey = RockxyIdentity.current.defaultsKey("visibleDefaultHiddenBuiltInColumns")
-    private static let defaultHiddenBuiltInColumns: Set<String> = []
+    private static let defaultHiddenBuiltInColumns: Set<String> = ["version"]
 
     private let defaults: UserDefaults
 

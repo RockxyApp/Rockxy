@@ -15,11 +15,14 @@ enum HARImportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case let .invalidFormat(detail):
-            "Invalid HAR format: \(detail)"
+            String(localized: "Invalid HAR format: \(detail)", bundle: RockxyLocalization.bundle)
         case let .unsupportedVersion(version):
-            "Unsupported HAR version: \(version) (expected 1.2)"
+            String(localized: "Unsupported HAR version: \(version) (expected 1.x)", bundle: RockxyLocalization.bundle)
         case let .malformedEntry(index, reason):
-            "Malformed HAR entry at index \(index): \(reason)"
+            String(
+                localized: "Malformed HAR entry at index \(index): \(reason)",
+                bundle: RockxyLocalization.bundle
+            )
         }
     }
 }
@@ -30,7 +33,21 @@ struct HARImporter {
     // MARK: Internal
 
     func importData(_ data: Data) throws -> [HTTPTransaction] {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        try importReportingSkips(data).transactions
+    }
+
+    /// Imports every entry it can. An entry that cannot be read (a `blob:` URL, a missing
+    /// method) is skipped and counted instead of losing the whole file; the import only
+    /// fails when no entry at all could be read.
+    func importReportingSkips(_ data: Data) throws -> (transactions: [HTTPTransaction], skipped: Int) {
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        // Charles JSON sessions (.chlsj) are an array of entries rather than a HAR log.
+        if let parsed, CharlesJSONSessionImporter.looksLikeSession(parsed) {
+            let transactions = try CharlesJSONSessionImporter.importEntries(parsed)
+            Self.logger.info("Imported \(transactions.count) transactions from a Charles JSON session")
+            return (transactions, 0)
+        }
+        guard let root = parsed as? [String: Any] else {
             throw HARImportError.invalidFormat("Root object is not a JSON dictionary")
         }
 
@@ -38,7 +55,7 @@ struct HARImporter {
             throw HARImportError.invalidFormat("Missing 'log' object")
         }
 
-        if let version = log["version"] as? String, version != "1.2" {
+        if let version = log["version"] as? String, !version.hasPrefix("1.") {
             throw HARImportError.unsupportedVersion(version)
         }
 
@@ -48,14 +65,24 @@ struct HARImporter {
 
         var transactions = [HTTPTransaction]()
         transactions.reserveCapacity(entries.count)
+        var firstError: Error?
+        var skipped = 0
 
         for (index, entry) in entries.enumerated() {
-            let transaction = try parseEntry(entry, at: index)
-            transactions.append(transaction)
+            do {
+                transactions.append(try parseEntry(entry, at: index))
+            } catch {
+                firstError = firstError ?? error
+                skipped += 1
+            }
         }
 
-        Self.logger.info("Imported \(transactions.count) transactions from HAR")
-        return transactions
+        if transactions.isEmpty, let firstError {
+            throw firstError
+        }
+
+        Self.logger.info("Imported \(transactions.count) transactions from HAR (\(skipped) skipped)")
+        return (transactions, skipped)
     }
 
     // MARK: Private
@@ -93,14 +120,17 @@ struct HARImporter {
         let response = parseResponse(entry["response"] as? [String: Any])
         let timingInfo = parseTimings(entry["timings"] as? [String: Any])
 
-        return HTTPTransaction(
+        let transaction = HTTPTransaction(
             id: UUID(),
             timestamp: timestamp,
             request: request,
             response: response,
-            state: .completed,
+            state: response == nil ? .failed : .completed,
             timingInfo: timingInfo
         )
+        // HAR has no client field; name the client from the User-Agent like live capture does.
+        transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)
+        return transaction
     }
 
     // MARK: - Request Parsing
@@ -114,9 +144,17 @@ struct HARImporter {
             throw HARImportError.malformedEntry(index: entryIndex, reason: "Missing or invalid request URL")
         }
 
-        let httpVersion = dict["httpVersion"] as? String ?? "HTTP/1.1"
-        let headers = parseHeaders(dict["headers"] as? [[String: Any]])
-        let body = parseRequestBody(dict["postData"] as? [String: Any])
+        let httpVersion = Self.normalizedHTTPVersion(dict["httpVersion"] as? String)
+        var headers = parseHeaders(dict["headers"] as? [[String: Any]])
+        let postData = dict["postData"] as? [String: Any]
+        let body = parseRequestBody(postData)
+        // Browser HARs can omit the request's Content-Type header and keep the type only in
+        // `postData.mimeType`; restore it so a repeat sends the body with its real type.
+        if body != nil, let mimeType = (postData?["mimeType"] as? String)?.trimmingCharacters(in: .whitespaces),
+           !mimeType.isEmpty, !headers.contains(where: { $0.name.lowercased() == "content-type" })
+        {
+            headers.append(HTTPHeader(name: "Content-Type", value: mimeType))
+        }
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
         return HTTPRequestData(
@@ -127,6 +165,29 @@ struct HARImporter {
             body: body,
             contentType: contentType
         )
+    }
+
+    /// Browsers write `http/2.0` (Chrome), `HTTP/2` (Firefox) or ALPN ids (`h2`, `h3`); live
+    /// capture stores `HTTP/x.y`, which is what the list, diff, and exporters expect.
+    static func normalizedHTTPVersion(_ raw: String?) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespaces) ?? ""
+        switch trimmed.lowercased() {
+        case "":
+            return "HTTP/1.1"
+        case "h2",
+             "http/2",
+             "http/2.0":
+            return "HTTP/2.0"
+        case "h3",
+             "http/3",
+             "http/3.0":
+            return "HTTP/3.0"
+        default:
+            if trimmed.lowercased().hasPrefix("http/") {
+                return "HTTP/" + trimmed.dropFirst(5)
+            }
+            return trimmed
+        }
     }
 
     // MARK: - Response Parsing
@@ -173,7 +234,11 @@ struct HARImporter {
             return []
         }
         return headerArray.compactMap { dict in
-            guard let name = dict["name"] as? String, let value = dict["value"] as? String else {
+            // HTTP/2 pseudo-headers (`:authority`, `:path`, ...) describe the request line,
+            // not header fields; sending one on replay is invalid.
+            guard let name = dict["name"] as? String, !name.hasPrefix(":"),
+                  let value = dict["value"] as? String else
+            {
                 return nil
             }
             return HTTPHeader(name: name, value: value)

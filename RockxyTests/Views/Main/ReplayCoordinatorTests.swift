@@ -99,4 +99,26 @@ struct ReplayCoordinatorTests {
         #expect(coordinator.selectedTransaction?.id == original.id)
         #expect(coordinator.pendingReplaySelectionIDs.isEmpty)
     }
+
+    @Test("Repeating several rows reports one summary with inflected counts")
+    func batchReplaySummary() {
+        let clean = MainContentCoordinator.batchReplayToast(sent: 3, failed: 0, skipped: 0)
+        #expect(clean.text == "Repeated 3 requests")
+        #expect(clean.style == .success)
+
+        let mixed = MainContentCoordinator.batchReplayToast(sent: 2, failed: 1, skipped: 1)
+        #expect(mixed.text == "Repeated 2 requests — 1 request failed — 1 request can't be repeated")
+        #expect(mixed.style == .warning)
+    }
+
+    @Test("Too many selected rows are refused before anything is sent")
+    func batchReplayCap() {
+        let coordinator = MainContentCoordinator()
+        let rows = (0 ... MainContentCoordinator.maximumBatchReplayCount).map {
+            TestFixtures.makeTransaction(url: "https://api.example.com/\($0)")
+        }
+        coordinator.performReplay(for: rows)
+        #expect(coordinator.activeToast?.style == .warning)
+        #expect(coordinator.activeToast?.text.contains("\(MainContentCoordinator.maximumBatchReplayCount)") == true)
+    }
 }

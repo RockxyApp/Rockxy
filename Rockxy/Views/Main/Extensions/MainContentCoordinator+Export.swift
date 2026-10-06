@@ -16,6 +16,18 @@ extension MainContentCoordinator {
         presentExport(format: .har)
     }
 
+    func exportRockxySession() {
+        presentExport(format: .rockxySession)
+    }
+
+    func exportCSV() {
+        presentExport(format: .csv)
+    }
+
+    func exportPostmanCollection() {
+        presentExport(format: .postman)
+    }
+
     func exportOpenAPIYAML() {
         presentExport(format: .openAPIYAML)
     }
@@ -79,27 +91,42 @@ extension MainContentCoordinator {
 
     /// Consumes only the passed review context — never live coordinator
     /// transactions, filteredTransactions, selection, or workspace state.
-    func executeExport(context: ExportScopeContext, scope: ExportScope) {
+    func executeExport(context: ExportScopeContext, scope: ExportScope, redactsSensitiveData: Bool = false) {
         let format = context.format
         exportScopeContext = nil
 
-        guard let plan = makeExportExecutionPlan(context: context, scope: scope) else {
+        guard let unredactedPlan = makeExportExecutionPlan(context: context, scope: scope) else {
             activeToast = ToastMessage(
                 style: .error,
                 text: String(localized: "No transactions to export", bundle: RockxyLocalization.bundle)
             )
             return
         }
+        let plan = redactsSensitiveData && format.supportsRedaction
+            ? unredactedPlan.redactingSensitiveData()
+            : unredactedPlan
 
         let data: Data
         let exportedCount: Int
         let skippedCount: Int
         do {
             switch format {
+            case .rockxySession:
+                data = try Self.sessionExportData(plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = 0
             case .har:
                 data = try HARExporter().export(transactions: plan.eligibleTransactions)
                 exportedCount = plan.eligibleTransactions.count
                 skippedCount = 0
+            case .csv:
+                data = TrafficCSVExporter.export(transactions: plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = 0
+            case .postman:
+                data = try PostmanCollectionExporter.export(transactions: plan.eligibleTransactions)
+                exportedCount = plan.eligibleTransactions.count
+                skippedCount = plan.skippedCount
             case .openAPIYAML:
                 let result = try OpenAPIExporter().export(
                     transactions: plan.eligibleTransactions,
@@ -139,6 +166,9 @@ extension MainContentCoordinator {
 
         do {
             try data.write(to: url, options: .atomic)
+            if format == .rockxySession {
+                RecentCaptureDocuments.shared.note(url)
+            }
             activeToast = ToastMessage(
                 style: .success,
                 text: exportSuccessMessage(
@@ -199,6 +229,7 @@ extension MainContentCoordinator {
         do {
             try data.write(to: url, options: .atomic)
             Self.logger.info("Saved session to \(url.path())")
+            RecentCaptureDocuments.shared.note(url)
         } catch {
             Self.logger.error("Failed to save session: \(error.localizedDescription)")
             showExportError(
@@ -274,22 +305,48 @@ extension MainContentCoordinator {
         -> [HTTPTransaction]
     {
         switch format {
-        case .har:
+        case .rockxySession,
+             .har,
+             .csv:
             source
+        case .postman:
+            source.filter(PostmanCollectionExporter.isEligible)
         case .openAPIYAML,
              .openAPIHTML:
             source.filter(OpenAPIExporter.isEligible)
         }
     }
 
-    func exportOpenAPIContextSelection(
+    /// Exports the right-clicked row, or the whole selection when the clicked
+    /// row is part of it, so a multi-row selection is never silently narrowed
+    /// to the row under the pointer.
+    func exportContextSelection(
         clicked transaction: HTTPTransaction,
         format: TrafficExportFormat
     ) {
-        let selected = selectedTransactionIDs.contains(transaction.id)
-            ? resolveSelectedTransactions()
-            : [transaction]
-        exportTransactions(selected, format: format, defaultStem: exportFileStem(for: transaction))
+        let selected = contextExportTransactions(clicked: transaction)
+        let stem = selected.count > 1 ? "rockxy-export" : exportFileStem(for: transaction)
+        exportTransactions(selected, format: format, defaultStem: stem)
+    }
+
+    func contextExportTransactions(clicked transaction: HTTPTransaction) -> [HTTPTransaction] {
+        guard selectedTransactionIDs.contains(transaction.id) else {
+            return [transaction]
+        }
+        let selected = resolveSelectedTransactions()
+        return selected.isEmpty ? [transaction] : selected
+    }
+
+    /// Serializes transactions as a `.rockxysession` document, spanning the
+    /// earliest to latest capture time of the exported rows.
+    static func sessionExportData(_ transactions: [HTTPTransaction]) throws -> Data {
+        let timestamps = transactions.map(\.timestamp)
+        let metadata = SessionSerializer.makeMetadata(
+            transactionCount: transactions.count,
+            captureStartDate: timestamps.min(),
+            captureEndDate: timestamps.max()
+        )
+        return try SessionSerializer.serialize(transactions: transactions, metadata: metadata)
     }
 
     func exportTransactions(
@@ -301,7 +358,9 @@ extension MainContentCoordinator {
         guard !transactionsToExport.isEmpty else {
             activeToast = ToastMessage(
                 style: .error,
-                text: String(localized: "No OpenAPI-eligible requests to export", bundle: RockxyLocalization.bundle)
+                text: format.isOpenAPI
+                    ? String(localized: "No OpenAPI-eligible requests to export", bundle: RockxyLocalization.bundle)
+                    : String(localized: "No transactions to export", bundle: RockxyLocalization.bundle)
             )
             return
         }
@@ -310,9 +369,18 @@ extension MainContentCoordinator {
         let skippedCount: Int
         do {
             switch format {
+            case .rockxySession:
+                data = try Self.sessionExportData(transactionsToExport)
+                skippedCount = 0
             case .har:
                 data = try HARExporter().export(transactions: transactionsToExport)
                 skippedCount = 0
+            case .csv:
+                data = TrafficCSVExporter.export(transactions: transactionsToExport)
+                skippedCount = 0
+            case .postman:
+                data = try PostmanCollectionExporter.export(transactions: transactionsToExport)
+                skippedCount = source.count - transactionsToExport.count
             case .openAPIYAML:
                 let result = try OpenAPIExporter().export(
                     transactions: source,
@@ -390,8 +458,14 @@ extension MainContentCoordinator {
 
     private func allowedContentTypes(for format: TrafficExportFormat) -> [UTType] {
         switch format {
+        case .rockxySession:
+            [.rockxySession]
         case .har:
             [.har]
+        case .csv:
+            [.commaSeparatedText]
+        case .postman:
+            [.json]
         case .openAPIYAML:
             [.openAPIYAML]
         case .openAPIHTML:
@@ -401,8 +475,14 @@ extension MainContentCoordinator {
 
     private func fileExtension(for format: TrafficExportFormat) -> String {
         switch format {
+        case .rockxySession:
+            "rockxysession"
         case .har:
             "har"
+        case .csv:
+            "csv"
+        case .postman:
+            "postman_collection.json"
         case .openAPIYAML:
             "yaml"
         case .openAPIHTML:

@@ -11,11 +11,11 @@ Breakpoints let you stop a transaction at the proxy boundary and inspect or chan
 
 | Phase | Pause point | What you can change |
 |---|---|---|
-| **Request** | Before Rockxy connects to the origin | Method, HTTP host, path and query, headers, and text body |
+| **Request** | Before Rockxy connects to the origin | Method, full URL (scheme, host, port, path, and query), headers, and text body |
 | **Response** | After the origin replies but before Rockxy returns the response to the client | Status code, headers, and text body |
 | **Request & Response** | At both points in the same transaction | Both message editors, one after the other |
 
-For an HTTPS request, Rockxy keeps the established TLS authority fixed. You can still edit its path, query, headers, and body without creating a mismatch with the active connection.
+You can edit the whole request URL. When an HTTPS request is edited to another scheme, host, or port — for example from `https://api.example.com` to `http://localhost:3000` — the editor says where it will go, and **Execute** sends it to that server over a new connection, verifying its certificate as usual. The app still receives the response on its original connection. A `Host` header you changed by hand is kept; an untouched one follows the new URL.
 
 ## Create a rule
 
@@ -29,6 +29,15 @@ The fastest path starts from traffic you have already captured:
 6. Press `⌘↩` to add the rule.
 
 To author a rule without a captured transaction, open **Breakpoint Rules** with `⇧⌘B`, then press `⌘N`.
+
+### Pause one GraphQL operation
+
+GraphQL clients send every operation to the same endpoint, so a URL pattern alone pauses all
+of them. Fill in **GraphQL Operation** to pause only requests whose operation name matches
+exactly (names are case-sensitive). When you create the rule from a captured GraphQL request,
+Rockxy prefills the operation name for you; clear the field to match every request to the URL.
+Rockxy reads the name from the request's `operationName`, or from the document itself
+(`query GetUser { … }`) when the client omits it. Anonymous operations never match a named rule.
 
 ## Resolve paused traffic
 
@@ -63,6 +72,17 @@ After the transaction completes, select it in the main request list. The inspect
 ## Try a deterministic local example
 
 The [live response debugging walkthrough](/use-cases/live-response-debugging-with-breakpoints) uses a localhost origin that always returns `plan: free`. A response breakpoint changes only the proxied result to `plan: pro`, then verifies continue-original, abort, and disabled-rule behavior.
+
+## Organize rules in folders
+
+Group related rules — one app, one environment, one test case — into folders:
+
+- Select rules and choose **New Folder with Selection** from the context menu or the **More** menu, or create an empty **New Folder** and use **Move to Folder**. You can also drag rules onto a folder; drop them onto a rule outside any folder to move them back to the top level.
+- The folder's checkbox turns every rule inside it on or off. It shows a mixed state when only some are on, and the active-rule limit still applies.
+- **Rename Folder…** and **Delete Folder** are on the folder's context menu. Deleting a folder keeps its rules; they move back to the top level.
+- Press ⌘F to search by name, method, or matching rule. While searching, matches are listed without folders.
+
+Folders only organize the list. Rules keep their place in Rockxy's first-match order, and folders are saved between launches.
 
 ## Related pages
 

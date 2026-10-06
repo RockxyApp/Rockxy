@@ -347,10 +347,7 @@ struct ToolWindowReadabilityTests {
         )
         let diffSceneSource = scenesAfterDiff[..<nextSceneStart.lowerBound]
         #expect(diffSceneSource.contains(".windowToolbarStyle(.unifiedCompact)"))
-        let diffMenuStart = try #require(appSource.range(of: "private var diffMenu: some Commands"))
-        let menusAfterDiff = appSource[diffMenuStart.lowerBound...]
-        let nextMenuStart = try #require(menusAfterDiff.range(of: "private var scriptingMenu: some Commands"))
-        let diffMenuSource = menusAfterDiff[..<nextMenuStart.lowerBound]
+        let diffMenuSource = try readProjectFile("Rockxy/Views/Main/DiffCommands.swift")
         #expect(diffMenuSource.contains(#".keyboardShortcut("y", modifiers: [.command, .option])"#))
         #expect(diffMenuSource.contains(#".keyboardShortcut("d", modifiers: [.command, .option])"#))
 
@@ -487,7 +484,7 @@ struct ToolWindowReadabilityTests {
         let appSource = try readProjectFile("Rockxy/RockxyApp.swift")
         let previewSource = try readProjectFile("Rockxy/Views/Settings/PreviewerTabSettingsView.swift")
         let columnsSource = try readProjectFile("Rockxy/Views/Settings/CustomHeaderColumnsView.swift")
-        let centerSource = try readProjectFile("Rockxy/Views/RequestList/CenterContentView.swift")
+        let centerSource = try readProjectFile("Rockxy/Views/RequestList/TrafficPaneView.swift")
         let tableSource = try readProjectFile("Rockxy/Views/RequestList/RequestTableView.swift")
         let requestInspectorSource = try readProjectFile("Rockxy/Views/Inspector/RequestInspectorView.swift")
         let responseInspectorSource = try readProjectFile("Rockxy/Views/Inspector/ResponseInspectorView.swift")
@@ -506,7 +503,7 @@ struct ToolWindowReadabilityTests {
         #expect(centerSource.contains("headerColumns: coordinator.headerColumnStore.columns"))
         #expect(tableSource.contains("var headerColumns: [HeaderColumn] = []"))
         #expect(tableSource.contains("parent.headerColumns.filter(\\.isEnabled)"))
-        #expect(tableSource.contains("mainCoordinator.activeSortDescriptors = reconciledSortDescriptors"))
+        #expect(tableSource.contains("paneWorkspace.activeSortDescriptors = reconciledSortDescriptors"))
         #expect(!columnsSource.contains(".keyboardShortcut(.space, modifiers: [])"))
 
         #expect(requestInspectorSource.contains(
@@ -941,7 +938,8 @@ struct ToolWindowReadabilityTests {
         #expect(!source.contains("api.proxyman.com"))
         #expect(!source.contains("Test your Rule"))
         #expect(!source.contains("Auto-Save"))
-        #expect(!source.contains("New Folder"))
+        // Folders are a real feature now: the list offers them through the shared folder controls.
+        #expect(source.contains("RuleFolderMenuItems(") && source.contains("ruleFolderRenameAlert("))
         #expect(!source.contains("Support Status Code, Headers and Body"))
         #expect(!source.contains("Map Response Body with a local file (Saved)"))
     }
@@ -1046,7 +1044,8 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains(#"TextField(String(localized: "Search rules", bundle: RockxyLocalization.bundle)"#))
         #expect(source.contains(#".keyboardShortcut("f", modifiers: .command)"#))
         #expect(source.contains(".focused($searchIsFocused)"))
-        #expect(source.contains("Table(viewModel.filteredBreakpointRules"))
+        #expect(source.contains("Table(of: RuleListRow.self, selection: $viewModel.selectedRuleID)"))
+        #expect(source.contains("DisclosureTableRow(row)"))
         #expect(source.contains(#"TableColumn(String(localized: "Enabled", bundle: RockxyLocalization.bundle))"#))
 
         // Info banner + status capsule + native empty state.
@@ -1061,12 +1060,12 @@ struct ToolWindowReadabilityTests {
         #expect(source.contains("RoundedRectangle(cornerRadius: 6)"))
         #expect(source.contains(".stroke(Color(nsColor: .separatorColor), lineWidth: 1)"))
 
-        // Forbidden legacy markers: hidden filter bar, New Folder, Test your Rule,
-        // bare Space shortcut, fixed shell.
+        // Forbidden legacy markers: hidden filter bar, Test your Rule, bare Space shortcut,
+        // fixed shell. Folders are real and use the shared folder controls.
         #expect(!source.contains("BreakpointFilterBar"))
         #expect(!source.contains("isFilterBarVisible"))
         #expect(!source.contains("filterColumn"))
-        #expect(!source.contains("New Folder"))
+        #expect(source.contains("RuleFolderMenuItems(") && source.contains("ruleFolderRenameAlert("))
         #expect(!source.contains("Test your Rule"))
         #expect(!source.contains(".keyboardShortcut(.space, modifiers: [])"))
     }
@@ -1168,10 +1167,8 @@ struct ToolWindowReadabilityTests {
         #expect(editorSource.contains("Color(nsColor: .textBackgroundColor)"))
         #expect(editorSource.contains("RoundedRectangle(cornerRadius: 6)"))
         #expect(editorSource.contains(".stroke(Color(nsColor: .separatorColor), lineWidth: 1)"))
-        #expect(editorSource.contains(#"String(localized: "Path and query", bundle: RockxyLocalization.bundle)"#))
-        #expect(editorSource
-            .contains(#"String(localized: "Host, path, and query", bundle: RockxyLocalization.bundle)"#))
-        #expect(editorSource.contains("httpSchemePrefix(itemId: itemId)"))
+        #expect(editorSource.contains(#"String(localized: "Request URL", bundle: RockxyLocalization.bundle)"#))
+        #expect(editorSource.contains("item.editableDraft.redirectedOrigin"))
         #expect(editorSource.contains("canApplySelectedChanges = validation.isValid"))
         #expect(editorSource.contains("syncRawMessageFromDraft(itemId: selectedItemId, force: true)"))
         #expect(source.contains("item.editableDraft.isBodyEditable"))

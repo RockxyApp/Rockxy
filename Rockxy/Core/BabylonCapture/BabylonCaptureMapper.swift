@@ -65,7 +65,9 @@ enum BabylonCaptureMapper {
             response: response,
             state: package.error == nil ? .completed : .failed,
             timingInfo: timing,
-            webSocketConnection: webSocketConnection
+            webSocketConnection: webSocketConnection,
+            // Rows from the SDK never pass through the proxy's detection, so label them here.
+            graphQLInfo: GraphQLDetector.detect(request: request)
         )
         transaction.measuredDuration = duration
         transaction.clientApp = identity.displayName

@@ -186,6 +186,23 @@ struct ScriptEditorWindowView: View {
                     }
                 }
 
+                labeledField(String(localized: "GraphQL Operation", bundle: RockxyLocalization.bundle)) {
+                    TextField(
+                        String(localized: "Any operation", bundle: RockxyLocalization.bundle),
+                        text: $viewModel.graphQLOperationName
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: max(260, toolMetrics.bodyFontSize * 16), alignment: .leading)
+                    .accessibilityLabel(String(
+                        localized: "GraphQL operation name to match",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .help(String(
+                        localized: "Run this script only for GraphQL requests with this exact operation name. Leave empty to run for every matching URL.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                }
+
                 testMatchRow
                 Divider()
                 runOptionsGroup

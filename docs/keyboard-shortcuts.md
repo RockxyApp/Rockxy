@@ -26,6 +26,13 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⇧⌘K` | Clear session and filters |
 | `⌥⌘R` | Pause or resume recording without stopping the proxy |
 | `⌘L` | Focus the search bar |
+| `⇧⌘F` | Show or hide Advanced Filters (Esc hides them) |
+| `⌥⌘=` | Add a row below the focused Advanced Filter row |
+| `⌥⌘-` | Remove the focused Advanced Filter row, or clear the only row |
+| `⌥⌘F` | Search apps and domains in the sidebar |
+| `⇧⌘P` | Search and run any command |
+| `⌘1…⌘9` | Select a traffic tab by position; ⌘9 selects the last tab |
+| `⌥⌘N` | Compose a new request |
 | `⇧⌘L` | Follow the newest visible request in the active workspace tab |
 | `⌘↑` | Jump to the first visible row when the request table has focus |
 | `⌘↓` | Jump to the last visible row when the request table has focus |
@@ -33,6 +40,7 @@ Rockxy follows the same shortcut pattern across the main capture window, rule ed
 | `⌘E` | Edit and Repeat the selected request |
 | `⌘R` | Replay the selected request |
 | `⌘B` | Add a Breakpoint rule for the selected request URL |
+| `⌥⌘C` | Turn No Caching on or off |
 | `⇧⌘B` | Open Breakpoint Rules |
 | `⇧⌘[` / `⇧⌘]` | Switch workspace tabs |
 
@@ -86,7 +94,7 @@ Applies to Map Local, Map Remote, Block List, Allow List, Modify Headers, Networ
 | Shortcut | Action |
 |---|---|
 | `⌘N` | New rule |
-| `⇧⌘N` | New folder |
+| `⇧⌘N` | New folder (Scripting list) |
 | `⌘E` | Edit selected rule |
 | `⌘D` | Duplicate selected rule |
 | `⌘⌫` | Delete selected rule |

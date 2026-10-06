@@ -8,6 +8,10 @@ enum AppPolicyViolation: LocalizedError, Equatable {
     case upstreamProxyBypassEntryLimitReached(limit: Int)
     case protobufSchemaUploadUnavailable
     case protobufSchemaLimitReached(limit: Int)
+    case trafficSplitViewUnavailable
+    case ruleFolderLimitReached(limit: Int)
+    case reverseProxyLimitReached(limit: Int)
+    case dnsSpoofingLimitReached(limit: Int)
 
     // MARK: Internal
 
@@ -27,6 +31,23 @@ enum AppPolicyViolation: LocalizedError, Equatable {
             )
         case .protobufSchemaUploadUnavailable:
             String(localized: "Protobuf schema upload is unavailable in this build.", bundle: RockxyLocalization.bundle)
+        case .trafficSplitViewUnavailable:
+            String(localized: "Split view is unavailable in this build.", bundle: RockxyLocalization.bundle)
+        case let .ruleFolderLimitReached(limit):
+            String(
+                localized: "Each rule tool is limited to \(limit) folders in this build.",
+                bundle: RockxyLocalization.bundle
+            )
+        case let .reverseProxyLimitReached(limit):
+            String(
+                localized: "Reverse Proxy is limited to \(limit) rules in this build.",
+                bundle: RockxyLocalization.bundle
+            )
+        case let .dnsSpoofingLimitReached(limit):
+            String(
+                localized: "DNS Spoofing is limited to \(limit) rules in this build.",
+                bundle: RockxyLocalization.bundle
+            )
         case let .protobufSchemaLimitReached(limit):
             String(
                 localized: "Protobuf schema storage is limited to \(limit) schemas in this build.",

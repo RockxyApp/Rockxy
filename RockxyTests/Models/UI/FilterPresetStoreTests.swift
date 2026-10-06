@@ -48,4 +48,35 @@ struct FilterPresetStoreTests {
         #expect(preset.rules.count == 1)
         #expect(preset.rules.first?.value == "api")
     }
+
+    @Test("Presets can be renamed and updated with the current filter, and both persist")
+    func renameAndOverwrite() throws {
+        let suiteName = "FilterPresetStoreTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = FilterPresetStore(userDefaults: defaults, storageKey: "p")
+        let first = try #require(store.savePreset(
+            name: "Errors",
+            rules: [FilterRule(isEnabled: true, field: .statusCode, filterOperator: .contains, value: "5")]
+        ))
+        _ = try #require(store.savePreset(
+            name: "Auth",
+            rules: [FilterRule(isEnabled: true, field: .url, filterOperator: .contains, value: "login")]
+        ))
+
+        #expect(store.renamePreset(id: first.id, to: "  Server errors "))
+        #expect(!store.renamePreset(id: first.id, to: "auth"))
+        #expect(!store.renamePreset(id: first.id, to: "   "))
+        #expect(store.overwritePreset(
+            id: first.id,
+            with: [FilterRule(isEnabled: true, field: .statusCode, filterOperator: .contains, value: "50")]
+        ))
+        #expect(!store.overwritePreset(id: first.id, with: [FilterRule()]))
+
+        let reloaded = FilterPresetStore(userDefaults: defaults, storageKey: "p")
+        let saved = try #require(reloaded.presets.first { $0.id == first.id })
+        #expect(saved.name == "Server errors")
+        #expect(saved.rules.map(\.value) == ["50"])
+        #expect(reloaded.presets.count == 2)
+    }
 }

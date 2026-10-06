@@ -138,6 +138,17 @@ struct DeveloperSetupGuideCatalogTests {
         #expect(validationMessages.contains("Dart runtime"))
     }
 
+    @Test("Flutter guide explains the iOS Local Network prompt for physical devices")
+    func flutterGuideExplainsLocalNetworkPermission() throws {
+        let guide = try #require(DeveloperSetupGuideCatalog.content(for: .flutter))
+        let tip = try #require(guide.troubleshootingTips.first { $0.id == "flutter-ios-local-network" })
+        let message = String(localized: tip.message)
+
+        #expect(message.contains("Local Network"))
+        #expect(message.contains("errno 65"))
+        #expect(message.contains("NSLocalNetworkUsageDescription"))
+    }
+
     @Test("React Native copy points at the underlying iOS or Android stack")
     func reactNativeCatalogCopyIsSpecific() {
         let summary = SetupTarget.reactNative.manualSummary

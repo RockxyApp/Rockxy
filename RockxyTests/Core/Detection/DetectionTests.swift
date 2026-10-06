@@ -61,22 +61,35 @@ struct DetectionTests {
         #expect(info == nil)
     }
 
-    @Test("GraphQLDetector returns nil for non-graphql path")
+    @Test("GraphQLDetector returns nil for a non-GraphQL query string on any path")
     func detectGraphQLWrongPath() throws {
-        let body = try JSONSerialization.data(
-            withJSONObject: ["query": "{ users { id } }"]
-        )
+        let body = try JSONSerialization.data(withJSONObject: ["query": "running shoes"])
         let request = try HTTPRequestData(
             method: "POST",
-            url: #require(URL(string: "https://api.example.com/api/v1/data")),
+            url: #require(URL(string: "https://api.example.com/api/v1/search")),
             httpVersion: "HTTP/1.1",
             headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
             body: body
         )
 
-        let info = GraphQLDetector.detect(request: request)
+        #expect(GraphQLDetector.detect(request: request) == nil)
+    }
 
-        #expect(info == nil)
+    @Test("GraphQLDetector recognizes a GraphQL document on an endpoint without graphql in the path")
+    func detectGraphQLByBodyShape() throws {
+        let body = try JSONSerialization.data(
+            withJSONObject: ["query": "query GetUser($id: ID!) { user(id: $id) { name } }"]
+        )
+        let request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/api")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: body
+        )
+
+        let info = try #require(GraphQLDetector.detect(request: request))
+        #expect(info.operationName == "GetUser")
     }
 
     @Test("GraphQLDetector returns nil for missing query in body")

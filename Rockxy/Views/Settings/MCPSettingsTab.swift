@@ -1,5 +1,37 @@
 import SwiftUI
 
+// MARK: - MCPClientSetupCommand
+
+/// One-line setup commands for MCP clients that register servers from their
+/// own CLI. The bridge path is single-quoted so paths with spaces or quotes
+/// survive the shell unchanged.
+enum MCPClientSetupCommand: String, CaseIterable, Identifiable {
+    case claudeCode
+    case codex
+
+    // MARK: Internal
+
+    var id: String {
+        rawValue
+    }
+
+    /// Client product names stay verbatim in every language.
+    var clientName: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
+
+    func command(bridgePath: String) -> String {
+        let quotedPath = "'" + bridgePath.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+        return switch self {
+        case .claudeCode: "claude mcp add rockxy -- \(quotedPath)"
+        case .codex: "codex mcp add rockxy -- \(quotedPath)"
+        }
+    }
+}
+
 // MARK: - MCPSettingsServerState
 
 enum MCPSettingsServerState: Equatable {
@@ -59,6 +91,10 @@ struct MCPSettingsTab: View {
                 privacySection
             }
 
+            SettingsSection(String(localized: "Changes", bundle: RockxyLocalization.bundle)) {
+                changesSection
+            }
+
             SettingsSection(String(localized: "About MCP", bundle: RockxyLocalization.bundle)) {
                 aboutSection
             }
@@ -84,7 +120,9 @@ struct MCPSettingsTab: View {
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.serverEnabled")) private var mcpEnabled = false
 
     @AppStorage(RockxyIdentity.current.defaultsKey("mcp.redactSensitiveData")) private var mcpRedactSensitiveData = true
+    @AppStorage(MCPChangePermission.defaultsKey) private var mcpAllowChanges = false
     @State private var didCopyConfig = false
+    @State private var didCopyCommand = false
     @State private var copyFeedbackGeneration = UUID()
     @Environment(\.appUIDisplayMetrics) private var appMetrics
 
@@ -272,6 +310,26 @@ struct MCPSettingsTab: View {
                     localized: "Copies JSON with this Mac's absolute Rockxy app path.",
                     bundle: RockxyLocalization.bundle
                 ))
+
+                Menu {
+                    ForEach(MCPClientSetupCommand.allCases) { client in
+                        Button(client.clientName) {
+                            copyToClipboard(client.command(bridgePath: binaryPath), isCommand: true)
+                        }
+                    }
+                } label: {
+                    Text(
+                        didCopyCommand
+                            ? String(localized: "Copied", bundle: RockxyLocalization.bundle)
+                            : String(localized: "Copy Command", bundle: RockxyLocalization.bundle)
+                    )
+                    .font(settingsMetrics.secondaryFont(weight: .medium))
+                }
+                .fixedSize()
+                .help(String(
+                    localized: "Copy a terminal command that registers Rockxy with an MCP client",
+                    bundle: RockxyLocalization.bundle
+                ))
             }
 
             ScrollView(.horizontal) {
@@ -340,6 +398,46 @@ struct MCPSettingsTab: View {
         }
     }
 
+    // MARK: - Changes Section
+
+    private var changesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(
+                String(
+                    localized: "Allow MCP Clients to Change Rules and Capture",
+                    bundle: RockxyLocalization.bundle
+                ),
+                isOn: $mcpAllowChanges
+            )
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("mcp.allowChanges")
+
+            Text(
+                String(
+                    localized: """
+                    Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn \
+                    rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause \
+                    recording, and clear the session. Rules they create appear in the matching tool \
+                    windows and count toward the same active-rule limits.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(settingsMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            Label(
+                mcpAllowChanges
+                    ? String(localized: "MCP clients can change Rockxy.", bundle: RockxyLocalization.bundle)
+                    : String(localized: "MCP clients can only read.", bundle: RockxyLocalization.bundle),
+                systemImage: mcpAllowChanges ? "pencil.circle.fill" : "eye.circle"
+            )
+            .font(settingsMetrics.metadataFont(weight: .medium))
+            .foregroundStyle(mcpAllowChanges ? Color.orange : Color.secondary)
+        }
+    }
+
     // MARK: - About Section
 
     private var aboutSection: some View {
@@ -361,18 +459,24 @@ struct MCPSettingsTab: View {
     }
 
     private func copyConfigToClipboard() {
+        copyToClipboard(configJSON)
+    }
+
+    private func copyToClipboard(_ text: String, isCommand: Bool = false) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(configJSON, forType: .string)
+        pasteboard.setString(text, forType: .string)
         let generation = UUID()
         copyFeedbackGeneration = generation
-        didCopyConfig = true
+        didCopyConfig = !isCommand
+        didCopyCommand = isCommand
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             guard copyFeedbackGeneration == generation else {
                 return
             }
             didCopyConfig = false
+            didCopyCommand = false
         }
     }
 }

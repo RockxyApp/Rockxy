@@ -66,17 +66,17 @@ struct ProtobufSchemaListWindowView: View {
         String(
             localized:
             """
-            Imported .proto files are stored locally on this Mac. Schema-aware decoding is unavailable \
-            in this build — captured Protobuf traffic is decoded with heuristics only.
+            Schemas are stored locally on this Mac. Rockxy uses them to name fields in Protobuf bodies, \
+            WebSocket frames, and gRPC messages that a mapping definition, a gRPC service, or your \
+            Decode As choice points at.
             """, bundle: RockxyLocalization.bundle
         )
     }
 
     private static var allowedContentTypes: [UTType] {
-        if let proto = UTType(filenameExtension: "proto") {
-            return [proto]
-        }
-        return [.plainText]
+        let extensions = ["proto"] + ProtobufDescriptorSetParser.fileExtensions.sorted()
+        let types = extensions.compactMap { UTType(filenameExtension: $0) }
+        return types.isEmpty ? [.plainText, .data] : types
     }
 
     @State private var schemaStore = ProtobufSchemaStore.shared
@@ -142,7 +142,10 @@ struct ProtobufSchemaListWindowView: View {
     private var availabilityMessage: String {
         switch schemaStore.importAvailability {
         case .available:
-            String(localized: "Import a local .proto source file.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Import a .proto source file or a .desc descriptor set.",
+                bundle: RockxyLocalization.bundle
+            )
         case .policyUnavailable:
             String(
                 localized: "This version of Rockxy does not allow new local schema imports. Existing files can still be removed.",
@@ -166,7 +169,10 @@ struct ProtobufSchemaListWindowView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "Local Protobuf Schemas", bundle: RockxyLocalization.bundle))
                     .font(toolMetrics.font(weight: .medium))
-                Text(String(localized: "Store .proto source files on this Mac.", bundle: RockxyLocalization.bundle))
+                Text(String(
+                    localized: "Import .proto sources or .desc files from protoc --descriptor_set_out --include_imports.",
+                    bundle: RockxyLocalization.bundle
+                ))
                     .font(toolMetrics.secondaryFont())
                     .foregroundStyle(.secondary)
             }
@@ -200,11 +206,22 @@ struct ProtobufSchemaListWindowView: View {
             }
             .width(min: 130, ideal: 160)
 
-            TableColumn(String(localized: "Runtime", bundle: RockxyLocalization.bundle)) { _ in
-                Text(String(localized: "Not applied", bundle: RockxyLocalization.bundle))
-                    .foregroundStyle(.secondary)
+            TableColumn(String(localized: "Message Types", bundle: RockxyLocalization.bundle)) { schema in
+                let names = schemaStore.messageNames(for: schema)
+                Text(String(AttributedString(
+                    localized: "^[\(names.count) type](inflect: true)",
+                    bundle: RockxyLocalization.bundle,
+                    locale: RockxyLocalization.locale
+                ).characters))
+                    .foregroundStyle(names.isEmpty ? .orange : .primary)
+                    .help(names.isEmpty
+                        ? String(
+                            localized: "This file no longer parses. Delete it and import it again.",
+                            bundle: RockxyLocalization.bundle
+                        )
+                        : names.joined(separator: "\n"))
             }
-            .width(min: 100, ideal: 120)
+            .width(min: 110, ideal: 130)
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             schemaContextMenu(ids: ids)
@@ -232,7 +249,7 @@ struct ProtobufSchemaListWindowView: View {
                 String(localized: "No Local Schemas", bundle: RockxyLocalization.bundle),
                 systemImage: "doc.badge.plus",
                 description: Text(String(
-                    localized: "Click \"+\" or press ⌘N to import a .proto file.",
+                    localized: "Click \"+\" or press ⌘N to import a .proto or .desc file.",
                     bundle: RockxyLocalization.bundle
                 ))
             )
@@ -446,10 +463,12 @@ struct ProtobufSchemaListWindowView: View {
                     fileName: url.lastPathComponent,
                     hostPattern: "*"
                 )
-                importStatus = .success(String(
-                    localized: "Imported \(descriptor.fileName).",
-                    bundle: RockxyLocalization.bundle
-                ))
+                let typeCount = descriptor.parsedMessageNames.count
+                importStatus = .success(String(AttributedString(
+                    localized: "Imported \(descriptor.fileName) · ^[\(typeCount) message type](inflect: true)",
+                    bundle: RockxyLocalization.bundle,
+                    locale: RockxyLocalization.locale
+                ).characters))
             } catch {
                 importStatus = .failure(error.localizedDescription)
             }

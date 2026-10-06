@@ -10,7 +10,8 @@ tvOS and watchOS follow the same broad setup class as iOS devices and simulators
 ## Support in Rockxy
 
 - Manual setup available
-- No automation entry point today
+- Simulators: **Install in Booted Simulators…** adds the root certificate to every booted simulator through `simctl` (requires Xcode)
+- Apple TV has a Wi-Fi proxy setting; Apple Watch has none — trust the certificate on the paired iPhone and the watch, point the iPhone at Rockxy, and turn off the watch's Wi-Fi and cellular so its traffic relays through the iPhone
 - Certificate sharing support available
 
 ## What Rockxy currently provides

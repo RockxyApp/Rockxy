@@ -63,6 +63,36 @@ struct RequestCopyFormatterTests {
         #expect(result.contains("binary data"))
     }
 
+    @Test("curl leaves out transport headers and asks curl to decode compressed responses")
+    func curlDropsTransportHeaders() {
+        let request = TestFixtures.makeRequest(headers: [
+            HTTPHeader(name: "Accept-Encoding", value: "gzip, br"),
+            HTTPHeader(name: "Content-Length", value: "12"),
+            HTTPHeader(name: "X-Keep", value: "yes"),
+        ])
+        let result = RequestCopyFormatter.curl(for: request)
+        #expect(!result.contains("Content-Length"))
+        #expect(!result.contains("Accept-Encoding"))
+        #expect(result.contains("--compressed"))
+        #expect(result.contains("-H 'X-Keep: yes'"))
+    }
+
+    @Test("curl can preserve the original headers and add a proxy flag")
+    func curlPreserveAndProxy() {
+        let request = TestFixtures.makeRequest(headers: [
+            HTTPHeader(name: "Accept-Encoding", value: "gzip"),
+            HTTPHeader(name: "Content-Length", value: "12"),
+        ])
+        let options = CurlCopyOptions(includesProxyFlag: true, preservesOriginalHeaders: true)
+        let result = RequestCopyFormatter.curl(for: request, options: options, proxyPort: 9090)
+        #expect(result.contains("-H 'Accept-Encoding: gzip'"))
+        #expect(result.contains("-H 'Content-Length: 12'"))
+        #expect(!result.contains("--compressed"))
+        #expect(result.contains("--proxy 'http://127.0.0.1:9090'"))
+        // Without a proxy port the flag is omitted rather than pointing nowhere.
+        #expect(!RequestCopyFormatter.curl(for: request, options: options).contains("--proxy"))
+    }
+
     @Test("curl omits body flag when no body")
     func curlNoBody() {
         let transaction = TestFixtures.makeTransaction(method: "GET")

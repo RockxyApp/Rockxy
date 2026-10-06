@@ -50,6 +50,11 @@ extension MainContentCoordinator {
         guard BabylonCaptureWorkspaceRegistry.shared.register(identity) else {
             return
         }
+        // Every app launch is a new Babylon session; one tab per app and device is enough, and
+        // relaunching while debugging must not keep opening tabs or pull focus away.
+        guard !workspaceStore.workspaces.contains(where: { $0.filterCriteria.sidebarApp == identity.displayName }) else {
+            return
+        }
         var filter = FilterCriteria.empty
         filter.sidebarApp = identity.displayName
         _ = workspaceStore.createWorkspace(title: identity.displayName, filter: filter)

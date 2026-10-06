@@ -35,6 +35,8 @@
           "core-features/filters-and-search",
           "features/traffic-insights",
           "features/https-interception",
+          "features/http2",
+          "features/connection-log",
           "features/ai-assistant",
           "features/ai-web3-inspection",
           "features/websocket",
@@ -74,6 +76,10 @@
           "features/scripting",
           "features/custom-certificates",
           "features/upstream-proxy",
+          "features/reverse-proxy",
+          "features/dns-spoofing",
+          "features/settings-backup",
+          "features/command-line",
           "features/mcp"
         ]
       },

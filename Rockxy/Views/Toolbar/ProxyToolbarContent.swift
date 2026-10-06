@@ -67,6 +67,21 @@ struct ProxyToolbarContent: ToolbarContent {
             .disabled(!coordinator.canToggleBottomInspector)
 
             Button {
+                coordinator.toggleTrafficSplitView()
+            } label: {
+                Label(
+                    coordinator.isTrafficSplitViewVisible
+                        ? String(localized: "Hide Split View", bundle: RockxyLocalization.bundle)
+                        : String(localized: "Show Split View", bundle: RockxyLocalization.bundle),
+                    systemImage: "rectangle.split.2x1"
+                )
+            }
+            .help(String(
+                localized: "Show a second traffic pane with its own filters and selection",
+                bundle: RockxyLocalization.bundle
+            ))
+
+            Button {
                 coordinator.toggleInspectorRight()
             } label: {
                 Label(

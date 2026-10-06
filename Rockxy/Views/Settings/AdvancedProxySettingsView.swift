@@ -30,6 +30,8 @@ struct AdvancedProxySettingsView: View {
                 VStack(alignment: .leading, spacing: toolMetrics.headerSpacing) {
                     systemRoutingSection
                     listenerSection
+                    RemoteAccessSettingsSection(listensOnlyOnLocalhost: draft.onlyListenOnLocalhost)
+                    SOCKSListenerSettingsSection()
                     helperToolSection
                 }
                 .padding(.horizontal, toolMetrics.contentHorizontalPadding)
@@ -415,7 +417,7 @@ struct AdvancedProxySettingsView: View {
             }
         }
         .padding(toolMetrics.formHorizontalPadding)
-        .panelStyle()
+        .advancedProxyPanelStyle()
     }
 
     // MARK: - Listener
@@ -479,7 +481,7 @@ struct AdvancedProxySettingsView: View {
             }
         }
         .padding(toolMetrics.formHorizontalPadding)
-        .panelStyle()
+        .advancedProxyPanelStyle()
     }
 
     private var portRow: some View {
@@ -556,7 +558,7 @@ struct AdvancedProxySettingsView: View {
             helperActions
         }
         .padding(toolMetrics.formHorizontalPadding)
-        .panelStyle()
+        .advancedProxyPanelStyle()
     }
 
     private var helperSummaryRow: some View {
@@ -913,8 +915,8 @@ struct AdvancedProxySettingsView: View {
 
 // MARK: - View + panelStyle
 
-private extension View {
-    func panelStyle() -> some View {
+extension View {
+    func advancedProxyPanelStyle() -> some View {
         background(
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color(nsColor: .controlBackgroundColor))

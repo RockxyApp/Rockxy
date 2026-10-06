@@ -29,6 +29,10 @@ enum DeveloperCaptureEnvironmentBuilder {
         }
         environment["npm_config_proxy"] = proxyURL
         environment["npm_config_https_proxy"] = proxyURL
+        // Node's built-in fetch and http honor the proxy variables only with this set.
+        if environment["NODE_USE_ENV_PROXY"] == nil {
+            environment["NODE_USE_ENV_PROXY"] = "1"
+        }
         environment["ROCKXY_PROXY_HOST"] = context.proxyHost
         environment["ROCKXY_PROXY_PORT"] = String(context.proxyPort)
         environment["ROCKXY_SETUP_SESSION"] = "1"

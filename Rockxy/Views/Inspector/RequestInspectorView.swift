@@ -24,6 +24,17 @@ struct RequestInspectorView: View {
             tabContent
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onChange(of: transaction.id) {
+            if selectedTab == .multipart, !MultipartInspectorView.isApplicable(to: transaction) {
+                selectedTab = .body
+            }
+            if selectedTab == .protobuf, !ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
+                selectedTab = .body
+            }
+            if selectedTab == .script, !ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request) {
+                selectedTab = .body
+            }
+        }
         .onChange(of: previewTabStore.requestTabs.map(\.id)) { _, availableTabIDs in
             selectedPreviewTab = InspectorPreviewSelectionReconciler.retainedSelection(
                 selectedPreviewTab,
@@ -41,7 +52,7 @@ struct RequestInspectorView: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
 
     private var tabDescriptors: [InspectorTabDescriptor] {
-        var descriptors: [InspectorTabDescriptor] = RequestInspectorTab.allCases.map { tab in
+        var descriptors: [InspectorTabDescriptor] = visibleNativeTabs.map { tab in
             InspectorTabDescriptor(
                 id: "native.\(tab.rawValue)",
                 title: tab.displayName,
@@ -66,6 +77,17 @@ struct RequestInspectorView: View {
         }
 
         return descriptors
+    }
+
+    /// The Multipart and Protobuf tabs appear only for bodies they can decode.
+    private var visibleNativeTabs: [RequestInspectorTab] {
+        let showsMultipart = MultipartInspectorView.isApplicable(to: transaction)
+        let showsProtobuf = ProtobufBodyInspection.isApplicable(to: transaction, direction: .request)
+        let showsScript = ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request)
+        return RequestInspectorTab.allCases.filter {
+            ($0 != .multipart || showsMultipart) && ($0 != .protobuf || showsProtobuf)
+                && ($0 != .script || showsScript)
+        }
     }
 
     private var inspectorTabBar: some View {
@@ -115,12 +137,36 @@ struct RequestInspectorView: View {
             QueryInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .body:
             requestBodyView
+        case .multipart:
+            if MultipartInspectorView.isApplicable(to: transaction) {
+                MultipartInspectorView(transaction: transaction)
+            } else {
+                requestBodyView
+            }
+        case .script:
+            if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request) {
+                ScriptPreviewInspectorView(transaction: transaction, panel: .request)
+            } else {
+                requestBodyView
+            }
+        case .protobuf:
+            if ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
+                ProtobufPayloadInspectorView(
+                    payload: ProtobufBodyInspection.payload(of: transaction, direction: .request),
+                    context: ProtobufBodyInspection.context(of: transaction, direction: .request),
+                    payloadID: "\(transaction.id.uuidString)-request"
+                )
+            } else {
+                requestBodyView
+            }
         case .cookies:
             CookiesInspectorView(transaction: transaction, highlightContext: highlightContext)
         case .raw:
             requestRawView
         case .synopsis:
             SynopsisInspectorView(transaction: transaction)
+        case .connectionLog:
+            ConnectionLogInspectorView(transaction: transaction)
         case .comments:
             CommentsTabView(coordinator: coordinator, transaction: transaction)
         }
@@ -147,11 +193,20 @@ struct RequestInspectorView: View {
 
     @ViewBuilder private var requestBodyView: some View {
         if let body = transaction.request.body {
-            AsyncInspectorTextEditor(
-                renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
-                highlightContext: highlightContext
-            ) {
-                InspectorPayloadFormatter.requestBodyText(body)
+            VStack(spacing: 0) {
+                AsyncInspectorTextEditor(
+                    renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
+                    highlightContext: highlightContext
+                ) {
+                    InspectorPayloadFormatter.requestBodyText(body)
+                }
+                Divider()
+                PayloadActionsBar(
+                    payload: body,
+                    fileStem: "\(transaction.id.uuidString)-request",
+                    fileExtension: PayloadActionsBar.fileExtension(for: transaction.request.contentType),
+                    suggestedName: "request-body"
+                )
             }
         } else {
             InspectorEmptyStateView(

@@ -44,7 +44,7 @@ struct HTTPSInspectionPromptView: View {
     private var scopeFooter: String {
         if prompt.hostScope?.state == .ready {
             return String(
-                localized: "Ready for new connections. Repeat the request.",
+                localized: "Ready for new connections. Repeat the request; WebSocket and streaming connections must reconnect.",
                 bundle: RockxyLocalization.bundle
             )
         }

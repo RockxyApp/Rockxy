@@ -443,7 +443,32 @@ struct ContextDetailsView: View {
                     Divider()
                     openRuleActionRow(windowID: windowID, help: target.openHelp)
                 }
-            } else {
+            }
+            if !transaction.appliedScriptNames.isEmpty {
+                if transaction.matchedRuleID != nil {
+                    Divider()
+                }
+                ContextInspectorFieldRow(field: ContextTableField(
+                    label: String(localized: "Scripts", bundle: RockxyLocalization.bundle),
+                    value: transaction.appliedScriptNames.joined(separator: ", "),
+                    monospaced: false,
+                    color: .green
+                ))
+                Divider()
+                openRuleActionRow(windowID: "scriptingList", help: nil)
+            }
+            if transaction.noCachingApplied {
+                if transaction.matchedRuleID != nil || !transaction.appliedScriptNames.isEmpty {
+                    Divider()
+                }
+                ContextInspectorFieldRow(field: ContextTableField(
+                    label: String(localized: "Tools", bundle: RockxyLocalization.bundle),
+                    value: String(localized: "No Caching", bundle: RockxyLocalization.bundle),
+                    monospaced: false,
+                    color: .green
+                ))
+            }
+            if transaction.matchedRuleID == nil, transaction.appliedScriptNames.isEmpty, !transaction.noCachingApplied {
                 ContextInspectorFullRow {
                     Label(
                         String(localized: "No rule modified this request", bundle: RockxyLocalization.bundle),

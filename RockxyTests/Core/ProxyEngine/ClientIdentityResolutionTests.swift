@@ -121,6 +121,32 @@ struct ClientIdentityResolutionTests {
         #expect(fixture.requests() == [8_888, 8_888, 9_090])
     }
 
+    @Test("elapsed time never underflows when another thread stored a newer timestamp")
+    func elapsedTimeSaturatesAtZero() {
+        let earlier = DispatchTime(uptimeNanoseconds: 1_000_000_000)
+        let later = DispatchTime(uptimeNanoseconds: 3_500_000_000)
+
+        #expect(ProcessResolver.secondsElapsed(from: earlier, to: later) == 2.5)
+        #expect(ProcessResolver.secondsElapsed(from: later, to: earlier) == 0)
+    }
+
+    @Test("concurrent process-map lookups do not trap on timestamps stored while waiting for the lock")
+    func concurrentLookupsDoNotUnderflow() {
+        let fixture = ProcessMapFixture()
+        let resolver = ProcessResolver(
+            processMapProvider: { proxyPort in
+                fixture.next(proxyPort: proxyPort)
+            },
+            minimumRefreshInterval: 0
+        )
+
+        DispatchQueue.concurrentPerform(iterations: 400) { index in
+            _ = resolver.resolveProcesses(proxyPort: 8_888, requiring: [UInt16(50_000 + index % 7)])
+        }
+
+        #expect(!fixture.requests().isEmpty)
+    }
+
     @Test("missing process ports coalesce repeated lsof refreshes")
     func processMapCacheCoalescesMissingPorts() {
         let fixture = ProcessMapFixture()
@@ -612,6 +638,43 @@ struct ClientIdentityResolutionTests {
         )
         ProxyServer.makeIdentityStampingCallback(handle: nil, downstream: { _ in })(anonymous)
         #expect(anonymous.clientApp == nil)
+    }
+
+    @Test("stamping callback labels locally answered GraphQL rows with their operation")
+    func stampingCallbackLabelsLocallyAnsweredGraphQL() {
+        func graphQLRequest() -> HTTPRequestData {
+            HTTPRequestData(
+                method: "POST",
+                url: URL(string: "https://api.example.com/graphql")!,
+                httpVersion: "1.1",
+                headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+                body: Data(#"{"operationName":"GetUser","query":"query GetUser { user { id } }"}"#.utf8)
+            )
+        }
+        let stamp = ProxyServer.makeIdentityStampingCallback(handle: nil, downstream: { _ in })
+
+        // A failed breakpoint redirect, a block, and a Map Local hit are answered by Rockxy.
+        let failed = HTTPTransaction(
+            request: graphQLRequest(),
+            response: HTTPResponseData(statusCode: 502, statusMessage: "Bad Gateway", headers: []),
+            state: .failed
+        )
+        stamp(failed)
+        #expect(failed.graphQLInfo?.operationName == "GetUser")
+
+        let blocked = HTTPTransaction(request: graphQLRequest(), response: nil, state: .blocked)
+        stamp(blocked)
+        #expect(blocked.graphQLInfo?.operationName == "GetUser")
+
+        let mapped = HTTPTransaction(request: graphQLRequest(), state: .completed)
+        mapped.matchedRuleID = UUID()
+        stamp(mapped)
+        #expect(mapped.graphQLInfo?.operationName == "GetUser")
+
+        // A relayed response without a rule already ran detection; it is not parsed again.
+        let relayed = HTTPTransaction(request: graphQLRequest(), state: .completed)
+        stamp(relayed)
+        #expect(relayed.graphQLInfo == nil)
     }
 
     // MARK: Private

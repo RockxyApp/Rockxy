@@ -14,14 +14,25 @@ struct MCPToolRegistry {
     let flowService: MCPFlowQueryService
     let statusService: MCPStatusService
     let ruleService: MCPRuleQueryService
+    /// Handles tools that change Rockxy. Nil only in hosts that expose read-only tools.
+    var changeService: MCPChangeService?
 
     func listTools() -> MCPToolsListResult {
-        MCPToolsListResult(tools: MCPToolDefinitions.allTools)
+        MCPToolsListResult(
+            tools: MCPToolDefinitions.allTools + (changeService == nil ? [] : MCPChangeToolDefinitions.allTools)
+        )
     }
 
     func callTool(params: MCPToolCallParams) async -> MCPToolCallResult {
         let args = params.arguments ?? [:]
         mcpToolRegistryLogger.debug("Tool call: \(params.name, privacy: .public)")
+
+        if MCPChangeService.toolNames.contains(params.name) {
+            guard let changeService else {
+                return unknownToolResult(name: params.name)
+            }
+            return await changeService.call(params.name, arguments: args)
+        }
 
         switch params.name {
         case "get_version":

@@ -272,6 +272,8 @@ extension MainContentCoordinator {
                 startLogCapture()
 
                 installEvictionObserver()
+                installReverseProxyObserver()
+                await applyReverseProxies()
 
                 readiness.startObserving()
                 readiness.setSystemRoutingExpected(true)
@@ -304,6 +306,44 @@ extension MainContentCoordinator {
                 activeProxyPort = settings.proxyPort
             }
         }
+    }
+
+    /// Opens, closes, or rebinds reverse proxy and SOCKS5 listeners to match settings.
+    func applyReverseProxies() async {
+        let store = ReverseProxyStore.shared
+        let targets = store.enabledTargets
+        let failures = await proxyServer.updateReverseProxies(targets)
+        store.applyListenerResult(targets: targets, failures: failures)
+
+        let socks = SOCKSListenerSettings.shared
+        let socksFailure = await proxyServer.updateSOCKSListener(port: socks.requestedPort)
+        socks.applyListenerResult(socksFailure)
+    }
+
+    private func installReverseProxyObserver() {
+        guard reverseProxyObserver == nil else {
+            return
+        }
+        let apply: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.isProxyRunning else {
+                    return
+                }
+                await self.applyReverseProxies()
+            }
+        }
+        reverseProxyObserver = NotificationCenter.default.addObserver(
+            forName: .reverseProxyRulesDidChange,
+            object: nil,
+            queue: .main,
+            using: apply
+        )
+        socksListenerObserver = NotificationCenter.default.addObserver(
+            forName: .socksListenerSettingsDidChange,
+            object: nil,
+            queue: .main,
+            using: apply
+        )
     }
 
     private func installEvictionObserver() {
@@ -428,6 +468,16 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(evictionObserver)
                 self.evictionObserver = nil
             }
+            if let reverseProxyObserver {
+                NotificationCenter.default.removeObserver(reverseProxyObserver)
+                self.reverseProxyObserver = nil
+            }
+            if let socksListenerObserver {
+                NotificationCenter.default.removeObserver(socksListenerObserver)
+                self.socksListenerObserver = nil
+            }
+            ReverseProxyStore.shared.markProxyStopped()
+            SOCKSListenerSettings.shared.markProxyStopped()
             probeTracker.cancel()
             await probeServer.stop()
             isSystemProxyConfigured = false
@@ -674,7 +724,9 @@ extension MainContentCoordinator {
         )
     }
 
-    func switchOffSystemProxyOverride() {
+    /// Returns the task that applies the change, so a caller can wait for macOS to finish.
+    @discardableResult
+    func switchOffSystemProxyOverride() -> Task<Void, Never> {
         Task { @MainActor in
             do {
                 try await SystemProxyManager.shared.disableSystemProxy()
@@ -691,14 +743,16 @@ extension MainContentCoordinator {
         }
     }
 
-    func switchOnSystemProxyOverride() {
+    /// Returns the task that applies the change, or nil when the proxy is not running.
+    @discardableResult
+    func switchOnSystemProxyOverride() -> Task<Void, Never>? {
         guard isProxyRunning else {
-            return
+            return nil
         }
         readiness.clearProxyEnableFailure()
         readiness.setSystemRoutingExpected(true)
 
-        Task { @MainActor in
+        return Task { @MainActor in
             do {
                 try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
@@ -837,6 +891,10 @@ extension MainContentCoordinator {
         let captureProbeTracker = captureProbeTracker
         let captureRecordingGate = captureRecordingGate
 
+        // Load Access Control, DNS Spoofing, and the TLS key log before the first connection.
+        RemoteAccessSettings.shared.activate()
+        _ = DNSSpoofingStore.shared
+        _ = TLSKeyLogSettings.shared
         let configuration = ProxyConfiguration(
             port: resolvedPort,
             listenAddress: settings.effectiveListenAddress,
@@ -993,17 +1051,24 @@ extension MainContentCoordinator {
                 continue
             }
 
-            let overflow = max(0, history.count - liveHistoryLimit)
-            let evictionCount: Int
-            if overflow > 0 {
-                let evictionHeadroom = min(
-                    liveHistoryLimit,
-                    max(2, min(100, (liveHistoryLimit + 9) / 10))
-                )
-                evictionCount = min(history.count, max(overflow, evictionHeadroom))
-                history.removeFirst(evictionCount)
-            } else {
-                evictionCount = 0
+            // Only live-captured rows count toward the cap; imported rows are never trimmed.
+            var evictionCount = 0
+            if history.count > liveHistoryLimit {
+                let liveCount = history.count { !$0.isImported }
+                let overflow = liveCount - liveHistoryLimit
+                if overflow > 0 {
+                    let evictionHeadroom = min(
+                        liveHistoryLimit,
+                        max(2, min(100, (liveHistoryLimit + 9) / 10))
+                    )
+                    let evictedIDs = Self.evictionCandidateIDs(
+                        in: history,
+                        count: min(liveCount, max(overflow, evictionHeadroom)),
+                        includesImported: false
+                    )
+                    history.removeAll { evictedIDs.contains($0.id) }
+                    evictionCount = evictedIDs.count
+                }
             }
             transactionsByProjectID[projectID] = history
 
@@ -1053,7 +1118,7 @@ extension MainContentCoordinator {
         )
         moveObservedDomainsFromUnknown(for: enrichedTransactions)
 
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             updateAppGroupingForEnrichedTransactions(enrichedTransactions, in: workspace)
             refreshAppNodes(for: workspace)
 
@@ -1080,7 +1145,7 @@ extension MainContentCoordinator {
             updatedTransactions.map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             if workspaceUsesStateDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {
@@ -1210,7 +1275,12 @@ extension MainContentCoordinator {
         -> [HTTPTransaction]
     {
         batch.filter {
-            manager.isRequestAllowed(method: $0.request.method, url: $0.request.url)
+            manager.isRequestAllowed(
+                method: $0.request.method,
+                url: $0.request.url,
+                graphQLOperationName: $0.graphQLInfo?.operationName,
+                clientApplication: $0.clientApplicationIdentity
+            )
         }
     }
 }

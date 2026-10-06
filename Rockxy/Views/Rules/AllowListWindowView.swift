@@ -131,14 +131,18 @@ final class AllowListWindowViewModel {
         urlPattern: String,
         httpMethod: HTTPMethodFilter,
         matchType: RuleMatchType,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String? = nil,
+        clientApplication: String? = nil
     ) {
         let rule = AllowListRule(
             name: ruleName.isEmpty ? urlPattern : ruleName,
             rawPattern: urlPattern,
             method: httpMethod.methodValue,
             matchType: matchType,
-            includeSubpaths: includeSubpaths
+            includeSubpaths: includeSubpaths,
+            graphQLOperationName: graphQLOperationName,
+            clientApplication: clientApplication
         )
         selectedRuleID = rule.id
         manager.addRule(rule)
@@ -150,7 +154,9 @@ final class AllowListWindowViewModel {
         urlPattern: String,
         httpMethod: HTTPMethodFilter,
         matchType: RuleMatchType,
-        includeSubpaths: Bool
+        includeSubpaths: Bool,
+        graphQLOperationName: String? = nil,
+        clientApplication: String? = nil
     ) {
         guard let existing = manager.rules.first(where: { $0.id == id }) else {
             return
@@ -161,6 +167,10 @@ final class AllowListWindowViewModel {
         updated.method = httpMethod.methodValue
         updated.matchType = matchType
         updated.includeSubpaths = includeSubpaths
+        let operation = graphQLOperationName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updated.graphQLOperationName = operation.isEmpty ? nil : operation
+        let application = clientApplication?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        updated.clientApplication = application.isEmpty ? nil : application
         manager.updateRule(updated)
         selectedRuleID = updated.id
     }
@@ -190,7 +200,9 @@ final class AllowListWindowViewModel {
             rawPattern: original.rawPattern,
             method: original.method,
             matchType: original.matchType,
-            includeSubpaths: original.includeSubpaths
+            includeSubpaths: original.includeSubpaths,
+            graphQLOperationName: original.graphQLOperationName,
+            clientApplication: original.clientApplication
         )
         selectedRuleID = copy.id
         manager.addRule(copy)
@@ -263,7 +275,7 @@ struct AllowListWindowView: View {
             // rebuilds this view and drops any stale `@State` from a prior open.
             AddAllowListRuleSheet(
                 session: session
-            ) { name, pattern, method, matchType, includeSubpaths in
+            ) { name, pattern, method, matchType, includeSubpaths, operation, application in
                 if case let .edit(rule) = session.mode {
                     viewModel.updateRule(
                         id: rule.id,
@@ -271,7 +283,9 @@ struct AllowListWindowView: View {
                         urlPattern: pattern,
                         httpMethod: method,
                         matchType: matchType,
-                        includeSubpaths: includeSubpaths
+                        includeSubpaths: includeSubpaths,
+                        graphQLOperationName: operation,
+                        clientApplication: application
                     )
                 } else {
                     viewModel.addRule(
@@ -279,7 +293,9 @@ struct AllowListWindowView: View {
                         urlPattern: pattern,
                         httpMethod: method,
                         matchType: matchType,
-                        includeSubpaths: includeSubpaths
+                        includeSubpaths: includeSubpaths,
+                        graphQLOperationName: operation,
+                        clientApplication: application
                     )
                 }
                 viewModel.dismissEditor()

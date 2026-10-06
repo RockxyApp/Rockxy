@@ -143,8 +143,8 @@ enum DeveloperSetupGuideCatalog {
                 ),
                 tip(
                     "ios-sim-simctl",
-                    "Command-line install remains manual",
-                    "If you prefer Terminal, export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> for a prepared simulator."
+                    "Install into booted simulators in one step",
+                    "Use Install in Booted Simulators under Device certificate, or export the public PEM and run xcrun simctl keychain <udid> add-root-cert <path-to-pem> yourself."
                 ),
             ],
             validationTips: [
@@ -226,7 +226,11 @@ enum DeveloperSetupGuideCatalog {
                 tip(
                     "android-emu-nsc",
                     "Apps still need network-security-config to trust it",
-                    "Production emulator images behave like real devices: apps only trust user CAs when their network-security-config allows it."
+                    """
+                    A user CA is only trusted by apps whose network-security-config allows it. On a Google APIs \
+                    image, Route Emulators Through Rockxy can trust the certificate system-wide instead, until \
+                    the emulator restarts.
+                    """
                 ),
             ],
             validationTips: [
@@ -262,7 +266,11 @@ enum DeveloperSetupGuideCatalog {
                 tip(
                     "tvos-device",
                     "Physical devices need LAN reachability and manual proxy",
-                    "For a real Apple TV or Apple Watch, use a reachable LAN address and set the manual HTTP proxy in the device settings where available."
+                    """
+                    An Apple TV has its own Wi-Fi proxy setting. An Apple Watch has none: trust the certificate on \
+                    the paired iPhone and the watch, point the iPhone at Rockxy, then turn off the watch's Wi-Fi and \
+                    cellular so its traffic relays through the iPhone.
+                    """
                 ),
             ],
             validationTips: [
@@ -368,6 +376,16 @@ enum DeveloperSetupGuideCatalog {
                     "flutter-android-emulator-routing",
                     "Android Emulator no-code routing is not part of the manual flow",
                     "If you skip client wiring or debug Android trust settings, emulator traffic may bypass Rockxy until a separate automation flow handles routing."
+                ),
+                tip(
+                    "flutter-ios-local-network",
+                    "Allow Local Network access on a physical iPhone or iPad",
+                    """
+                    A Flutter client that dials the Device Proxy LAN host needs iOS Local Network \
+                    permission. Until you tap Allow, or turn the app on in Settings > Privacy & Security \
+                    > Local Network, requests fail with "No route to host" (errno 65). Builds that are \
+                    not debug or profile also need NSLocalNetworkUsageDescription in Info.plist.
+                    """
                 ),
                 tip(
                     "flutter-pinning",

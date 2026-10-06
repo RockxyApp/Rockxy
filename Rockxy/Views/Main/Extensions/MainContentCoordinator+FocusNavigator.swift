@@ -96,7 +96,7 @@ extension MainContentCoordinator {
 
     private func persistFocusSetsAcrossWorkspaces(_ focusSets: [FocusSet]) {
         FocusSetPersistence.save(focusSets)
-        for workspace in workspaceStore.workspaces where workspace.id != activeWorkspace.id {
+        for workspace in workspaceStore.allWorkspaces where workspace.id != activeWorkspace.id {
             workspace.focusSets = focusSets
             let hadActiveFocusSet = workspace.activeFocusSetID != nil
             if let activeID = workspace.activeFocusSetID,

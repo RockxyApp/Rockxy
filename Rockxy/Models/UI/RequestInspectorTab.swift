@@ -5,9 +5,13 @@ enum RequestInspectorTab: String, CaseIterable {
     case headers
     case query
     case body
+    case multipart
+    case protobuf
+    case script
     case cookies
     case raw
     case synopsis
+    case connectionLog
     case comments
 
     // MARK: Internal
@@ -17,9 +21,13 @@ enum RequestInspectorTab: String, CaseIterable {
         case .headers: String(localized: "Headers", bundle: RockxyLocalization.bundle)
         case .query: String(localized: "Query", bundle: RockxyLocalization.bundle)
         case .body: String(localized: "Body", bundle: RockxyLocalization.bundle)
+        case .multipart: String(localized: "Multipart", bundle: RockxyLocalization.bundle)
+        case .protobuf: "Protobuf"
+        case .script: String(localized: "Script", bundle: RockxyLocalization.bundle)
         case .cookies: String(localized: "Cookies", bundle: RockxyLocalization.bundle)
         case .raw: String(localized: "Raw", bundle: RockxyLocalization.bundle)
         case .synopsis: String(localized: "Synopsis", bundle: RockxyLocalization.bundle)
+        case .connectionLog: String(localized: "Connection Log", bundle: RockxyLocalization.bundle)
         case .comments: String(localized: "Notes", bundle: RockxyLocalization.bundle)
         }
     }

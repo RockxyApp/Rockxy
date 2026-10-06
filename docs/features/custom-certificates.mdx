@@ -25,8 +25,8 @@ All three kinds live in the same window and share the same import flow, but they
 |--------|---------------|
 | Open Custom Certificates window | **Certificate → Add Custom Certificates…** in the menu bar |
 | Switch between kinds | Segmented picker at the top of the window: **Root Certificate / Server Certificates / Client Certificates** |
-| Import a root certificate | **Root Certificate** tab → **Import ▾ → Import P12…** |
-| Import a server / client certificate | **Server Certificates** or **Client Certificates** tab → **Import ▾ → Import PEM / DER…** or **Import P12…** |
+| Import a root certificate | **Root Certificate** tab → **Import P12…** |
+| Import a server / client certificate | **Server Certificates** or **Client Certificates** tab → **Import PEM / DER…** or **Import P12…** |
 | Remove a custom root and fall back to Rockxy's default | **Revert** button (visible only on the Root tab) |
 | Remove all custom server / client certificates of the current kind | **Delete** button |
 
@@ -47,6 +47,7 @@ Common reasons to do this:
 - When a custom root is active, the Root tab shows **Custom Root Active** and lists the import date, validity window, and SHA-256 fingerprint of the imported cert.
 - Rockxy uses the most recently imported root. Importing again replaces the previous one.
 - **Revert** removes the custom root and reactivates Rockxy's default root.
+- Rockxy refuses a root that clients would reject anyway and says why: a certificate that is not a CA, one that has expired or is not valid yet, one signed with SHA-1, or one with an RSA key shorter than 2048 bits. A wrong P12 password is reported as such.
 - After importing a custom root, you still need to make sure that root is trusted on every device that will route traffic through Rockxy — Rockxy does **not** push the custom root into the macOS keychain trust store for you.
 
 <Note>
@@ -70,7 +71,7 @@ If a target app validates the server certificate against a hard-coded fingerprin
 ### Import flow
 
 1. Switch to the **Server Certificates** tab.
-2. Click **Import → Import PEM / DER…** to pick separate certificate and key files, or **Import → Import P12…** to pick a bundled identity.
+2. Click **Import PEM / DER…** to pick separate certificate and key files, or **Import P12…** to pick a bundled identity.
 3. For PEM / DER import, pick the certificate file, then pick the private key file (Rockxy prompts for them in two separate file pickers). For P12 import, pick the `.p12` / `.pfx` file and enter its password.
 4. Enter the **host pattern** this certificate should apply to (see [Host Patterns](#host-patterns) below).
 5. Rockxy validates the cert/key pair, persists the metadata, and stores the private key in Keychain.
@@ -218,7 +219,7 @@ openssl x509 -req \
 ### 3. Import into Rockxy
 
 - Open **Certificate → Add Custom Certificates…**
-- Choose the **Server Certificates** tab → **Import → Import PEM / DER…**
+- Choose the **Server Certificates** tab → **Import PEM / DER…**
 - Pick `leaf.pem` when prompted for the certificate, then `leaf.key` for the private key.
 - Enter the host pattern (e.g. `api.example.com` or `*.example.com`) and confirm.
 

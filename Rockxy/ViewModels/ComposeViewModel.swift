@@ -308,6 +308,11 @@ final class ComposeViewModel {
     var queryItems: [EditableQueryItem] = []
     var requestTimeout: ComposeRequestTimeout = .thirty
     var followsRedirects = true
+    /// Receives each finished send as a session row. The default hands it to the workspace so
+    /// Compose and Edit and Repeat results can be inspected and exported like a Repeat.
+    var onExchangeCompleted: @MainActor (HTTPTransaction) -> Void = { transaction in
+        NotificationCenter.default.post(name: .composeExchangeDidComplete, object: transaction)
+    }
     private(set) var history: [ComposeHistoryEntry] = []
     private(set) var lastFormattingError: String?
     private(set) var restoreConfirmationID = UUID()
@@ -379,7 +384,7 @@ final class ComposeViewModel {
         lines.append("\(method) \(path)\(query) HTTP/1.1")
 
         if let host = parsedURL?.host {
-            lines.append("Host: \(host)")
+            lines.append("Host: \(host)\(parsedURL?.port.map { ":\($0)" } ?? "")")
         }
 
         for header in headers where header.isEnabled && !header.name.isEmpty {
@@ -476,6 +481,7 @@ final class ComposeViewModel {
             request.httpBody = Data(requestSnapshot.body.utf8)
         }
         request.timeoutInterval = requestTimeout.interval
+        let startedAt = Date()
 
         do {
             let (data, httpResponse) = try await executor.execute(request, followsRedirects: followsRedirects)
@@ -506,6 +512,15 @@ final class ComposeViewModel {
             )
             activeRunID = nil
             responseState = .success(response)
+            onExchangeCompleted(Self.makeSessionTransaction(
+                url: requestURL,
+                method: requestSnapshot.method,
+                headers: requestSnapshot.headers,
+                requestBody: requestSnapshot.body,
+                response: httpResponse,
+                body: data,
+                startedAt: startedAt
+            ))
             await recordHistory(request: requestSnapshot, response: response)
             Self.logger.info("Compose send succeeded: \(httpResponse.statusCode)")
         } catch {
@@ -525,6 +540,15 @@ final class ComposeViewModel {
             }
             activeRunID = nil
             responseState = .error(error.localizedDescription)
+            onExchangeCompleted(Self.makeSessionTransaction(
+                url: requestURL,
+                method: requestSnapshot.method,
+                headers: requestSnapshot.headers,
+                requestBody: requestSnapshot.body,
+                response: nil,
+                body: nil,
+                startedAt: startedAt
+            ))
             await recordHistory(request: requestSnapshot, response: nil)
             Self.logger.error("Compose send failed: \(error.localizedDescription)")
         }

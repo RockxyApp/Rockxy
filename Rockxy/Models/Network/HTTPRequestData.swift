@@ -18,7 +18,8 @@ struct HTTPRequestData: Sendable {
         headers: [HTTPHeader],
         body: Data? = nil,
         contentType: ContentType? = nil,
-        captureContext: TrafficCaptureContext? = nil
+        captureContext: TrafficCaptureContext? = nil,
+        flowID: UUID = UUID()
     ) {
         self.method = method
         self.url = url
@@ -27,6 +28,7 @@ struct HTTPRequestData: Sendable {
         self.body = body
         self.contentType = contentType
         self.captureContext = captureContext
+        self.flowID = flowID
     }
 
     // MARK: Internal
@@ -40,6 +42,10 @@ struct HTTPRequestData: Sendable {
     /// Logical Project/session ownership captured at request start. It is runtime
     /// routing metadata and is deliberately excluded from HAR/session serializers.
     let captureContext: TrafficCaptureContext?
+    /// Identifies one client exchange across the request and response phases so
+    /// script state set in `onRequest` is visible to the same flow's `onResponse`.
+    /// Runtime-only: rebuilt copies of a request carry it forward; serializers ignore it.
+    let flowID: UUID
 
     var host: String {
         url.host() ?? ""

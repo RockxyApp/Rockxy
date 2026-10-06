@@ -67,7 +67,7 @@ struct MCPRedactionPolicy {
             return headers
         }
         return headers.map { header in
-            if Self.sensitiveHeaders.contains(header.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(header.name, exact: Self.sensitiveHeaders) {
                 return (name: header.name, value: redactedPlaceholder)
             }
             return header
@@ -79,7 +79,7 @@ struct MCPRedactionPolicy {
             return headers
         }
         return headers.map { header in
-            if Self.sensitiveHeaders.contains(header.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(header.name, exact: Self.sensitiveHeaders) {
                 return CodableHeader(redactedName: header.name)
             }
             return header
@@ -98,7 +98,7 @@ struct MCPRedactionPolicy {
         }
 
         components.queryItems = queryItems.map { item in
-            if Self.sensitiveQueryParams.contains(item.name.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(item.name, exact: Self.sensitiveQueryParams) {
                 return URLQueryItem(name: item.name, value: redactedPlaceholder)
             }
             return item
@@ -146,7 +146,13 @@ struct MCPRedactionPolicy {
         var result = body
         result = applyRegex(bodyTokenPattern, to: result)
         result = applyRegex(bodySecretPattern, to: result)
-        return result
+        result = applyRegex(Self.bodyHeaderKeyPatternRegex, to: result)
+        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
+        return SensitiveDataRedactor.authorizationValueRegex.stringByReplacingMatches(
+            in: result,
+            range: range,
+            withTemplate: "$1\(redactedPlaceholder)"
+        )
     }
 
     func redactFormBody(_ body: String) -> String {
@@ -161,7 +167,7 @@ struct MCPRedactionPolicy {
             }
             let key = String(parts[0])
             let decodedKey = key.removingPercentEncoding ?? key
-            if Self.sensitiveQueryParams.contains(decodedKey.lowercased()) {
+            if SensitiveDataRedactor.isSensitiveName(decodedKey, exact: Self.sensitiveQueryParams) {
                 return "\(key)=\(redactedPlaceholder)"
             }
             return pair
@@ -238,6 +244,12 @@ struct MCPRedactionPolicy {
         options: [.caseInsensitive]
     )
 
+    /// Header names echoed as JSON keys, for bodies too truncated to parse.
+    private static let bodyHeaderKeyPatternRegex: NSRegularExpression = try! NSRegularExpression(
+        pattern: #"("(?:\#(sensitiveHeaderAlternation))")\s*:\s*\#(jsonScalarPattern)"#,
+        options: [.caseInsensitive]
+    )
+
     private static let curlHeaderPatternRegex: NSRegularExpression = try! NSRegularExpression(
         pattern: #"-H\s+(['"])(\#(sensitiveHeaderAlternation))\s*:\s*[^'"]*\1"#,
         options: [.caseInsensitive]
@@ -292,7 +304,7 @@ struct MCPRedactionPolicy {
         if let dictionary = object as? [String: Any] {
             let entries: [(String, Any)] = dictionary.map { element in
                 let (key, value) = element
-                if Self.sensitiveBodyKeys.contains(key.lowercased()) {
+                if SensitiveDataRedactor.isSensitiveBodyKey(key) {
                     return (key, redactedPlaceholder)
                 }
                 return (key, redactJSONObject(value))
@@ -302,6 +314,10 @@ struct MCPRedactionPolicy {
 
         if let array = object as? [Any] {
             return array.map { redactJSONObject($0) }
+        }
+
+        if let string = object as? String {
+            return SensitiveDataRedactor.redactedStringValue(string, placeholder: redactedPlaceholder)
         }
 
         return object

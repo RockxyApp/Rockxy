@@ -107,6 +107,7 @@ struct DeveloperSetupWindowView: View {
     @State private var presentedShareSessionID: RootCADownloadSession.ID?
     @State private var inspectorPresented = false
     @State private var searchPresented = false
+    @State private var deviceActionInProgress = false
 
     private var setupMetrics: DeveloperSetupDisplayMetrics {
         DeveloperSetupDisplayMetrics(appMetrics: appMetrics)
@@ -511,9 +512,100 @@ struct DeveloperSetupWindowView: View {
                     openWindow(id: "certificateSetup")
                 }
             }
+
+            if [.iosSimulator, .tvOSWatchOS, .visionPro, .reactNative].contains(viewModel.selectedTarget.id) {
+                simulatorInstallRow
+            }
+            if viewModel.selectedTarget.id == .androidEmulator {
+                androidEmulatorRow
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
+    }
+
+    private var androidEmulatorRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(
+                String(
+                    localized: """
+                    Or let Rockxy use adb to point running emulators at this Mac, copy the certificate to \
+                    them, and trust it system-wide on Google APIs images. Revert when you finish so the \
+                    emulator keeps its connection after Rockxy quits.
+                    """,
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(setupMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Route Emulators Through Rockxy…", bundle: RockxyLocalization.bundle)) {
+                    let port = viewModel.snapshot.activePort
+                    let running = viewModel.snapshot.proxyRunning
+                    runDeviceAction {
+                        await AndroidEmulatorSetupFlow.route(proxyPort: port, proxyRunning: running)
+                    }
+                }
+                Button(String(localized: "Revert Emulator Proxy", bundle: RockxyLocalization.bundle)) {
+                    runDeviceAction {
+                        await AndroidEmulatorSetupFlow.revert()
+                    }
+                }
+                if deviceActionInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(String(localized: "Updating emulators", bundle: RockxyLocalization.bundle))
+                }
+            }
+            .disabled(deviceActionInProgress)
+        }
+        .padding(.top, 4)
+    }
+
+    /// adb and simctl work can take many seconds; the buttons stay disabled and a spinner
+    /// shows until the flow's result alert has been dismissed.
+    private func runDeviceAction(_ action: @escaping @MainActor () async -> Void) {
+        guard !deviceActionInProgress else {
+            return
+        }
+        deviceActionInProgress = true
+        Task { @MainActor in
+            await action()
+            deviceActionInProgress = false
+        }
+    }
+
+    private var simulatorInstallRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(
+                String(
+                    localized: "Or install it directly into every booted simulator with simctl. Rockxy asks before changing a simulator's trust.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+            .font(setupMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+            SimulatorTrustStatusLine(font: setupMetrics.secondaryFont())
+
+            HStack(spacing: 8) {
+                Button(String(localized: "Install in Booted Simulators…", bundle: RockxyLocalization.bundle)) {
+                    runDeviceAction {
+                        await SimulatorCertificateInstallFlow.run()
+                    }
+                }
+                if deviceActionInProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                        .accessibilityLabel(String(localized: "Installing in simulators", bundle: RockxyLocalization.bundle))
+                }
+            }
+            .disabled(deviceActionInProgress)
+        }
+        .padding(.top, 4)
     }
 
     // MARK: Snippets

@@ -31,7 +31,9 @@ actor ScriptPluginManager {
     ) {
         self.discovery = discovery
         self.defaults = defaults
-        self.runtime = ScriptRuntime(defaults: defaults)
+        let ledger = ScriptExecutionLedger()
+        self.executionLedger = ledger
+        self.runtime = ScriptRuntime(defaults: defaults, previewLedger: ledger)
         if let settingsProvider {
             self.settingsProviderOverride = settingsProvider
         } else {
@@ -42,10 +44,14 @@ actor ScriptPluginManager {
     // MARK: Internal
 
     /// Snapshot of `plugins` updated by the actor after every mutation so that
-    /// NIO event-loop threads can make pre-hook decisions without awaiting.
-    nonisolated static let pluginSnapshot = OSAllocatedUnfairLock<[PluginInfo]>(initialState: [])
+    /// NIO event-loop threads can make pre-hook decisions without awaiting. Per instance, so
+    /// one manager's plugins never answer another manager's hook checks.
+    nonisolated let pluginSnapshot = OSAllocatedUnfairLock<[PluginInfo]>(initialState: [])
 
     private(set) var plugins: [PluginInfo] = []
+
+    /// Scripts that actually ran per flow, read by the proxy when it emits a transaction.
+    nonisolated let executionLedger: ScriptExecutionLedger
 
     nonisolated let defaults: UserDefaults
 
@@ -286,9 +292,13 @@ actor ScriptPluginManager {
                     behavior: behavior,
                     originalRequest: current
                 )
+                consecutiveHookFailures[plugin.id] = nil
+                if Self.changes(outcome, from: current) {
+                    executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                }
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onRequest failed: \(error.localizedDescription)")
-                markPluginErrored(id: plugin.id, reason: error.localizedDescription)
+                recordHookFailure(id: plugin.id, reason: error.localizedDescription)
                 continue
             }
             switch outcome {
@@ -344,6 +354,10 @@ actor ScriptPluginManager {
                     originalRequest: request,
                     originalResponse: current
                 )
+                consecutiveHookFailures[plugin.id] = nil
+                if Self.differs(mutated, from: current) {
+                    executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
+                }
                 if chain {
                     current = mutated
                     continue
@@ -351,11 +365,29 @@ actor ScriptPluginManager {
                 return mutated
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onResponse failed: \(error.localizedDescription)")
-                markPluginErrored(id: plugin.id, reason: error.localizedDescription)
+                recordHookFailure(id: plugin.id, reason: error.localizedDescription)
                 continue
             }
         }
         return current
+    }
+
+    /// Whether a request hook changed anything the client or server will see; a script
+    /// that only observed the request is not attributed as having modified it.
+    nonisolated static func changes(_ outcome: RequestHookOutcome, from request: HTTPRequestData) -> Bool {
+        guard case let .forward(forwarded) = outcome else {
+            return true
+        }
+        return forwarded.method != request.method
+            || forwarded.url != request.url
+            || forwarded.headers != request.headers
+            || forwarded.body != request.body
+    }
+
+    nonisolated static func differs(_ response: HTTPResponseData, from original: HTTPResponseData) -> Bool {
+        response.statusCode != original.statusCode
+            || response.headers != original.headers
+            || response.body != original.body
     }
 
     /// Nonisolated snapshot used by proxy handlers (NIO event-loop threads) to
@@ -367,7 +399,7 @@ actor ScriptPluginManager {
         guard currentSettings().scriptingToolEnabled else {
             return false
         }
-        let snapshot = Self.pluginSnapshot.withLock { $0 }
+        let snapshot = pluginSnapshot.withLock { $0 }
         for plugin in snapshot where plugin.isEnabled && plugin.status == .active {
             guard plugin.manifest.entryPoints["script"] != nil else {
                 continue
@@ -393,18 +425,26 @@ actor ScriptPluginManager {
     private let discovery: PluginDiscovery
     private let runtime: ScriptRuntime
 
+    private static let maxConsecutiveHookFailures = 5
+
+    private var consecutiveHookFailures: [String: Int] = [:]
     private var isLoadedOnce: Bool = false
     private var loadOnceTask: Task<Void, Never>?
     private var inFlightDiscoveryTask: Task<Void, Never>?
 
-    private static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
+    static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
         guard let condition = behavior.matchCondition else {
             return true
         }
+        // Parse the body for an operation name only when the script filters by one.
+        let operation = condition.requiredGraphQLOperationName == nil
+            ? nil
+            : GraphQLDetector.detect(request: request)?.operationName
         return condition.matches(
             method: request.method,
             url: request.url,
-            headers: request.headers
+            headers: request.headers,
+            graphQLOperationName: operation
         )
     }
 
@@ -453,8 +493,22 @@ actor ScriptPluginManager {
 
     private func publishSnapshot() {
         let current = plugins
-        Self.pluginSnapshot.withLock { $0 = current }
+        pluginSnapshot.withLock { $0 = current }
         NotificationCenter.default.post(name: .scriptsDidChange, object: current)
+    }
+
+    /// A script that throws for one unusual request (for example `JSON.parse` on an empty
+    /// body) keeps working for the rest of the traffic; only a script that fails several
+    /// requests in a row is marked errored, so a broken script cannot spam the console.
+    private func recordHookFailure(id: String, reason: String) {
+        let failures = (consecutiveHookFailures[id] ?? 0) + 1
+        consecutiveHookFailures[id] = failures
+        if failures >= Self.maxConsecutiveHookFailures {
+            consecutiveHookFailures[id] = nil
+            markPluginErrored(id: id, reason: reason)
+        } else if let index = plugins.firstIndex(where: { $0.id == id }) {
+            plugins[index].lastError = reason
+        }
     }
 
     private func markPluginErrored(id: String, reason: String) {

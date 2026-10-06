@@ -25,6 +25,17 @@ Use request header changes when the upstream server should receive different met
 
 Use response header changes when the client should observe a different behavior, such as cache control, content type, or a testing flag.
 
+## Working with other rules
+
+Header rules apply on top of every other rule that matches the same request. A CORS or authorization rule for a whole host still reaches requests that Map Local answers, that Map Remote sends elsewhere, that a Network Conditions profile slows down, or that a script changes. Every matching header rule runs, in list order; request changes are made before the request goes anywhere, and response changes are made to whatever response the client receives, including a Map Local file or a script's mock response.
+
+## Presets
+
+**Presets** in the Modify Headers window add ready-made rules:
+
+- **Add CORS Headers** replaces `Access-Control-Allow-Origin` (`*`), `Access-Control-Allow-Methods`, `Access-Control-Allow-Headers` (`*`), and `Access-Control-Max-Age` on every response. Values are replaced rather than appended, so an origin that already sends CORS headers never ends up with two conflicting values, and a browser preflight (`OPTIONS`) gets the headers it needs. The wildcard origin does not work for requests that send credentials; for those, edit the rule to name the exact origin. A preflight also needs a successful (2xx) status from the server, which a header rule cannot change — use Map Local for that.
+- **Remove Authorization** and **Strip Server Header** remove those headers.
+
 ## Related pages
 
 <CardGroup cols={2}>

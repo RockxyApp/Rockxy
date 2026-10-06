@@ -89,7 +89,7 @@ If you manually set `HTTP Proxy: 127.0.0.1` in your normal Firefox profile, Fire
 
 When you finish a manual Firefox debugging session, change Firefox back to **No proxy** if you want that profile to browse normally without Rockxy running.
 
-For a scoped workflow, create a separate Firefox profile and configure Rockxy's proxy only in that profile. The current Developer Setup flow provides the manual settings but does not create or launch a Firefox profile for you.
+For a scoped workflow, use **Developer Setup ▸ Automatic Setup ▸ Firefox**. Rockxy creates a dedicated profile that points at the proxy, routes localhost through it, trusts the macOS keychain roots (so the Rockxy certificate works once trusted), and opens it in its own window, leaving your everyday profile untouched. Start the proxy first.
 
 ## Troubleshooting checklist
 

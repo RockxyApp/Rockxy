@@ -63,7 +63,11 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         didSet { signalEvidenceRevision &+= 1 }
     }
     /// Changes whenever request or response evidence used by cached list signals changes.
-    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0
+    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0 {
+        didSet { customColumnValueCache.removeAll() }
+    }
+    /// Values of body columns, keyed by column, kept once the transaction has finished.
+    @ObservationIgnored let customColumnValueCache = CustomColumnValueCache()
     var state: TransactionState
     /// Whether this transaction reaches the session twice — as an `.active` row when it opens
     /// and again when it finishes. Fixed at creation because the two deliveries travel through
@@ -91,6 +95,11 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var highlightColor: HighlightColor?
     var isPinned: Bool = false
     var isSaved: Bool = false
+    /// Loaded from a file or a nearby transfer instead of captured live. The live history cap
+    /// neither counts nor evicts imported rows: an import is never trimmed.
+    var isImported: Bool = false
+    /// Draws the row with struck-through text so a request can be marked as ignorable.
+    var isStruckThrough: Bool = false
     var isTLSFailure: Bool = false
     /// See `SSLCaptureMode`. Live captures always stamp this: raw tunnels record `.tunneled` and
     /// `HTTPSProxyRelayHandler` stamps every decrypted transaction `.intercepted`. `nil` therefore
@@ -102,6 +111,18 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var matchedRuleName: String?
     var matchedRuleActionSummary: String?
     var matchedRulePattern: String?
+    /// Names of scripts whose request or response hook ran for this exchange.
+    var appliedScriptNames: [String] = []
+    /// Preview tabs scripts published for this exchange (`context.previewTabs`).
+    var scriptPreviews: [ScriptPreviewTab] = []
+    /// True when No Caching rewrote this exchange's cache headers.
+    var noCachingApplied = false
+    /// Protocol Rockxy used to reach the server (`1.1` or `2`); nil for tunnels, local
+    /// responses, and sessions saved before it was recorded.
+    var serverHTTPVersion: String?
+    /// How Rockxy reached the server for this exchange; nil when no upstream connection was
+    /// attempted (local responses, imports, sessions saved before it was recorded).
+    var connectionLog: ConnectionLog?
 
     /// Runtime-only ownership. Portable session files intentionally omit this so
     /// an imported capture is assigned to the destination Project chosen by the user.
@@ -206,8 +227,21 @@ enum HighlightColor: String, CaseIterable {
     case green
     case blue
     case purple
+    case gray
 
     // MARK: Internal
+
+    var displayName: String {
+        switch self {
+        case .red: String(localized: "Red", bundle: RockxyLocalization.bundle)
+        case .orange: String(localized: "Orange", bundle: RockxyLocalization.bundle)
+        case .yellow: String(localized: "Yellow", bundle: RockxyLocalization.bundle)
+        case .green: String(localized: "Green", bundle: RockxyLocalization.bundle)
+        case .blue: String(localized: "Blue", bundle: RockxyLocalization.bundle)
+        case .purple: String(localized: "Purple", bundle: RockxyLocalization.bundle)
+        case .gray: String(localized: "Gray", bundle: RockxyLocalization.bundle)
+        }
+    }
 
     var nsColor: NSColor {
         switch self {
@@ -217,6 +251,7 @@ enum HighlightColor: String, CaseIterable {
         case .green: Theme.Highlight.greenNS
         case .blue: Theme.Highlight.blueNS
         case .purple: Theme.Highlight.purpleNS
+        case .gray: Theme.Highlight.grayNS
         }
     }
 }

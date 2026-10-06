@@ -97,11 +97,14 @@ struct DeveloperSetupSessionSetupTests {
         #expect(script.contains("export HTTPS_PROXY=\"http://127.0.0.1:9090\""))
         #expect(script.contains("export ALL_PROXY=\"http://127.0.0.1:9090\""))
         #expect(script.contains("export NODE_EXTRA_CA_CERTS=\"$ROCKXY_ROOT_CA_PATH\""))
-        #expect(!script.contains("export SSL_CERT_FILE="))
-        #expect(!script.contains("export REQUESTS_CA_BUNDLE="))
-        #expect(!script.contains("export CURL_CA_BUNDLE="))
+        #expect(script.contains("export SSL_CERT_FILE=\"$ROCKXY_CA_BUNDLE_PATH\""))
+        #expect(script.contains("export REQUESTS_CA_BUNDLE=\"$ROCKXY_CA_BUNDLE_PATH\""))
+        #expect(script.contains("export CURL_CA_BUNDLE=\"$ROCKXY_CA_BUNDLE_PATH\""))
+        #expect(!script.contains("export SSL_CERT_FILE=\"$ROCKXY_ROOT_CA_PATH\""))
+        #expect(!script.contains("export REQUESTS_CA_BUNDLE=\"$ROCKXY_ROOT_CA_PATH\""))
         #expect(!script.contains("export GIT_SSL_CAINFO="))
         #expect(script.contains("export npm_config_https_proxy=\"$HTTPS_PROXY\""))
+        #expect(script.contains("export NODE_USE_ENV_PROXY=\"${NODE_USE_ENV_PROXY:-1}\""))
         #expect(!script.contains("export NODE_OPTIONS="))
     }
 
@@ -591,6 +594,7 @@ struct DeveloperSetupSessionSetupTests {
         #expect(environment["HTTP_PROXY"] == "http://127.0.0.1:8888")
         #expect(environment["HTTPS_PROXY"] == "http://127.0.0.1:8888")
         #expect(environment["npm_config_https_proxy"] == "http://127.0.0.1:8888")
+        #expect(environment["NODE_USE_ENV_PROXY"] == "1")
         #expect(environment["ROCKXY_SETUP_SESSION"] == "1")
         #expect(environment["NODE_EXTRA_CA_CERTS"] == "/tmp/Rockxy Root.pem")
         #expect(environment["SSL_CERT_FILE"] == nil)
@@ -1087,7 +1091,9 @@ struct DeveloperSetupSessionSetupTests {
         #expect(userJS.contains("user_pref(\"network.proxy.type\", 1);"))
         #expect(userJS.contains("user_pref(\"network.proxy.http\", \"127.0.0.1\");"))
         #expect(userJS.contains("user_pref(\"network.proxy.ssl_port\", 9090);"))
-        #expect(userJS.contains("user_pref(\"network.proxy.no_proxies_on\", \"localhost, 127.0.0.1, ::1\");"))
+        #expect(userJS.contains("user_pref(\"network.proxy.no_proxies_on\", \"\");"))
+        #expect(userJS.contains("user_pref(\"network.proxy.allow_hijacking_localhost\", true);"))
+        #expect(userJS.contains("user_pref(\"security.enterprise_roots.enabled\", true);"))
     }
 
     // MARK: Private

@@ -26,6 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
                 terminationLogger.error("Termination signal: timed out flushing HTTPS fallback state")
             }
         }
+        if !RockxyIdentity.isRunningTests {
+            StayOnTopController.shared.start()
+        }
         Self.logger.info("Rockxy launched")
         Task {
             // Restore network reachability before any updater or startup service can create a
@@ -100,9 +103,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             await PluginManager.shared.ensureLoadedOnce()
             if !RockxyIdentity.isRunningTests {
                 await MCPServerCoordinator.shared.startIfEnabled()
+                CommandLineControlCoordinator.shared.startIfEnabled()
             }
             await helperReconciliation.value
         }
+    }
+
+    /// Finder double-clicks, "Open With", and Dock drops of HAR or session files.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        ExternalDocumentOpenRouter.shared.open(urls)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -165,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             } catch {
                 Self.logger.error("Quit: proxy restore failed — \(error.localizedDescription)")
             }
+            await AndroidEmulatorSetupFlow.revertQuietly()
             await RockxyWorkspaceWindowManager.shared.flushProjectStateForTermination()
             await MCPServerCoordinator.shared.stop()
             let fallbackManager = SSLProxyingManager.shared
@@ -194,6 +204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
             Self.logger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
         }
         MCPHandshakeStore.delete()
+        CommandLineControlCoordinator.shared.stop()
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

@@ -16,8 +16,10 @@ extension MainContentCoordinator {
     /// Applies a request-table selection as one coordinator transition. The table-facing
     /// indexes keep this path proportional to the number of selected rows instead of the
     /// total captured history, which is critical when the inspector opens over large sessions.
-    func selectTransactions(_ ids: Set<UUID>, primaryID: UUID?) {
-        let workspace = activeWorkspace
+    /// `workspace` names the traffic pane whose table changed; it defaults to the focused one.
+    func selectTransactions(_ ids: Set<UUID>, primaryID: UUID?, in pane: WorkspaceState? = nil) {
+        let workspace = pane ?? activeWorkspace
+        let isFocusedPane = workspace === activeWorkspace
 
         func validEntry(for id: UUID) -> TrafficSelectionIndexEntry? {
             guard let entry = workspace.trafficSelectionIndex[id],
@@ -47,6 +49,9 @@ extension MainContentCoordinator {
         workspace.selectedTransactionIDs = ids
         workspace.selectedTransaction = transaction
 
+        guard isFocusedPane else {
+            return
+        }
         if selectionChanged {
             resetDebugAssistantForSelectionChange()
         }
@@ -86,7 +91,7 @@ extension MainContentCoordinator {
         guard !batch.isEmpty else {
             return
         }
-        for workspace in workspaceStore.workspaces {
+        for workspace in workspaceStore.allWorkspaces {
             reconcileFollowLiveSelection(for: workspace, acceptedBatch: batch)
         }
     }

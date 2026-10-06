@@ -108,7 +108,7 @@ struct ComposeWindowView: View {
     // MARK: Private
 
     private static let httpMethods = [
-        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE",
+        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "QUERY",
     ]
 
     @State private var viewModel = ComposeViewModel()

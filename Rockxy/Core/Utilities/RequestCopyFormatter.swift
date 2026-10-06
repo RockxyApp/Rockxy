@@ -14,16 +14,45 @@ enum RequestCopyFormatter {
 
     // MARK: - cURL
 
-    static func curl(for transaction: HTTPTransaction) -> String {
-        curl(for: transaction.request)
+    static func curl(
+        for transaction: HTTPTransaction,
+        options: CurlCopyOptions = .standard,
+        proxyPort: Int? = nil
+    )
+        -> String
+    {
+        curl(for: transaction.request, options: options, proxyPort: proxyPort)
     }
 
-    static func curl(for request: HTTPRequestData) -> String {
+    static func curl(
+        for request: HTTPRequestData,
+        options: CurlCopyOptions = .standard,
+        proxyPort: Int? = nil
+    )
+        -> String
+    {
         var parts = ["curl"]
         parts.append(shellQuote(request.url.absoluteString))
         parts.append("-X \(request.method)")
+        if options.includesProxyFlag, let proxyPort {
+            parts.append("--proxy \(shellQuote("http://127.0.0.1:\(proxyPort)"))")
+        }
+        var acceptsCompression = false
         for header in request.headers {
+            if !options.preservesOriginalHeaders {
+                let name = header.name.lowercased()
+                if name == "content-length" || name == "content-encoding" {
+                    continue
+                }
+                if name == "accept-encoding" {
+                    acceptsCompression = true
+                    continue
+                }
+            }
             parts.append("-H \(shellQuote("\(header.name): \(header.value)"))")
+        }
+        if acceptsCompression {
+            parts.append("--compressed")
         }
         if let body = request.body {
             if let bodyString = String(data: body, encoding: .utf8) {
@@ -51,10 +80,12 @@ enum RequestCopyFormatter {
             return transaction.timingInfo.map { DurationFormatter.format(seconds: $0.totalDuration) } ?? ""
         case "size":
             return transaction.response?.body.map { SizeFormatter.format(bytes: $0.count) } ?? ""
+        case "version":
+            return RequestListRow.displayVersion(transaction.request.httpVersion)
         case "queryName":
             return web3RPCMethodDescription(transaction.web3RPCInfo) ?? transaction.graphQLInfo?.operationName ?? ""
         default:
-            if column.hasPrefix("reqHeader.") || column.hasPrefix("resHeader.") {
+            if HeaderColumn.isCustomColumnID(column) {
                 return HeaderColumnStore.resolveValue(for: column, transaction: transaction)
             }
             return transaction.request.url.absoluteString

@@ -35,7 +35,8 @@ enum RuleAction {
     case block(statusCode: Int)
     case throttle(delayMs: Int)
     case modifyHeader(operations: [HeaderOperation])
-    case networkCondition(preset: NetworkConditionPreset, delayMs: Int)
+    /// `custom` carries bandwidth and loss for the Custom preset; presets ignore it.
+    case networkCondition(preset: NetworkConditionPreset, delayMs: Int, custom: NetworkCustomProfile? = nil)
 }
 
 extension RuleAction {
@@ -74,7 +75,7 @@ extension RuleAction {
             "Throttle (\(delayMs) ms)"
         case let .modifyHeader(operations):
             "Modify Headers (\(operations.count))"
-        case let .networkCondition(preset, delayMs):
+        case let .networkCondition(preset, delayMs, _):
             "Network Condition (\(preset.displayName), \(delayMs) ms)"
         }
     }
@@ -96,6 +97,9 @@ extension RuleAction: Codable {
         case phase
         case preset
         case responseHeaders
+        case downloadKbps
+        case uploadKbps
+        case packetLossPercent
     }
 
     private enum ActionType: String, Codable {
@@ -155,7 +159,19 @@ extension RuleAction: Codable {
         case .networkCondition:
             let preset = try container.decode(NetworkConditionPreset.self, forKey: .preset)
             let delayMs = try container.decode(Int.self, forKey: .delayMs)
-            self = .networkCondition(preset: preset, delayMs: delayMs)
+            let downloadKbps = try container.decodeIfPresent(Int.self, forKey: .downloadKbps)
+            let uploadKbps = try container.decodeIfPresent(Int.self, forKey: .uploadKbps)
+            let packetLossPercent = try container.decodeIfPresent(Double.self, forKey: .packetLossPercent)
+            let custom = NetworkCustomProfile(
+                downloadKbps: downloadKbps,
+                uploadKbps: uploadKbps,
+                packetLossPercent: packetLossPercent ?? 0
+            )
+            self = .networkCondition(
+                preset: preset,
+                delayMs: delayMs,
+                custom: preset == .custom && !custom.isUnlimited ? custom : nil
+            )
         }
     }
 
@@ -195,10 +211,19 @@ extension RuleAction: Codable {
         case let .modifyHeader(operations):
             try container.encode(ActionType.modifyHeader, forKey: .type)
             try container.encode(operations, forKey: .operations)
-        case let .networkCondition(preset, delayMs):
+        case let .networkCondition(preset, delayMs, custom):
             try container.encode(ActionType.networkCondition, forKey: .type)
             try container.encode(preset, forKey: .preset)
             try container.encode(delayMs, forKey: .delayMs)
+            // Unlimited or preset profiles stay byte-identical to rules saved before
+            // custom limits existed; older builds ignore the extra keys.
+            if preset == .custom, let custom, !custom.isUnlimited {
+                try container.encodeIfPresent(custom.effectiveDownloadKbps, forKey: .downloadKbps)
+                try container.encodeIfPresent(custom.effectiveUploadKbps, forKey: .uploadKbps)
+                if custom.packetLossRate > 0 {
+                    try container.encode(custom.packetLossPercent, forKey: .packetLossPercent)
+                }
+            }
         }
     }
 }

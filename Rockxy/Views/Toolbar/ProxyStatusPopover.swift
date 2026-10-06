@@ -50,6 +50,8 @@ struct CaptureStatusPresentation: Equatable {
         listener = Self.listener(address: listenAddress, port: port)
         listenerLabel = Self.listenerLabel(displayState: displayState)
         listenerScope = Self.listenerScope(address: listenAddress)
+        lanEndpoint = Self.lanAddress(forListenAddress: listenAddress)
+            .map { Self.listener(address: $0, port: port) }
         listenerScopeLabel = Self.listenerScopeLabel(displayState: displayState)
         https = Self.httpsItem(certReadiness)
         systemRouting = Self.systemRoutingItem(
@@ -70,6 +72,9 @@ struct CaptureStatusPresentation: Equatable {
     let listener: String
     let listenerLabel: String
     let listenerScope: String
+    /// The address other devices on the network use to reach the proxy, when it is listening
+    /// beyond loopback.
+    let lanEndpoint: String?
     let listenerScopeLabel: String
     let https: CaptureReadinessItem
     let systemRouting: CaptureReadinessItem
@@ -77,6 +82,28 @@ struct CaptureStatusPresentation: Equatable {
 
     static func listener(address: String, port: Int) -> String {
         address.contains(":") ? "[\(address)]:\(port)" : "\(address):\(port)"
+    }
+
+    /// The address another device would use: this Mac's LAN address for a wildcard listener, the
+    /// address itself for a specific interface, and nothing for loopback.
+    static func lanAddress(
+        forListenAddress address: String,
+        discoverLANAddress: () -> String? = { RootCADownloadServer.lanIPv4Addresses().first }
+    )
+        -> String?
+    {
+        switch address.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "",
+             "127.0.0.1",
+             "::1",
+             "localhost":
+            nil
+        case "0.0.0.0",
+             "::":
+            discoverLANAddress()
+        default:
+            address
+        }
     }
 
     static func listenerScope(address: String) -> String {
@@ -296,6 +323,15 @@ struct ProxyStatusPopover: View {
                     systemImage: "macbook.and.iphone",
                     level: .neutral
                 )
+                if let lanEndpoint = presentation.lanEndpoint {
+                    valueRow(
+                        label: String(localized: "Use from other devices", bundle: RockxyLocalization.bundle),
+                        value: lanEndpoint,
+                        systemImage: "wifi",
+                        level: .neutral,
+                        isMonospaced: true
+                    )
+                }
                 valueRow(
                     label: String(localized: "HTTPS decryption", bundle: RockxyLocalization.bundle),
                     item: presentation.https

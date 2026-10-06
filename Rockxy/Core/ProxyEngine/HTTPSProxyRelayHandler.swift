@@ -33,12 +33,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         upstreamTrustProvider: @escaping @Sendable () -> Bool = { UpstreamTrustPolicy.acceptsUntrustedCertificates },
         captureContextProvider: @escaping @Sendable () -> TrafficCaptureContext? = { nil },
         clientSourcePort: UInt16? = nil,
+        clientApplicationIdentity: ClientApplicationIdentity? = nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
             nil,
-        breakpointBridgeTracker: BreakpointBridgeTracker? = nil
+        breakpointBridgeTracker: BreakpointBridgeTracker? = nil,
+        connectHost: String? = nil
     ) {
         self.host = host
+        self.connectHost = connectHost ?? host
         self.port = port
         self.scheme = scheme
         self.ruleEngine = ruleEngine
@@ -49,6 +52,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         self.upstreamTrustProvider = upstreamTrustProvider
         self.captureContextProvider = captureContextProvider
         self.clientSourcePort = clientSourcePort
+        self.clientApplicationIdentity = clientApplicationIdentity
         // Every transaction this handler emits was decrypted inside an intercepted tunnel, so
         // stamp capture truth once at the single delivery seam. The request list then reports
         // it as intercepted regardless of how the host policy later changes. The stamp runs on
@@ -69,21 +73,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
-
-    nonisolated static func makeClientTLSConfiguration(
-        clientIdentity: CustomTLSIdentity?,
-        acceptsUntrustedCertificates: Bool = UpstreamTrustPolicy.acceptsUntrustedCertificates
-    ) throws -> TLSConfiguration {
-        var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
-        clientTLSConfig.certificateVerification = UpstreamTrustPolicy.certificateVerification(
-            acceptingUntrusted: acceptsUntrustedCertificates
-        )
-        if let clientIdentity {
-            clientTLSConfig.certificateChain = try clientIdentity.certificateSources
-            clientTLSConfig.privateKey = try clientIdentity.privateKeySource
-        }
-        return clientTLSConfig
-    }
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         guard !requestBodyLimitState.isRejected else {
@@ -151,6 +140,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     // MARK: Private
 
     private let host: String
+    /// Where the origin connection goes; differs from `host` only for emulator loopback aliases.
+    private let connectHost: String
     private let port: Int
     /// `https` for a decrypted TLS tunnel, `http` when the CONNECT tunnel carried plain HTTP
     /// (a `ws://` upgrade or an http:// request sent through CONNECT).
@@ -163,6 +154,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     private let upstreamTrustProvider: @Sendable () -> Bool
     private let captureContextProvider: @Sendable () -> TrafficCaptureContext?
     private let clientSourcePort: UInt16?
+    private let clientApplicationIdentity: ClientApplicationIdentity?
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
         BreakpointDecision,
@@ -172,6 +164,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
     private var pendingDisablesResponseCaching = false
     private var pendingBreakpointPhase: BreakpointRulePhase?
+    /// Response-phase operations of the Modify Headers rules matched by the current request.
+    private var pendingResponseHeaderOperations: [HeaderOperation]?
     private var pendingBreakpointRuleName: String?
     /// The unstructured Task bridging an in-flight request breakpoint to the
     /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
@@ -196,7 +190,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         return HTTPResponseData(
             statusCode: payload.statusCode,
             statusMessage: message,
-            headers: payload.headers,
+            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
             body: payload.body
         )
     }
@@ -218,6 +212,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     ) {
         pendingBreakpointPhase = nil
         pendingBreakpointRuleName = nil
+        pendingResponseHeaderOperations = nil
         var requestData = buildRequestData(from: head)
 
         var head = head
@@ -235,29 +230,27 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
 
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
+        let application = self.clientApplicationIdentity
 
         eventLoop.makeFutureWithTask {
-            let breakpointRule = await ruleEngine.evaluateBreakpointRule(
-                method: head.method.rawValue,
-                url: requestData.url,
-                headers: requestData.headers
+            await ProxyHandlerShared.evaluateRules(
+                ruleEngine,
+                request: requestData,
+                graphQLOperationName: graphQLInfo?.operationName,
+                clientApplication: { application }
             )
-            let matchedRule = await ruleEngine.evaluateRule(
-                method: head.method.rawValue,
-                url: requestData.url,
-                headers: requestData.headers
-            )
-            return (breakpointRule, matchedRule)
         }.whenComplete { [weak self] result in
             guard let self else {
                 return
             }
             let evaluation = try? result.get()
-            let breakpointRule = evaluation?.0
-            let matchedRule = evaluation?.1
+            let breakpointRule = evaluation?.breakpoint
+            let matchedRule = evaluation?.matched
+            let headerRules = evaluation?.headerRules ?? []
             let ruleForTransaction = ProxyHandlerShared.transactionRule(
                 breakpointRule: breakpointRule,
-                matchedRule: matchedRule
+                matchedRule: matchedRule,
+                headerRules: headerRules
             )
             let matchedRuleCallback = self.makeTransactionCallback(for: ruleForTransaction)
 
@@ -266,6 +259,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.pendingBreakpointPhase = responsePhase
             }
 
+            // Modify Headers rules layer on top of whatever happens next: the request is
+            // rewritten here and the response operations ride along to every response path.
+            let headerOperations = ProxyHandlerShared.headerOperations(of: headerRules)
+            let rewritten = ProxyHandlerShared.applyRequestHeaderOperations(
+                headerOperations.request,
+                head: head,
+                requestData: requestData
+            )
+            self.pendingResponseHeaderOperations = headerOperations.response.isEmpty
+                ? nil
+                : headerOperations.response
+            let forwardHead = rewritten.head
+            let forwardData = rewritten.requestData
+
             if let breakpointRule,
                case let .breakpoint(phase) = breakpointRule.action,
                phase == .request || phase == .both
@@ -273,8 +280,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.handleRuleAction(
                     breakpointRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
                     callback: self.makeTransactionCallback(for: breakpointRule),
@@ -287,8 +294,8 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 self.handleRuleAction(
                     matchedRule.action,
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
                     callback: matchedRuleCallback,
@@ -297,10 +304,12 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 return
             }
 
+            // Only header rules matched: keep their attribution on the transaction.
+            let forwardCallback = headerRules.isEmpty ? callback : matchedRuleCallback
             if let scriptPluginManager = self.scriptPluginManager {
                 let eventLoop = context.eventLoop
                 eventLoop.makeFutureWithTask {
-                    await scriptPluginManager.runRequestHook(on: requestData)
+                    await scriptPluginManager.runRequestHook(on: forwardData)
                 }.whenSuccess { [weak self] outcome in
                     guard let self else {
                         return
@@ -309,43 +318,43 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                     case let .forward(modifiedRequest):
                         self.connectToUpstream(
                             context: context,
-                            head: head,
+                            head: forwardHead,
                             requestData: modifiedRequest,
                             graphQLInfo: graphQLInfo,
                             startTime: startTime,
-                            callback: callback
+                            callback: forwardCallback
                         )
                     case .blockLocally:
                         self.sendBlockResponse(
                             context: context,
                             status: 403,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     case let .mock(mockResponse):
                         self.sendMappedResponse(
                             context: context,
                             responseData: mockResponse,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     case .mockFailure:
                         self.sendBlockResponse(
                             context: context,
                             status: 502,
-                            requestData: requestData,
-                            callback: callback
+                            requestData: forwardData,
+                            callback: forwardCallback
                         )
                     }
                 }
             } else {
                 self.connectToUpstream(
                     context: context,
-                    head: head,
-                    requestData: requestData,
+                    head: forwardHead,
+                    requestData: forwardData,
                     graphQLInfo: graphQLInfo,
                     startTime: startTime,
-                    callback: callback
+                    callback: forwardCallback
                 )
             }
         }
@@ -412,7 +421,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             UpstreamProxyConnector.connect(
                 eventLoop: context.eventLoop,
                 targetScheme: scheme,
-                targetHost: host,
+                targetHost: connectHost,
                 targetPort: port,
                 configuration: upstreamProxySnapshotProvider()
             ) { channel in
@@ -438,30 +447,31 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
 
         do {
-            let clientTLSConfig = try Self.makeClientTLSConfiguration(
+            var clientTLSConfig = try Self.makeClientTLSConfiguration(
                 clientIdentity: customCertificateManager.clientIdentity(for: upstreamHost),
-                acceptsUntrustedCertificates: upstreamTrustProvider()
+                acceptsUntrustedCertificates: upstreamTrustProvider(),
+                host: upstreamHost
             )
+            let offersHTTP2 = HTTP2ProxyOptions.offersHTTP2Upstream(for: head)
+            if offersHTTP2 {
+                clientTLSConfig.applicationProtocols = HTTP2ProxyOptions.alpnProtocols
+            }
             let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
-
-            UpstreamProxyConnector.connect(
+            let upstreamProxy = upstreamProxySnapshotProvider()
+            UpstreamHTTPChannelConnector.connect(
                 eventLoop: context.eventLoop,
-                targetScheme: "https",
-                targetHost: host,
-                targetPort: port,
-                configuration: upstreamProxySnapshotProvider()
-            ) { channel in
-                do {
-                    let sslHandler = try NIOSSLClientHandler(
-                        context: sslContext,
-                        serverHostname: self.host
-                    )
-                    return channel.pipeline.addHandler(sslHandler).flatMap {
-                        channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-                    }
-                } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
-                }
+                host: host,
+                sslContext: sslContext,
+                offersHTTP2: offersHTTP2
+            ) { initializer in
+                UpstreamProxyConnector.connect(
+                    eventLoop: context.eventLoop,
+                    targetScheme: "https",
+                    targetHost: self.connectHost,
+                    targetPort: upstreamPort,
+                    configuration: upstreamProxy,
+                    channelInitializer: initializer
+                )
             }
             .whenComplete { result in
                 self.handleUpstreamConnection(
@@ -476,6 +486,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                     upstreamPort: upstreamPort,
                     responseHeaderOperations: responseHeaderOperations,
                     networkConditionProfile: networkConditionProfile,
+                    offeredProtocols: clientTLSConfig.applicationProtocols,
                     callback: callback
                 )
             }
@@ -503,6 +514,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         upstreamPort: Int,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
+        offeredProtocols: [String] = [],
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         let limiter = connectionLimiter
@@ -517,10 +529,19 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 tcpTime: tcpTime,
                 clientContext: context,
                 isHTTPS: true,
+                tlsIntent: requestData.url.scheme == "https"
+                    ? UpstreamTLSIntent(
+                        offeredProtocols: offeredProtocols,
+                        acceptsUntrustedCertificates: upstreamTrustProvider()
+                    )
+                    : nil,
                 sourcePort: self.clientSourcePort,
                 breakpointPhase: self.pendingBreakpointPhase,
                 breakpointRuleName: self.pendingBreakpointRuleName,
-                headerResponseOperations: responseHeaderOperations,
+                headerResponseOperations: ProxyHandlerShared.mergedResponseOperations(
+                    self.pendingResponseHeaderOperations,
+                    responseHeaderOperations
+                ),
                 disablesResponseCaching: self.pendingDisablesResponseCaching,
                 networkConditionProfile: networkConditionProfile,
                 scriptPluginManager: self.scriptPluginManager,
@@ -543,13 +564,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                         NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                             bodyData: bodyData,
                             to: clientChannel,
-                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                            packetLoss: networkConditionProfile?.packetLoss
                         )
                     } else {
                         NetworkConditionIOThrottle.writeClientRequestBodyAndEnd(
                             bodyData: nil,
                             to: clientChannel,
-                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond
+                            uploadBytesPerSecond: networkConditionProfile?.uploadBytesPerSecond,
+                            packetLoss: networkConditionProfile?.packetLoss
                         )
                     }
                 case let .failure(error):
@@ -565,7 +588,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         case let .failure(error):
             httpsRelayLogger.error("Upstream connection failed: \(error.localizedDescription)")
             limiter.release(host: upstreamHost, port: upstreamPort)
-            self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
+            self.sendErrorResponse(
+                context: context,
+                status: 502,
+                requestData: requestData,
+                callback: ConnectionLogCapture.attachingFailure(
+                    error,
+                    host: upstreamHost,
+                    port: upstreamPort,
+                    connectHost: upstreamHost == self.host
+                        ? self.connectHost
+                        : DNSSpoofingTable.shared.address(for: upstreamHost) ?? upstreamHost,
+                    to: callback
+                )
+            )
         }
     }
 
@@ -653,8 +689,18 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
             }
 
-        case let .networkCondition(preset, delayMs):
-            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs)
+        case let .networkCondition(preset, delayMs, custom):
+            if preset.isOffline {
+                ProxyHandlerShared.simulateOffline(
+                    context: context,
+                    requestData: requestData,
+                    elapsed: requestElapsedDuration(),
+                    sourcePort: clientSourcePort,
+                    callback: callback
+                )
+                return
+            }
+            let profile = NetworkConditionProfile(preset: preset, latencyMs: delayMs, custom: custom)
             context.eventLoop.scheduleTask(in: profile.latencyDelay) { [weak self] in
                 self?.connectToUpstream(
                     context: context,
@@ -865,126 +911,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
     }
 
-    nonisolated private func handleMapRemote(
-        context: ChannelHandlerContext,
-        configuration: MapRemoteConfiguration,
-        head: HTTPRequestHead,
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        let rewrite = ProxyHandlerShared.buildMapRemoteRewrite(
-            configuration: configuration,
-            originalHead: head,
-            requestData: requestData,
-            fallbackScheme: scheme,
-            fallbackHost: host,
-            fallbackPort: port
-        )
-        let callback = ProxyHandlerShared.makeMapRemoteProvenanceCallback(
-            originalURL: requestData.url,
-            downstream: callback
-        )
-        let remoteHost = rewrite.upstreamHost
-        let remotePort = rewrite.upstreamPort
-        let scheme = rewrite.scheme
-
-        guard connectionLimiter.acquire(host: remoteHost, port: remotePort) else {
-            httpsRelayLogger.warning("Connection limit reached for \(remoteHost):\(remotePort)")
-            sendErrorResponse(context: context, status: 503, requestData: rewrite.requestData, callback: callback)
-            return
-        }
-        let limiter = connectionLimiter
-
-        if scheme == "https" {
-            let connectTime = DispatchTime.now()
-            do {
-                let clientTLSConfig = try Self.makeClientTLSConfiguration(
-                    clientIdentity: customCertificateManager.clientIdentity(for: remoteHost),
-                    acceptsUntrustedCertificates: upstreamTrustProvider()
-                )
-                let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
-
-                UpstreamProxyConnector.connect(
-                    eventLoop: context.eventLoop,
-                    targetScheme: "https",
-                    targetHost: remoteHost,
-                    targetPort: remotePort,
-                    configuration: upstreamProxySnapshotProvider()
-                ) { channel in
-                    do {
-                        let sslHandler = try NIOSSLClientHandler(
-                            context: sslContext,
-                            serverHostname: remoteHost
-                        )
-                        return channel.pipeline.addHandler(sslHandler).flatMap {
-                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-                        }
-                    } catch {
-                        return channel.eventLoop.makeFailedFuture(error)
-                    }
-                }
-                .whenComplete { [weak self] result in
-                    guard let self else {
-                        if case let .success(channel) = result {
-                            channel.close(promise: nil)
-                        }
-                        limiter.release(host: remoteHost, port: remotePort)
-                        return
-                    }
-                    self.handleUpstreamConnection(
-                        result: result,
-                        context: context,
-                        head: rewrite.head,
-                        requestData: rewrite.requestData,
-                        graphQLInfo: graphQLInfo,
-                        startTime: startTime,
-                        connectTime: connectTime,
-                        upstreamHost: remoteHost,
-                        upstreamPort: remotePort,
-                        callback: callback
-                    )
-                }
-            } catch {
-                httpsRelayLogger.error("Map remote TLS setup failed: \(error.localizedDescription)")
-                limiter.release(host: remoteHost, port: remotePort)
-                sendErrorResponse(context: context, status: 502, requestData: rewrite.requestData, callback: callback)
-            }
-        } else {
-            let connectTime = DispatchTime.now()
-            UpstreamProxyConnector.connect(
-                eventLoop: context.eventLoop,
-                targetScheme: scheme,
-                targetHost: remoteHost,
-                targetPort: remotePort,
-                configuration: upstreamProxySnapshotProvider()
-            ) { channel in
-                channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
-            }
-            .whenComplete { [weak self] result in
-                guard let self else {
-                    if case let .success(channel) = result {
-                        channel.close(promise: nil)
-                    }
-                    limiter.release(host: remoteHost, port: remotePort)
-                    return
-                }
-                self.handleUpstreamConnection(
-                    result: result,
-                    context: context,
-                    head: rewrite.head,
-                    requestData: rewrite.requestData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    connectTime: connectTime,
-                    upstreamHost: remoteHost,
-                    upstreamPort: remotePort,
-                    callback: callback
-                )
-            }
-        }
-    }
 
     nonisolated private func sendMappedResponse(
         context: ChannelHandlerContext,
@@ -992,6 +918,10 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         requestData: HTTPRequestData,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
+        let responseData = ProxyHandlerShared.applyResponseHeaderOperations(
+            pendingResponseHeaderOperations,
+            to: responseData
+        )
         let status = HTTPResponseStatus(statusCode: responseData.statusCode)
         var responseHead = HTTPResponseHead(version: .http1_1, status: status)
         for header in responseData.headers {
@@ -1176,6 +1106,20 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 originalHost: self.host,
                 originalPort: self.port
             )
+            if let redirect = built.upstreamRedirect {
+                // The edit names another server: connect there like a Map Remote rule would.
+                self.handleMapRemote(
+                    context: context,
+                    configuration: redirect.mapRemoteConfiguration,
+                    head: built.head,
+                    requestData: built.requestData,
+                    graphQLInfo: GraphQLDetector.detect(request: built.requestData),
+                    startTime: startTime,
+                    recordsMapRemote: false,
+                    callback: callback
+                )
+                return
+            }
             self.connectToUpstream(
                 context: context,
                 head: built.head,
@@ -1200,6 +1144,162 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 startTime: startTime,
                 callback: callback
             )
+        }
+    }
+}
+
+// MARK: - Client TLS
+
+extension HTTPSProxyRelayHandler {
+    nonisolated static func makeClientTLSConfiguration(
+        clientIdentity: CustomTLSIdentity?,
+        acceptsUntrustedCertificates: Bool = UpstreamTrustPolicy.acceptsUntrustedCertificates,
+        host: String? = nil
+    )
+        throws -> TLSConfiguration
+    {
+        var clientTLSConfig = TLSConfiguration.makeClientConfiguration()
+        clientTLSConfig.certificateVerification = UpstreamTrustPolicy.certificateVerification(
+            acceptingUntrusted: acceptsUntrustedCertificates
+        )
+        // NIOSSL matches hostnames only through SNI, which an IP address cannot carry. For IP
+        // origins the chain is still verified; the name check has nothing to compare against.
+        if let host, TLSServerName.sni(for: host) == nil,
+           clientTLSConfig.certificateVerification == .fullVerification
+        {
+            clientTLSConfig.certificateVerification = .noHostnameVerification
+        }
+        if let clientIdentity {
+            clientTLSConfig.certificateChain = try clientIdentity.certificateSources
+            clientTLSConfig.privateKey = try clientIdentity.privateKeySource
+        }
+        TLSKeyLogWriter.apply(to: &clientTLSConfig)
+        return clientTLSConfig
+    }
+}
+
+// MARK: - Map Remote
+
+extension HTTPSProxyRelayHandler {
+    nonisolated private func handleMapRemote(
+        context: ChannelHandlerContext,
+        configuration: MapRemoteConfiguration,
+        head: HTTPRequestHead,
+        requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
+        startTime: DispatchTime,
+        recordsMapRemote: Bool = true,
+        callback: @escaping @Sendable (HTTPTransaction) -> Void
+    ) {
+        let rewrite = ProxyHandlerShared.buildMapRemoteRewrite(
+            configuration: configuration,
+            originalHead: head,
+            requestData: requestData,
+            fallbackScheme: scheme,
+            fallbackHost: host,
+            fallbackPort: port
+        )
+        let callback = recordsMapRemote
+            ? ProxyHandlerShared.makeMapRemoteProvenanceCallback(originalURL: requestData.url, downstream: callback)
+            : callback
+        let remoteHost = rewrite.upstreamHost
+        let remotePort = rewrite.upstreamPort
+        let scheme = rewrite.scheme
+
+        guard connectionLimiter.acquire(host: remoteHost, port: remotePort) else {
+            httpsRelayLogger.warning("Connection limit reached for \(remoteHost):\(remotePort)")
+            sendErrorResponse(context: context, status: 503, requestData: rewrite.requestData, callback: callback)
+            return
+        }
+        let limiter = connectionLimiter
+
+        if scheme == "https" {
+            let connectTime = DispatchTime.now()
+            do {
+                let clientTLSConfig = try Self.makeClientTLSConfiguration(
+                    clientIdentity: customCertificateManager.clientIdentity(for: remoteHost),
+                    acceptsUntrustedCertificates: upstreamTrustProvider(),
+                    host: remoteHost
+                )
+                let sslContext = try NIOSSLContext(configuration: clientTLSConfig)
+
+                UpstreamProxyConnector.connect(
+                    eventLoop: context.eventLoop,
+                    targetScheme: "https",
+                    targetHost: DNSSpoofingTable.shared.address(for: remoteHost) ?? remoteHost,
+                    targetPort: remotePort,
+                    configuration: upstreamProxySnapshotProvider()
+                ) { channel in
+                    do {
+                        let sslHandler = try NIOSSLClientHandler(
+                            context: sslContext,
+                            serverHostname: TLSServerName.sni(for: remoteHost)
+                        )
+                        return channel.pipeline.addHandler(sslHandler).flatMap {
+                            channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
+                        }
+                    } catch {
+                        return channel.eventLoop.makeFailedFuture(error)
+                    }
+                }
+                .whenComplete { [weak self] result in
+                    guard let self else {
+                        if case let .success(channel) = result {
+                            channel.close(promise: nil)
+                        }
+                        limiter.release(host: remoteHost, port: remotePort)
+                        return
+                    }
+                    self.handleUpstreamConnection(
+                        result: result,
+                        context: context,
+                        head: rewrite.head,
+                        requestData: rewrite.requestData,
+                        graphQLInfo: graphQLInfo,
+                        startTime: startTime,
+                        connectTime: connectTime,
+                        upstreamHost: remoteHost,
+                        upstreamPort: remotePort,
+                        callback: callback
+                    )
+                }
+            } catch {
+                httpsRelayLogger.error("Map remote TLS setup failed: \(error.localizedDescription)")
+                limiter.release(host: remoteHost, port: remotePort)
+                sendErrorResponse(context: context, status: 502, requestData: rewrite.requestData, callback: callback)
+            }
+        } else {
+            let connectTime = DispatchTime.now()
+            UpstreamProxyConnector.connect(
+                eventLoop: context.eventLoop,
+                targetScheme: scheme,
+                targetHost: DNSSpoofingTable.shared.address(for: remoteHost) ?? remoteHost,
+                targetPort: remotePort,
+                configuration: upstreamProxySnapshotProvider()
+            ) { channel in
+                channel.pipeline.addHTTPClientHandlers(leftOverBytesStrategy: .forwardBytes)
+            }
+            .whenComplete { [weak self] result in
+                guard let self else {
+                    if case let .success(channel) = result {
+                        channel.close(promise: nil)
+                    }
+                    limiter.release(host: remoteHost, port: remotePort)
+                    return
+                }
+                self.handleUpstreamConnection(
+                    result: result,
+                    context: context,
+                    head: rewrite.head,
+                    requestData: rewrite.requestData,
+                    graphQLInfo: graphQLInfo,
+                    startTime: startTime,
+                    connectTime: connectTime,
+                    upstreamHost: remoteHost,
+                    upstreamPort: remotePort,
+                    callback: callback
+                )
+            }
         }
     }
 }

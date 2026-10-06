@@ -8,7 +8,7 @@ import Testing
 /// Channel) which is impractical for unit tests. The builder tests prove the request reconstruction
 /// logic that both HTTPProxyHandler.executeBreakpointDecision and
 /// HTTPSProxyRelayHandler.executeBreakpointDecision delegate to. Regressions in body forwarding,
-/// port preservation, scheme normalization, Content-Length reconciliation, and HTTPS host pinning
+/// port preservation, scheme normalization, Content-Length reconciliation, and HTTPS authority redirects
 /// would be caught at this seam.
 struct BreakpointRequestBuilderTests {
     @Test("Origin-form URL preserves original host")
@@ -58,15 +58,15 @@ struct BreakpointRequestBuilderTests {
         #expect(bodyString == "{\"edited\":true}")
     }
 
-    @Test("HTTPS forces original host in headers and URL")
-    func httpsForceHost() {
+    @Test("HTTPS edit to another host is sent to that server")
+    func httpsHostEditRedirects() {
         let originalHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/path")
         let originalData = TestFixtures.makeRequest(url: "https://secure.example.com/path")
 
         let modified = BreakpointRequestData(
             method: "GET",
-            url: "https://evil.com/path",
-            headers: [EditableHeader(name: "Host", value: "evil.com")],
+            url: "https://staging.example.com/path?debug=1",
+            headers: [],
             body: "",
             statusCode: 200
         )
@@ -79,18 +79,46 @@ struct BreakpointRequestBuilderTests {
             originalHost: "secure.example.com"
         )
 
-        #expect(result.requestData.headers.first { $0.name == "Host" }?.value == "secure.example.com")
-        #expect(result.head.headers["Host"].first == "secure.example.com")
-        #expect(result.requestData.url.host() == "secure.example.com")
+        #expect(result.upstreamRedirect == .init(scheme: "https", host: "staging.example.com", port: nil))
+        #expect(result.requestData.url.absoluteString == "https://staging.example.com/path?debug=1")
+        #expect(result.head.headers["Host"].first == "staging.example.com")
+        #expect(result.head.uri == "/path?debug=1")
     }
 
-    @Test("HTTPS fixed authority preserves a non-default port")
+    @Test("HTTPS edit to another scheme or port is sent to that server")
+    func httpsSchemeAndPortEditsRedirect() {
+        let originalHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/path")
+        let originalData = TestFixtures.makeRequest(url: "https://secure.example.com/path")
+
+        func build(_ url: String) -> BreakpointRequestBuilder.Result {
+            BreakpointRequestBuilder.build(
+                from: BreakpointRequestData(method: "GET", url: url, headers: [], body: "", statusCode: 200),
+                originalHead: originalHead,
+                originalRequestData: originalData,
+                isHTTPS: true,
+                originalHost: "secure.example.com"
+            )
+        }
+
+        let cleartext = build("http://localhost:3000/path")
+        #expect(cleartext.upstreamRedirect == .init(scheme: "http", host: "localhost", port: 3_000))
+        #expect(cleartext.head.headers["Host"].first == "localhost:3000")
+
+        let otherPort = build("https://secure.example.com:8443/path")
+        #expect(otherPort.upstreamRedirect == .init(scheme: "https", host: "secure.example.com", port: 8_443))
+
+        let samePortSpelledOut = build("https://SECURE.example.com:443/v2")
+        #expect(samePortSpelledOut.upstreamRedirect == nil)
+        #expect(samePortSpelledOut.head.headers["Host"].first == "secure.example.com")
+    }
+
+    @Test("HTTPS edit on the same server keeps the tunnel's non-default port")
     func httpsFixedAuthorityPreservesPort() throws {
         let originalHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: "/path")
         let originalData = TestFixtures.makeRequest(url: "https://secure.example.com:8443/path")
         let modified = BreakpointRequestData(
             method: "GET",
-            url: "https://other.example/path",
+            url: "https://secure.example.com:8443/other",
             headers: [EditableHeader(name: "Host", value: "other.example")],
             body: "",
             statusCode: 200
@@ -105,7 +133,8 @@ struct BreakpointRequestBuilderTests {
             originalPort: 8_443
         )
 
-        #expect(result.requestData.url.absoluteString == "https://secure.example.com:8443/path")
+        #expect(result.upstreamRedirect == nil)
+        #expect(result.requestData.url.absoluteString == "https://secure.example.com:8443/other")
         #expect(result.head.headers["Host"].first == "secure.example.com:8443")
     }
 
@@ -115,7 +144,7 @@ struct BreakpointRequestBuilderTests {
         let originalData = TestFixtures.makeRequest(url: "https://[2001:db8::1]:8443/path")
         let modified = BreakpointRequestData(
             method: "GET",
-            url: "https://other.example/path",
+            url: "https://[2001:db8::1]:8443/path",
             headers: [],
             body: "",
             statusCode: 200
@@ -130,6 +159,7 @@ struct BreakpointRequestBuilderTests {
             originalPort: 8_443
         )
 
+        #expect(result.upstreamRedirect == nil)
         #expect(result.requestData.url.absoluteString == "https://[2001:db8::1]:8443/path")
         #expect(result.head.headers["Host"].first == "[2001:db8::1]:8443")
     }
@@ -575,8 +605,8 @@ struct BreakpointRequestBuilderTests {
         #expect(result.requestData.headers.first { $0.name == "Content-Length" }?.value == "4")
     }
 
-    @Test("HTTP scheme change to HTTPS is reverted")
-    func httpSchemeChangeReverted() {
+    @Test("HTTP scheme change to HTTPS is honored")
+    func httpSchemeChangeHonored() {
         let originalHead = HTTPRequestHead(version: .http1_1, method: .GET, uri: "http://example.com/api")
         let originalData = TestFixtures.makeRequest(url: "http://example.com/api")
 
@@ -595,8 +625,9 @@ struct BreakpointRequestBuilderTests {
             isHTTPS: false
         )
 
-        #expect(result.requestData.url.scheme == "http")
+        #expect(result.requestData.url.scheme == "https")
         #expect(result.requestData.url.host() == "example.com")
+        #expect(result.upstreamRedirect == nil)
     }
 
     @Test("HTTPS origin-form edit preserves tunnel host")

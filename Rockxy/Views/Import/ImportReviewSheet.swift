@@ -15,6 +15,7 @@ struct ImportReviewSummary: Equatable {
         fileSize = preview.fileSize
         incomingTransactionCount = preview.transactionCount
         incomingLogEntryCount = preview.logEntryCount
+        skippedEntryCount = preview.skippedEntryCount
         self.currentTransactionCount = currentTransactionCount
         self.currentLogCount = currentLogCount
         rockxyVersion = preview.rockxyVersion.flatMap {
@@ -30,6 +31,7 @@ struct ImportReviewSummary: Equatable {
     let fileSize: Int64
     let incomingTransactionCount: Int
     let incomingLogEntryCount: Int
+    let skippedEntryCount: Int
     let currentTransactionCount: Int
     let currentLogCount: Int
     let rockxyVersion: String?
@@ -82,6 +84,18 @@ struct ImportReviewSummary: Equatable {
     /// Neutral consequence copy for an empty workspace, explicit replacement copy
     /// (naming both current counts) for a populated one.
     var impactSummary: String {
+        let base = baseImpactSummary
+        guard skippedEntryCount > 0 else {
+            return base
+        }
+        let skipped = CountFormatter.format(skippedEntryCount)
+        return base + " " + String(
+            localized: "Unreadable entries left out of the import: \(skipped).",
+            bundle: RockxyLocalization.bundle
+        )
+    }
+
+    private var baseImpactSummary: String {
         if isSessionEmpty {
             if isRockxySession {
                 return String(
@@ -122,6 +136,10 @@ enum ImportReviewCopy {
         switch type {
         case .har:
             String(localized: "HAR Archive (HTTP Archive 1.2)", bundle: RockxyLocalization.bundle)
+        case .charlesJSON:
+            String(localized: "Charles JSON Session", bundle: RockxyLocalization.bundle)
+        case .charlesSession:
+            String(localized: "Charles Session (converted by Charles)", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Rockxy Session", bundle: RockxyLocalization.bundle)
         }
@@ -131,6 +149,9 @@ enum ImportReviewCopy {
         switch type {
         case .har:
             String(localized: "Import HAR Archive", bundle: RockxyLocalization.bundle)
+        case .charlesJSON,
+             .charlesSession:
+            String(localized: "Import Charles Session", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Open Rockxy Session", bundle: RockxyLocalization.bundle)
         }
@@ -138,7 +159,9 @@ enum ImportReviewCopy {
 
     static func primaryActionTitle(_ type: ImportFileType) -> String {
         switch type {
-        case .har:
+        case .har,
+             .charlesJSON,
+             .charlesSession:
             String(localized: "Import", bundle: RockxyLocalization.bundle)
         case .rockxysession:
             String(localized: "Open Session", bundle: RockxyLocalization.bundle)
