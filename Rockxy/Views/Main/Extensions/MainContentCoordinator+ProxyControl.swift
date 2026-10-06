@@ -1051,17 +1051,24 @@ extension MainContentCoordinator {
                 continue
             }
 
-            let overflow = max(0, history.count - liveHistoryLimit)
-            let evictionCount: Int
-            if overflow > 0 {
-                let evictionHeadroom = min(
-                    liveHistoryLimit,
-                    max(2, min(100, (liveHistoryLimit + 9) / 10))
-                )
-                evictionCount = min(history.count, max(overflow, evictionHeadroom))
-                history.removeFirst(evictionCount)
-            } else {
-                evictionCount = 0
+            // Only live-captured rows count toward the cap; imported rows are never trimmed.
+            var evictionCount = 0
+            if history.count > liveHistoryLimit {
+                let liveCount = history.count { !$0.isImported }
+                let overflow = liveCount - liveHistoryLimit
+                if overflow > 0 {
+                    let evictionHeadroom = min(
+                        liveHistoryLimit,
+                        max(2, min(100, (liveHistoryLimit + 9) / 10))
+                    )
+                    let evictedIDs = Self.evictionCandidateIDs(
+                        in: history,
+                        count: min(liveCount, max(overflow, evictionHeadroom)),
+                        includesImported: false
+                    )
+                    history.removeAll { evictedIDs.contains($0.id) }
+                    evictionCount = evictedIDs.count
+                }
             }
             transactionsByProjectID[projectID] = history
 

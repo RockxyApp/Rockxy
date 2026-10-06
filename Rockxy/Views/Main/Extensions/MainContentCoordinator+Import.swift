@@ -350,7 +350,7 @@ extension MainContentCoordinator {
 
     // MARK: - Private
 
-    private func executeHARImport(from url: URL, fileName: String) async {
+    func executeHARImport(from url: URL, fileName: String) async {
         do {
             let importedTransactions = try await Task.detached(priority: .userInitiated) {
                 try HARImporter().importData(try Data(contentsOf: url))
@@ -361,6 +361,7 @@ extension MainContentCoordinator {
 
             for transaction in importedTransactions {
                 transaction.assignCaptureContextIfMissing(captureContext)
+                transaction.isImported = true
                 transaction.sequenceNumber = nextSequenceNumber
                 nextSequenceNumber += 1
                 transactions.append(transaction)
@@ -369,10 +370,6 @@ extension MainContentCoordinator {
             }
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
-            let overflow = max(0, transactions.count - liveHistoryLimit)
-            if overflow > 0 {
-                evictOldestTransactions(count: overflow)
-            }
             rebuildObservedDomainsByApp()
             recomputeFilteredTransactions()
             headerColumnStore.updateDiscoveredHeaders(from: transactions)
@@ -408,7 +405,7 @@ extension MainContentCoordinator {
         }
     }
 
-    private func executeSessionImport(from url: URL, fileName: String) async {
+    func executeSessionImport(from url: URL, fileName: String) async {
         do {
             let data = try Data(contentsOf: url)
             let session = try SessionSerializer.deserialize(from: data)
@@ -419,6 +416,7 @@ extension MainContentCoordinator {
             for codableTransaction in session.transactions {
                 let transaction = codableTransaction.toLiveModel()
                 transaction.assignCaptureContextIfMissing(captureContext)
+                transaction.isImported = true
                 transaction.sequenceNumber = nextSequenceNumber
                 nextSequenceNumber += 1
                 transactions.append(transaction)
@@ -427,10 +425,6 @@ extension MainContentCoordinator {
             }
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
-            let overflow = max(0, transactions.count - liveHistoryLimit)
-            if overflow > 0 {
-                evictOldestTransactions(count: overflow)
-            }
             rebuildObservedDomainsByApp()
 
             if let codableLogEntries = session.logEntries {

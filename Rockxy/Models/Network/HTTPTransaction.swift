@@ -95,6 +95,9 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var highlightColor: HighlightColor?
     var isPinned: Bool = false
     var isSaved: Bool = false
+    /// Loaded from a file or a nearby transfer instead of captured live. The live history cap
+    /// neither counts nor evicts imported rows: an import is never trimmed.
+    var isImported: Bool = false
     /// Draws the row with struck-through text so a request can be marked as ignorable.
     var isStruckThrough: Bool = false
     var isTLSFailure: Bool = false
