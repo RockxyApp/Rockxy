@@ -22,22 +22,29 @@ enum TrafficCSVExporter {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         for (index, transaction) in transactions.enumerated() {
+            let request = transaction.request
             let response = transaction.response
-            let durationMilliseconds = transaction.displayDuration.map { String(Int(($0 * 1_000).rounded())) } ?? ""
-            let row = [
+            // Each cell is computed separately so the row literal stays cheap to type-check.
+            let durationMilliseconds: String = transaction.displayDuration
+                .map { String(Int(($0 * 1_000).rounded())) } ?? ""
+            let status: String = response.map { String($0.statusCode) } ?? ""
+            let requestBytes = String(request.body?.count ?? 0)
+            let responseBytes: String = response.map { String($0.body?.count ?? 0) } ?? ""
+            let contentType: String = response?.headers.first {
+                $0.name.caseInsensitiveCompare("Content-Type") == .orderedSame
+            }?.value ?? ""
+            let row: [String] = [
                 String(index + 1),
                 formatter.string(from: transaction.timestamp),
-                transaction.request.method,
-                transaction.request.url.absoluteString,
-                transaction.request.host,
-                transaction.request.path,
-                response.map { String($0.statusCode) } ?? "",
+                request.method,
+                request.url.absoluteString,
+                request.host,
+                request.path,
+                status,
                 durationMilliseconds,
-                String(transaction.request.body?.count ?? 0),
-                response.map { String($0.body?.count ?? 0) } ?? "",
-                response?.headers.first {
-                    $0.name.caseInsensitiveCompare("Content-Type") == .orderedSame
-                }?.value ?? "",
+                requestBytes,
+                responseBytes,
+                contentType,
                 transaction.clientApp ?? "",
                 transaction.comment ?? "",
             ]
