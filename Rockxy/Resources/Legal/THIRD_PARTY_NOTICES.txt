@@ -16,6 +16,7 @@ resource flattening cannot silently replace files with generic names.
 | --- | --- | --- | --- | --- |
 | [swift-nio](https://github.com/apple/swift-nio) | 2.95.0 | `e932d3c4d8f77433c8f7093b5ebcbf91463948a0` | Direct | Apache-2.0; includes llhttp 9.3.0 under MIT |
 | [swift-nio-ssl](https://github.com/apple/swift-nio-ssl) | 2.36.0 | `173cc69a058623525a58ae6710e2f5727c663793` | Direct | Apache-2.0; includes BoringSSL snapshot `817ab07e…` |
+| [swift-nio-http2](https://github.com/apple/swift-nio-http2) | 1.46.0 | `0f3e54e29c944c2e835ad52159da7d9e1c94ac69` | Direct | Apache-2.0 |
 | [swift-certificates](https://github.com/apple/swift-certificates) | 1.18.0 | `24ccdeeeed4dfaae7955fcac9dbf5489ed4f1a25` | Direct | Apache-2.0 |
 | [swift-crypto](https://github.com/apple/swift-crypto) | 4.2.0 | `6f70fa9eab24c1fd982af18c281c4525d05e3095` | Direct | Apache-2.0; includes BoringSSL snapshot `0226f304…` |
 | [SQLite.swift](https://github.com/stephencelis/SQLite.swift) | 0.16.0 | `964c300fb0736699ce945c9edb56ecd62eba27a3` | Direct | MIT, Copyright © 2014–2015 Stephen Celis |
