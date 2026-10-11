@@ -58,6 +58,22 @@ The Community policy allows up to 3 upstream bypass entries. Bypassed hosts conn
 
 Localhost bypass is enabled by default so local development servers, device setup probes, and loopback validation flows do not accidentally leave the machine.
 
+## Using Rockxy With Another Proxy App
+
+If you already run a local proxy client such as Clash, Surge, or V2Ray, chain Rockxy in front of it:
+
+1. Find the client's local HTTP or mixed port (often `127.0.0.1:7890`).
+2. Open **Tools > Proxy Settings > External Proxy Settings...**, choose **HTTP**, and enter that host and port. Use **Test Connection** to confirm the route.
+3. Start capture. Rockxy points the macOS system proxy at itself and sends captured traffic on to your client.
+4. Stop capture or quit Rockxy. Rockxy puts your client's system proxy settings back.
+
+Keep the other client from fighting over the system proxy while Rockxy captures:
+
+- Turn off any setting that re-applies the client's system proxy automatically (for example **Proxy Guard** in Clash Verge Rev). Otherwise the client takes the system proxy back and macOS traffic stops reaching Rockxy.
+- Avoid toggling the client's own **System Proxy** switch, restarting its core, or quitting it during capture. Many clients switch every proxy setting off when they do this, even though Rockxy holds the system proxy at that moment.
+
+If the client changed the system proxy anyway, Rockxy leaves the newer settings in place and asks whether to restore the ones you had before capture. See [Traffic Capture](/features/traffic-capture#when-another-app-changes-the-proxy-during-capture).
+
 ## Test Connection
 
 The test action opens a short-lived outbound connection through the current upstream configuration and reports:

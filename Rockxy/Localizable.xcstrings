@@ -134,6 +134,36 @@
         }
       }
     },
+    "Auto proxy discovery": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动发现代理"
+          }
+        }
+      }
+    },
+    "Automatic proxy configuration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动代理配置"
+          }
+        }
+      }
+    },
+    "Automatic proxy configuration (%@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动代理配置（%@）"
+          }
+        }
+      }
+    },
     "Binary Part": {
       "localizations": {
         "zh-Hans": {
@@ -206,6 +236,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "证书不可用"
+          }
+        }
+      }
+    },
+    "Change them in System Settings > Network > (your network) > Details > Proxies.\n\n%@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在系统设置 > 网络 >（你的网络）> 详细信息 > 代理中更改。\n\n%@"
           }
         }
       }
@@ -590,6 +630,16 @@
         }
       }
     },
+    "Keep Current Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留当前设置"
+          }
+        }
+      }
+    },
     "Local Address": {
       "localizations": {
         "zh-Hans": {
@@ -716,6 +766,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "未定义脚本入口点"
+          }
+        }
+      }
+    },
+    "Nothing is listening on 127.0.0.1:%@ right now. Restoring it can block network access until the app that provides it is running again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前没有任何程序在 127.0.0.1:%@ 上监听。恢复该设置后，在提供该代理的 App 重新运行之前，可能无法访问网络。"
           }
         }
       }
@@ -890,6 +950,26 @@
         }
       }
     },
+    "Restore Previous Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复之前的设置"
+          }
+        }
+      }
+    },
+    "Restore your previous proxy settings?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要恢复之前的代理设置吗？"
+          }
+        }
+      }
+    },
     "Reverse Proxy": {
       "localizations": {
         "zh-Hans": {
@@ -970,12 +1050,32 @@
         }
       }
     },
+    "Rockxy could not identify the app using the current system proxy at 127.0.0.1:%@, so the system proxy was left unchanged. Try again, or install the helper in Advanced Proxy Settings.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法识别正在使用当前系统代理（127.0.0.1:%@）的 App，因此未更改系统代理。请重试，或在“高级代理设置”中安装辅助工具。"
+          }
+        }
+      }
+    },
     "Rockxy could not restore one or more system proxy settings": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法恢复一个或多个系统代理设置"
+          }
+        }
+      }
+    },
+    "Rockxy could not restore your previous proxy settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法恢复之前的代理设置"
           }
         }
       }
@@ -996,6 +1096,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法验证附近设备的密钥。"
+          }
+        }
+      }
+    },
+    "Rockxy did not change %@ because its proxy settings changed while you were deciding.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于在你做出选择期间 %@ 的代理设置再次发生了更改，Rockxy 未对其进行修改。"
+          }
+        }
+      }
+    },
+    "Rockxy left your proxy settings as they are because another app or a person changed them while Rockxy was capturing. Your settings before capture were:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于在 Rockxy 捕获期间其他 App 或有人更改了代理设置，Rockxy 保留了当前设置，未作改动。捕获前的设置为："
           }
         }
       }
@@ -1226,6 +1346,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "部分模拟器未更新"
+          }
+        }
+      }
+    },
+    "Some proxy settings changed again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "部分代理设置已再次更改"
           }
         }
       }

@@ -450,8 +450,9 @@ extension MainContentCoordinator {
             defer {
                 isProxyStopping = false
             }
+            let restoreReport: SystemProxyRestoreReport
             do {
-                try await SystemProxyManager.shared.disableSystemProxy()
+                restoreReport = try await SystemProxyManager.shared.disableSystemProxy()
                 readiness.clearProxyRestoreFailure()
                 Self.logger.info("System proxy disabled")
             } catch {
@@ -503,6 +504,7 @@ extension MainContentCoordinator {
             activeProxyPort = AppSettingsStorage.load().proxyPort
             NotificationCenter.default.post(name: .proxyDidStop, object: nil)
             Self.logger.info("Proxy stopped")
+            await PreviousProxyRestorePresenter.resolve(restoreReport)
         }
     }
 
@@ -729,13 +731,14 @@ extension MainContentCoordinator {
     func switchOffSystemProxyOverride() -> Task<Void, Never> {
         Task { @MainActor in
             do {
-                try await SystemProxyManager.shared.disableSystemProxy()
+                let report = try await SystemProxyManager.shared.disableSystemProxy()
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
                 readiness.setSystemRoutingExpected(false)
                 readiness.setSystemRoutingReady(false)
                 await readiness.refresh()
                 Self.logger.info("System proxy override switched off")
+                await PreviousProxyRestorePresenter.resolve(report)
             } catch {
                 readiness.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
                 Self.logger.error("Failed to switch off system proxy override: \(error.localizedDescription)")
