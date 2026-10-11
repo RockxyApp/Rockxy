@@ -87,23 +87,33 @@
 <!-- BEGIN GENERATED: latest-release -->
 ## Latest Tagged Release
 
-**v0.40.0** — 2026-09-25
+**v0.41.0** — 2026-10-08
 
 ### Added
 
-- See live Server-Sent Events and NDJSON responses in the request list as soon as their headers arrive; each stream completes in the same row when it ends.
-- Inspect assembled streamed output, tool calls, usage, and provider errors for supported AI API traffic when those details are present in the capture.
+- Explore the active traffic tab with Traffic Insights: spot slow requests and failures, compare traffic over time, find top apps and hosts, and export a Markdown report.
+- Keep investigations organized in local Projects with saved traffic history, tab layouts, and filters. Project configuration can be imported and exported without moving captured traffic.
+- Redact credentials and other sensitive values when exporting Rockxy sessions, HAR, CSV, or Postman files, while keeping the original captured session intact.
+- Inspect recognized model API and Web3 RPC traffic with dedicated details, and find model API, Web3, gRPC, GraphQL, WebSocket, and HTTP exchanges through protocol labels and filters.
+- Review nearby iPhone transfers in their own workspace while keeping the Mac's current traffic available.
+- Apply HTTPS decryption and tunnel rules to specific apps, route traffic through an upstream proxy, import cURL into Compose, and copy requests as Swift, Python, JavaScript, or Go snippets.
 
 ### Fixed
 
-- Kept streaming and WebSocket requests to one row and finalized them correctly when capture is paused or a connection closes.
-- Kept the inspector on a visible selected request when a filter hides the previously focused row.
-- Localized capture readiness and scripting errors that previously appeared in English.
+- Imports keep every request instead of trimming to the live history limit. HAR exports preserve content types, timestamps, readable streamed bodies, and measured durations more reliably.
+- Repeat, Edit and Repeat, and Compose results appear as inspectable traffic rows; replay also handles plain HTTP and edited destinations correctly.
+- WebSocket upgrades, plain HTTP inside CONNECT tunnels, upstream proxy routing, and TLS failure reporting are more reliable and easier to diagnose.
+- Header rules work alongside Map Local, Block, and other rules; invalid headers no longer break a response, and No Caching prevents clients from reusing stale responses.
+- Redacted shares, MCP exports, and inspections of compressed responses better protect credentials while keeping useful debugging details visible.
+- Developer Setup no longer hits the reported window layout crash, and proxy stop/recovery handles delayed helper responses without requiring a second click.
+- Perpetual license access remains available after its included update period instead of falling back to Community.
 
 ### Changed
 
-- Follow running durations for active streams and WebSocket connections, with timestamps, counts, and sizes formatted for the selected language and region.
-- Export streamed responses to HAR with their captured content type and measured duration.
+- Developer Setup is now a compact, target-aware workflow with clearer manual and automatic paths, certificate trust status, and more useful readiness and launch results.
+- Server-Sent Events, NDJSON, and WebSocket exchanges appear while they are active, with stream and frame details updated as traffic arrives.
+- Counts, sizes, durations, dates, and translated interface text follow the app language and the Mac's region more consistently.
+- Large captures remain more responsive through reduced per-row analysis and paced Traffic Insights updates.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 <!-- END GENERATED: latest-release -->
