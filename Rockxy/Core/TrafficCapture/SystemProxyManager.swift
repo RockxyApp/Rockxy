@@ -18,6 +18,9 @@ enum SystemProxyError: LocalizedError {
     case proxyActivationNotConfirmed(port: Int)
     case proxyRestoreFailed
     case proxySessionInUse
+    /// macOS already routes through a loopback proxy whose listener could not be identified, so
+    /// direct mode cannot tell another Rockxy session from another proxy app.
+    case loopbackProxyOwnerUnknown(port: Int)
     case proxyStateChangedDuringCommit(service: String)
     case previousHelperUnavailable
     case unexpectedOutput(String)
@@ -55,6 +58,11 @@ enum SystemProxyError: LocalizedError {
         case .proxySessionInUse:
             String(
                 localized: "Another running Rockxy instance owns the current system proxy session",
+                bundle: RockxyLocalization.bundle
+            )
+        case let .loopbackProxyOwnerUnknown(port):
+            String(
+                localized: "Rockxy could not identify the app using the current system proxy at 127.0.0.1:\(String(port)), so the system proxy was left unchanged. Try again, or install the helper in Advanced Proxy Settings.",
                 bundle: RockxyLocalization.bundle
             )
         case let .proxyStateChangedDuringCommit(service):
@@ -476,9 +484,31 @@ final class SystemProxyManager: @unchecked Sendable {
         }
     }
 
-    func disableSystemProxy() async throws {
+    /// Restores the settings captured before capture began. The report names services whose
+    /// settings were changed by something else during the session and were therefore left as
+    /// they are; the caller asks the user whether to put the previous settings back.
+    @discardableResult
+    func disableSystemProxy() async throws -> SystemProxyRestoreReport {
         try await Self.lifecycleGate.withOperation { [self] in
             try await disableSystemProxyLocked()
+        }
+    }
+
+    /// Writes the user's previous settings back to the reported services, at the user's request.
+    ///
+    /// Each service is re-read first and written only if it still holds exactly the settings the
+    /// report observed, so a change made while the user was deciding is never overwritten.
+    func restorePreviousProxySettings(
+        _ entries: [UnrestoredPreviousProxy]
+    )
+        async throws -> PreviousProxyRestoreResult
+    {
+        try await Self.lifecycleGate.withOperation { [self] in
+            try await Task.detached(priority: .userInitiated) { [self] in
+                try Self.operationGate.withOperation {
+                    try restorePreviousProxySettingsLocked(entries)
+                }
+            }.value
         }
     }
 
@@ -723,6 +753,8 @@ final class SystemProxyManager: @unchecked Sendable {
     private var sessionGeneration: UInt64 = 0
     private var originalBypassDomains: [String: [String]] = [:]
     private var originalProxyState: [String: ServiceProxySnapshot] = [:]
+    /// The listener port the captured original state was taken for.
+    private var originalStatePort: Int?
     private var bypassObserver: NSObjectProtocol?
     /// The watchdog job currently guarding this session's override, if one was installed. Held so
     /// the next arming knows which job it supersedes and the disable path removes the right one.
@@ -773,7 +805,7 @@ final class SystemProxyManager: @unchecked Sendable {
         // A reclaim must retain the snapshot from before Rockxy's first override. Capturing
         // again here would turn the foreign takeover into the state restored on quit.
         if !reclaimingDirectSession, !reclaimingHelperSession {
-            saveOriginalState()
+            saveOriginalState(port: port)
         }
 
         // Detect VPN/tunnel BEFORE choosing helper vs networksetup — applies to both paths
@@ -870,7 +902,7 @@ final class SystemProxyManager: @unchecked Sendable {
         NotificationCenter.default.post(name: .systemProxyDidChange, object: nil, userInfo: ["enabled": true])
     }
 
-    private func disableSystemProxyLocked() async throws {
+    private func disableSystemProxyLocked() async throws -> SystemProxyRestoreReport {
         // Same-session shortcut: if we know we own a direct override, skip ownership detection
         lock.lock()
         let pending = directRestorePending
@@ -920,7 +952,13 @@ final class SystemProxyManager: @unchecked Sendable {
             switch owner {
             case .none:
                 Self.logger.info("No proxy override detected, nothing to restore")
-                return
+                let report = makeRestoreReport()
+                lock.withLock {
+                    originalBypassDomains = [:]
+                    originalProxyState = [:]
+                    originalStatePort = nil
+                }
+                return report
 
             case .helper:
                 Self.logger.info("Disabling system proxy via helper tool")
@@ -951,6 +989,7 @@ final class SystemProxyManager: @unchecked Sendable {
         }
 
         stopBypassListObserver()
+        let report = makeRestoreReport()
 
         lock.lock()
         isEnabled = false
@@ -958,11 +997,61 @@ final class SystemProxyManager: @unchecked Sendable {
         activeServices = []
         originalBypassDomains = [:]
         originalProxyState = [:]
+        originalStatePort = nil
         sessionGeneration &+= 1
         lock.unlock()
 
         Self.logger.info("System proxy disabled")
         NotificationCenter.default.post(name: .systemProxyDidChange, object: nil, userInfo: ["enabled": false])
+        return report
+    }
+
+    /// Compares the settings captured before capture with what the restore left behind.
+    private func makeRestoreReport() -> SystemProxyRestoreReport {
+        let (previous, previousBypassDomains, port) = lock.withLock {
+            (originalProxyState, originalBypassDomains, originalStatePort)
+        }
+        let candidates = previous.filter { PreviousProxyRestorePolicy.routesTraffic($0.value) }
+        guard !candidates.isEmpty else {
+            return .empty
+        }
+        var current: [String: ServiceProxySnapshot] = [:]
+        for service in candidates.keys {
+            current[service] = captureReadableProxySnapshot(for: service)
+        }
+        let unrestored = PreviousProxyRestorePolicy.unrestoredServices(
+            previous: candidates,
+            previousBypassDomains: previousBypassDomains,
+            current: current,
+            rockxyPort: port
+        )
+        if !unrestored.isEmpty {
+            Self.logger.warning(
+                "\(unrestored.count) service(s) keep settings another app or person changed during capture; their previous proxy was not restored"
+            )
+        }
+        return SystemProxyRestoreReport(unrestoredPreviousProxies: unrestored)
+    }
+
+    private func restorePreviousProxySettingsLocked(
+        _ entries: [UnrestoredPreviousProxy]
+    )
+        throws -> PreviousProxyRestoreResult
+    {
+        var result = PreviousProxyRestoreResult()
+        for entry in entries {
+            guard let live = captureReadableProxySnapshot(for: entry.service), live == entry.current else {
+                Self.logger.info("Not restoring '\(entry.service)': its proxy settings changed again")
+                result.changedServices.append(entry.service)
+                continue
+            }
+            try restoreServiceProxyState(service: entry.service, snapshot: entry.previous)
+            if let domains = entry.previousBypassDomains {
+                try restoreServiceBypassDomains(service: entry.service, domains: domains)
+            }
+            result.restoredServices.append(entry.service)
+        }
+        return result
     }
 
     private func isSystemProxyEnabled() -> Bool {
@@ -1096,11 +1185,12 @@ final class SystemProxyManager: @unchecked Sendable {
 
     /// The complete ownership claim and mutation sequence, held under the cross-process lock.
     private func applyDirectOverrideLocked(port: Int) throws {
-        // Never use another loopback proxy as the restoration baseline. This also closes the
-        // cross-mode race where a helper-backed session becomes visible while direct fallback is
-        // being considered but before a direct restore point is published.
-        if loadDirectBackup() == nil, anyLoopbackProxyEnabled(on: nil) {
-            throw SystemProxyError.proxySessionInUse
+        // Never use another Rockxy session's loopback override as the restoration baseline. This
+        // also closes the cross-mode race where a helper-backed session becomes visible while
+        // direct fallback is being considered but before a direct restore point is published.
+        // Another proxy app's loopback endpoint is the user's own setting and is captured.
+        if loadDirectBackup() == nil {
+            try ensureLoopbackBaselineBelongsToAnotherApp()
         }
 
         let services = try detectAllEnabledServices()
@@ -1342,7 +1432,7 @@ final class SystemProxyManager: @unchecked Sendable {
 
     /// Snapshots bypass domains and proxy state for all detected target services
     /// BEFORE any proxy mutation occurs. Must be called before `enableSystemProxyViaNetworkSetup`.
-    private func saveOriginalState() {
+    private func saveOriginalState(port: Int) {
         guard let services = try? detectAllEnabledServices(), !services.isEmpty else {
             return
         }
@@ -1367,6 +1457,7 @@ final class SystemProxyManager: @unchecked Sendable {
         lock.lock()
         originalBypassDomains = bypassMap
         originalProxyState = proxyMap
+        originalStatePort = port
         lock.unlock()
 
         Self.logger.info("Saved original state for \(services.count) service(s)")
@@ -1755,6 +1846,40 @@ final class SystemProxyManager: @unchecked Sendable {
         }
 
         return stdout
+    }
+
+    /// Throws unless every enabled loopback proxy belongs to another application (or to nothing
+    /// at all). Ports are checked one by one, so a Clash-style endpoint on 127.0.0.1:7890 is kept
+    /// as the restore point while another Rockxy session on its own port still blocks.
+    private func ensureLoopbackBaselineBelongsToAnotherApp() throws {
+        let snapshots = ((try? detectAllEnabledServices()) ?? []).map(captureProxySnapshot(for:))
+        let ports = LoopbackProxyOwnershipPolicy.enabledLoopbackPorts(in: snapshots)
+        guard !ports.isEmpty else {
+            return
+        }
+
+        let helperBackupExists = FileManager.default.fileExists(atPath: Self.helperBackupPath)
+        // With a helper backup on disk the answer is already "refuse", so no listener is probed.
+        let listeners: [(port: Int, listener: LoopbackProxyListener)] = ports.map { port in
+            (port, helperBackupExists ? .unknown : LoopbackProxyListenerResolver.listener(onPort: port))
+        }
+        for entry in listeners where !helperBackupExists {
+            Self.logger.info(
+                "Existing loopback proxy on port \(entry.port) answered by: \(String(describing: entry.listener), privacy: .public)"
+            )
+        }
+
+        switch LoopbackProxyOwnershipPolicy.directBaselineDecision(
+            listeners: listeners,
+            helperBackupExists: helperBackupExists
+        ) {
+        case .capture:
+            Self.logger.info("Keeping the existing loopback proxy settings as the restore point")
+        case .refuseRockxySession:
+            throw SystemProxyError.proxySessionInUse
+        case let .refuseUnidentifiedListener(port):
+            throw SystemProxyError.loopbackProxyOwnerUnknown(port: port)
+        }
     }
 
     private func anyLoopbackProxyEnabled(on services: [String]?) -> Bool {
@@ -2244,8 +2369,14 @@ extension SystemProxyManager {
             // Nothing may be written this time. A service whose settings could not be read keeps
             // its restore point; everything else has already left recovery. The backup keeps the
             // flag it arrived with, because no write has begun.
+            // Only an override on this backup's own port is Rockxy's. Any loopback proxy would
+            // also count another proxy app's endpoint, keeping the backup and failing every stop
+            // for as long as that app stays enabled.
             let proxyStillPointsAtRockxy = authorizedEntries.isEmpty
-                ? anyLoopbackProxyEnabled(on: nil)
+                ? !residualRockxyOwnedServices(
+                    port: sourceBackup.rockxyPort,
+                    backedUpServices: (try? detectAllEnabledServices()) ?? []
+                ).isEmpty
                 : !plan.deferredServices.isEmpty
             return finishDirectRestore(
                 backup: sourceBackup.with(

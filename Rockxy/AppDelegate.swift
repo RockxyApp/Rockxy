@@ -133,6 +133,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let skipConfirmation = skipNextQuitConfirmation
         skipNextQuitConfirmation = false
+        // Logout, restart, and shutdown must not wait on a question; a required reopen is not the
+        // user leaving Rockxy. Both keep the current proxy settings without asking.
+        let mayAskAboutPreviousProxy = !skipConfirmation && !Self.isSystemInitiatedTermination()
         let showAlert = !skipConfirmation
             && UserDefaults.standard.bool(forKey: Self.identity.defaultsKey("showAlertOnQuit"))
         if showAlert {
@@ -169,8 +172,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         Task {
             Self.logger.info("Quit: starting proxy restore")
             do {
-                try await SystemProxyManager.shared.disableSystemProxy()
+                let report = try await SystemProxyManager.shared.disableSystemProxy()
                 Self.logger.info("Quit: proxy restore completed successfully")
+                if report.needsDecision, mayAskAboutPreviousProxy {
+                    await PreviousProxyRestorePresenter.resolve(report)
+                }
             } catch {
                 Self.logger.error("Quit: proxy restore failed — \(error.localizedDescription)")
             }
@@ -220,6 +226,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
     private var skipNextQuitConfirmation = false
 
     private var terminationSignalMonitor: TerminationSignalMonitor?
+
+    /// True when macOS asked Rockxy to quit for a logout, restart, or shutdown. Those quit
+    /// events carry a quit reason; a quit the user chose does not.
+    private static func isSystemInitiatedTermination() -> Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventClass == kCoreEventClass,
+              event.eventID == kAEQuitApplication else
+        {
+            return false
+        }
+        return event.attributeDescriptor(forKeyword: kAEQuitReason) != nil
+    }
 
     nonisolated private static func developerApplicationIdentityKey(
         bundleIdentifier: String,
