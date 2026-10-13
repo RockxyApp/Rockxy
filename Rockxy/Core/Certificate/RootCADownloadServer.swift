@@ -194,16 +194,21 @@ actor RootCADownloadServer {
     nonisolated static let preferredInterfaceDefaultsKey = RockxyIdentity.current
         .defaultsKey("developerSetup.preferredLANInterface")
 
-    /// The chosen interface when it is still up, otherwise the best-ranked candidate, so a
-    /// remembered interface that disconnected never leaves devices pointed at a dead address.
+    /// The chosen candidate when it is still up, otherwise the best-ranked one, so a remembered
+    /// network that disconnected never leaves devices pointed at a dead address. The preference is
+    /// a candidate id (`interface|address`); a bare interface name from an earlier build still
+    /// matches that interface's first address.
     nonisolated static func preferredLANCandidate(
         from candidates: [LANIPv4AddressCandidate],
         preferredInterface: String?
     ) -> LANIPv4AddressCandidate? {
-        if let preferredInterface,
-           let match = candidates.first(where: { $0.interfaceName == preferredInterface })
-        {
-            return match
+        if let preferredInterface {
+            if let exact = candidates.first(where: { $0.id == preferredInterface }) {
+                return exact
+            }
+            if let sameInterface = candidates.first(where: { $0.interfaceName == preferredInterface }) {
+                return sameInterface
+            }
         }
         return candidates.first
     }
@@ -346,8 +351,9 @@ struct LANIPv4AddressCandidate: Equatable, Sendable, Identifiable {
     let address: String
     let rank: Int
 
+    /// Interface and address together: one interface can carry several IPv4 addresses.
     var id: String {
-        interfaceName
+        "\(interfaceName)|\(address)"
     }
 }
 

@@ -107,6 +107,19 @@ struct RootCADownloadServerPreferredInterfaceTests {
         #expect(chosen?.address == "10.0.0.5")
     }
 
+    @Test("Two addresses on one interface stay separately selectable")
+    func aliasAddressesAreDistinct() {
+        let aliased = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+            (interfaceName: "en0", address: "192.168.1.20"),
+            (interfaceName: "en0", address: "192.168.50.2"),
+        ])
+        #expect(Set(aliased.map(\.id)).count == 2)
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0|192.168.50.2")
+        #expect(chosen?.address == "192.168.50.2")
+        // A bare interface name saved by an earlier build still resolves to that interface.
+        #expect(RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0")?.interfaceName == "en0")
+    }
+
     @Test("A chosen interface that disconnected falls back instead of pointing at a dead address")
     func fallsBackWhenChoiceDisappears() {
         let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: "en9")

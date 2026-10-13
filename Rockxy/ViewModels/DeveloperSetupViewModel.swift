@@ -322,12 +322,12 @@ final class DeveloperSetupViewModel {
         isProxyRunning ? activePort : configuredPort
     }
 
-    /// The interface whose address the device endpoint shows.
+    /// The candidate id (`interface|address`) whose address the device endpoint shows.
     var selectedLANInterface: String? {
         RootCADownloadServer.preferredLANCandidate(
             from: snapshot.lanCandidates,
             preferredInterface: UserDefaults.standard.string(forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
-        )?.interfaceName
+        )?.id
     }
 
     /// Remembers which network devices are on and refreshes the endpoint and snippets.

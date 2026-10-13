@@ -163,7 +163,7 @@ struct DeveloperSetupWindowView: View {
             ) {
                 ForEach(viewModel.snapshot.lanCandidates) { candidate in
                     Text(verbatim: "\(candidate.address) (\(candidate.interfaceName))")
-                        .tag(candidate.interfaceName)
+                        .tag(candidate.id)
                 }
             }
             .labelsHidden()
