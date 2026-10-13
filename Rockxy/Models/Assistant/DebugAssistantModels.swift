@@ -7,6 +7,8 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
     case explainFailure
     case compareWithSuccess
     case checkAuthentication
+    case whyIsThisSlow
+    case findRelatedRequests
     case prepareBugReport
 
     // MARK: Internal
@@ -25,6 +27,10 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
             String(localized: "Compare With Successful Request", bundle: RockxyLocalization.bundle)
         case .checkAuthentication:
             String(localized: "Check Authentication", bundle: RockxyLocalization.bundle)
+        case .whyIsThisSlow:
+            String(localized: "Why Is This Slow?", bundle: RockxyLocalization.bundle)
+        case .findRelatedRequests:
+            String(localized: "Find Related Requests", bundle: RockxyLocalization.bundle)
         case .prepareBugReport:
             String(localized: "Prepare Bug Report", bundle: RockxyLocalization.bundle)
         }
@@ -52,6 +58,16 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
                 localized: "Review credential presence and authentication response signals.",
                 bundle: RockxyLocalization.bundle
             )
+        case .whyIsThisSlow:
+            String(
+                localized: "Break the captured time into connection, server wait, and transfer, and compare with similar requests.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .findRelatedRequests:
+            String(
+                localized: "List captured requests to the same endpoint and host around the same time.",
+                bundle: RockxyLocalization.bundle
+            )
         case .prepareBugReport:
             String(
                 localized: "Summarize reproducible evidence without exposing captured secrets.",
@@ -66,6 +82,8 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
         case .explainFailure: "exclamationmark.magnifyingglass"
         case .compareWithSuccess: "arrow.left.arrow.right"
         case .checkAuthentication: "key.horizontal"
+        case .whyIsThisSlow: "timer"
+        case .findRelatedRequests: "point.3.connected.trianglepath.dotted"
         case .prepareBugReport: "doc.text"
         }
     }
@@ -83,6 +101,10 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
             String(localized: "Compare this with the last successful request.", bundle: RockxyLocalization.bundle)
         case .checkAuthentication:
             String(localized: "Do you see an authentication problem here?", bundle: RockxyLocalization.bundle)
+        case .whyIsThisSlow:
+            String(localized: "Why is this request slow?", bundle: RockxyLocalization.bundle)
+        case .findRelatedRequests:
+            String(localized: "Which other requests are related to this one?", bundle: RockxyLocalization.bundle)
         case .prepareBugReport:
             String(localized: "Turn this traffic into a concise bug report.", bundle: RockxyLocalization.bundle)
         }
@@ -104,6 +126,19 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
             || normalized.contains("success")
         {
             return .compareWithSuccess
+        }
+        if normalized.contains("slow")
+            || normalized.contains("latency")
+            || normalized.contains("takes long")
+            || normalized.contains("performance")
+        {
+            return .whyIsThisSlow
+        }
+        if normalized.contains("related")
+            || normalized.contains("same endpoint")
+            || normalized.contains("other requests")
+        {
+            return .findRelatedRequests
         }
         if normalized.contains("bug")
             || normalized.contains("report")
@@ -437,6 +472,7 @@ struct InvestigationTransactionSnapshot {
         response = transaction.response
         isFailed = transaction.state == .failed
         duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration
+        timing = transaction.timingInfo
         clientApp = transaction.clientApp
         matchedRuleName = transaction.matchedRuleName
         matchedRuleActionSummary = transaction.matchedRuleActionSummary
@@ -450,6 +486,8 @@ struct InvestigationTransactionSnapshot {
     let response: HTTPResponseData?
     let isFailed: Bool
     let duration: TimeInterval?
+    /// Captured phase breakdown, when the proxy measured one.
+    let timing: TimingInfo?
     let clientApp: String?
     let matchedRuleName: String?
     let matchedRuleActionSummary: String?

@@ -26,6 +26,10 @@ struct DebugAssistantEngine {
             compareWithSuccess(primary: primary, selected: selected, session: session)
         case .checkAuthentication:
             checkAuthentication(primary: primary, selected: selected, session: session)
+        case .whyIsThisSlow:
+            whyIsThisSlow(primary: primary, selected: selected, session: session)
+        case .findRelatedRequests:
+            findRelatedRequests(primary: primary, selected: selected, session: session)
         case .prepareBugReport:
             prepareBugReport(primary: primary, selected: selected, session: session)
         }
@@ -402,6 +406,245 @@ struct DebugAssistantEngine {
                 localized: "Open the selected request in Compose and review every change before sending.",
                 bundle: RockxyLocalization.bundle
             )
+        )
+    }
+
+    /// Requests to the same method, host, and path, used as a latency baseline.
+    private func sameEndpoint(
+        as primary: InvestigationTransactionSnapshot,
+        in session: [InvestigationTransactionSnapshot]
+    )
+        -> [InvestigationTransactionSnapshot]
+    {
+        session.filter {
+            $0.id != primary.id
+                && $0.request.host == primary.request.host
+                && $0.request.path == primary.request.path
+                && $0.request.method.caseInsensitiveCompare(primary.request.method) == .orderedSame
+        }
+    }
+
+    private func whyIsThisSlow(
+        primary: InvestigationTransactionSnapshot,
+        selected: [InvestigationTransactionSnapshot],
+        session: [InvestigationTransactionSnapshot]
+    )
+        -> InvestigationResult
+    {
+        let peers = sameEndpoint(as: primary, in: session)
+        let scope = boundedScope(primary: primary, selected: selected, related: peers)
+        var evidence: [InvestigationEvidence] = []
+
+        guard let duration = primary.duration else {
+            evidence.append(.init(
+                id: "flow:\(primary.id):unknown.duration",
+                kind: .unknown,
+                title: String(localized: "No duration was captured", bundle: RockxyLocalization.bundle),
+                detail: String(
+                    localized: "The request has not finished or its timing was not recorded, so Rockxy cannot say where time went.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                sourceTransactionID: primary.id
+            ))
+            return InvestigationResult(
+                recipe: .whyIsThisSlow,
+                selectedTransactionID: primary.id,
+                scopeTransactionIDs: scope.map(\.id),
+                scopeSummary: scopeSummary(selectedCount: selected.count, requestCount: scope.count),
+                summary: String(
+                    localized: "Rockxy has no captured duration for this request.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                evidence: evidence,
+                nextStep: String(
+                    localized: "Repeat the request after it completes, then run this check again.",
+                    bundle: RockxyLocalization.bundle
+                )
+            )
+        }
+
+        evidence.append(.init(
+            id: "flow:\(primary.id):timing.total",
+            kind: .observed,
+            title: String(
+                localized: "Total time \(DurationFormatter.format(seconds: duration))",
+                bundle: RockxyLocalization.bundle
+            ),
+            detail: String(localized: "Measured by Rockxy for this request.", bundle: RockxyLocalization.bundle),
+            sourceTransactionID: primary.id
+        ))
+
+        var dominant: (name: String, seconds: TimeInterval)?
+        if let timing = primary.timing {
+            let connection = timing.dnsLookup + timing.tcpConnection + timing.tlsHandshake
+            let phases: [(String, TimeInterval)] = [
+                (String(localized: "Connection setup", bundle: RockxyLocalization.bundle), connection),
+                (String(localized: "Server wait", bundle: RockxyLocalization.bundle), timing.timeToFirstByte),
+                (String(localized: "Response transfer", bundle: RockxyLocalization.bundle), timing.contentTransfer),
+            ]
+            dominant = phases.max { $0.1 < $1.1 }
+            for (name, seconds) in phases {
+                evidence.append(.init(
+                    id: "flow:\(primary.id):timing.\(name.lowercased().replacingOccurrences(of: " ", with: "-"))",
+                    kind: .observed,
+                    title: "\(name): \(DurationFormatter.format(seconds: seconds))",
+                    detail: String(localized: "Captured timing phase.", bundle: RockxyLocalization.bundle),
+                    sourceTransactionID: primary.id
+                ))
+            }
+        } else {
+            evidence.append(.init(
+                id: "flow:\(primary.id):unknown.timing-phases",
+                kind: .unknown,
+                title: String(localized: "No phase breakdown was captured", bundle: RockxyLocalization.bundle),
+                detail: String(
+                    localized: "Only the total time is known, for example for imported or WebSocket traffic.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                sourceTransactionID: primary.id
+            ))
+        }
+
+        let peerDurations = peers.compactMap(\.duration).sorted()
+        var comparison: String?
+        if !peerDurations.isEmpty {
+            let median = peerDurations[peerDurations.count / 2]
+            let ratio = median > 0 ? duration / median : 1
+            evidence.append(.init(
+                id: "flow:\(primary.id):derived.endpoint-median",
+                kind: .derived,
+                title: String(
+                    localized: "Same endpoint median \(DurationFormatter.format(seconds: median))",
+                    bundle: RockxyLocalization.bundle
+                ),
+                detail: String(AttributedString(
+                    localized: "Across ^[\(peerDurations.count) other captured request](inflect: true) to this endpoint.",
+                    bundle: RockxyLocalization.bundle,
+                    locale: RockxyLocalization.locale
+                ).characters),
+                sourceTransactionID: primary.id
+            ))
+            if ratio >= 2 {
+                comparison = String(
+                    localized: "It took about \(Int(ratio.rounded()))× longer than usual for this endpoint.",
+                    bundle: RockxyLocalization.bundle
+                )
+            } else {
+                comparison = String(
+                    localized: "That is in line with other captured requests to this endpoint.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+        }
+
+        let leading = dominant.map {
+            String(
+                localized: "Most of the time was \($0.name.lowercased()) (\(DurationFormatter.format(seconds: $0.seconds))).",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+        let summary = [leading, comparison].compactMap(\.self).joined(separator: " ")
+        let nextStep: String = switch dominant?.name {
+        case String(localized: "Server wait", bundle: RockxyLocalization.bundle):
+            String(
+                localized: "The server took the time before answering. Check server-side logs or query cost for this endpoint.",
+                bundle: RockxyLocalization.bundle
+            )
+        case String(localized: "Connection setup", bundle: RockxyLocalization.bundle):
+            String(
+                localized: "Connection setup dominated. Check DNS, TLS, and whether the client reuses connections.",
+                bundle: RockxyLocalization.bundle
+            )
+        case String(localized: "Response transfer", bundle: RockxyLocalization.bundle):
+            String(
+                localized: "Transfer dominated. Check the response size, compression, and network conditions.",
+                bundle: RockxyLocalization.bundle
+            )
+        default:
+            String(
+                localized: "Compare with a faster request to this endpoint to see what differs.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+
+        return InvestigationResult(
+            recipe: .whyIsThisSlow,
+            selectedTransactionID: primary.id,
+            scopeTransactionIDs: scope.map(\.id),
+            scopeSummary: scopeSummary(selectedCount: selected.count, requestCount: scope.count),
+            summary: summary.isEmpty
+                ? String(
+                    localized: "This request took \(DurationFormatter.format(seconds: duration)).",
+                    bundle: RockxyLocalization.bundle
+                )
+                : summary,
+            evidence: evidence,
+            nextStep: nextStep
+        )
+    }
+
+    private func findRelatedRequests(
+        primary: InvestigationTransactionSnapshot,
+        selected: [InvestigationTransactionSnapshot],
+        session: [InvestigationTransactionSnapshot]
+    )
+        -> InvestigationResult
+    {
+        let sameEndpoint = sameEndpoint(as: primary, in: session)
+        let sameEndpointIDs = Set(sameEndpoint.map(\.id))
+        let sameHost = nearbyTransactions(to: primary, in: session).filter { !sameEndpointIDs.contains($0.id) }
+        let related = sameEndpoint.sorted {
+            abs($0.timestamp.timeIntervalSince(primary.timestamp)) < abs($1.timestamp.timeIntervalSince(primary.timestamp))
+        } + sameHost
+        let scope = boundedScope(primary: primary, selected: selected, related: related)
+        var evidence: [InvestigationEvidence] = []
+
+        for transaction in scope.dropFirst().prefix(8) {
+            let status = transaction.statusCode.map { "HTTP \($0)" }
+                ?? String(localized: "no response", bundle: RockxyLocalization.bundle)
+            let relation = sameEndpointIDs.contains(transaction.id)
+                ? String(localized: "Same endpoint", bundle: RockxyLocalization.bundle)
+                : String(localized: "Same host", bundle: RockxyLocalization.bundle)
+            evidence.append(.init(
+                id: "flow:\(transaction.id):related",
+                kind: .observed,
+                title: "\(transaction.request.method) \(requestTarget(transaction)) · \(status)",
+                detail: relation,
+                sourceTransactionID: transaction.id
+            ))
+        }
+
+        let failingPeers = sameEndpoint.filter { !$0.isSuccessful }.count
+        let summary: String = if related.isEmpty {
+            String(
+                localized: "No other captured request went to \(primary.request.host).",
+                bundle: RockxyLocalization.bundle
+            )
+        } else {
+            String(AttributedString(
+                localized: "^[\(sameEndpoint.count) other request](inflect: true) hit this endpoint and \(sameHost.count) more went to the same host.",
+                bundle: RockxyLocalization.bundle,
+                locale: RockxyLocalization.locale
+            ).characters)
+        }
+
+        return InvestigationResult(
+            recipe: .findRelatedRequests,
+            selectedTransactionID: primary.id,
+            scopeTransactionIDs: scope.map(\.id),
+            scopeSummary: scopeSummary(selectedCount: selected.count, requestCount: scope.count),
+            summary: summary,
+            evidence: evidence,
+            nextStep: failingPeers > 0
+                ? String(AttributedString(
+                    localized: "^[\(failingPeers) request](inflect: true) to this endpoint did not succeed. Reveal one and compare it with this request.",
+                    bundle: RockxyLocalization.bundle,
+                    locale: RockxyLocalization.locale
+                ).characters)
+                : String(
+                    localized: "Reveal a related request to compare headers, bodies, or timing.",
+                    bundle: RockxyLocalization.bundle
+                )
         )
     }
 

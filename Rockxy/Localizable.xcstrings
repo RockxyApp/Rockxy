@@ -64,6 +64,26 @@
         }
       }
     },
+    "^[%lld other request](inflect: true) hit this endpoint and %lld more went to the same host.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个请求访问了此端点，还有 %lld 个发往同一主机。"
+          }
+        }
+      }
+    },
+    "^[%lld request](inflect: true) to this endpoint did not succeed. Reveal one and compare it with this request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发往此端点的 %lld 个请求未成功。显示其中一个并与此请求比较。"
+          }
+        }
+      }
+    },
     "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.": {
       "localizations": {
         "zh-Hans": {
@@ -80,6 +100,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "接受 SOCKS5 连接"
+          }
+        }
+      }
+    },
+    "Across ^[%lld other captured request](inflect: true) to this endpoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基于发往此端点的另外 %lld 个已捕获请求。"
           }
         }
       }
@@ -180,6 +210,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Break the captured time into connection, server wait, and transfer, and compare with similar requests.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将捕获的耗时拆分为连接、服务器等待和传输，并与类似请求比较。"
+          }
+        }
+      }
+    },
+    "Captured timing phase.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已捕获的耗时阶段。"
+          }
+        }
+      }
+    },
+    "Compare with a faster request to this endpoint to see what differs.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "与发往此端点的更快请求比较，查看有何不同。"
+          }
+        }
+      }
+    },
+    "Connection setup": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接建立"
+          }
+        }
+      }
+    },
+    "Connection setup dominated. Check DNS, TLS, and whether the client reuses connections.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接建立占主导。请检查 DNS、TLS 以及客户端是否复用连接。"
           }
         }
       }
@@ -520,6 +600,16 @@
         }
       }
     },
+    "Find Related Requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找相关请求"
+          }
+        }
+      }
+    },
     "For clients that ignore HTTP proxy settings, such as URLSessionWebSocketTask or NWConnection configured with a SOCKS proxy. Uses the same address as the HTTP listener.": {
       "localizations": {
         "zh-Hans": {
@@ -590,6 +680,16 @@
         }
       }
     },
+    "How can I confirm where the time goes?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何确认时间花在了哪里？"
+          }
+        }
+      }
+    },
     "Install in Booted Simulators…": {
       "localizations": {
         "zh-Hans": {
@@ -620,6 +720,16 @@
         }
       }
     },
+    "It took about %lld× longer than usual for this endpoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "耗时约为此端点平常的 %lld 倍。"
+          }
+        }
+      }
+    },
     "JS exception: %@": {
       "localizations": {
         "zh-Hans": {
@@ -636,6 +746,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "保留当前设置"
+          }
+        }
+      }
+    },
+    "List captured requests to the same endpoint and host around the same time.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出同一时间段内发往同一端点和主机的已捕获请求。"
           }
         }
       }
@@ -670,12 +790,32 @@
         }
       }
     },
+    "Measured by Rockxy for this request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由 Rockxy 为此请求测得。"
+          }
+        }
+      }
+    },
     "Modified by a rule": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "已被规则修改"
+          }
+        }
+      }
+    },
+    "Most of the time was %@ (%@).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大部分时间花在%@（%@）。"
           }
         }
       }
@@ -720,6 +860,16 @@
         }
       }
     },
+    "No duration was captured": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未捕获耗时"
+          }
+        }
+      }
+    },
     "No Matching Commands": {
       "localizations": {
         "zh-Hans": {
@@ -730,12 +880,42 @@
         }
       }
     },
+    "No other captured request went to %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有其他已捕获的请求发往 %@。"
+          }
+        }
+      }
+    },
     "No Parts": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "无部分"
+          }
+        }
+      }
+    },
+    "No phase breakdown was captured": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未捕获阶段拆分"
+          }
+        }
+      }
+    },
+    "no response": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无响应"
           }
         }
       }
@@ -786,6 +966,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "离线"
+          }
+        }
+      }
+    },
+    "Only the total time is known, for example for imported or WebSocket traffic.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅知道总耗时，例如导入的流量或 WebSocket 流量。"
           }
         }
       }
@@ -940,12 +1130,32 @@
         }
       }
     },
+    "Repeat the request after it completes, then run this check again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在请求完成后重复该请求，然后再次运行此检查。"
+          }
+        }
+      }
+    },
     "Replaces recognized secrets such as Authorization, Cookie, API keys, and URL tokens with [REDACTED] in the file. Best effort; review the file before sharing.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "对文件中可识别的机密信息（如 Authorization、Cookie、API 密钥和 URL 令牌）进行脱敏，替换为 [REDACTED]。尽力而为；分享前请检查文件。"
+          }
+        }
+      }
+    },
+    "Response transfer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应传输"
           }
         }
       }
@@ -966,6 +1176,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "要恢复之前的代理设置吗？"
+          }
+        }
+      }
+    },
+    "Reveal a related request to compare headers, bodies, or timing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示一个相关请求，以比较标头、正文或耗时。"
           }
         }
       }
@@ -1110,6 +1330,16 @@
         }
       }
     },
+    "Rockxy has no captured duration for this request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 没有捕获到此请求的耗时。"
+          }
+        }
+      }
+    },
     "Rockxy left your proxy settings as they are because another app or a person changed them while Rockxy was capturing. Your settings before capture were:": {
       "localizations": {
         "zh-Hans": {
@@ -1156,6 +1386,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "要让 %lld 个正在运行的模拟器通过 Rockxy 路由吗？"
+          }
+        }
+      }
+    },
+    "Same endpoint": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一端点"
+          }
+        }
+      }
+    },
+    "Same endpoint median %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一端点中位数 %@"
+          }
+        }
+      }
+    },
+    "Same host": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一主机"
+          }
+        }
+      }
+    },
+    "Server wait": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器等待"
           }
         }
       }
@@ -1380,6 +1650,16 @@
         }
       }
     },
+    "That is in line with other captured requests to this endpoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这与发往此端点的其他已捕获请求一致。"
+          }
+        }
+      }
+    },
     "The body does not contain any parts for its declared boundary.": {
       "localizations": {
         "zh-Hans": {
@@ -1460,6 +1740,26 @@
         }
       }
     },
+    "The request has not finished or its timing was not recorded, so Rockxy cannot say where time went.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求尚未完成或未记录其耗时，因此 Rockxy 无法说明时间花在了哪里。"
+          }
+        }
+      }
+    },
+    "The server took the time before answering. Check server-side logs or query cost for this endpoint.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器在响应前耗费了时间。请检查此端点的服务器日志或查询开销。"
+          }
+        }
+      }
+    },
     "The session is too large for nearby transfer.": {
       "localizations": {
         "zh-Hans": {
@@ -1520,6 +1820,16 @@
         }
       }
     },
+    "This request took %@.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此请求耗时 %@。"
+          }
+        }
+      }
+    },
     "This rule would forward to itself. Point it at the real server.": {
       "localizations": {
         "zh-Hans": {
@@ -1536,6 +1846,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "要解密 HTTPS，请从“设置 > 安全 > 加密与凭据 > 安装证书 > CA 证书”安装 rockxy-root-ca.pem，并在 App 的调试网络安全配置中信任用户证书。"
+          }
+        }
+      }
+    },
+    "Total time %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "总耗时 %@"
+          }
+        }
+      }
+    },
+    "Transfer dominated. Check the response size, compression, and network conditions.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输占主导。请检查响应大小、压缩和网络状况。"
           }
         }
       }
@@ -1586,6 +1916,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用端口 %@"
+          }
+        }
+      }
+    },
+    "Which other requests are related to this one?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有哪些请求与这个请求相关？"
+          }
+        }
+      }
+    },
+    "Which related request should I compare first?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "我应该先比较哪个相关请求？"
+          }
+        }
+      }
+    },
+    "Why is this request slow?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么这个请求很慢？"
+          }
+        }
+      }
+    },
+    "Why Is This Slow?": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为什么这么慢？"
           }
         }
       }
