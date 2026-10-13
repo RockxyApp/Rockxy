@@ -185,6 +185,11 @@ struct SensitiveDataRedactor {
             "system_prompt",
             "system-prompt",
             "systemprompt",
+            // Gemini request fields that carry the prompt and system instructions.
+            "contents",
+            "systeminstruction",
+            "system_instruction",
+            "system-instruction",
             "developer_message",
             "developer-message",
             "developermessage",
