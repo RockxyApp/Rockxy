@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The gRPC tab reads gRPC-Web trailer frames for the call status, decodes `grpc-web-text` (base64) bodies, and lists `grpc-timeout` plus the custom request and response metadata separately from transport headers. A new gRPC page in the docs covers detection, decoding, and limits.
 - Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
 - The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
 - The rule tester in the Breakpoint, Block, and Map Remote editors now warns when another enabled rule earlier in the list also matches the test URL, and names the rule that will apply first.
@@ -40,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- gRPC-Web trailer frames are no longer reported as an "Unknown compression flag 128" message.
 - Repeat and Repeat Through Rules now say why a request failed (timed out, host not found, connection refused or lost, offline, TLS failure, unreadable response) instead of a generic "operation couldn't be completed" message, and a failed batch names the first reason.
 - x402 detection no longer marks a standard payment-required response as a provider error because its body has an `error` reason, and no longer treats an ordinary `Authorization` header as a payment proof. The x402 v2 headers (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`) and the v1 `accepts` list are recognized and redacted, and ordinary traffic is only parsed for x402 when its status, headers, or first body bytes point to a payment flow.
 - When another proxy app (such as Clash on `127.0.0.1:7890`) or a person changes the system proxy while Rockxy is capturing, stopping capture or quitting now asks whether to restore the proxy settings you had before capture; Rockxy still never writes over the newer settings on its own, but it no longer drops your previous settings without telling you.
