@@ -49,6 +49,91 @@ struct HARImporterTests {
         #expect(transactions.map(\.clientApp) == ["Google Chrome", "okhttp"])
     }
 
+    @Test("Imports a Charles-style HAR with base64 bodies, pages, and unknown timings")
+    func importsCharlesStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Charles Proxy","version":"5.0"},
+          "pages":[{"startedDateTime":"2026-10-04T15:00:00.000+07:00","id":"page_1","title":"API","pageTimings":{}}],
+          "entries":[
+          {"pageref":"page_1","startedDateTime":"2026-10-04T15:00:00.125+07:00","time":42.5,
+           "request":{"method":"POST","url":"https://api.example.com/v1/login?debug=1","httpVersion":"HTTP/1.1",
+             "cookies":[{"name":"sid","value":"abc"}],
+             "headers":[{"name":"Content-Type","value":"application/json; charset=utf-8"}],
+             "queryString":[{"name":"debug","value":"1"}],
+             "postData":{"mimeType":"application/json; charset=utf-8","text":"{\"user\":\"ada\"}"},
+             "headersSize":120,"bodySize":14},
+           "response":{"_charlesStatus":"COMPLETE","status":201,"statusText":"Created","httpVersion":"HTTP/1.1",
+             "cookies":[],"headers":[{"name":"Content-Type","value":"application/json"}],
+             "content":{"size":11,"mimeType":"application/json","text":"eyJvayI6dHJ1ZX0=","encoding":"base64"},
+             "redirectURL":"","headersSize":80,"bodySize":11},
+           "serverIPAddress":"93.184.216.34","cache":{},
+           "timings":{"blocked":-1,"dns":-1,"connect":-1,"ssl":-1,"send":1.5,"wait":35,"receive":6}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        let transaction = try #require(transactions.first)
+        #expect(transaction.request.method == "POST")
+        #expect(transaction.request.url.absoluteString == "https://api.example.com/v1/login?debug=1")
+        #expect(transaction.request.body.flatMap { String(data: $0, encoding: .utf8) } == #"{"user":"ada"}"#)
+        #expect(transaction.response?.statusCode == 201)
+        #expect(transaction.response?.body.flatMap { String(data: $0, encoding: .utf8) } == #"{"ok":true}"#)
+        #expect(transaction.timingInfo?.dnsLookup ?? 0 >= 0)
+    }
+
+    @Test("Imports a Firefox-style HAR with a redirect and an aborted entry")
+    func importsFirefoxStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Firefox","version":"131.0"},"browser":{"name":"Firefox","version":"131.0"},
+          "pages":[],"entries":[
+          {"startedDateTime":"2026-10-04T08:00:00.000Z","time":12,
+           "request":{"bodySize":0,"method":"GET","url":"http://example.com/old","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Host","value":"example.com"}],"cookies":[],"queryString":[],"headersSize":200},
+           "response":{"status":301,"statusText":"Moved Permanently","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Location","value":"https://example.com/new"}],"cookies":[],
+             "content":{"mimeType":"text/html","size":0,"text":""},"redirectURL":"https://example.com/new",
+             "headersSize":150,"bodySize":0},
+           "cache":{},"timings":{"blocked":0,"dns":1,"connect":2,"ssl":0,"send":0,"wait":8,"receive":1},
+           "connection":"443"},
+          {"startedDateTime":"2026-10-04T08:00:01.000Z","time":0,
+           "request":{"bodySize":0,"method":"GET","url":"https://example.com/new","httpVersion":"HTTP/2",
+             "headers":[],"cookies":[],"queryString":[],"headersSize":-1},
+           "response":{"status":0,"statusText":"","httpVersion":"","headers":[],"cookies":[],
+             "content":{"mimeType":"x-unknown","size":0},"redirectURL":"","headersSize":-1,"bodySize":-1,
+             "_error":"NS_BINDING_ABORTED"},
+           "cache":{},"timings":{"blocked":-1,"dns":-1,"connect":-1,"ssl":-1,"send":0,"wait":0,"receive":0}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        #expect(transactions.count == 2)
+        #expect(transactions[0].response?.statusCode == 301)
+        #expect(transactions[0].response?.headers.contains { $0.name == "Location" } == true)
+        #expect(transactions[1].request.url.absoluteString == "https://example.com/new")
+        #expect(transactions[1].response == nil)
+        #expect(transactions[1].state == .failed)
+    }
+
+    @Test("Imports a Proxyman-style HAR with gzip headers and a text body")
+    func importsProxymanStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Proxyman","version":"5.10.0"},"entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.5+07:00","time":120.25,
+           "request":{"method":"GET","url":"https://cdn.example.com/app.js","httpVersion":"HTTP/2.0",
+             "headers":[{"name":"accept-encoding","value":"gzip, br"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":0},
+           "response":{"status":200,"statusText":"OK","httpVersion":"HTTP/2.0",
+             "headers":[{"name":"content-encoding","value":"gzip"},{"name":"content-type","value":"application/javascript"}],
+             "cookies":[],"content":{"size":20,"compression":0,"mimeType":"application/javascript","text":"console.log('hi');"},
+             "redirectURL":"","headersSize":-1,"bodySize":20},
+           "cache":{},"timings":{"send":0.1,"wait":100,"receive":20.15},"comment":"from Proxyman"}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        let transaction = try #require(transactions.first)
+        #expect(transaction.request.httpVersion == "HTTP/2.0" || transaction.request.httpVersion == "HTTP/2")
+        #expect(transaction.response?.statusCode == 200)
+        #expect(transaction.response?.body.flatMap { String(data: $0, encoding: .utf8) } == "console.log('hi');")
+    }
+
     @Test("A request body without a Content-Type header takes postData.mimeType")
     func postDataMimeTypeBecomesContentType() throws {
         let har = #"""

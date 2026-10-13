@@ -159,6 +159,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- The export sheet says what HAR and CSV leave out (WebSocket frames, notes, highlights, logs; headers and bodies for CSV) before you export, and points to Rockxy Session for a full-fidelity save.
 - Made Rockxy's Language setting change the language only, as macOS does for a per-app language: numbers, sizes, times, and dates keep the Mac's region, 24-hour clock, and first weekday, while words inside a format (AM/PM, "5 minutes ago") follow the chosen language. Picking 简体中文 on a Mac set to Vietnam used to switch counts from "1.234" to "1,234" while times and sizes stayed regional.
 - Rebuilt Developer Setup as a compact native macOS workflow with a focused target sidebar, adaptive five-part guide, contextual actions, and an optional readiness inspector that honors the Rockxy font-size preference up to 28 pt.
 - Made Manual and Automatic Setup windows target-aware and resizable: Manual Setup now shows the selected target's own workflow or guide instead of always falling back to the generic terminal flow, and Automatic Setup only opens for shipped terminal runtimes and names the selected target.
