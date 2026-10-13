@@ -1134,6 +1134,10 @@ struct RockxyMenuCommands: Commands {
                     : String(localized: "External Proxy is off", bundle: RockxyLocalization.bundle))
                 .keyboardShortcut("e", modifiers: [.command, .option])
 
+                if let modeSummary = externalProxyMenuState.modeSummary {
+                    Text(String(localized: "Routing via \(modeSummary)", bundle: RockxyLocalization.bundle))
+                }
+
                 Button(String(localized: "External Proxy Settings…", bundle: RockxyLocalization.bundle)) {
                     openWindow(id: "externalProxySettings")
                 }

@@ -68,7 +68,7 @@ struct BreakpointRuleEditorWindowView: View {
 
                     ruleDetailsSection
                     breakpointPhasesSection
-                    RuleURLTesterSection(toolMetrics: toolMetrics) {
+                    RuleURLTesterSection(toolMetrics: toolMetrics, ruleID: store.editingRule?.id, slot: .breakpoint) {
                         RuleMatchCondition(
                             urlPattern: RulePatternBuilder.regexSource(
                                 rawPattern: urlPattern,

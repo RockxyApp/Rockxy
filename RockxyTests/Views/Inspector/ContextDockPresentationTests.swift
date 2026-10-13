@@ -512,7 +512,7 @@ struct ContextDockInvestigationReportTests {
         #expect(coordinator.contains("DebugAssistantRecipe.suggestedRecipe(for: prompt)"))
 
         // The grid renders all recipes exactly once, in existing order — no intent dropped/duplicated.
-        #expect(DebugAssistantRecipe.allCases.count == 5)
+        #expect(DebugAssistantRecipe.allCases.count == 7)
         #expect(DebugAssistantRecipe.allCases.first == .explainRequest)
         #expect(DebugAssistantRecipe.allCases.last == .prepareBugReport)
     }

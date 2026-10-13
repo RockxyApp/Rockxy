@@ -110,6 +110,31 @@ actor RuleEngine {
         }
     }
 
+    /// The enabled rule that would apply to this request before `ruleID` gets a chance, because it
+    /// sits earlier in the list and competes for the same decision. `ruleID` of `nil` means a rule
+    /// that is not saved yet, which is appended to the end of the list when it is saved.
+    func earlierMatchingRule(
+        than ruleID: UUID?,
+        slot: RuleEvaluationSlot,
+        method: String,
+        url: URL,
+        graphQLOperationName: String? = nil
+    )
+        -> ProxyRule?
+    {
+        let limit = ruleID.flatMap { id in rules.firstIndex { $0.id == id } } ?? rules.endIndex
+        return rules[..<limit].first { rule in
+            slot.includes(rule.action) && ruleApplies(
+                rule,
+                method: method,
+                url: url,
+                headers: [],
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: nil
+            )
+        }
+    }
+
     /// Every enabled Modify Headers rule that matches, in list order, so a header rule
     /// also reaches Map Local, Map Remote and scripted traffic on the same URL.
     func matchingHeaderRules(
@@ -521,6 +546,35 @@ actor RuleEngine {
                     .warning("SECURITY: Disabling rule '\(ruleName)' — invalid regex: \(error.localizedDescription)")
                 rules[i].isEnabled = false
             }
+        }
+    }
+}
+
+// MARK: - RuleEvaluationSlot
+
+/// Rules that compete for the same decision about a request. A Breakpoint editor tests against
+/// other breakpoints, which are checked first on the request side; every other editor tests
+/// against the primary decision, where the first match in list order wins and an earlier
+/// breakpoint also takes the request (`evaluatePrimaryRule` skips only Modify Headers rules).
+enum RuleEvaluationSlot {
+    case breakpoint
+    case primary
+
+    // MARK: Internal
+
+    func includes(_ action: RuleAction) -> Bool {
+        switch (self, action) {
+        case (.breakpoint, .breakpoint):
+            true
+        case (.primary, .block),
+             (.primary, .breakpoint),
+             (.primary, .mapLocal),
+             (.primary, .mapRemote),
+             (.primary, .throttle),
+             (.primary, .networkCondition):
+            true
+        default:
+            false
         }
     }
 }

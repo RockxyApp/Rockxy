@@ -682,6 +682,10 @@ extension MainContentCoordinator {
             String(localized: "Which captured difference should I verify first?", bundle: RockxyLocalization.bundle)
         case .checkAuthentication:
             String(localized: "What authentication evidence should I verify next?", bundle: RockxyLocalization.bundle)
+        case .whyIsThisSlow:
+            String(localized: "How can I confirm where the time goes?", bundle: RockxyLocalization.bundle)
+        case .findRelatedRequests:
+            String(localized: "Which related request should I compare first?", bundle: RockxyLocalization.bundle)
         case .prepareBugReport:
             String(localized: "What should I add before sharing this bug report?", bundle: RockxyLocalization.bundle)
         case nil:

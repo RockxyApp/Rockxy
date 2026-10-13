@@ -6,7 +6,7 @@ import Foundation
 ///
 /// This model intentionally records only lifecycle hints and redaction field names.
 /// It must not hold payment proofs, challenges, receipts, wallet addresses, or payment execution state.
-struct X402Info: Equatable, Sendable {
+struct X402Info: Equatable, Sendable, Codable {
     let stage: X402Stage
     let isX402Like: Bool
     let version: String?
@@ -23,7 +23,7 @@ struct X402Info: Equatable, Sendable {
 
 // MARK: - X402Stage
 
-enum X402Stage: String, Equatable, Sendable {
+enum X402Stage: String, Equatable, Sendable, Codable {
     case ordinaryPaymentRequired
     case paymentRequired
     case paymentProofSubmitted
@@ -33,7 +33,7 @@ enum X402Stage: String, Equatable, Sendable {
 
 // MARK: - X402ParseState
 
-enum X402ParseState: String, Equatable, Sendable {
+enum X402ParseState: String, Equatable, Sendable, Codable {
     case notApplicable
     case parsed
     case malformed
