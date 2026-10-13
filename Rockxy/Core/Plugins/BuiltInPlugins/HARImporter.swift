@@ -120,13 +120,18 @@ struct HARImporter {
         let response = parseResponse(entry["response"] as? [String: Any])
         let timingInfo = parseTimings(entry["timings"] as? [String: Any])
 
+        // Run the same protocol detectors as live capture so imported GraphQL, JSON-RPC, and
+        // x402 traffic gets its inspector tabs, filters, and badges.
         let transaction = HTTPTransaction(
             id: UUID(),
             timestamp: timestamp,
             request: request,
             response: response,
             state: response == nil ? .failed : .completed,
-            timingInfo: timingInfo
+            timingInfo: timingInfo,
+            graphQLInfo: GraphQLDetector.detect(request: request),
+            web3RPCInfo: Web3RPCDetector.detect(request: request, response: response),
+            x402Info: X402Detector.detect(request: request, response: response)
         )
         // HAR has no client field; name the client from the User-Agent like live capture does.
         transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)

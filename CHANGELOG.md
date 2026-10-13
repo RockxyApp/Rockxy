@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The Web3 tab shows a **Payment (x402)** section for payment-gated requests: stage, whether a payment was sent, whether requirements were included, and which fields are sensitive. Payment hints are saved in Rockxy sessions, kept in redacted exports, and detected again on HAR import.
+- Imported HAR files now get the same GraphQL, Web3 JSON-RPC, and x402 detection as live capture.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.

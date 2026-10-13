@@ -62,6 +62,7 @@ struct CodableTransaction: Codable {
             .map { CodableGraphQLInfo(from: $0) }
         self.web3RPCInfo = transaction.web3RPCInfo
             .map { CodableWeb3RPCInfo(from: $0) }
+        self.x402Info = transaction.x402Info
         self.sourcePort = transaction.sourcePort
         self.clientApp = transaction.clientApp
         self.measuredDuration = transaction.measuredDuration
@@ -95,6 +96,8 @@ struct CodableTransaction: Codable {
         )
         graphQLInfo = try container.decodeIfPresent(CodableGraphQLInfo.self, forKey: .graphQLInfo)
         web3RPCInfo = try container.decodeIfPresent(CodableWeb3RPCInfo.self, forKey: .web3RPCInfo)
+        // Optional and lenient: a newer stage this build doesn't know must not fail the whole file.
+        x402Info = try? container.decodeIfPresent(X402Info.self, forKey: .x402Info)
         sourcePort = try container.decodeIfPresent(UInt16.self, forKey: .sourcePort)
         clientApp = try container.decodeIfPresent(String.self, forKey: .clientApp)
         measuredDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .measuredDuration)
@@ -127,6 +130,7 @@ struct CodableTransaction: Codable {
         case webSocketConnection
         case graphQLInfo
         case web3RPCInfo
+        case x402Info
         case sourcePort
         case clientApp
         case measuredDuration
@@ -156,6 +160,8 @@ struct CodableTransaction: Codable {
     let webSocketConnection: CodableWebSocketConnection?
     let graphQLInfo: CodableGraphQLInfo?
     let web3RPCInfo: CodableWeb3RPCInfo?
+    /// Lifecycle hints only; X402Info never holds payment proofs or challenges.
+    let x402Info: X402Info?
     let sourcePort: UInt16?
     let clientApp: String?
     /// Wall-clock lifetime for rows without a timing breakdown (WebSocket connections,
@@ -187,7 +193,8 @@ struct CodableTransaction: Codable {
             timingInfo: timingInfo?.toLiveModel(),
             webSocketConnection: webSocketConnection?.toLiveModel(),
             graphQLInfo: graphQLInfo?.toLiveModel(),
-            web3RPCInfo: web3RPCInfo?.toLiveModel()
+            web3RPCInfo: web3RPCInfo?.toLiveModel(),
+            x402Info: x402Info
         )
         transaction.clientApp = clientApp
         transaction.sourcePort = sourcePort

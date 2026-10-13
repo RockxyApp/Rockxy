@@ -185,6 +185,34 @@ struct SessionSerializerTests {
         #expect(info?.chainHint?.chainID == "0x1")
     }
 
+    @Test("Round-trip preserves x402 payment hints and survives an unknown stage")
+    func roundTripX402() throws {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.x402Info = X402Info(
+            stage: .paymentRequired,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: true,
+            hasPaymentProof: false,
+            hasChallenge: true,
+            hasPaymentMetadata: false,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: ["challenge"],
+            requestPayloadSize: nil,
+            responsePayloadSize: 120
+        )
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+        #expect(session.transactions[0].toLiveModel().x402Info == transaction.x402Info)
+
+        let future = try #require(String(data: data, encoding: .utf8))
+            .replacingOccurrences(of: #""paymentRequired","#, with: #""paymentSettledLater","#)
+        let tolerant = try SessionSerializer.deserialize(from: Data(future.utf8))
+        #expect(tolerant.transactions.count == 1)
+    }
+
     @Test("Round-trip preserves log entries")
     func roundTripLogEntries() throws {
         let transactions = [TestFixtures.makeTransaction()]

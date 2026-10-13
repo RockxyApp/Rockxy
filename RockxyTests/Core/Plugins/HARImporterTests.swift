@@ -49,6 +49,42 @@ struct HARImporterTests {
         #expect(transactions.map(\.clientApp) == ["Google Chrome", "okhttp"])
     }
 
+    @Test("Imported HAR entries get the same protocol detection as live capture")
+    func importedEntriesRunProtocolDetectors() throws {
+        let har = #"""
+        {"log":{"version":"1.2","entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.000Z","time":10,
+           "request":{"method":"POST","url":"https://rpc.example.com/","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":60,
+             "postData":{"mimeType":"application/json","text":"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"}},
+           "response":{"status":200,"statusText":"OK","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"cookies":[],
+             "content":{"size":40,"mimeType":"application/json","text":"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x1\"}"},
+             "redirectURL":"","headersSize":-1,"bodySize":40},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:01.000Z","time":10,
+           "request":{"method":"GET","url":"https://paid.example.com/report","httpVersion":"HTTP/1.1",
+             "headers":[],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":0},
+           "response":{"status":402,"statusText":"Payment Required","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"cookies":[],
+             "content":{"size":60,"mimeType":"application/json","text":"{\"x402Version\":1,\"error\":\"X-PAYMENT header is required\",\"accepts\":[]}"},
+             "redirectURL":"","headersSize":-1,"bodySize":60},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:02.000Z","time":10,
+           "request":{"method":"POST","url":"https://api.example.com/graphql","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":40,
+             "postData":{"mimeType":"application/json","text":"{\"query\":\"query GetUser { user { id } }\"}"}},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        #expect(transactions[0].web3RPCInfo?.method == "eth_chainId")
+        #expect(transactions[1].x402Info?.isX402Like == true)
+        #expect(transactions[2].graphQLInfo?.operationName == "GetUser")
+    }
+
     @Test("A request body without a Content-Type header takes postData.mimeType")
     func postDataMimeTypeBecomesContentType() throws {
         let har = #"""
@@ -511,7 +547,8 @@ struct HARImporterTests {
         let imported = try importer.importData(harData)
 
         let restored = imported[0]
-        #expect(restored.graphQLInfo == nil)
+        // HAR carries no GraphQL field, but import re-detects the operation from the body.
+        #expect(restored.graphQLInfo?.operationName == "GetUsers")
         #expect(restored.comment == nil)
         #expect(restored.highlightColor == nil)
         #expect(restored.isPinned == false)

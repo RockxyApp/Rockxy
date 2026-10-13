@@ -999,7 +999,7 @@ enum ProtocolTabKind: Hashable {
         if transaction.webSocketConnection != nil {
             return .websocket
         }
-        if transaction.web3RPCInfo != nil {
+        if transaction.web3RPCInfo != nil || transaction.x402Info?.isX402Like == true {
             return .web3
         }
         if transaction.graphQLInfo != nil {
@@ -1033,7 +1033,7 @@ enum ProtocolTabKind: Hashable {
         case .websocket:
             transaction.webSocketConnection != nil
         case .web3:
-            transaction.web3RPCInfo != nil
+            transaction.web3RPCInfo != nil || transaction.x402Info?.isX402Like == true
         case .graphql:
             transaction.graphQLInfo != nil
         case .grpc:

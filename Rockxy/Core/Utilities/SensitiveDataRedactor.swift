@@ -362,7 +362,8 @@ struct SensitiveDataRedactor {
             timingInfo: transaction.timingInfo,
             webSocketConnection: transaction.webSocketConnection,
             graphQLInfo: transaction.graphQLInfo,
-            web3RPCInfo: transaction.web3RPCInfo
+            web3RPCInfo: transaction.web3RPCInfo,
+            x402Info: transaction.x402Info
         )
         redacted.measuredDuration = transaction.measuredDuration
         redacted.sourcePort = transaction.sourcePort
