@@ -700,6 +700,26 @@
         }
       }
     },
+    "Network": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络"
+          }
+        }
+      }
+    },
+    "Network for devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备使用的网络"
+          }
+        }
+      }
+    },
     "No Booted Simulators": {
       "localizations": {
         "zh-Hans": {
@@ -1516,6 +1536,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "这些模拟器将信任 Rockxy 签发的 HTTPS 证书。抹掉模拟器会移除该证书。"
+          }
+        }
+      }
+    },
+    "This Mac is on more than one network. Choose the one your device uses, then use this host and port on the device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 连接了多个网络。请选择设备所在的网络，然后在设备上使用此主机和端口。"
           }
         }
       }

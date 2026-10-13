@@ -88,6 +88,44 @@ struct RootCADownloadServerAddressTests {
 
 // MARK: - RootCADownloadServerLifecycleTests
 
+struct RootCADownloadServerPreferredInterfaceTests {
+    private let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+        (interfaceName: "en0", address: "192.168.1.20"),
+        (interfaceName: "en7", address: "10.0.0.5"),
+        (interfaceName: "utun3", address: "100.64.0.2"),
+    ])
+
+    @Test("With no choice, devices get the best-ranked address")
+    func defaultsToBestRanked() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: nil)
+        #expect(chosen?.address == "192.168.1.20")
+    }
+
+    @Test("A chosen interface wins while it is still connected")
+    func honorsChosenInterface() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: "en7")
+        #expect(chosen?.address == "10.0.0.5")
+    }
+
+    @Test("A chosen interface that disconnected falls back instead of pointing at a dead address")
+    func fallsBackWhenChoiceDisappears() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: "en9")
+        #expect(chosen?.address == "192.168.1.20")
+        #expect(RootCADownloadServer.preferredLANCandidate(from: [], preferredInterface: "en0") == nil)
+    }
+
+    @Test("The preferred address reads the remembered interface from defaults")
+    func readsRememberedInterface() throws {
+        let suite = "RootCAPreferredInterface-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("no-such-interface", forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
+        // Unknown interfaces fall back to the live best-ranked address, whatever this Mac has.
+        #expect(RootCADownloadServer.preferredLANAddress(defaults: defaults)
+            == RootCADownloadServer.rankedLANIPv4AddressCandidates().first?.address)
+    }
+}
+
 struct RootCADownloadServerLifecycleTests {
     @Test("Concurrent starts publish only the newest share session")
     func concurrentStartsPublishNewestSession() async throws {

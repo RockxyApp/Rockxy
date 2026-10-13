@@ -139,6 +139,41 @@ struct DeveloperSetupWindowView: View {
         return "\(host):\(String(viewModel.snapshot.activePort))"
     }
 
+    /// Shown only when this Mac has more than one LAN address, so the person picks the network
+    /// the device is on instead of Rockxy silently choosing one.
+    private var lanInterfacePicker: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            overviewRowLabel(String(localized: "Network", bundle: RockxyLocalization.bundle))
+            Spacer(minLength: 12)
+            Picker(
+                String(localized: "Network", bundle: RockxyLocalization.bundle),
+                selection: Binding(
+                    get: { viewModel.selectedLANInterface ?? "" },
+                    set: { interface in
+                        // A sharing link points at the previous address; stop it so the device
+                        // never downloads from a network it is not on.
+                        if presentedShareSession != nil {
+                            stopPresentedCertificateSharing()
+                        }
+                        Task { @MainActor in
+                            await viewModel.selectLANInterface(interface)
+                        }
+                    }
+                )
+            ) {
+                ForEach(viewModel.snapshot.lanCandidates) { candidate in
+                    Text(verbatim: "\(candidate.address) (\(candidate.interfaceName))")
+                        .tag(candidate.interfaceName)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel(String(localized: "Network for devices", bundle: RockxyLocalization.bundle))
+            .accessibilityIdentifier("developerSetup.lanInterface")
+        }
+        .padding(.bottom, 10)
+    }
+
     private var deviceProxyCaption: String {
         if viewModel.snapshot.effectiveListenAddress == "127.0.0.1" {
             return String(
@@ -152,6 +187,12 @@ struct DeveloperSetupWindowView: View {
         guard viewModel.snapshot.reachableLANAddress != nil else {
             return String(
                 localized: "Connect this Mac to Wi-Fi or Ethernet to expose a reachable LAN IP.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+        if viewModel.snapshot.lanCandidates.count > 1 {
+            return String(
+                localized: "This Mac is on more than one network. Choose the one your device uses, then use this host and port on the device.",
                 bundle: RockxyLocalization.bundle
             )
         }
@@ -437,6 +478,9 @@ struct DeveloperSetupWindowView: View {
                     caption: deviceProxyCaption,
                     action: deviceEndpointOverviewAction
                 )
+                if viewModel.snapshot.lanCandidates.count > 1 {
+                    lanInterfacePicker
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
