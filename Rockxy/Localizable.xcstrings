@@ -14,6 +14,16 @@
         }
       }
     },
+    "%@ at %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（位于 %@）"
+          }
+        }
+      }
+    },
     "%@ of binary data. Save the part to inspect it in another app.": {
       "localizations": {
         "zh-Hans": {
@@ -60,6 +70,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已使用 Rockxy 的作用域环境打开 %@。如果它会覆盖 macOS 或环境代理设置，请单独配置该应用级代理。"
+          }
+        }
+      }
+    },
+    "^[%lld Response Error](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个响应错误"
           }
         }
       }
@@ -114,6 +134,16 @@
         }
       }
     },
+    "Anonymous": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名"
+          }
+        }
+      }
+    },
     "Another reverse proxy already uses this local port.": {
       "localizations": {
         "zh-Hans": {
@@ -140,6 +170,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "任意操作"
+          }
+        }
+      }
+    },
+    "At %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %@"
           }
         }
       }
@@ -760,6 +800,16 @@
         }
       }
     },
+    "No message": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无消息"
+          }
+        }
+      }
+    },
     "No Parts": {
       "localizations": {
         "zh-Hans": {
@@ -1190,6 +1240,22 @@
         }
       }
     },
+    "Showing the first %lld of %lld errors.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Showing the first %1$lld of %2$lld errors."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %2$lld 个错误，仅显示前 %1$lld 个。"
+          }
+        }
+      }
+    },
     "SOCKS5 Listener": {
       "localizations": {
         "zh-Hans": {
@@ -1516,6 +1582,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "请求 URL 无效。"
+          }
+        }
+      }
+    },
+    "The response also returned data, so the operation partly succeeded.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应同时返回了数据，因此该操作部分成功。"
           }
         }
       }
