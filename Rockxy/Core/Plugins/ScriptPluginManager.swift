@@ -27,10 +27,12 @@ actor ScriptPluginManager {
     init(
         discovery: PluginDiscovery = PluginDiscovery(),
         defaults: UserDefaults = .standard,
-        settingsProvider: (@Sendable () -> AppSettings)? = nil
+        settingsProvider: (@Sendable () -> AppSettings)? = nil,
+        runReporter: ScriptRunReporter = ScriptRunReporter()
     ) {
         self.discovery = discovery
         self.defaults = defaults
+        self.runReporter = runReporter
         let ledger = ScriptExecutionLedger()
         self.executionLedger = ledger
         self.runtime = ScriptRuntime(defaults: defaults, previewLedger: ledger)
@@ -296,9 +298,15 @@ actor ScriptPluginManager {
                 if Self.changes(outcome, from: current) {
                     executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
                 }
+                if case let .mockFailure(reason) = outcome {
+                    runReporter.reportFailure(pluginID: plugin.id, phase: .request, reason: reason)
+                } else {
+                    runReporter.reportSuccess(pluginID: plugin.id, phase: .request)
+                }
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onRequest failed: \(error.localizedDescription)")
                 recordHookFailure(id: plugin.id, reason: error.localizedDescription)
+                runReporter.reportFailure(pluginID: plugin.id, phase: .request, reason: error.localizedDescription)
                 continue
             }
             switch outcome {
@@ -358,6 +366,7 @@ actor ScriptPluginManager {
                 if Self.differs(mutated, from: current) {
                     executionLedger.record(scriptName: plugin.manifest.name, flowID: request.flowID)
                 }
+                runReporter.reportSuccess(pluginID: plugin.id, phase: .response)
                 if chain {
                     current = mutated
                     continue
@@ -366,6 +375,7 @@ actor ScriptPluginManager {
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onResponse failed: \(error.localizedDescription)")
                 recordHookFailure(id: plugin.id, reason: error.localizedDescription)
+                runReporter.reportFailure(pluginID: plugin.id, phase: .response, reason: error.localizedDescription)
                 continue
             }
         }
@@ -424,6 +434,7 @@ actor ScriptPluginManager {
 
     private let discovery: PluginDiscovery
     private let runtime: ScriptRuntime
+    private let runReporter: ScriptRunReporter
 
     private static let maxConsecutiveHookFailures = 5
 

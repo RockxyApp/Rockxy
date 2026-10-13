@@ -253,6 +253,112 @@ struct DetectionTests {
         #expect(frame.heuristicTree == nil)
     }
 
+    @Test("gRPC-Web trailer frames carry the status instead of being reported as unknown compression")
+    func detectGRPCWebTrailerFrame() throws {
+        let message = TestFixtures.grpcFrame(payload: Data([0x08, 0x01]))
+        let trailer = TestFixtures.grpcFrame(
+            compressedFlag: 0x80,
+            payload: Data("grpc-status: 5\r\ngrpc-message: user not found\r\nx-request-id: abc123\r\n".utf8)
+        )
+        let request = try webRequest(contentType: "application/grpc-web+proto", body: message, extraHeaders: [
+            HTTPHeader(name: "grpc-timeout", value: "5S"),
+            HTTPHeader(name: "x-tenant", value: "acme"),
+        ])
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/grpc-web+proto")],
+            body: message + trailer,
+            contentType: .protobuf
+        )
+
+        let inspection = try #require(GRPCDetector.detect(
+            request: request,
+            response: response,
+            timingInfo: nil,
+            measuredDuration: nil
+        ))
+
+        #expect(inspection.responseFrames.map(\.status) == [.complete, .trailers])
+        #expect(inspection.grpcStatus == "5")
+        #expect(inspection.grpcMessage == "user not found")
+        #expect(inspection.timeout == "5S")
+        #expect(inspection.requestMetadata == [HTTPHeader(name: "x-tenant", value: "acme")])
+        #expect(inspection.responseMetadata == [HTTPHeader(name: "x-request-id", value: "abc123")])
+        #expect(!inspection.responseFrames[1].isCompressed)
+    }
+
+    @Test("gRPC-Web text bodies are base64-decoded, including back-to-back padded chunks")
+    func detectGRPCWebTextBody() throws {
+        let message = TestFixtures.grpcFrame(payload: Data([0x08, 0x2A]))
+        let trailer = TestFixtures.grpcFrame(compressedFlag: 0x80, payload: Data("grpc-status:0\r\n".utf8))
+        let body = Data((message.base64EncodedString() + trailer.base64EncodedString()).utf8)
+        let request = try webRequest(contentType: "application/grpc-web-text", body: Data(message.base64EncodedString().utf8))
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/grpc-web-text+proto")],
+            body: body,
+            contentType: nil
+        )
+
+        let inspection = try #require(GRPCDetector.detect(
+            request: request,
+            response: response,
+            timingInfo: nil,
+            measuredDuration: nil
+        ))
+
+        #expect(inspection.requestFrames.first?.payload == Data([0x08, 0x2A]))
+        #expect(inspection.responseFrames.map(\.status) == [.complete, .trailers])
+        #expect(inspection.grpcStatus == "0")
+    }
+
+    @Test("Browser and CORS headers stay out of gRPC metadata")
+    func grpcMetadataSkipsBrowserHeaders() {
+        let metadata = GRPCDetector.customMetadata([
+            HTTPHeader(name: "Origin", value: "https://app.example.com"),
+            HTTPHeader(name: "Sec-Fetch-Mode", value: "cors"),
+            HTTPHeader(name: "Access-Control-Allow-Methods", value: "POST"),
+            HTTPHeader(name: "Cache-Control", value: "no-cache"),
+            HTTPHeader(name: "x-tenant", value: "acme"),
+        ])
+        #expect(metadata == [HTTPHeader(name: "x-tenant", value: "acme")])
+    }
+
+    @Test("A gRPC-Web text body cut off mid-chunk keeps its complete part")
+    func grpcWebTextTruncatedTail() {
+        let message = TestFixtures.grpcFrame(payload: Data([0x08, 0x2A, 0x10, 0x01]))
+        var text = message.base64EncodedString()
+        text.removeLast(2)
+        let decoded = GRPCDetector.decodedBody(Data(text.utf8), contentType: "application/grpc-web-text")
+        #expect(decoded.map { message.starts(with: $0) } == true)
+        #expect((decoded?.count ?? 0) > 0)
+    }
+
+    @Test("Undecodable gRPC-Web text falls back to the raw body")
+    func grpcWebTextFallsBack() {
+        let raw = Data("not base64 !!".utf8)
+        #expect(GRPCDetector.decodedBody(raw, contentType: "application/grpc-web-text") == raw)
+        #expect(GRPCDetector.decodedBody(raw, contentType: "application/grpc") == raw)
+    }
+
+    private func webRequest(
+        contentType: String,
+        body: Data,
+        extraHeaders: [HTTPHeader] = []
+    ) throws -> HTTPRequestData {
+        HTTPRequestData(
+            method: "POST",
+            url: try #require(URL(string: "https://api.example.com/user.v1.UserService/GetProfile")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: contentType), HTTPHeader(name: "X-Grpc-Web", value: "1")]
+                + extraHeaders,
+            body: body,
+            contentType: nil
+        )
+    }
+
     // MARK: - Web3RPCDetector Tests
 
     @Test("Web3RPCDetector detects eth_call metadata")
