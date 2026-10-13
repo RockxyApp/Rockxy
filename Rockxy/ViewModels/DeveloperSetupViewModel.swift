@@ -322,9 +322,23 @@ final class DeveloperSetupViewModel {
         isProxyRunning ? activePort : configuredPort
     }
 
+    /// The candidate id (`interface|address`) whose address the device endpoint shows.
+    var selectedLANInterface: String? {
+        RootCADownloadServer.preferredLANCandidate(
+            from: snapshot.lanCandidates,
+            preferredInterface: UserDefaults.standard.string(forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
+        )?.id
+    }
+
+    /// Remembers which network devices are on and refreshes the endpoint and snippets.
+    func selectLANInterface(_ interfaceName: String) async {
+        UserDefaults.standard.set(interfaceName, forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
+        await refreshSnapshot()
+    }
+
     static func reachableLANAddress(
         for effectiveListenAddress: String,
-        discoverLANAddress: () -> String? = { RootCADownloadServer.lanIPv4Addresses().first }
+        discoverLANAddress: () -> String? = { RootCADownloadServer.preferredLANAddress() }
     )
         -> String?
     {
@@ -458,6 +472,9 @@ final class DeveloperSetupViewModel {
         snapshot.activePort = coordinator.isProxyRunning ? coordinator.activeProxyPort : settings.proxyPort
         snapshot.effectiveListenAddress = settings.effectiveListenAddress
         snapshot.reachableLANAddress = Self.reachableLANAddress(for: settings.effectiveListenAddress)
+        snapshot.lanCandidates = Self.isWildcardListenAddress(
+            settings.effectiveListenAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        ) ? RootCADownloadServer.rankedLANIPv4AddressCandidates() : []
         snapshot.certificateGenerated = certificateSnapshot.hasGeneratedCertificate
         snapshot.certificateTrusted = certificateSnapshot.isSystemTrustValidated || readiness.canInterceptHTTPS
         snapshot.certificateExportable = pem != nil

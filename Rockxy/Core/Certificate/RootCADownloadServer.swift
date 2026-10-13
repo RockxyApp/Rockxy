@@ -104,7 +104,7 @@ actor RootCADownloadServer {
             throw CancellationError()
         }
 
-        guard let host = Self.rankedLANIPv4AddressCandidates().first?.address else {
+        guard let host = Self.preferredLANAddress() else {
             throw RootCADownloadError.noReachableLANAddress
         }
 
@@ -187,6 +187,39 @@ actor RootCADownloadServer {
 
     nonisolated static func lanIPv4Addresses() -> [String] {
         rankedLANIPv4AddressCandidates().map(\.address)
+    }
+
+    /// Defaults key for the network interface the person chose in Developer Setup when this Mac
+    /// has more than one LAN address.
+    nonisolated static let preferredInterfaceDefaultsKey = RockxyIdentity.current
+        .defaultsKey("developerSetup.preferredLANInterface")
+
+    /// The chosen candidate when it is still up, otherwise the best-ranked one, so a remembered
+    /// network that disconnected never leaves devices pointed at a dead address. The preference is
+    /// a candidate id (`interface|address`); a bare interface name from an earlier build still
+    /// matches that interface's first address.
+    nonisolated static func preferredLANCandidate(
+        from candidates: [LANIPv4AddressCandidate],
+        preferredInterface: String?
+    ) -> LANIPv4AddressCandidate? {
+        if let preferredInterface {
+            if let exact = candidates.first(where: { $0.id == preferredInterface }) {
+                return exact
+            }
+            if let sameInterface = candidates.first(where: { $0.interfaceName == preferredInterface }) {
+                return sameInterface
+            }
+        }
+        return candidates.first
+    }
+
+    /// The LAN address devices should use: the same answer for the device endpoint, the toolbar
+    /// popover, and certificate sharing.
+    nonisolated static func preferredLANAddress(defaults: UserDefaults = .standard) -> String? {
+        preferredLANCandidate(
+            from: rankedLANIPv4AddressCandidates(),
+            preferredInterface: defaults.string(forKey: preferredInterfaceDefaultsKey)
+        )?.address
     }
 
     nonisolated static func rankedLANIPv4AddressCandidates() -> [LANIPv4AddressCandidate] {
@@ -313,10 +346,15 @@ actor RootCADownloadServer {
 
 // MARK: - LANIPv4AddressCandidate
 
-struct LANIPv4AddressCandidate: Equatable, Sendable {
+struct LANIPv4AddressCandidate: Equatable, Sendable, Identifiable {
     let interfaceName: String
     let address: String
     let rank: Int
+
+    /// Interface and address together: one interface can carry several IPv4 addresses.
+    var id: String {
+        "\(interfaceName)|\(address)"
+    }
 }
 
 // MARK: - RootCADownloadHandler

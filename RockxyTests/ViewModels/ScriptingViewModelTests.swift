@@ -522,6 +522,32 @@ struct ScriptingViewModelTests {
         #expect(source == ScriptTemplates.defaultSource)
     }
 
+    @Test("Creating from a template writes its name, source, and mock behavior")
+    func createNewScriptFromTemplate() async throws {
+        let env = TestFixtures.makeIsolatedPluginEnv()
+        defer { env.cleanup() }
+        let vm = ScriptingListViewModel(
+            pluginManager: env.manager,
+            folderStore: ScriptFolderStore(defaults: env.defaults),
+            pluginsDirectory: env.pluginsDir
+        )
+        _ = ScriptEditorSession.shared.consumePending()
+
+        let pluginID = try #require(await vm.createNewScript(from: .conditionalMockJSON))
+        _ = ScriptEditorSession.shared.consumePending()
+
+        let pluginDir = env.pluginsDir.appendingPathComponent(pluginID, isDirectory: true)
+        let manifest = try JSONDecoder().decode(
+            PluginManifest.self,
+            from: Data(contentsOf: pluginDir.appendingPathComponent("plugin.json"))
+        )
+        let source = try String(contentsOf: pluginDir.appendingPathComponent("index.js"), encoding: .utf8)
+        #expect(manifest.name == ScriptStarterTemplate.conditionalMockJSON.title)
+        #expect(manifest.scriptBehavior == ScriptStarterTemplate.conditionalMockJSON.behavior)
+        #expect(manifest.scriptBehavior?.runAsMock == true)
+        #expect(source == ScriptStarterTemplate.conditionalMockJSON.source)
+    }
+
     @Test("createNewScript clears search so its selected row stays visible")
     func createNewScriptClearsActiveSearch() async throws {
         let env = TestFixtures.makeIsolatedPluginEnv()

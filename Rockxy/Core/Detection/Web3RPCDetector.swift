@@ -30,6 +30,16 @@ enum Web3RPCDetector {
         let error = primaryResponse?.error ?? responses.compactMap(\.error).first
         let family = family(for: primary.method)
 
+        // In a batch, responses may arrive in any order; pair each call with the response that
+        // carries its id so a chain or transaction hint is never read from another call's result.
+        let pairs = web3Requests.map { request in
+            (request, batch == nil ? primaryResponse : responseEntry(matching: request.id, in: responses))
+        }
+        let chainHint = pairs.lazy.compactMap { chainHint(method: $0.0.method, response: $0.1) }.first
+        let transactionHash = pairs.lazy
+            .compactMap { transactionHash(method: $0.0.method, request: $0.0, response: $0.1) }
+            .first
+
         return Web3RPCInfo(
             family: family,
             providerHost: request.host,
@@ -37,8 +47,8 @@ enum Web3RPCDetector {
             requestID: batch == nil ? primary.id : nil,
             batch: batch,
             error: error,
-            chainHint: chainHint(method: primary.method, response: primaryResponse),
-            transactionHash: transactionHash(method: primary.method, request: primary, response: primaryResponse),
+            chainHint: chainHint,
+            transactionHash: transactionHash,
             blockIdentifier: blockIdentifier(method: primary.method, request: primary, response: primaryResponse),
             requestPayloadSize: request.body?.count,
             responsePayloadSize: response?.body?.count
