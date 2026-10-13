@@ -185,6 +185,100 @@ struct SessionSerializerTests {
         #expect(info?.chainHint?.chainID == "0x1")
     }
 
+    @Test("Round-trip preserves x402 payment hints and survives an unknown stage")
+    func roundTripX402() throws {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.x402Info = X402Info(
+            stage: .paymentRequired,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: true,
+            hasPaymentProof: false,
+            hasChallenge: true,
+            hasPaymentMetadata: false,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: ["challenge"],
+            requestPayloadSize: nil,
+            responsePayloadSize: 120
+        )
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+        #expect(session.transactions[0].toLiveModel().x402Info == transaction.x402Info)
+
+        let future = try #require(String(data: data, encoding: .utf8))
+            .replacingOccurrences(of: #""paymentRequired","#, with: #""paymentSettledLater","#)
+        let tolerant = try SessionSerializer.deserialize(from: Data(future.utf8))
+        #expect(tolerant.transactions.count == 1)
+    }
+
+    // MARK: - Stream Diagnostics
+
+    @Test("Round-trip preserves stream diagnostics")
+    func roundTripStreamDiagnostics() throws {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.streamDiagnostics = StreamDiagnostics(
+            events: [SSEEventMetadata(index: 0, eventName: "message", relativeTime: 0.28, byteCount: 24)],
+            eventCount: 1,
+            firstEventTime: 0.28,
+            lastEventTime: 0.28,
+            terminalEventTime: nil,
+            maxInterEventGap: nil,
+            terminalMarker: nil,
+            outcome: .endedWithoutTerminalMarker,
+            didReachMetadataLimit: false,
+            didObserveMalformedFrame: false,
+            hasUnterminatedPartialFrame: false
+        )
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+
+        let restored = try #require(session.transactions[0].toLiveModel().streamDiagnostics)
+        #expect(restored.eventCount == 1)
+        #expect(restored.firstEventTime == 0.28)
+        #expect(restored.events.first?.eventName == "message")
+        #expect(restored.events.first?.relativeTime == 0.28)
+        #expect(restored.outcome == .endedWithoutTerminalMarker)
+    }
+
+    @Test("Deserializes a v1 file without stream diagnostics as nil")
+    func deserializesWithoutStreamDiagnostics() throws {
+        let transaction = TestFixtures.makeTransaction()
+        let codableTx = CodableTransaction(from: transaction)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let txData = try encoder.encode(codableTx)
+        var txDict = try #require(
+            try JSONSerialization.jsonObject(with: txData) as? [String: Any]
+        )
+        txDict.removeValue(forKey: "streamDiagnostics")
+
+        let sessionDict: [String: Any] = [
+            "metadata": [
+                "rockxyVersion": "1.0",
+                "formatVersion": 1,
+                "transactionCount": 1
+            ] as [String: Any],
+            "transactions": [txDict]
+        ]
+        let sessionData = try JSONSerialization.data(withJSONObject: sessionDict)
+        let session = try SessionSerializer.deserialize(from: sessionData)
+
+        #expect(session.transactions[0].toLiveModel().streamDiagnostics == nil)
+    }
+
+    @Test("Round-trip preserves the capture-time tunnel reason")
+    func roundTripTunnelReason() throws {
+        let transaction = TestFixtures.makeTransaction(method: "CONNECT", url: "https://bank.example.com:443")
+        transaction.tunnelReason = .bypassList
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+        #expect(session.transactions[0].toLiveModel().tunnelReason == .bypassList)
+    }
+
     @Test("Round-trip preserves log entries")
     func roundTripLogEntries() throws {
         let transactions = [TestFixtures.makeTransaction()]
