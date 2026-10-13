@@ -370,18 +370,66 @@ struct AIInspectorView: View {
                     value: CountFormatter.format(inspection.events.count)
                 )
             }
+            if let diagnostics = transaction.streamDiagnostics {
+                streamTimingGrid(diagnostics)
+            }
             if inspection.isStreaming,
                inspection.events.contains(where: { $0.category == .stream || $0.category == .tool })
             {
                 streamBars(inspection.events)
-                Text(String(
-                    localized: "Bars show each captured event's payload size in stream order. Per-event arrival timing is not recorded.",
-                    bundle: RockxyLocalization.bundle
-                ))
-                .font(.system(size: metrics.metadataFontSize))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(transaction.streamDiagnostics == nil
+                    ? String(
+                        localized: "Bars show each captured event's payload size in stream order. Per-event arrival timing is not recorded.",
+                        bundle: RockxyLocalization.bundle
+                    )
+                    : String(
+                        localized: "Bars show each captured event's payload size in stream order. Times above were measured by Rockxy as events arrived.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .font(.system(size: metrics.metadataFontSize))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Arrival timing measured live by the proxy for an SSE stream.
+    private func streamTimingGrid(_ diagnostics: StreamDiagnostics) -> some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 120, maximum: 220), alignment: .leading)],
+            alignment: .leading,
+            spacing: 4
+        ) {
+            metadataPair(
+                String(localized: "First Event", bundle: RockxyLocalization.bundle),
+                value: durationLabel(diagnostics.firstEventTime)
+            )
+            metadataPair(
+                String(localized: "Longest Gap", bundle: RockxyLocalization.bundle),
+                value: durationLabel(diagnostics.maxInterEventGap)
+            )
+            metadataPair(
+                String(localized: "Stream End", bundle: RockxyLocalization.bundle),
+                value: streamOutcomeLabel(diagnostics.outcome)
+            )
+            metadataPair(
+                String(localized: "Events Seen", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(diagnostics.eventCount)
+            )
+        }
+        .accessibilityIdentifier("aiInspector.streamTiming")
+    }
+
+    private func streamOutcomeLabel(_ outcome: StreamTerminalOutcome) -> String {
+        switch outcome {
+        case .completedWithTerminalMarker:
+            String(localized: "Completed", bundle: RockxyLocalization.bundle)
+        case .endedWithoutTerminalMarker:
+            String(localized: "Ended without a final event", bundle: RockxyLocalization.bundle)
+        case .transportInterrupted:
+            String(localized: "Interrupted", bundle: RockxyLocalization.bundle)
+        case .timedOut:
+            String(localized: "Timed out", bundle: RockxyLocalization.bundle)
         }
     }
 

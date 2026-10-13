@@ -805,6 +805,8 @@ struct HTTPSInspectionPromptModel: Equatable {
     let certificateAction: HTTPSInspectionPromptAction?
     let hostScope: HTTPSInspectionScopePresentation?
     let appScope: HTTPSInspectionScopePresentation?
+    /// The capture-time reason this connection was tunneled, when it was recorded.
+    var captureReason: TunnelReason?
 
     var requiresCertificateSetup: Bool {
         certificateAction == .installCertificate
@@ -831,7 +833,11 @@ struct HTTPSInspectionPromptModel: Equatable {
             return nil
         }
 
-        let hasTLSRejectionEvidence = transaction.isTLSFailure || hasRecentTLSRejection
+        // A row tunneled by auto-passthrough is capture-time proof that the app rejected
+        // Rockxy's certificate, even after the passthrough entry later expires.
+        let hasTLSRejectionEvidence = transaction.isTLSFailure
+            || hasRecentTLSRejection
+            || transaction.tunnelReason == .autoPassthrough
         guard hasTLSRejectionEvidence || (200 ... 299).contains(response.statusCode) else {
             return nil
         }
@@ -842,7 +848,8 @@ struct HTTPSInspectionPromptModel: Equatable {
                 insight: nil,
                 certificateAction: .installCertificate,
                 hostScope: nil,
-                appScope: nil
+                appScope: nil,
+                captureReason: transaction.tunnelReason
             )
         }
 
@@ -872,7 +879,8 @@ struct HTTPSInspectionPromptModel: Equatable {
                     currentHostEnabled: domainRuleEnabled,
                     fallbackDomain: host
                 )
-            }
+            },
+            captureReason: transaction.tunnelReason
         )
     }
 }

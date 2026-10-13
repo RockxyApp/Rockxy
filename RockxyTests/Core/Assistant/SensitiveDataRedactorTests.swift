@@ -251,6 +251,32 @@ struct SensitiveDataRedactorTests {
         #expect(redactor.redactHeaders(headers) == headers)
     }
 
+    // MARK: - Transaction
+
+    @Test("redactTransaction preserves structural stream diagnostics unchanged")
+    func transactionPreservesStreamDiagnostics() {
+        let redactor = SensitiveDataRedactor()
+        let transaction = TestFixtures.makeTransaction()
+        let diagnostics = StreamDiagnostics(
+            events: [SSEEventMetadata(index: 0, eventName: "message", relativeTime: 0.28, byteCount: 24)],
+            eventCount: 1,
+            firstEventTime: 0.28,
+            lastEventTime: 0.28,
+            terminalEventTime: nil,
+            maxInterEventGap: nil,
+            terminalMarker: nil,
+            outcome: .endedWithoutTerminalMarker,
+            didReachMetadataLimit: false,
+            didObserveMalformedFrame: false,
+            hasUnterminatedPartialFrame: false
+        )
+        transaction.streamDiagnostics = diagnostics
+
+        let redacted = redactor.redactTransaction(transaction)
+
+        #expect(redacted.streamDiagnostics == diagnostics)
+    }
+
     // MARK: Private
 
     // MARK: - Helpers

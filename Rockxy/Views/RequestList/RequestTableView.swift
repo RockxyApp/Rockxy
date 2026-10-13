@@ -2987,6 +2987,8 @@ extension RequestTableView {
                 .systemRed
             case "Web3":
                 .systemGreen
+            case "x402":
+                .systemOrange
             case "AI API",
                  "AI Session",
                  "Likely AI":
