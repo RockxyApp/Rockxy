@@ -5,6 +5,16 @@ struct BabylonCaptureCommands: Commands {
 
     var body: some Commands {
         CommandMenu(String(localized: "Babylon", bundle: RockxyLocalization.bundle)) {
+            Toggle(
+                String(localized: "Accept Babylon Connections", bundle: RockxyLocalization.bundle),
+                isOn: Binding(
+                    get: { receiver.isEnabled },
+                    set: { receiver.setEnabled($0) }
+                )
+            )
+
+            Divider()
+
             Button(String(localized: "Pairing…", bundle: RockxyLocalization.bundle)) {
                 openWindow(id: "babylonPairing")
             }
@@ -18,4 +28,5 @@ struct BabylonCaptureCommands: Commands {
     // MARK: Private
 
     @Environment(\.openWindow) private var openWindow
+    private let receiver = BabylonCaptureReceiver.shared
 }
