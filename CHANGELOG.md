@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Babylon captures gRPC calls as gRPC exchanges with their status and message, and shows WebSocket ping, pong, and close frames with the close code and reason.
 - The Web3 tab shows a **Payment (x402)** section for payment-gated requests: stage, whether a payment was sent, whether requirements were included, and which fields are sensitive. Payment hints are saved in Rockxy sessions, kept in redacted exports, and detected again on HAR import.
 - Imported HAR files now get the same GraphQL, Web3 JSON-RPC, and x402 detection as live capture.
 - Two new AI Assistant investigations: **Why Is This Slow?** breaks the captured time into connection setup, server wait, and transfer and compares it with other requests to the same endpoint; **Find Related Requests** lists requests to the same endpoint and host, nearest first, and flags the ones that failed. Both work from captured evidence before any model is involved.
@@ -49,6 +50,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
+- Babylon WebSocket rows stay live until the app reports them closed, and rows an app left open are marked failed when it disconnects.
+- Babylon shows a body the SDK did not capture as omitted, keeps the error code and message the app reported, and counts paired apps separately from connections still authenticating.
 - A malformed line in an Ollama model download is reported as an invalid response instead of a network error.
 - With redaction on, MCP flow details now redact GraphQL documents (secret-looking string arguments such as `password:`) and variables and cap their size, and Gemini prompt fields (`contents`, `systemInstruction`) are redacted like other AI prompts in MCP output and redacted exports.
 - The AI Assistant now says when a provider is overloaded (Anthropic 529 or `overloaded_error`, with the retry time when given), when Gemini or OpenAI blocks an answer for safety or content policy, and when an OpenAI response stream fails, instead of reporting "HTTP 200" or a generic rejected request.

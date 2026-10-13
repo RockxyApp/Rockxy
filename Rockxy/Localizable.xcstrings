@@ -74,6 +74,16 @@
         }
       }
     },
+    "^[%lld more connection](inflect: true) still authenticating.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个连接仍在验证中。"
+          }
+        }
+      }
+    },
     "^[%lld other request](inflect: true) hit this endpoint and %lld more went to the same host.": {
       "localizations": {
         "zh-Hans": {
@@ -370,6 +380,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已捕获的耗时阶段。"
+          }
+        }
+      }
+    },
+    "Captures Rockxy could not read. The reasons are listed in Runtime Events.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法读取的捕获。原因列在“运行时事件”中。"
           }
         }
       }
@@ -1430,6 +1450,16 @@
         }
       }
     },
+    "Paired Apps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的应用"
+          }
+        }
+      }
+    },
     "Pass this name as hostName when a Babylon client should only connect to this Mac.": {
       "localizations": {
         "zh-Hans": {
@@ -2002,6 +2032,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "共 %2$lld 个错误，仅显示前 %1$lld 个。"
+          }
+        }
+      }
+    },
+    "Skipped Captures": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过的捕获"
           }
         }
       }

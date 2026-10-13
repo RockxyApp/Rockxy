@@ -56,6 +56,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Number of live TCP connections. Increments before authentication, so a
     /// non-zero value does not imply any paired/authenticated Babylon client.
     private(set) var openConnectionCount = 0
+    /// Connections that have sent at least one authenticated frame: apps actually paired.
+    private(set) var pairedClientCount = 0
+    /// Captures skipped because one package could not be read; the connection stays open.
+    private(set) var skippedPackageCount = 0
 
     static func validateRuntimePayloadSize(_ byteCount: Int) throws {
         guard byteCount >= 0, byteCount <= maximumRuntimePayloadSize else {
@@ -163,6 +167,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let connection: NWConnection
         var accumulator = BabylonFrameAccumulator()
         var hasAuthenticatedFrame = false
+        /// The client session this connection carries, once its first frame is authenticated.
+        var sessionKey: String?
     }
 
     private final class SessionState: @unchecked Sendable {
@@ -434,7 +440,11 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             throw BabylonCaptureProtocolError.authenticationFailed
         }
         let (frame, payload) = try BabylonSecureFrameCodec.decodeFrame(frameData, pairingToken: token)
-        context.hasAuthenticatedFrame = true
+        if !context.hasAuthenticatedFrame {
+            context.hasAuthenticatedFrame = true
+            publishOpenConnectionCount()
+        }
+        context.sessionKey = Self.sessionKey(clientID: frame.clientID, sessionID: frame.sessionID)
         let state = sessionState(clientID: frame.clientID, sessionID: frame.sessionID)
         let replayDisposition = try state.accept(frame: frame)
         if replayDisposition == .duplicate {
@@ -444,20 +454,26 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             return
         }
 
-        switch payload.messageType {
-        case .connection:
-            try handleConnection(payload, frame: frame, state: state)
-        case .traffic:
-            try handleTraffic(payload, state: state)
-        case .websocket:
-            try handleWebSocket(payload, state: state)
-        case .runtime:
-            try handleRuntime(payload, state: state)
-        case .heartbeat,
-             .ack:
-            break
-        case .error:
-            _ = try? BabylonCaptureProtocol.decoder.decode(BabylonProtocolErrorPayload.self, from: payload.content)
+        // Authentication, framing, and replay failures above end the connection. A package that
+        // cannot be read is skipped on its own: one bad capture must not drop every capture after it.
+        do {
+            switch payload.messageType {
+            case .connection:
+                try handleConnection(payload, frame: frame, state: state)
+            case .traffic:
+                try handleTraffic(payload, state: state)
+            case .websocket:
+                try handleWebSocket(payload, state: state)
+            case .runtime:
+                try handleRuntime(payload, state: state)
+            case .heartbeat,
+                 .ack:
+                break
+            case .error:
+                handleClientError(payload, state: state)
+            }
+        } catch {
+            recordSkippedPackage(error, messageType: payload.messageType, state: state)
         }
         if payload.messageType != .ack {
             try sendAcknowledgement(for: frame, state: state, context: context, pairingToken: token)
@@ -491,7 +507,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             throw BabylonCaptureProtocolError.invalidIdentity
         }
         let package = try BabylonCaptureProtocol.decoder.decode(BabylonTrafficPackageDTO.self, from: payload.content)
-        guard state.transactions[package.id] == nil else {
+        if let existing = state.transactions[package.id] {
+            update(existing, with: package)
             return
         }
         let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
@@ -509,12 +526,17 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let transaction: HTTPTransaction
         if let existing = state.transactions[package.id] {
             transaction = existing
+            update(existing, with: package)
         } else {
             transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
             remember(transaction: transaction, packageID: package.id, state: state)
             Task { [weak coordinator] in
                 await coordinator?.receiveBabylonTransaction(transaction)
             }
+        }
+        // The closing package carries the final state but may have no frame of its own.
+        guard package.websocketMessagePackage != nil else {
+            return
         }
         let frame = try BabylonCaptureMapper.makeWebSocketFrame(from: package)
         guard let connection = transaction.webSocketConnection,
@@ -525,6 +547,112 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         Task { @MainActor in
             transaction.webSocketFrameVersion += 1
         }
+    }
+
+    /// Applies a later package to a captured row on the main actor, then hands the row back to the
+    /// session so a live WebSocket row is updated in place when it closes.
+    private func update(_ transaction: HTTPTransaction, with package: BabylonTrafficPackageDTO) {
+        let coordinator = coordinator
+        Task { @MainActor in
+            let wasActive = transaction.state == .active
+            do {
+                try BabylonCaptureMapper.applyUpdate(package, to: transaction)
+            } catch {
+                Self.logger.warning("Ignored Babylon update: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            transaction.webSocketFrameVersion += 1
+            if wasActive, transaction.state != .active {
+                await coordinator?.receiveBabylonTransaction(transaction, isUpdate: true)
+            }
+        }
+    }
+
+    /// The SDK reports its own problems (a capture it had to drop, a protocol mismatch) as an error
+    /// message; show it in Runtime Events instead of discarding it.
+    private func handleClientError(_ payload: BabylonPayloadEnvelope, state: SessionState) {
+        guard let identity = state.identity,
+              let report = try? BabylonCaptureProtocol.decoder.decode(BabylonProtocolErrorPayload.self, from: payload.content)
+        else {
+            return
+        }
+        publishDiagnosticEvent(
+            name: "Babylon reported \(String(report.code.prefix(64)))",
+            message: report.message,
+            identity: identity
+        )
+    }
+
+    private func recordSkippedPackage(
+        _ error: Error,
+        messageType: BabylonCaptureMessageType,
+        state: SessionState
+    ) {
+        Self.logger.warning(
+            "Skipped Babylon \(messageType.rawValue, privacy: .public) package: \(error.localizedDescription, privacy: .public)"
+        )
+        DispatchQueue.main.async { [weak self] in
+            self?.skippedPackageCount += 1
+        }
+        guard let identity = state.identity else {
+            return
+        }
+        publishDiagnosticEvent(
+            name: "Rockxy skipped a \(messageType.rawValue) capture",
+            message: error.localizedDescription,
+            identity: identity
+        )
+    }
+
+    /// Rows a disconnected app left open (a WebSocket that never sent its close) are marked failed,
+    /// so they do not look live forever.
+    private func finishOpenRows(in state: SessionState, reason: String) {
+        let open = state.transactions.values.filter { $0.webSocketConnection != nil }
+        guard !open.isEmpty else {
+            return
+        }
+        let coordinator = coordinator
+        Task { @MainActor in
+            for transaction in open where transaction.state == .active {
+                transaction.state = .failed
+                transaction.measuredDuration = Date().timeIntervalSince(transaction.timestamp)
+                let secure = transaction.request.url.scheme?.lowercased() == "wss"
+                transaction.connectionLog = ConnectionLog(
+                    host: transaction.request.host,
+                    port: transaction.request.url.port ?? (secure ? 443 : 80),
+                    failure: ConnectionLog.Failure(stage: .response, message: reason)
+                )
+                transaction.webSocketFrameVersion += 1
+                await coordinator?.receiveBabylonTransaction(transaction, isUpdate: true)
+            }
+        }
+    }
+
+    private func publishDiagnosticEvent(name: String, message: String, identity: BabylonCaptureIdentity) {
+        let now = Date().timeIntervalSince1970
+        let package = BabylonRuntimePackageDTO(
+            id: UUID().uuidString,
+            kind: .error,
+            sessionID: identity.sessionID,
+            traceID: nil,
+            stepID: nil,
+            parentStepID: nil,
+            name: name,
+            createdAt: now,
+            startedAt: nil,
+            endedAt: nil,
+            duration: nil,
+            metadata: [:],
+            error: BabylonTrafficPackageDTO.CapturedError(code: 0, message: message)
+        )
+        guard let event = try? BabylonRuntimeEvent(validating: package, source: identity) else {
+            return
+        }
+        enqueueRuntimeEvent(event)
+    }
+
+    private static func sessionKey(clientID: String, sessionID: String) -> String {
+        "\(clientID):\(sessionID)"
     }
 
     private func handleRuntime(_ payload: BabylonPayloadEnvelope, state: SessionState) throws {
@@ -631,7 +759,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func sessionState(clientID: String, sessionID: String) -> SessionState {
-        let key = "\(clientID):\(sessionID)"
+        let key = Self.sessionKey(clientID: clientID, sessionID: sessionID)
         if let existing = sessions[key] {
             return existing
         }
@@ -651,6 +779,12 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         aggregateBufferedByteCount -= context.accumulator.bufferedByteCount
         context.connection.cancel()
         publishOpenConnectionCount()
+        if let key = context.sessionKey,
+           !connections.values.contains(where: { $0.sessionKey == key }),
+           let state = sessions[key]
+        {
+            finishOpenRows(in: state, reason: "The app disconnected before the WebSocket closed")
+        }
     }
 
     private func reconcileBufferedByteCount(for context: ConnectionContext, previousByteCount: Int) {
@@ -659,6 +793,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func disconnectAllClients() {
+        sessions.values.forEach { finishOpenRows(in: $0, reason: "Babylon capture stopped before the WebSocket closed") }
         connections.values.forEach { $0.connection.cancel() }
         connections.removeAll()
         aggregateBufferedByteCount = 0
@@ -668,9 +803,17 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func stopInternal() {
-        runtimePublicationGate.advance()
+        // Events already accepted are delivered, not dropped: stopping is not clearing.
         cancelRuntimeFlush()
-        runtimeIntake.discardPending()
+        let pending = runtimeIntake.hasPending ? runtimeIntake.drain() : []
+        runtimePublicationGate.advance()
+        if !pending.isEmpty {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    BabylonRuntimeEventStore.shared.appendBatch(pending)
+                }
+            }
+        }
         let active = listener
         listener = nil
         isListenerStarting = false
@@ -721,8 +864,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private func publishOpenConnectionCount() {
         dispatchPrecondition(condition: .onQueue(queue))
         let count = connections.count
+        let paired = connections.values.count(where: \.hasAuthenticatedFrame)
         DispatchQueue.main.async { [weak self] in
             self?.openConnectionCount = count
+            self?.pairedClientCount = paired
         }
     }
 }

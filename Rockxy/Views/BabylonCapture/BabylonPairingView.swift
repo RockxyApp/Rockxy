@@ -413,17 +413,36 @@ struct BabylonPairingView: View {
                     .textSelection(.enabled)
             }
             GridRow {
-                detailLabel(String(localized: "Open Connections", bundle: RockxyLocalization.bundle))
+                detailLabel(String(localized: "Paired Apps", bundle: RockxyLocalization.bundle))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(CountFormatter.format(receiver.openConnectionCount))
+                    Text(CountFormatter.format(receiver.pairedClientCount))
                         .font(toolMetrics.font(monospaced: true))
-                    Text(String(
-                        localized: "Open connections may still be authenticating.",
-                        bundle: RockxyLocalization.bundle
-                    ))
-                    .font(toolMetrics.metadataFont())
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    if receiver.openConnectionCount > receiver.pairedClientCount {
+                        Text(String(AttributedString(
+                            localized: "^[\(receiver.openConnectionCount - receiver.pairedClientCount) more connection](inflect: true) still authenticating.",
+                            bundle: RockxyLocalization.bundle,
+                            locale: RockxyLocalization.locale
+                        ).characters))
+                        .font(toolMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if receiver.skippedPackageCount > 0 {
+                GridRow {
+                    detailLabel(String(localized: "Skipped Captures", bundle: RockxyLocalization.bundle))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(CountFormatter.format(receiver.skippedPackageCount))
+                            .font(toolMetrics.font(monospaced: true))
+                        Text(String(
+                            localized: "Captures Rockxy could not read. The reasons are listed in Runtime Events.",
+                            bundle: RockxyLocalization.bundle
+                        ))
+                        .font(toolMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }

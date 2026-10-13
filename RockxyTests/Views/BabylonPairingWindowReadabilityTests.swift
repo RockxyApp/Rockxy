@@ -95,7 +95,8 @@ struct BabylonPairingWindowReadabilityTests {
             "receiver.connectedClientCount",
         ])
 
-        // Bonjour service + port + honest open-connection terminology.
+        // Bonjour service + port. Paired apps are counted only after an authenticated frame, and
+        // connections still authenticating are reported separately rather than as paired.
         require(source, [
             "localized: \"Bonjour Service\"",
             "BabylonCaptureProtocol.serviceType",
@@ -103,14 +104,12 @@ struct BabylonPairingWindowReadabilityTests {
             "receiver.listeningPort ?? receiver.preferredPort",
             "fallbackPortRow",
             "receiver.advertisedServiceName",
-            "localized: \"Open Connections\"",
-            "Open connections may still be authenticating.",
+            "localized: \"Paired Apps\"",
+            "receiver.pairedClientCount",
+            "still authenticating.",
         ])
         forbid(source, [
-            "Paired Clients",
             "Authenticated Clients",
-            "paired client",
-            "authenticated client",
         ])
 
         // Real listener-only Retry action wired to the receiver seam.
@@ -233,9 +232,17 @@ struct BabylonPairingWindowReadabilityTests {
         #expect(source.contains("dispatchPrecondition(condition: .onQueue(queue))"))
         #expect(source.contains("DispatchQueue.main.async"))
         #expect(!source.contains("Task { @MainActor [weak self] in"))
-        // Honest, pre-authentication open-connection count.
+        // Open connections are counted before authentication; paired apps only after it.
         #expect(source.contains("openConnectionCount"))
+        #expect(source.contains("connections.values.count(where: \\.hasAuthenticatedFrame)"))
         #expect(!source.contains("connectedClientCount"))
+        // One unreadable package is skipped and acknowledged; it never ends the connection.
+        #expect(source.contains("recordSkippedPackage(error, messageType: payload.messageType, state: state)"))
+        #expect(source.contains("skippedPackageCount += 1"))
+        // A later delivery only refreshes a live row, so it cannot add the same row twice.
+        #expect(source.contains("receiveBabylonTransaction(transaction, isUpdate: true)"))
+        // Rows a disconnected app left open are finished, and pending runtime events are delivered.
+        #expect(source.contains("finishOpenRows(in:"))
     }
 
     @Test("Pairing availability composes listener lifecycle with token presence")
