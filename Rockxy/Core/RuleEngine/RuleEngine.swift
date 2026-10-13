@@ -552,9 +552,10 @@ actor RuleEngine {
 
 // MARK: - RuleEvaluationSlot
 
-/// Rules that compete for the same decision about a request. Breakpoints are checked on their own
-/// before anything else; Block, Map Local, Map Remote, Throttle, and Network Conditions share the
-/// primary slot, where the first match in list order wins.
+/// Rules that compete for the same decision about a request. A Breakpoint editor tests against
+/// other breakpoints, which are checked first on the request side; every other editor tests
+/// against the primary decision, where the first match in list order wins and an earlier
+/// breakpoint also takes the request (`evaluatePrimaryRule` skips only Modify Headers rules).
 enum RuleEvaluationSlot {
     case breakpoint
     case primary
@@ -566,6 +567,7 @@ enum RuleEvaluationSlot {
         case (.breakpoint, .breakpoint):
             true
         case (.primary, .block),
+             (.primary, .breakpoint),
              (.primary, .mapLocal),
              (.primary, .mapRemote),
              (.primary, .throttle),
