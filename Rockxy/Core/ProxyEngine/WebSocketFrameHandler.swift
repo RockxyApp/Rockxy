@@ -83,6 +83,16 @@ final class WebSocketLifecycle: @unchecked Sendable {
         onTransactionComplete(transaction)
     }
 
+    /// Records that a relay failed so the eventual completion is reported honestly as failed
+    /// rather than as a clean close. Has no effect once the lifecycle reached its terminal state.
+    func recordFailure() {
+        lock.lock()
+        if !isComplete {
+            didFail = true
+        }
+        lock.unlock()
+    }
+
     func complete(_ transaction: HTTPTransaction) {
         // Claim and read the open flag in one critical section: `open(_:)` checks `isComplete`
         // under the same lock, so it either delivered before this point or never will.
@@ -90,6 +100,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
         let claimed = !isComplete
         isComplete = true
         let wasOpened = isOpened
+        let failed = didFail
         lock.unlock()
         guard claimed else {
             return
@@ -103,7 +114,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
             if !wasOpened {
                 transaction.deliversLiveRow = false
             }
-            transaction.state = .completed
+            transaction.state = failed ? .failed : .completed
             transaction.measuredDuration = closedAt.timeIntervalSince(transaction.timestamp)
             transaction.webSocketFrameVersion += 1
             onTransactionComplete(transaction)
@@ -125,6 +136,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
     private let onChannelClosed: @Sendable () -> Void
     private var isOpened = false
     private var isComplete = false
+    private var didFail = false
 
     private func claimTerminalState() -> Bool {
         lock.lock()
@@ -173,6 +185,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
 
     nonisolated func errorCaught(context: ChannelHandlerContext, error: Error) {
         wsLogger.error("WebSocket error (\(self.direction.rawValue)): \(error.localizedDescription)")
+        lifecycle.recordFailure()
         peerChannel?.close(promise: nil)
         context.close(promise: nil)
     }
