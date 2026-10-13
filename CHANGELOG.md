@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Repeat and Repeat Through Rules now say why a request failed (timed out, host not found, connection refused or lost, offline, TLS failure, unreadable response) instead of a generic "operation couldn't be completed" message, and a failed batch names the first reason.
 - x402 detection no longer marks a standard payment-required response as a provider error because its body has an `error` reason, and no longer treats an ordinary `Authorization` header as a payment proof. The x402 v2 headers (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`) and the v1 `accepts` list are recognized and redacted, and ordinary traffic is only parsed for x402 when its status, headers, or first body bytes point to a payment flow.
 - When another proxy app (such as Clash on `127.0.0.1:7890`) or a person changes the system proxy while Rockxy is capturing, stopping capture or quitting now asks whether to restore the proxy settings you had before capture; Rockxy still never writes over the newer settings on its own, but it no longer drops your previous settings without telling you.
 - Without the helper, Rockxy can now capture while another proxy app's local proxy is set, and restores that app's settings afterward; it no longer refuses with "Another running Rockxy instance owns the current system proxy session".
