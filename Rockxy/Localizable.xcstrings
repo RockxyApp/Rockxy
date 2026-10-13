@@ -1030,6 +1030,26 @@
         }
       }
     },
+    "Network": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络"
+          }
+        }
+      }
+    },
+    "Network for devices": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备使用的网络"
+          }
+        }
+      }
+    },
     "New Script from Template": {
       "localizations": {
         "zh-Hans": {
@@ -2032,6 +2052,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "这台 Mac 处于离线状态。"
+          }
+        }
+      }
+    },
+    "This Mac is on more than one network. Choose the one your device uses, then use this host and port on the device.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 连接了多个网络。请选择设备所在的网络，然后在设备上使用此主机和端口。"
           }
         }
       }

@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Developer Setup lets you choose the network devices use when this Mac has more than one LAN address (Wi-Fi, Ethernet, VPN). The choice is remembered and shared by the device endpoint, the toolbar proxy status, and certificate sharing links.
 - The AI tab shows stream timing measured live for Server-Sent Events responses: time to the first event, the longest gap between events, how many events arrived, and whether the stream completed (`[DONE]`, Anthropic `message_stop`, or OpenAI `response.completed`), ended without a final event, or was interrupted. Timing is saved with Rockxy sessions; imported and compressed streams say that no live timing was recorded.
 - New search tokens: `has:tool_call`, `streaming:true|false`, `chain:` (name, decimal, or hex), `has:tx_hash`, and `is:x402`. AI facts used by search are cached per request, so `model:` no longer re-parses request bodies on every filter pass.
 - x402 payment-gated requests get an **x402** badge in the request list.
