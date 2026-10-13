@@ -214,6 +214,16 @@
         }
       }
     },
+    "At Capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获时"
+          }
+        }
+      }
+    },
     "Auto proxy discovery": {
       "localizations": {
         "zh-Hans": {
@@ -1962,6 +1972,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用端口 %@"
+          }
+        }
+      }
+    },
+    "When captured, an app Tunnel rule was active and Rockxy could not identify the app in time, so it kept the connection encrypted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获时，存在已启用的应用隧道规则，而 Rockxy 未能及时识别该应用，因此保持连接加密。"
+          }
+        }
+      }
+    },
+    "When captured, this host was not set to be decrypted: no HTTPS Decryption rule applied, a Tunnel rule excluded it, or the certificate was not ready.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获时，该主机未设置为解密：没有适用的 HTTPS 解密规则、被隧道规则排除，或证书尚未就绪。"
+          }
+        }
+      }
+    },
+    "When captured, this host was on the Bypass Proxy list.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获时，该主机位于“绕过代理”列表中。"
+          }
+        }
+      }
+    },
+    "When captured, this host was tunneled automatically because the app had rejected Rockxy's certificate before.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获时，由于该应用此前拒绝过 Rockxy 的证书，该主机被自动走隧道。"
           }
         }
       }

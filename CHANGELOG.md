@@ -41,6 +41,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A tunneled HTTPS row now remembers why it was not decrypted (Bypass list, no decryption rule, unidentified app with a Tunnel rule, or auto-passthrough after a certificate rejection), and the HTTPS prompt shows that reason instead of guessing from settings that may have changed since; it is saved with Rockxy sessions.
 - gRPC-Web trailer frames are no longer reported as an "Unknown compression flag 128" message.
 - Repeat and Repeat Through Rules now say why a request failed (timed out, host not found, connection refused or lost, offline, TLS failure, unreadable response) instead of a generic "operation couldn't be completed" message, and a failed batch names the first reason.
 - x402 detection no longer marks a standard payment-required response as a provider error because its body has an `error` reason, and no longer treats an ordinary `Authorization` header as a payment proof. The x402 v2 headers (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`) and the v1 `accepts` list are recognized and redacted, and ordinary traffic is only parsed for x402 when its status, headers, or first body bytes point to a payment flow.
