@@ -144,6 +144,26 @@
         }
       }
     },
+    "Automatic (PAC from %@)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（来自 %@ 的 PAC）"
+          }
+        }
+      }
+    },
+    "Automatic (PAC)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动（PAC）"
+          }
+        }
+      }
+    },
     "Automatic proxy configuration": {
       "localizations": {
         "zh-Hans": {
@@ -180,6 +200,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "connection refused": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接被拒绝"
+          }
+        }
+      }
+    },
+    "Couldn't reach the external proxy %@:%@ (%@). Check that it is running, or turn off External Proxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接外部代理 %@:%@（%@）。请确认它正在运行，或关闭外部代理。"
           }
         }
       }
@@ -586,6 +626,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "隐藏：Esc"
+          }
+        }
+      }
+    },
+    "host not found": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到主机"
+          }
+        }
+      }
+    },
+    "host unreachable": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机不可达"
           }
         }
       }
@@ -1160,6 +1220,16 @@
         }
       }
     },
+    "Routing via %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经由 %@ 路由"
+          }
+        }
+      }
+    },
     "SOCKS5 Listener": {
       "localizations": {
         "zh-Hans": {
@@ -1526,6 +1596,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "此规则会转发给自身。请将其指向真实服务器。"
+          }
+        }
+      }
+    },
+    "timed out": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超时"
           }
         }
       }
