@@ -204,6 +204,9 @@ struct ContextDetailsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ruleImpactSection(transaction)
                     overviewSection(transaction)
+                    if let correlation = transaction.babylonCorrelation {
+                        runtimeTraceSection(correlation)
+                    }
                     payloadSection(transaction)
                     insightSection(transaction)
                     timingSection(transaction)
@@ -263,6 +266,44 @@ struct ContextDetailsView: View {
                 title: String(localized: "Details", bundle: RockxyLocalization.bundle),
                 fields: overviewFields(transaction, now: context.date)
             )
+        }
+    }
+
+    /// The Babylon runtime trace and step the app made this request in, with a way back to the
+    /// step in Runtime Events and over to the trace's other requests.
+    private func runtimeTraceSection(_ correlation: BabylonCorrelation) -> some View {
+        ContextInspectorTable(title: String(localized: "Babylon Runtime", bundle: RockxyLocalization.bundle)) {
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Trace", bundle: RockxyLocalization.bundle),
+                value: correlation.traceID
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Step", bundle: RockxyLocalization.bundle),
+                value: correlation.stepID
+                    ?? String(localized: "Outside any step", bundle: RockxyLocalization.bundle),
+                monospaced: correlation.stepID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                value: correlation.sessionID
+            ))
+            Divider()
+            ContextInspectorFullRow {
+                HStack(spacing: 8) {
+                    Button(String(localized: "Show in Runtime Events", bundle: RockxyLocalization.bundle)) {
+                        BabylonRuntimeNavigation.shared.focus(traceID: correlation.traceID, stepID: correlation.stepID)
+                        openWindow(id: "babylonRuntime")
+                    }
+                    .accessibilityIdentifier("contextDetails.showInRuntimeEvents")
+                    Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
+                        coordinator.showBabylonTraceRequests(traceID: correlation.traceID)
+                    }
+                    .accessibilityIdentifier("contextDetails.showTraceRequests")
+                }
+                .controlSize(.small)
+            }
         }
     }
 

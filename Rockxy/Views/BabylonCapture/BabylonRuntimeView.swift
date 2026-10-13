@@ -20,6 +20,8 @@ private struct BabylonRuntimeSourceOption: Identifiable, Equatable {
 struct BabylonRuntimeView: View {
     // MARK: Internal
 
+    let coordinator: MainContentCoordinator
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -76,6 +78,10 @@ struct BabylonRuntimeView: View {
         .onChange(of: availableSourceClientIDs) { _, ids in
             reconcileSourceFilter(with: ids)
         }
+        .onAppear(perform: applyPendingFocus)
+        .onChange(of: navigation.pendingFocus) { _, _ in
+            applyPendingFocus()
+        }
     }
 
     // MARK: Private
@@ -86,6 +92,8 @@ struct BabylonRuntimeView: View {
     @State private var selection: BabylonRuntimeEvent.ID?
     @State private var selectedKind: BabylonRuntimePackageDTO.Kind?
     @State private var selectedSourceClientID: String?
+    @State private var selectedTraceID: String?
+    @State private var navigation = BabylonRuntimeNavigation.shared
     @State private var searchText = ""
     @State private var showsClearConfirmation = false
     @FocusState private var searchIsFocused: Bool
@@ -100,6 +108,7 @@ struct BabylonRuntimeView: View {
         BabylonRuntimeEventFilter(
             kind: selectedKind,
             sourceClientID: selectedSourceClientID,
+            traceID: selectedTraceID,
             searchText: searchText
         )
     }
@@ -312,10 +321,15 @@ struct BabylonRuntimeView: View {
             .frame(minHeight: toolMetrics.formControlHeight)
             .disabled(availableSources.isEmpty)
 
+            if let selectedTraceID {
+                traceFilterChip(selectedTraceID)
+            }
+
             if filter.isActive {
                 Button(String(localized: "Reset Filters", bundle: RockxyLocalization.bundle)) {
                     selectedKind = nil
                     selectedSourceClientID = nil
+                    selectedTraceID = nil
                     searchText = ""
                 }
                 .controlSize(.small)
@@ -497,6 +511,10 @@ struct BabylonRuntimeView: View {
                             )
                         }
 
+                        if let traceID = event.traceID {
+                            traceActions(traceID: traceID, stepID: event.stepID)
+                        }
+
                         detailSection(String(localized: "Timing", bundle: RockxyLocalization.bundle)) {
                             detailRow(
                                 String(localized: "Received", bundle: RockxyLocalization.bundle),
@@ -607,6 +625,97 @@ struct BabylonRuntimeView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(event.outcome.title)
+    }
+
+    /// The trace's requests in the traffic list, and this window narrowed to the same trace.
+    private func traceActions(traceID: String, stepID: String?) -> some View {
+        let stepCount = stepID.map { coordinator.babylonRequestCount(traceID: traceID, stepID: $0) }
+        let traceCount = coordinator.babylonRequestCount(traceID: traceID)
+        return detailSection(String(localized: "Related Traffic", bundle: RockxyLocalization.bundle)) {
+            if let stepID, let stepCount {
+                detailRow(
+                    String(localized: "In This Step", bundle: RockxyLocalization.bundle),
+                    requestCountText(stepCount)
+                )
+                Button(String(localized: "Show Step Requests", bundle: RockxyLocalization.bundle)) {
+                    showRequests(traceID: traceID, stepID: stepID)
+                }
+                .controlSize(.small)
+                .disabled(stepCount == 0)
+                .accessibilityIdentifier("babylonRuntime.showStepRequests")
+            }
+            detailRow(
+                String(localized: "In This Trace", bundle: RockxyLocalization.bundle),
+                requestCountText(traceCount)
+            )
+            HStack(spacing: toolMetrics.controlSpacing) {
+                Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
+                    showRequests(traceID: traceID, stepID: nil)
+                }
+                .disabled(traceCount == 0)
+                .accessibilityIdentifier("babylonRuntime.showTraceRequests")
+                if selectedTraceID != traceID {
+                    Button(String(localized: "Show Only This Trace", bundle: RockxyLocalization.bundle)) {
+                        selectedTraceID = traceID
+                    }
+                    .accessibilityIdentifier("babylonRuntime.filterToTrace")
+                }
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func requestCountText(_ count: Int) -> String {
+        String(AttributedString(
+            localized: "^[\(count) request](inflect: true)",
+            bundle: RockxyLocalization.bundle,
+            locale: RockxyLocalization.locale
+        ).characters)
+    }
+
+    private func traceFilterChip(_ traceID: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .accessibilityHidden(true)
+            Text(traceID)
+                .font(toolMetrics.font(monospaced: true))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 160)
+            Button {
+                selectedTraceID = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "Show All Traces", bundle: RockxyLocalization.bundle))
+            .accessibilityLabel(String(localized: "Show All Traces", bundle: RockxyLocalization.bundle))
+        }
+        .padding(.horizontal, 6)
+        .frame(minHeight: toolMetrics.formControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+        .help(String(localized: "Showing one trace", bundle: RockxyLocalization.bundle))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "Trace \(traceID)", bundle: RockxyLocalization.bundle))
+    }
+
+    private func showRequests(traceID: String, stepID: String?) {
+        openWindow(id: "main")
+        coordinator.showBabylonTraceRequests(traceID: traceID, stepID: stepID)
+    }
+
+    /// Applies a "show in Runtime Events" request from the traffic inspector: narrow to the trace,
+    /// clear filters that could hide it, and select the step (or the trace start).
+    private func applyPendingFocus() {
+        guard let focus = navigation.consume() else {
+            return
+        }
+        selectedKind = nil
+        selectedSourceClientID = nil
+        searchText = ""
+        selectedTraceID = focus.traceID
+        selection = BabylonRuntimeNavigation.eventID(for: focus, in: store.events)
     }
 
     private func detailSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {

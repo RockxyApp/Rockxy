@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -61,6 +62,44 @@ extension MainContentCoordinator {
         var filter = FilterCriteria.empty
         filter.sidebarApp = identity.displayName
         _ = workspaceStore.createWorkspace(title: identity.displayName, filter: filter)
+    }
+}
+
+// MARK: - Babylon trace navigation
+
+extension MainContentCoordinator {
+    /// Every captured request the app made in a runtime trace, or in one step of it.
+    func babylonRequestCount(traceID: String, stepID: String? = nil) -> Int {
+        transactions.count { transaction in
+            guard let correlation = transaction.babylonCorrelation, correlation.traceID == traceID else {
+                return false
+            }
+            return stepID == nil || correlation.stepID == stepID
+        }
+    }
+
+    /// Brings the traffic list forward filtered to one runtime trace (and step), using the same
+    /// `trace:` and `step:` tokens a user can type, so the filter stays visible and editable.
+    func showBabylonTraceRequests(traceID: String, stepID: String? = nil) {
+        let window = NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.canBecomeKey }
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first { $0.canBecomeKey && $0.isVisible }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+
+        var criteria = FilterCriteria.empty
+        criteria.searchText = Self.babylonTraceQuery(traceID: traceID, stepID: stepID)
+        filterCriteria = criteria
+        sidebarSelection = nil
+        activeMainTab = .traffic
+        recomputeFilteredTransactions()
+    }
+
+    nonisolated static func babylonTraceQuery(traceID: String, stepID: String?) -> String {
+        guard let stepID else {
+            return "trace:\(traceID)"
+        }
+        return "trace:\(traceID) step:\(stepID)"
     }
 }
 

@@ -18,6 +18,8 @@ struct SmartTrafficFilter: Equatable {
         case chain(String)
         case hasTransactionHash
         case isX402
+        case babylonTrace(String)
+        case babylonStep(String)
     }
 
     let predicates: [Predicate]
@@ -80,6 +82,10 @@ struct SmartTrafficFilter: Equatable {
                 transaction.web3RPCInfo?.transactionHash != nil
             case .isX402:
                 transaction.x402Info?.isX402Like == true
+            case let .babylonTrace(traceID):
+                transaction.babylonCorrelation?.traceID == traceID
+            case let .babylonStep(stepID):
+                transaction.babylonCorrelation?.stepID == stepID
             }
         }
     }
@@ -134,6 +140,11 @@ struct SmartTrafficFilter: Equatable {
             return .provider(value)
         case "model":
             return .model(value)
+        case "trace":
+            // Runtime identifiers are opaque and compared exactly.
+            return .babylonTrace(value)
+        case "step":
+            return .babylonStep(value)
         default:
             return nil
         }

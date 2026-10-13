@@ -67,6 +67,7 @@ enum BabylonCaptureMapper {
         }
         transaction.clientApp = identity.displayName
         transaction.connectionLog = appReportedFailure(package.error, url: url)
+        transaction.babylonCorrelation = BabylonCorrelation(context: package.correlationContext)
         return transaction
     }
 
@@ -169,6 +170,7 @@ enum BabylonCaptureMapper {
         transaction.clientApp = identity.displayName
         transaction.serverHTTPVersion = "2"
         transaction.connectionLog = appReportedFailure(package.error, url: url)
+        transaction.babylonCorrelation = BabylonCorrelation(context: package.correlationContext)
         return transaction
     }
 

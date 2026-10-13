@@ -393,6 +393,8 @@ struct SensitiveDataRedactor {
         redacted.appliedScriptNames = transaction.appliedScriptNames
         redacted.noCachingApplied = transaction.noCachingApplied
         redacted.serverHTTPVersion = transaction.serverHTTPVersion
+        // Opaque runtime identifiers the app chose; they link the row to its trace, not to a user.
+        redacted.babylonCorrelation = transaction.babylonCorrelation
         // The local socket address identifies the capturing machine on its network.
         redacted.connectionLog = transaction.connectionLog.map {
             var log = $0

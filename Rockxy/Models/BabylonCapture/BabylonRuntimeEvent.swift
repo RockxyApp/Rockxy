@@ -412,10 +412,12 @@ struct BabylonRuntimeEventFilter: Equatable {
     init(
         kind: BabylonRuntimePackageDTO.Kind? = nil,
         sourceClientID: String? = nil,
+        traceID: String? = nil,
         searchText: String = ""
     ) {
         self.kind = kind
         self.sourceClientID = sourceClientID
+        self.traceID = traceID
         self.searchText = searchText
     }
 
@@ -423,10 +425,12 @@ struct BabylonRuntimeEventFilter: Equatable {
 
     var kind: BabylonRuntimePackageDTO.Kind?
     var sourceClientID: String?
+    /// Limits the list to one trace, matched exactly.
+    var traceID: String?
     var searchText = ""
 
     var isActive: Bool {
-        kind != nil || sourceClientID != nil || !trimmedSearch.isEmpty
+        kind != nil || sourceClientID != nil || traceID != nil || !trimmedSearch.isEmpty
     }
 
     func apply(to events: [BabylonRuntimeEvent]) -> [BabylonRuntimeEvent] {
@@ -438,6 +442,9 @@ struct BabylonRuntimeEventFilter: Equatable {
             return false
         }
         if let sourceClientID, event.source.clientID != sourceClientID {
+            return false
+        }
+        if let traceID, event.traceID != traceID {
             return false
         }
         let needle = trimmedSearch.lowercased()
