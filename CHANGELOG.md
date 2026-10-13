@@ -36,6 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- With redaction on, MCP flow details now redact GraphQL documents (secret-looking string arguments such as `password:`) and variables and cap their size, and Gemini prompt fields (`contents`, `systemInstruction`) are redacted like other AI prompts in MCP output and redacted exports.
 - When another proxy app (such as Clash on `127.0.0.1:7890`) or a person changes the system proxy while Rockxy is capturing, stopping capture or quitting now asks whether to restore the proxy settings you had before capture; Rockxy still never writes over the newer settings on its own, but it no longer drops your previous settings without telling you.
 - Without the helper, Rockxy can now capture while another proxy app's local proxy is set, and restores that app's settings afterward; it no longer refuses with "Another running Rockxy instance owns the current system proxy session".
 - Opening a HAR file, a Rockxy session, or a nearby iPhone transfer keeps every request; imports were cut down to the live history limit without a warning, and live capture no longer trims imported requests.
