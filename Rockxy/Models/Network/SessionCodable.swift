@@ -82,6 +82,7 @@ struct CodableTransaction: Codable {
         self.noCachingApplied = transaction.noCachingApplied ? true : nil
         self.serverHTTPVersion = transaction.serverHTTPVersion
         self.connectionLog = transaction.connectionLog
+        self.tunnelReason = transaction.tunnelReason
     }
 
     init(from decoder: Decoder) throws {
@@ -118,6 +119,7 @@ struct CodableTransaction: Codable {
         noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
         connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
+        tunnelReason = try? container.decodeIfPresent(TunnelReason.self, forKey: .tunnelReason)
     }
 
     // MARK: Internal
@@ -151,6 +153,7 @@ struct CodableTransaction: Codable {
         case noCachingApplied
         case serverHTTPVersion
         case connectionLog
+        case tunnelReason
     }
 
     let id: UUID
@@ -183,6 +186,7 @@ struct CodableTransaction: Codable {
     let noCachingApplied: Bool?
     let serverHTTPVersion: String?
     let connectionLog: ConnectionLog?
+    let tunnelReason: TunnelReason?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -215,6 +219,7 @@ struct CodableTransaction: Codable {
         transaction.noCachingApplied = noCachingApplied ?? false
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog
+        transaction.tunnelReason = tunnelReason
         return transaction
     }
 }

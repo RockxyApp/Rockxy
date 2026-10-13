@@ -34,6 +34,9 @@ struct SensitiveDataRedactor {
         "x-xsrf-token",
         "x-payment",
         "x-payment-response",
+        "payment-signature",
+        "payment-required",
+        "payment-response",
     ]
 
     /// Name fragments that mark a credential even when the exact name is not listed

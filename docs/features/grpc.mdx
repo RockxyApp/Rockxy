@@ -1,0 +1,39 @@
+---
+title: "gRPC"
+description: "Inspect gRPC and gRPC-Web calls: service and method, status, metadata, and each length-prefixed message decoded from your .proto files or by a best-guess Protobuf reader."
+---
+
+# gRPC
+
+Rockxy recognizes gRPC calls and shows them in a dedicated **gRPC** tab in the inspector.
+
+## What Rockxy detects
+
+A request is treated as gRPC when its `Content-Type` is one of:
+
+- `application/grpc` and `application/grpc+proto` (HTTP/2)
+- `application/grpc-web` and `application/grpc-web+proto`
+- `application/grpc-web-text` (base64 text mode)
+
+A response that carries `grpc-status` for a `/package.Service/Method` path is also recognized when the content type is missing.
+
+To capture gRPC over HTTP/2, turn on **Use HTTP/2** and enable HTTPS decryption for the host. See [HTTP/2](/features/http2).
+
+## The gRPC tab
+
+- The call: service, method, HTTP status, gRPC status and message, encoding, and duration.
+- **Messages**: every length-prefixed message in the request and response, in order, with direction, compression, and size. Select one to read its fields.
+- **Metadata And Trailers**: `grpc-status`, `grpc-message`, `grpc-status-details-bin`, and `grpc-timeout`, followed by the custom **Request Metadata** and **Response Metadata** the client and server sent. Transport and protocol headers are left out so your own metadata is easy to find.
+
+### gRPC-Web
+
+gRPC-Web has no HTTP trailers, so the server sends status in a final trailer frame inside the response body. Rockxy reads that frame, shows it as a **Trailers** row in the message list, and uses it for the call's gRPC status. Bodies in `grpc-web-text` mode are base64-decoded first, including responses made of several base64 chunks.
+
+## Decoding messages
+
+Import the service's `.proto` or `.desc` file under **Local Protobuf Schemas** and messages decode with real field names and types. Without a schema, Rockxy shows a best-guess tree of field numbers and wire types, clearly marked as a best guess, without inventing field names. Messages compressed with `gzip` or `deflate` are inflated before decoding; other compression is reported rather than shown as garbage.
+
+## Limitations
+
+- Unary and server-streaming calls work through the proxy. Client-streaming and bidirectional streams do not, because Rockxy forwards a request once its body is complete.
+- gRPC over HTTP/3 and HTTP/2 without TLS (`h2c`) are not intercepted.

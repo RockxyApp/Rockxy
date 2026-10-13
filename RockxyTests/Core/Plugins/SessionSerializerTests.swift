@@ -241,6 +241,16 @@ struct SessionSerializerTests {
         #expect(session.transactions[0].toLiveModel().streamDiagnostics == nil)
     }
 
+    @Test("Round-trip preserves the capture-time tunnel reason")
+    func roundTripTunnelReason() throws {
+        let transaction = TestFixtures.makeTransaction(method: "CONNECT", url: "https://bank.example.com:443")
+        transaction.tunnelReason = .bypassList
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let session = try SessionSerializer.deserialize(from: data)
+        #expect(session.transactions[0].toLiveModel().tunnelReason == .bypassList)
+    }
+
     @Test("Round-trip preserves log entries")
     func roundTripLogEntries() throws {
         let transactions = [TestFixtures.makeTransaction()]
