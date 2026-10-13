@@ -74,6 +74,16 @@
         }
       }
     },
+    "Accept Babylon Connections": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接受 Babylon 连接"
+          }
+        }
+      }
+    },
     "Accept SOCKS5 connections": {
       "localizations": {
         "zh-Hans": {
@@ -1550,6 +1560,16 @@
         }
       }
     },
+    "Turn on Accept Babylon Connections to let clients on your local network connect.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启“接受 Babylon 连接”以允许本地网络上的客户端连接。"
+          }
+        }
+      }
+    },
     "Unexpected networksetup output: %@": {
       "localizations": {
         "zh-Hans": {
@@ -1586,6 +1606,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用端口 %@"
+          }
+        }
+      }
+    },
+    "When on, this Mac listens on the local network and advertises itself over Bonjour. Clients still need the pairing token.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后，这台 Mac 会在本地网络上监听并通过 Bonjour 广播自身。客户端仍需要配对令牌。"
           }
         }
       }

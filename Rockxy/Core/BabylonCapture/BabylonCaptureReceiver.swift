@@ -20,16 +20,23 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     // MARK: Lifecycle
 
     /// `preferredPort` is the protocol's fixed port; tests pass another one.
-    init(preferredPort: UInt16 = BabylonCaptureProtocol.port) {
+    init(preferredPort: UInt16 = BabylonCaptureProtocol.port, defaults: UserDefaults = .standard) {
         self.preferredPort = preferredPort
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: Self.enabledDefaultsKey)
     }
 
     // MARK: Internal
 
     static let shared = BabylonCaptureReceiver()
     static let maximumRuntimePayloadSize = 2 * 1_024 * 1_024
+    static let enabledDefaultsKey = RockxyIdentity.current.defaultsKey("babylon.receiverEnabled")
 
     let preferredPort: UInt16
+
+    /// Whether this Mac accepts Babylon capture connections. Off until the person turns it on,
+    /// because an enabled receiver listens and advertises itself on the local network.
+    private(set) var isEnabled: Bool
 
     private(set) var listenerStatus = BabylonListenerStatus.stopped
     /// The port the listener actually bound. Devices discover it through Bonjour, so it can differ
@@ -63,7 +70,25 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     ) {
         self.coordinator = coordinator
         self.pairingStore = pairingStore
-        startListening()
+        if isEnabled {
+            startListening()
+        }
+    }
+
+    /// Turns the receiver on or off and remembers the choice. Turning it off closes the listener,
+    /// withdraws the Bonjour advertisement, and disconnects every client.
+    @MainActor
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else {
+            return
+        }
+        isEnabled = enabled
+        defaults.set(enabled, forKey: Self.enabledDefaultsKey)
+        if enabled {
+            startListening()
+        } else {
+            stop()
+        }
     }
 
     /// Bind and advertise the listener without attaching a coordinator. Frames that need one are
@@ -170,6 +195,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     )
 
     private let queue = DispatchQueue(label: "com.rockxy.macos.babylon-capture", qos: .userInitiated)
+    private let defaults: UserDefaults
     private weak var coordinator: MainContentCoordinator?
     private weak var pairingStore: BabylonPairingStore?
     private var listener: NWListener?
