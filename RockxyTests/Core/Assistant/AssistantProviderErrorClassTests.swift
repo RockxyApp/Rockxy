@@ -58,6 +58,16 @@ struct AssistantProviderErrorClassTests {
         }
     }
 
+    @Test("An incomplete OpenAI response names its reason")
+    func openAIIncompleteReason() {
+        var decoder = OpenAIResponsesStreamDecoder()
+        #expect(throws: AssistantProviderError.responseFailed("The response is incomplete (max_output_tokens)")) {
+            _ = try decoder.decode(
+                line: #"data: {"type":"response.incomplete","response":{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}"#
+            )
+        }
+    }
+
     @Test("Gemini prompt blocks and safety stops are reported as content blocked")
     func geminiSafety() {
         #expect(throws: AssistantProviderError.contentBlocked("SAFETY")) {
