@@ -630,6 +630,16 @@
         }
       }
     },
+    "CSV keeps one summary row per request. Headers, bodies, and WebSocket frames aren't included.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV 为每个请求保留一行摘要。不包含标头、正文和 WebSocket 帧。"
+          }
+        }
+      }
+    },
     "Custom Response": {
       "localizations": {
         "zh-Hans": {
@@ -896,6 +906,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "要匹配的 GraphQL 操作名称"
+          }
+        }
+      }
+    },
+    "HAR keeps HTTP requests and responses only. WebSocket frames, notes, highlights, and logs aren't included; save a Rockxy Session to keep them.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HAR 仅保留 HTTP 请求和响应。不包含 WebSocket 帧、备注、高亮和日志；如需保留，请存储为 Rockxy 会话。"
           }
         }
       }

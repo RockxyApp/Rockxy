@@ -90,6 +90,27 @@ enum TrafficExportFormat: String, CaseIterable {
         }
     }
 
+    /// What the format leaves out, shown before the export so nobody expects a full-fidelity file.
+    var limitationNote: String? {
+        switch self {
+        case .har:
+            String(
+                localized: "HAR keeps HTTP requests and responses only. WebSocket frames, notes, highlights, and logs aren't included; save a Rockxy Session to keep them.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .csv:
+            String(
+                localized: "CSV keeps one summary row per request. Headers, bodies, and WebSocket frames aren't included.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .rockxySession,
+             .postman,
+             .openAPIYAML,
+             .openAPIHTML:
+            nil
+        }
+    }
+
     var subtitle: String {
         switch self {
         case .rockxySession:
