@@ -57,6 +57,7 @@ struct RequestListRow: Identifiable {
         smartBadgeText = Self.smartBadgeText(
             aiTrafficSignal: aiTrafficSignal,
             web3RPCInfo: transaction.web3RPCInfo,
+            isX402: transaction.x402Info?.isX402Like == true,
             isGRPC: isGRPC,
             isGraphQL: isGraphQL,
             isWebSocket: isWebSocket,
@@ -65,6 +66,7 @@ struct RequestListRow: Identifiable {
         smartBadgeTooltip = Self.smartBadgeTooltip(
             aiTrafficSignal: aiTrafficSignal,
             web3RPCInfo: transaction.web3RPCInfo,
+            isX402: transaction.x402Info?.isX402Like == true,
             isGRPC: isGRPC,
             isGraphQL: isGraphQL,
             isWebSocket: isWebSocket,
@@ -280,6 +282,7 @@ extension RequestListRow {
     private static func smartBadgeText(
         aiTrafficSignal: AITrafficSignal,
         web3RPCInfo: Web3RPCInfo?,
+        isX402: Bool,
         isGRPC: Bool,
         isGraphQL: Bool,
         isWebSocket: Bool,
@@ -292,6 +295,9 @@ extension RequestListRow {
         }
         if let web3RPCInfo {
             return web3RPCInfo.error == nil ? "Web3" : "RPC ERR"
+        }
+        if isX402 {
+            return "x402"
         }
         if isGRPC {
             return "gRPC"
@@ -308,6 +314,7 @@ extension RequestListRow {
     private static func smartBadgeTooltip(
         aiTrafficSignal: AITrafficSignal,
         web3RPCInfo: Web3RPCInfo?,
+        isX402: Bool,
         isGRPC: Bool,
         isGraphQL: Bool,
         isWebSocket: Bool,
@@ -324,6 +331,9 @@ extension RequestListRow {
                 return "Web3 RPC error\(code) from \(web3RPCInfo.providerHost)"
             }
             return "Web3 RPC traffic from \(web3RPCInfo.providerHost)"
+        }
+        if isX402 {
+            return "x402 payment flow"
         }
         if isGRPC {
             return "gRPC request"

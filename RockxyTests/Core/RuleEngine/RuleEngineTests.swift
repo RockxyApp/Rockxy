@@ -112,6 +112,116 @@ struct RuleEngineTests {
         }
     }
 
+    @Test("The rule tester finds an earlier rule that wins the same decision")
+    func earlierMatchingRuleIsReported() async throws {
+        let engine = RuleEngine()
+        let blockAll = ProxyRule(
+            name: "Block example",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+            action: .block(statusCode: 403)
+        )
+        let headerRule = ProxyRule(
+            name: "Add header",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*"),
+            action: .modifyHeader(operations: [])
+        )
+        let mapRemote = ProxyRule(
+            name: "Slow API",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com/api.*"),
+            action: .throttle(delayMs: 100)
+        )
+        await engine.addRule(blockAll)
+        await engine.addRule(headerRule)
+        await engine.addRule(mapRemote)
+        let url = try #require(URL(string: "https://example.com/api/users"))
+
+        let shadowing = await engine.earlierMatchingRule(than: mapRemote.id, slot: .primary, method: "GET", url: url)
+        #expect(shadowing?.id == blockAll.id)
+
+        let firstRule = await engine.earlierMatchingRule(than: blockAll.id, slot: .primary, method: "GET", url: url)
+        #expect(firstRule == nil)
+
+        let unsaved = await engine.earlierMatchingRule(than: nil, slot: .primary, method: "GET", url: url)
+        #expect(unsaved?.id == blockAll.id)
+
+        let breakpoints = await engine.earlierMatchingRule(than: nil, slot: .breakpoint, method: "GET", url: url)
+        #expect(breakpoints == nil)
+        // A Block rule is not a breakpoint, so a new breakpoint is not shadowed by it.
+
+        await engine.toggleRule(id: blockAll.id)
+        let afterDisable = await engine.earlierMatchingRule(than: mapRemote.id, slot: .primary, method: "GET", url: url)
+        #expect(afterDisable == nil)
+    }
+
+    @Test("An earlier breakpoint is reported to a Block rule because it takes the request first")
+    func earlierBreakpointShadowsBlock() async throws {
+        let engine = RuleEngine()
+        let pauseAll = ProxyRule(
+            name: "Pause all",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*"),
+            action: .breakpoint(phase: .both)
+        )
+        let block = ProxyRule(
+            name: "Block example",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*example\\.com.*"),
+            action: .block(statusCode: 403)
+        )
+        await engine.addRule(pauseAll)
+        await engine.addRule(block)
+        let url = try #require(URL(string: "https://example.com/a"))
+
+        let earlier = await engine.earlierMatchingRule(than: block.id, slot: .primary, method: "GET", url: url)
+        #expect(earlier?.id == pauseAll.id)
+        let primary = await engine.evaluatePrimaryRule(method: "GET", url: url, headers: [])
+        #expect(primary?.id == pauseAll.id)
+    }
+
+    @Test("Breakpoints only compete with other breakpoints in the rule tester")
+    func breakpointSlotIgnoresOtherRules() async throws {
+        let engine = RuleEngine()
+        let block = ProxyRule(
+            name: "Block",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*"),
+            action: .block(statusCode: 403)
+        )
+        let firstBreakpoint = ProxyRule(
+            name: "Pause all",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*"),
+            action: .breakpoint(phase: .both)
+        )
+        let secondBreakpoint = ProxyRule(
+            name: "Pause API",
+            isEnabled: true,
+            matchCondition: RuleMatchCondition(urlPattern: ".*/api/.*"),
+            action: .breakpoint(phase: .request)
+        )
+        await engine.addRule(block)
+        await engine.addRule(firstBreakpoint)
+        await engine.addRule(secondBreakpoint)
+        let url = try #require(URL(string: "https://example.com/api/users"))
+
+        let earlier = await engine.earlierMatchingRule(
+            than: secondBreakpoint.id,
+            slot: .breakpoint,
+            method: "GET",
+            url: url
+        )
+        #expect(earlier?.id == firstBreakpoint.id)
+        #expect(await engine.earlierMatchingRule(
+            than: firstBreakpoint.id,
+            slot: .breakpoint,
+            method: "GET",
+            url: url
+        ) == nil)
+    }
+
     @Test("Disabled rules are skipped during evaluation")
     func toggleRuleDisabled() async throws {
         let engine = RuleEngine()

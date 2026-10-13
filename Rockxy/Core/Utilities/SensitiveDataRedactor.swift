@@ -34,6 +34,9 @@ struct SensitiveDataRedactor {
         "x-xsrf-token",
         "x-payment",
         "x-payment-response",
+        "payment-signature",
+        "payment-required",
+        "payment-response",
     ]
 
     /// Name fragments that mark a credential even when the exact name is not listed
@@ -370,6 +373,9 @@ struct SensitiveDataRedactor {
             web3RPCInfo: transaction.web3RPCInfo
         )
         redacted.measuredDuration = transaction.measuredDuration
+        // Stream diagnostics carry only structural metadata (event names, categories,
+        // offsets, byte counts) — no raw payloads — so they survive redaction unchanged.
+        redacted.streamDiagnostics = transaction.streamDiagnostics
         redacted.sourcePort = transaction.sourcePort
         redacted.clientApp = transaction.clientApp
         redacted.comment = transaction.comment
@@ -441,6 +447,7 @@ struct SensitiveDataRedactor {
         pattern: #"(?i)((?:\#(bodySecretKeyPattern))[\s]*[:=][\s]*)\S+"#,
         options: []
     )
+
     // swiftlint:enable force_try
 
     private func looksLikeJSON(_ text: String) -> Bool {

@@ -157,6 +157,10 @@ struct AssistantPromptBuilder {
             "Compare only captured differences and identify which difference is most useful to verify next."
         case .checkAuthentication:
             "Distinguish credential presence, authentication rejection, authorization denial, and unknown server policy."
+        case .whyIsThisSlow:
+            "Attribute time only to captured timing phases and comparisons with captured peers; never invent server internals."
+        case .findRelatedRequests:
+            "Relate requests only by captured endpoint, host, time, and outcome; mark any causal link as unconfirmed."
         case .prepareBugReport:
             "Produce a concise reproducible report using redacted captured facts and clearly marked unknowns."
         }
