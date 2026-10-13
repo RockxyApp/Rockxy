@@ -125,6 +125,99 @@ struct X402DetectorTests {
         #expect(X402Detector.detect(request: request, response: response) == nil)
     }
 
+    @Test("X402Detector keeps a spec 402 error reason as payment required")
+    func specErrorReasonIsPaymentRequired() throws {
+        let request = try plainRequest(headers: [])
+        let response = HTTPResponseData(
+            statusCode: 402,
+            statusMessage: "Payment Required",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"x402Version":1,"error":"X-PAYMENT header is required","accepts":[{"scheme":"exact"}]}"#.utf8),
+            contentType: .json
+        )
+
+        let info = try detectedInfo(request: request, response: response)
+
+        #expect(info.stage == .paymentRequired)
+        #expect(info.isX402Like)
+        #expect(info.hasChallenge)
+        #expect(!info.providerErrorPresent)
+        #expect(!info.hasPaymentProof)
+    }
+
+    @Test("X402Detector does not treat ordinary Authorization as a payment proof")
+    func authorizationIsNotPaymentProof() throws {
+        let request = try plainRequest(headers: [HTTPHeader(name: "Authorization", value: "Bearer synthetic")])
+        let response = HTTPResponseData(
+            statusCode: 402,
+            statusMessage: "Payment Required",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"x402Version":1,"error":"payment required","accepts":[]}"#.utf8),
+            contentType: .json
+        )
+
+        let info = try detectedInfo(request: request, response: response)
+
+        #expect(info.stage == .paymentRequired)
+        #expect(!info.hasPaymentProof)
+        #expect(info.redactionFields.contains("Authorization"))
+    }
+
+    @Test("X402Detector recognizes x402 v2 payment headers")
+    func recognizesV2Headers() throws {
+        let challenge = try plainRequest(headers: [])
+        let challengeResponse = HTTPResponseData(
+            statusCode: 402,
+            statusMessage: "Payment Required",
+            headers: [HTTPHeader(name: "PAYMENT-REQUIRED", value: "synthetic-requirements")],
+            body: nil,
+            contentType: nil
+        )
+        let required = try detectedInfo(request: challenge, response: challengeResponse)
+        #expect(required.stage == .paymentRequired)
+        #expect(required.hasChallenge)
+        #expect(required.redactionFields.contains("Payment-Required"))
+
+        let retry = try plainRequest(headers: [HTTPHeader(name: "PAYMENT-SIGNATURE", value: "synthetic-signature")])
+        let accepted = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "PAYMENT-RESPONSE", value: "synthetic-settlement")],
+            body: Data(#"{"ok":true}"#.utf8),
+            contentType: .json
+        )
+        let settled = try detectedInfo(request: retry, response: accepted)
+        #expect(settled.stage == .paymentAccepted)
+        #expect(settled.hasPaymentProof)
+        #expect(settled.redactionFields.contains("Payment-Signature"))
+        #expect(settled.redactionFields.contains("Payment-Response"))
+    }
+
+    @Test("X402Detector skips body parsing for ordinary errors without payment hints")
+    func ignoresOrdinaryErrorBodies() throws {
+        let request = try plainRequest(headers: [HTTPHeader(name: "Authorization", value: "Bearer synthetic")])
+        let response = HTTPResponseData(
+            statusCode: 401,
+            statusMessage: "Unauthorized",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"error":"invalid token","challenge":"synthetic"}"#.utf8),
+            contentType: .json
+        )
+
+        #expect(X402Detector.detect(request: request, response: response) == nil)
+    }
+
+    private func plainRequest(headers: [HTTPHeader]) throws -> HTTPRequestData {
+        try HTTPRequestData(
+            method: "GET",
+            url: try url("https://api.example.com/paywall"),
+            httpVersion: "HTTP/1.1",
+            headers: headers,
+            body: nil,
+            contentType: nil
+        )
+    }
+
     private func request(from message: ProtocolFixtureMessage) throws -> HTTPRequestData {
         let headers = message.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
         let body = message.body.map { Data($0.utf8) }

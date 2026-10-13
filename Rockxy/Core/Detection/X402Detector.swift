@@ -19,21 +19,30 @@ enum X402Detector {
         let requestHeaders = HeaderLookup(request.headers)
         let responseHeaders = HeaderLookup(response?.headers ?? [])
         let responseStatus = response?.statusCode
-        let hasPaymentProof = requestHeaders.contains("x-payment")
-            || requestHeaders.contains("authorization")
-        let hasPaymentResponse = responseHeaders.contains("x-payment-response")
-        let bodySummary = summarizeBody(response?.decodedBody(limit: maxPayloadBytes))
         let isStatus402 = responseStatus == 402
-        let isX402Like = bodySummary.isX402Like
-            || requestHeaders.contains("x-payment")
+        // Only x402 payment headers count as a proof. A generic Authorization header is
+        // ordinary API auth and must not turn a request into a payment retry.
+        let hasPaymentProof = paymentProofHeaders.contains { requestHeaders.contains($0) }
+        let hasPaymentResponse = paymentResponseHeaders.contains { responseHeaders.contains($0) }
+        let hasHeaderChallenge = responseHeaders.contains("payment-required")
+        let hasPaymentHeaders = hasPaymentProof
+            || hasPaymentResponse
+            || hasHeaderChallenge
             || responseHeaders.contains("x-accept-payment")
-            || responseHeaders.contains("x-payment-response")
 
-        guard isStatus402 || isX402Like || hasPaymentResponse else {
+        // Skip body decoding for ordinary traffic: only 402 responses and exchanges that
+        // already carry x402 headers are worth inspecting.
+        guard isStatus402 || hasPaymentHeaders else {
             return nil
         }
 
-        let providerErrorPresent = bodySummary.providerErrorPresent
+        let bodySummary = summarizeBody(response?.decodedBody(limit: maxPayloadBytes))
+        let isX402Like = bodySummary.isX402Like || hasPaymentHeaders
+
+        // In a payment-required response the `error` field explains why payment is needed
+        // (for example "X-PAYMENT header is required"). It is only a provider error when the
+        // client already submitted a payment proof and the server still rejected the request.
+        let providerErrorPresent = bodySummary.errorFieldPresent && hasPaymentProof
         let stage = stage(
             statusCode: responseStatus,
             isX402Like: isX402Like,
@@ -48,7 +57,7 @@ enum X402Detector {
             version: bodySummary.version,
             paymentRequired: bodySummary.paymentRequired ?? (isStatus402 ? true : nil),
             hasPaymentProof: hasPaymentProof,
-            hasChallenge: bodySummary.hasChallenge,
+            hasChallenge: bodySummary.hasChallenge || hasHeaderChallenge,
             hasPaymentMetadata: bodySummary.hasPaymentMetadata || hasPaymentResponse,
             providerErrorPresent: providerErrorPresent,
             parseState: bodySummary.parseState,
@@ -64,6 +73,9 @@ enum X402Detector {
 
     // MARK: Private
 
+    private static let paymentProofHeaders = ["x-payment", "payment-signature"]
+    private static let paymentResponseHeaders = ["x-payment-response", "payment-response"]
+
     private struct BodySummary {
         let isX402Like: Bool
         let version: String?
@@ -71,7 +83,7 @@ enum X402Detector {
         let hasChallenge: Bool
         let hasPaymentMetadata: Bool
         let hasReceipt: Bool
-        let providerErrorPresent: Bool
+        let errorFieldPresent: Bool
         let parseState: X402ParseState
     }
 
@@ -94,7 +106,7 @@ enum X402Detector {
         hasChallenge: false,
         hasPaymentMetadata: false,
         hasReceipt: false,
-        providerErrorPresent: false,
+        errorFieldPresent: false,
         parseState: .notApplicable
     )
 
@@ -109,6 +121,7 @@ enum X402Detector {
                 || prefix.contains("paymentrequired")
                 || prefix.contains("paymentmetadata")
                 || prefix.contains("challenge")
+                || prefix.contains("\"accepts\"")
             guard looksLikeX402 else {
                 return emptyBodySummary
             }
@@ -116,20 +129,21 @@ enum X402Detector {
                 isX402Like: true,
                 version: nil,
                 paymentRequired: prefix.contains("paymentrequired"),
-                hasChallenge: prefix.contains("challenge"),
+                hasChallenge: prefix.contains("challenge") || prefix.contains("\"accepts\""),
                 hasPaymentMetadata: prefix.contains("paymentmetadata"),
                 hasReceipt: prefix.contains("receipt"),
-                providerErrorPresent: prefix.contains("\"error\"") || prefix.contains("error"),
+                errorFieldPresent: prefix.contains("\"error\""),
                 parseState: .malformed
             )
         }
 
         let hasPaymentMetadata = object["paymentMetadata"] != nil
-        let hasChallenge = object["challenge"] != nil
+        // x402 v1 lists payment requirements in `accepts`; treat them like a challenge.
+        let hasChallenge = object["challenge"] != nil || object["accepts"] is [Any]
         let hasReceipt = object["receipt"] != nil || (object["paymentMetadata"] as? [String: Any])?["receipt"] != nil
         let paymentRequired = boolValue(object["paymentRequired"])
         let version = stringValue(object["x402Version"])
-        let providerErrorPresent = object["error"] != nil
+        let errorFieldPresent = object["error"] != nil
         let isX402Like = version != nil
             || paymentRequired != nil
             || hasChallenge
@@ -142,7 +156,7 @@ enum X402Detector {
             hasChallenge: hasChallenge,
             hasPaymentMetadata: hasPaymentMetadata,
             hasReceipt: hasReceipt,
-            providerErrorPresent: providerErrorPresent,
+            errorFieldPresent: errorFieldPresent,
             parseState: .parsed
         )
     }
@@ -181,8 +195,17 @@ enum X402Detector {
         if requestHeaders.contains("x-payment") {
             fields.append("X-Payment")
         }
+        if requestHeaders.contains("payment-signature") {
+            fields.append("Payment-Signature")
+        }
         if responseHeaders.contains("x-payment-response") {
             fields.append("X-Payment-Response")
+        }
+        if responseHeaders.contains("payment-response") {
+            fields.append("Payment-Response")
+        }
+        if responseHeaders.contains("payment-required") {
+            fields.append("Payment-Required")
         }
         if bodySummary.hasChallenge {
             fields.append("challenge")
