@@ -24,9 +24,9 @@ struct ScriptRunReport: Equatable, Sendable {
 
 // MARK: - ScriptRunReporter
 
-/// Publishes `ScriptRunReport`s for the editor's status line. Failures are always published so
-/// none is missed; successes are coalesced to at most one per script and phase per interval,
-/// because a busy script can run hundreds of times a second.
+/// Publishes `ScriptRunReport`s for the editor's status line. Successes and repeated identical
+/// failures are coalesced to at most one per script and phase per interval, because a busy script
+/// can run hundreds of times a second; a new failure reason always publishes at once.
 final class ScriptRunReporter: @unchecked Sendable {
     // MARK: Lifecycle
 
@@ -60,11 +60,26 @@ final class ScriptRunReporter: @unchecked Sendable {
         sink(ScriptRunReport(pluginID: pluginID, phase: phase, outcome: .succeeded, timestamp: timestamp))
     }
 
+    /// Failures publish at once when the reason changes, and otherwise at most once per interval,
+    /// so a script that fails on every request cannot flood the main thread either.
     func reportFailure(pluginID: String, phase: ScriptRunReport.Phase, reason: String) {
         let timestamp = now()
-        // A failure resets coalescing so the next success is shown right away.
+        let key = "\(pluginID)|\(phase.rawValue)"
+        let shouldPublish = failures.withLock { last -> Bool in
+            if let previous = last[key], previous.reason == reason,
+               timestamp.timeIntervalSince(previous.at) < successInterval
+            {
+                return false
+            }
+            last[key] = (reason, timestamp)
+            return true
+        }
+        // A failure resets success coalescing so the next success is shown right away.
         state.withLock { lastSuccess in
-            lastSuccess["\(pluginID)|\(phase.rawValue)"] = nil
+            lastSuccess[key] = nil
+        }
+        guard shouldPublish else {
+            return
         }
         sink(ScriptRunReport(pluginID: pluginID, phase: phase, outcome: .failed(reason), timestamp: timestamp))
     }
@@ -75,4 +90,5 @@ final class ScriptRunReporter: @unchecked Sendable {
     private let now: @Sendable () -> Date
     private let sink: @Sendable (ScriptRunReport) -> Void
     private let state = OSAllocatedUnfairLock<[String: Date]>(initialState: [:])
+    private let failures = OSAllocatedUnfairLock<[String: (reason: String, at: Date)]>(initialState: [:])
 }

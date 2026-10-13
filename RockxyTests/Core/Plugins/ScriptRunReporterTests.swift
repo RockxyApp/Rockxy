@@ -6,7 +6,7 @@ import Testing
 // MARK: - ScriptRunReporterTests
 
 struct ScriptRunReporterTests {
-    @Test("Successes are coalesced per script and phase; failures always publish")
+    @Test("Successes and repeated failures are coalesced; a new failure reason publishes at once")
     func coalescesSuccesses() {
         let clock = TestClock()
         let published = ReportCollector()
@@ -20,8 +20,10 @@ struct ScriptRunReporterTests {
 
         reporter.reportFailure(pluginID: "a", phase: .request, reason: "JS exception: boom")
         reporter.reportFailure(pluginID: "a", phase: .request, reason: "JS exception: boom")
+        #expect(published.reports.count == 4)
+        reporter.reportFailure(pluginID: "a", phase: .request, reason: "mock script returned null")
         #expect(published.reports.count == 5)
-        #expect(published.reports.last?.outcome == .failed("JS exception: boom"))
+        #expect(published.reports.last?.outcome == .failed("mock script returned null"))
 
         // A failure lets the next success through even inside the interval.
         reporter.reportSuccess(pluginID: "a", phase: .request)
@@ -30,6 +32,8 @@ struct ScriptRunReporterTests {
         clock.advance(by: 1.5)
         reporter.reportSuccess(pluginID: "b", phase: .request)
         #expect(published.reports.count == 7)
+        reporter.reportFailure(pluginID: "a", phase: .request, reason: "mock script returned null")
+        #expect(published.reports.count == 8)
     }
 
     @Test("The editor shows only its own script's latest run")
