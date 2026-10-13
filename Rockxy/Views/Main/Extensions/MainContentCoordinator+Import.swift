@@ -247,7 +247,7 @@ extension MainContentCoordinator {
     nonisolated static func makeHARPreview(from url: URL) throws -> ImportPreview {
         let fileSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
         let data = try Data(contentsOf: url)
-        let result = try HARImporter().importReportingSkips(data)
+        let result = try HARImporter(runsProtocolDetection: false).importReportingSkips(data)
         return ImportPreview(
             fileName: url.lastPathComponent,
             fileType: isCharlesJSONSession(data) ? .charlesJSON : .har,

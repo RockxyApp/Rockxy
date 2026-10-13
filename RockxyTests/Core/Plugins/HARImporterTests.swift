@@ -83,6 +83,9 @@ struct HARImporterTests {
         #expect(transactions[0].web3RPCInfo?.method == "eth_chainId")
         #expect(transactions[1].x402Info?.isX402Like == true)
         #expect(transactions[2].graphQLInfo?.operationName == "GetUser")
+
+        let preview = try HARImporter(runsProtocolDetection: false).importData(Data(har.utf8))
+        #expect(preview.allSatisfy { $0.web3RPCInfo == nil && $0.x402Info == nil && $0.graphQLInfo == nil })
     }
 
     @Test("A request body without a Content-Type header takes postData.mimeType")

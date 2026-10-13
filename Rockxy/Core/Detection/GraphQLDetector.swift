@@ -7,6 +7,9 @@ import os
 enum GraphQLDetector {
     // MARK: Internal
 
+    /// GraphQL documents are small; larger bodies (uploads, bulk payloads) are not parsed.
+    static let maxBodyBytes = 1_048_576
+
     static func detect(request: HTTPRequestData) -> GraphQLInfo? {
         let pathLooksGraphQL = request.path.lowercased().contains("graphql")
         let fields: [String: Any]
@@ -15,6 +18,7 @@ enum GraphQLDetector {
             // Batched requests (a JSON array) carry several operations; they are not a
             // single operation and are left to the generic inspectors.
             guard let body = request.body,
+                  body.count <= maxBodyBytes,
                   let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any] else
             {
                 return nil
