@@ -145,6 +145,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 }
             }
 
+            self.finalizeStreamDiagnosticsIfNeeded(reason: .readTimeout)
+
             let transaction = HTTPTransaction(
                 request: self.requestData,
                 response: HTTPResponseData(statusCode: 504, statusMessage: "Gateway Timeout", headers: []),
@@ -157,6 +159,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             transaction.connectionLog = self.connectionLog
             transaction.sourcePort = self.sourcePort
             transaction.clientApp = Self.extractAppFromUserAgent(self.requestData.headers)
+            transaction.streamDiagnostics = self.streamDiagnostics
             self.onTransactionComplete(transaction)
             context.close(promise: nil)
         }
@@ -178,6 +181,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             self.readTimeoutTask?.cancel()
             self.readTimeoutTask = nil
             if self.responseHead != nil {
+                self.finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
                 self.buildAndCompleteTransaction()
             }
             context.close(promise: nil)
@@ -202,6 +206,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         completed = true
         if responseHead != nil {
+            finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
             // The response started but its end never arrived, so the body is incomplete.
             earlyTermination = earlyTermination ?? "Connection closed before the response finished"
             buildAndCompleteTransaction()
@@ -277,6 +282,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 return
             }
 
+            if Self.isEventStream(modifiedHead.headers) {
+                sseCaptureAccumulator = SSEStreamCaptureAccumulator()
+            }
+
             if !shouldBreakOnResponse, !deferRelayForScript {
                 relayResponseHead(modifiedHead)
                 if Self.isStreamingResponse(modifiedHead.headers) {
@@ -285,6 +294,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             }
 
         case let .body(buffer):
+            if sseCaptureAccumulator != nil {
+                let offset = nanosecondsToSeconds(from: startTime, to: .now())
+                sseCaptureAccumulator?.append(buffer.readableBytesView, at: offset)
+            }
             if !responseBodyTruncated {
                 if ProxyHandlerShared.shouldTruncateCapture(
                     currentBufferSize: responseBody?.readableBytes ?? 0,
@@ -382,6 +395,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             completed = true
             readTimeoutTask?.cancel()
             readTimeoutTask = nil
+            finalizeStreamDiagnosticsIfNeeded(reason: .endOfStream)
 
             if deferRelayForScript {
                 runResponseScriptThenContinue(context: context)
@@ -400,6 +414,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         readTimeoutTask = nil
         if !completed, responseHead != nil {
             completed = true
+            finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
             // A close-delimited body may legitimately end with an unclean TLS shutdown. A body framed
             // by Content-Length or chunked encoding that has not reached its end was cut short, and so
             // was any response hit by another error, such as an HTTP/2 stream reset.
@@ -522,6 +537,15 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var responseBodyTruncated = false
     private var responseBreakpointSuppressed = false
     private var firstByteTime: DispatchTime?
+
+    /// Bounded SSE framer, created only for `text/event-stream` responses. It observes
+    /// decoded body buffers as they arrive at Rockxy — before relay — and never mutates
+    /// or delays them.
+    private var sseCaptureAccumulator: SSEStreamCaptureAccumulator?
+
+    /// Finalized stream diagnostics, computed once from `sseCaptureAccumulator` at the
+    /// first terminal event (normal end, channel inactivity, or error).
+    private var streamDiagnostics: StreamDiagnostics?
     private var completed = false
     /// Set when a response that had started was cut short, so its row is not reported as a success.
     private var earlyTermination: String?
@@ -565,6 +589,18 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     nonisolated private func cancelPendingResponseBreakpoint() {
         pendingResponseBreakpointTask?.cancel()
         pendingResponseBreakpointTask = nil
+    }
+
+    /// Detects a `text/event-stream` response so the SSE framer is created only for
+    /// streaming responses.
+    nonisolated private static func isEventStream(_ headers: HTTPHeaders) -> Bool {
+        // Timing is measured on the bytes as they arrive; a compressed stream cannot be framed
+        // without decompressing it on the event loop, so it gets no live timing.
+        let encodings = headers["Content-Encoding"].map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        guard encodings.allSatisfy({ $0.isEmpty || $0 == "identity" }) else {
+            return false
+        }
+        return headers["Content-Type"].contains { $0.lowercased().contains("text/event-stream") }
     }
 
     // MARK: - Client Relay
@@ -989,6 +1025,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         transaction.noCachingApplied = disablesResponseCaching
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog
+        finalizeStreamDiagnosticsIfNeeded(reason: .endOfStream)
+        transaction.streamDiagnostics = streamDiagnostics
 
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
@@ -1006,9 +1044,20 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             live.noCachingApplied = transaction.noCachingApplied
             live.serverHTTPVersion = transaction.serverHTTPVersion
             live.connectionLog = transaction.connectionLog
+            live.streamDiagnostics = transaction.streamDiagnostics
             live.state = finalState
             onTransactionComplete(live)
         }
+    }
+
+    /// Finalizes the SSE framer exactly once with the given completion reason. A no-op
+    /// when no framer exists (non-streaming) or diagnostics were already computed, so the
+    /// first terminal signal (end, inactivity, error) wins.
+    nonisolated private func finalizeStreamDiagnosticsIfNeeded(reason: StreamCompletionReason) {
+        guard sseCaptureAccumulator != nil, streamDiagnostics == nil else {
+            return
+        }
+        streamDiagnostics = sseCaptureAccumulator?.finish(reason: reason)
     }
 
     nonisolated private func buildTimingInfo(endTime: DispatchTime) -> TimingInfo {

@@ -274,6 +274,16 @@
         }
       }
     },
+    "Bars show each captured event's payload size in stream order. Times above were measured by Rockxy as events arrived.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条形图按流顺序显示每个已捕获事件的负载大小。上方时间由 Rockxy 在事件到达时测得。"
+          }
+        }
+      }
+    },
     "Binary Part": {
       "localizations": {
         "zh-Hans": {
@@ -620,6 +630,16 @@
         }
       }
     },
+    "Ended without a final event": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束时没有最终事件"
+          }
+        }
+      }
+    },
     "Enter only the host name, without a scheme or path.": {
       "localizations": {
         "zh-Hans": {
@@ -646,6 +666,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "事件 %lld · %@"
+          }
+        }
+      }
+    },
+    "Events Seen": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已见事件"
           }
         }
       }
@@ -716,6 +746,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "按负载文本筛选帧"
+          }
+        }
+      }
+    },
+    "First Event": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "首个事件"
           }
         }
       }
@@ -840,6 +880,16 @@
         }
       }
     },
+    "Interrupted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已中断"
+          }
+        }
+      }
+    },
     "JS exception: %@": {
       "localizations": {
         "zh-Hans": {
@@ -916,6 +966,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "记录请求"
+          }
+        }
+      }
+    },
+    "Longest Gap": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最长间隔"
           }
         }
       }
@@ -1742,6 +1802,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "随代理启动"
+          }
+        }
+      }
+    },
+    "Stream End": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流结束"
           }
         }
       }

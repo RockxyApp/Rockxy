@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The AI tab shows stream timing measured live for Server-Sent Events responses: time to the first event, the longest gap between events, how many events arrived, and whether the stream completed (`[DONE]`, Anthropic `message_stop`, or OpenAI `response.completed`), ended without a final event, or was interrupted. Timing is saved with Rockxy sessions; imported and compressed streams say that no live timing was recorded.
 - New search tokens: `has:tool_call`, `streaming:true|false`, `chain:` (name, decimal, or hex), `has:tx_hash`, and `is:x402`. AI facts used by search are cached per request, so `model:` no longer re-parses request bodies on every filter pass.
 - x402 payment-gated requests get an **x402** badge in the request list.
 - **Tools > Proxy Settings** shows which route new traffic takes while External Proxy is on (for example "Routing via HTTP 127.0.0.1:7890"), and a request that fails because the external proxy is not running or not reachable now says so in its Connection Log instead of reporting a generic connection failure.
