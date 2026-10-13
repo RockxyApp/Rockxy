@@ -193,6 +193,21 @@ struct X402DetectorTests {
         #expect(settled.redactionFields.contains("Payment-Response"))
     }
 
+    @Test("X402Detector still recognizes x402 fields in a non-402 body without payment headers")
+    func recognizesBodyOnlyHints() throws {
+        let request = try plainRequest(headers: [])
+        let response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
+            body: Data(#"{"x402Version":1,"paymentMetadata":{"receipt":"synthetic"}}"#.utf8),
+            contentType: .json
+        )
+        let info = try detectedInfo(request: request, response: response)
+        #expect(info.isX402Like)
+        #expect(info.hasPaymentMetadata)
+    }
+
     @Test("X402Detector skips body parsing for ordinary errors without payment hints")
     func ignoresOrdinaryErrorBodies() throws {
         let request = try plainRequest(headers: [HTTPHeader(name: "Authorization", value: "Bearer synthetic")])

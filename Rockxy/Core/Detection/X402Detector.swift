@@ -30,9 +30,9 @@ enum X402Detector {
             || hasHeaderChallenge
             || responseHeaders.contains("x-accept-payment")
 
-        // Skip body decoding for ordinary traffic: only 402 responses and exchanges that
-        // already carry x402 headers are worth inspecting.
-        guard isStatus402 || hasPaymentHeaders else {
+        // Skip body decoding for ordinary traffic: only 402 responses, exchanges that carry
+        // x402 headers, or bodies whose first bytes name an x402 field are worth parsing.
+        guard isStatus402 || hasPaymentHeaders || bodyMentionsX402(response?.body) else {
             return nil
         }
 
@@ -72,6 +72,18 @@ enum X402Detector {
     }
 
     // MARK: Private
+
+    private static let bodyHintMarkers = ["x402Version", "paymentMetadata", "paymentRequired"].map { Data($0.utf8) }
+
+    /// A cheap scan of the raw body prefix, so a facilitator reply or a 200 with a receipt is
+    /// still recognized without parsing every response on the proxy path.
+    private static func bodyMentionsX402(_ body: Data?) -> Bool {
+        guard let body, !body.isEmpty else {
+            return false
+        }
+        let prefix = body.prefix(4 * 1_024)
+        return bodyHintMarkers.contains { prefix.range(of: $0) != nil }
+    }
 
     private static let paymentProofHeaders = ["x-payment", "payment-signature"]
     private static let paymentResponseHeaders = ["x-payment-response", "payment-response"]
