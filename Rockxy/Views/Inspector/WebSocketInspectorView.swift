@@ -51,6 +51,12 @@ struct WebSocketInspectorView: View {
         .onChange(of: selectedFrameID) { _, _ in
             payloadMode = selectedFrame.map(prefersProtobufView) == true ? .protobuf : .payload
         }
+        .onChange(of: directionFilterValue) { _, _ in
+            reconcileSelection()
+        }
+        .onChange(of: frameSearchText) { _, _ in
+            reconcileSelection()
+        }
     }
 
     // MARK: Private
@@ -505,13 +511,23 @@ struct WebSocketInspectorView: View {
     }
 
     private func filteredFrames(_ connection: WebSocketConnection) -> [WebSocketFrameData] {
-        let query = frameSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return connection.frames.filter { frame in
-            if let filter = directionFilterValue, frame.direction != filter {
-                return false
-            }
-            return query.isEmpty || WebSocketFrameSearch.matches(frame.payload, query: query)
+        WebSocketFrameList.visibleFrames(
+            connection.frames,
+            direction: directionFilterValue,
+            query: frameSearchText
+        )
+    }
+
+    /// Clears the selection only when the chosen frame is no longer listed, so new frames
+    /// arriving never move the person off the frame they are reading.
+    private func reconcileSelection() {
+        guard let connection = transaction.webSocketConnection else {
+            return
         }
+        selectedFrameID = WebSocketFrameList.reconciledSelection(
+            selectedFrameID,
+            visible: filteredFrames(connection)
+        )
     }
 
     private func opcodeInfo(_ opcode: FrameOpcode) -> (String, Color) {
@@ -585,6 +601,37 @@ private enum WebSocketPayloadInspectorMode {
 private extension Data {
     var isProbablyUTF8Text: Bool {
         String(data: prefix(512), encoding: .utf8) != nil
+    }
+}
+
+// MARK: - WebSocketFrameList
+
+/// Which frames the list shows and which selection survives a filter change. Frames are only
+/// ever appended, so filtering preserves order and an existing selection stays put while a
+/// connection is live.
+enum WebSocketFrameList {
+    static func visibleFrames(
+        _ frames: [WebSocketFrameData],
+        direction: FrameDirection?,
+        query: String
+    ) -> [WebSocketFrameData] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard direction != nil || !query.isEmpty else {
+            return frames
+        }
+        return frames.filter { frame in
+            if let direction, frame.direction != direction {
+                return false
+            }
+            return query.isEmpty || WebSocketFrameSearch.matches(frame.payload, query: query)
+        }
+    }
+
+    static func reconciledSelection(_ selection: UUID?, visible: [WebSocketFrameData]) -> UUID? {
+        guard let selection, visible.contains(where: { $0.id == selection }) else {
+            return nil
+        }
+        return selection
     }
 }
 
