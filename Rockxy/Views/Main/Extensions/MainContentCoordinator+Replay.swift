@@ -50,6 +50,7 @@ extension MainContentCoordinator {
         let skipped = transactions.count - eligible.count
         Task { @MainActor in
             var failed = 0
+            var firstFailure: String?
             for transaction in eligible {
                 let startedAt = Date()
                 do {
@@ -57,11 +58,18 @@ extension MainContentCoordinator {
                     await recordReplayResult(of: transaction, response: response, startedAt: startedAt, state: .completed)
                 } catch {
                     failed += 1
+                    firstFailure = firstFailure
+                        ?? ReplayFailureReason.message(for: error, host: transaction.request.url.host)
                     Self.logger.error("Replay failed: \(error.localizedDescription)")
                     await recordReplayResult(of: transaction, response: nil, startedAt: startedAt, state: .failed)
                 }
             }
-            activeToast = Self.batchReplayToast(sent: eligible.count, failed: failed, skipped: skipped)
+            activeToast = Self.batchReplayToast(
+                sent: eligible.count,
+                failed: failed,
+                skipped: skipped,
+                firstFailure: firstFailure
+            )
         }
     }
 
@@ -104,23 +112,34 @@ extension MainContentCoordinator {
         let port = activeProxyPort
         Task { @MainActor in
             var failed = 0
+            var firstFailure: String?
             for transaction in eligible {
                 do {
                     _ = try await RequestReplay.replay(transaction.request, throughProxyPort: port)
                 } catch {
                     failed += 1
+                    firstFailure = firstFailure
+                        ?? ReplayFailureReason.message(for: error, host: transaction.request.url.host)
                     Self.logger.error("Replay through rules failed: \(error.localizedDescription)")
                 }
             }
             activeToast = Self.batchReplayToast(
                 sent: eligible.count,
                 failed: failed,
-                skipped: targets.count - eligible.count
+                skipped: targets.count - eligible.count,
+                firstFailure: firstFailure
             )
         }
     }
 
-    nonisolated static func batchReplayToast(sent: Int, failed: Int, skipped: Int) -> ToastMessage {
+    /// `firstFailure` is the reason for the first failed request, shown so a batch that fails
+    /// for a single cause (offline, host down, timeout) says why instead of only how many.
+    nonisolated static func batchReplayToast(
+        sent: Int,
+        failed: Int,
+        skipped: Int,
+        firstFailure: String? = nil
+    ) -> ToastMessage {
         var text = String(
             AttributedString(localized: "Repeated ^[\(sent) request](inflect: true)", bundle: RockxyLocalization.bundle)
                 .characters
@@ -130,6 +149,9 @@ extension MainContentCoordinator {
                 AttributedString(localized: "^[\(failed) request](inflect: true) failed", bundle: RockxyLocalization.bundle)
                     .characters
             )
+            if let firstFailure {
+                text += ": " + firstFailure
+            }
         }
         if skipped > 0 {
             text += " — " + String(
@@ -182,7 +204,7 @@ extension MainContentCoordinator {
                 activeToast = ToastMessage(
                     style: .error,
                     text: String(
-                        localized: "Replay failed — \(error.localizedDescription)",
+                        localized: "Replay failed — \(ReplayFailureReason.message(for: error, host: transaction.request.url.host))",
                         bundle: RockxyLocalization.bundle
                     )
                 )
