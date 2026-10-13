@@ -34,6 +34,8 @@ extension Notification.Name {
     static let rulesDidFailToLoad = identity.notificationName("rulesDidFailToLoad")
     static let scriptsDidChange = identity.notificationName("scriptsDidChange")
     static let scriptConsoleDidAppend = identity.notificationName("scriptConsoleDidAppend")
+    /// Posted with a `ScriptRunReport` after a script hook succeeds or fails.
+    static let scriptRunDidFinish = identity.notificationName("scriptRunDidFinish")
     static let openDiffWindow = identity.notificationName("openDiffWindow")
     static let openComposeWindow = identity.notificationName("openComposeWindow")
     /// Posted with the `HTTPTransaction` a Compose send produced, so the workspace can list it.
