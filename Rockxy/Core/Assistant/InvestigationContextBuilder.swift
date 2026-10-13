@@ -73,21 +73,22 @@ struct InvestigationContextBuilder {
     )
         -> PayloadRecord
     {
-        let flow = "flow:\(snapshot.id.uuidString)"
+        // Field ids are relative to their transaction, which already carries `id`; repeating the
+        // UUID in every header id would cost small-context models a whole request.
         let requestHeaders = sanitizedHeaders(
             snapshot.request.headers,
-            evidencePrefix: "\(flow):request.header",
+            evidencePrefix: "request.header",
             limits: limits
         )
         let responseHeaders = sanitizedHeaders(
             snapshot.response?.headers ?? [],
-            evidencePrefix: "\(flow):response.header",
+            evidencePrefix: "response.header",
             limits: limits
         )
         let requestBody = sanitizedBody(
             snapshot.request.body,
             contentType: snapshot.request.contentType,
-            evidenceID: "\(flow):request.body",
+            evidenceID: "request.body",
             limits: limits
         )
         // Review Data must show the payload the way the inspector does; a compressed body
@@ -95,7 +96,7 @@ struct InvestigationContextBuilder {
         let responseBody = sanitizedBody(
             snapshot.response?.decodedBody(limit: limits.maxBodyBytes),
             contentType: snapshot.response?.contentType,
-            evidenceID: "\(flow):response.body",
+            evidenceID: "response.body",
             limits: limits
         )
         let originalQueryCount = sensitiveQueryCount(in: snapshot.request.url)
@@ -111,7 +112,7 @@ struct InvestigationContextBuilder {
                 capturedAt: ISO8601DateFormatter().string(from: snapshot.timestamp),
                 clientApplication: snapshot.clientApp.map { bounded($0, characters: 160) },
                 request: PayloadRequest(
-                    evidenceID: "\(flow):request",
+                    evidenceID: "request",
                     method: bounded(snapshot.request.method, characters: 32),
                     url: redactedURL,
                     httpVersion: bounded(snapshot.request.httpVersion, characters: 32),
@@ -120,7 +121,7 @@ struct InvestigationContextBuilder {
                 ),
                 response: snapshot.response.map { response in
                     PayloadResponse(
-                        evidenceID: "\(flow):response",
+                        evidenceID: "response",
                         statusCode: response.statusCode,
                         statusMessage: bounded(response.statusMessage, characters: 160),
                         headers: responseHeaders.headers,
