@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOEmbedded
 import NIOHTTP1
+import NIOSSL
 import NIOWebSocket
 @testable import Rockxy
 import Testing
@@ -415,6 +416,35 @@ struct WebSocketFrameHandlerTests {
         #expect(pair.states.value == [.active, .failed])
         #expect(pair.transaction.state == .failed)
         #expect(pair.releases.value == 1)
+        pair.finish()
+    }
+
+    @Test("A transport error after a close frame is still a clean close")
+    func errorAfterCloseFrameIsClean() async throws {
+        let pair = try WebSocketRelayPair()
+        pair.lifecycle.open(pair.transaction)
+        var payload = pair.client.allocator.buffer(capacity: 2)
+        payload.writeInteger(UInt16(1_000))
+        try pair.client.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))
+
+        pair.server.pipeline.fireErrorCaught(ChannelError.ioOnClosedChannel)
+        pair.server.pipeline.fireChannelInactive()
+        await pair.settle()
+
+        #expect(pair.states.value == [.active, .completed])
+        pair.finish()
+    }
+
+    @Test("A TLS peer closing without close_notify is not a failure")
+    func uncleanTLSShutdownIsClean() async throws {
+        let pair = try WebSocketRelayPair()
+        pair.lifecycle.open(pair.transaction)
+
+        pair.server.pipeline.fireErrorCaught(NIOSSLError.uncleanShutdown)
+        pair.server.pipeline.fireChannelInactive()
+        await pair.settle()
+
+        #expect(pair.states.value == [.active, .completed])
         pair.finish()
     }
 

@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOSSL
 import NIOWebSocket
 import os
 
@@ -87,9 +88,18 @@ final class WebSocketLifecycle: @unchecked Sendable {
     /// rather than as a clean close. Has no effect once the lifecycle reached its terminal state.
     func recordFailure() {
         lock.lock()
-        if !isComplete {
+        // After a close frame, a dropped TCP or TLS connection is the normal end of the
+        // conversation, not a failure.
+        if !isComplete, !sawCloseFrame {
             didFail = true
         }
+        lock.unlock()
+    }
+
+    /// Notes that either side sent a close frame, so later transport errors are not failures.
+    func recordCloseFrame() {
+        lock.lock()
+        sawCloseFrame = true
         lock.unlock()
     }
 
@@ -137,6 +147,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
     private var isOpened = false
     private var isComplete = false
     private var didFail = false
+    private var sawCloseFrame = false
 
     private func claimTerminalState() -> Bool {
         lock.lock()
@@ -179,13 +190,21 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let frame = unwrapInboundIn(data)
+        if frame.opcode == .connectionClose {
+            lifecycle.recordCloseFrame()
+        }
         captureFrame(frame)
         forwardFrame(frame, context: context)
     }
 
     nonisolated func errorCaught(context: ChannelHandlerContext, error: Error) {
         wsLogger.error("WebSocket error (\(self.direction.rawValue)): \(error.localizedDescription)")
-        lifecycle.recordFailure()
+        // A TLS peer that closes without close_notify is treated as a clean end everywhere else.
+        let isUncleanTLSShutdown = (error as? NIOSSLError).map { if case .uncleanShutdown = $0 { true } else { false } }
+            ?? false
+        if !isUncleanTLSShutdown {
+            lifecycle.recordFailure()
+        }
         peerChannel?.close(promise: nil)
         context.close(promise: nil)
     }
