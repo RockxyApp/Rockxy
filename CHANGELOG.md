@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
 - The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
+- The rule tester in the Breakpoint, Block, and Map Remote editors now warns when another enabled rule earlier in the list also matches the test URL, and names the rule that will apply first.
+- The GraphQL tab lists errors a server returned in the response body's `errors` array — message, error code, and path — so a failed operation that still answered HTTP 200 is visible without reading raw JSON; anonymous operations are labeled as such.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.
@@ -38,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Repeat and Repeat Through Rules now say why a request failed (timed out, host not found, connection refused or lost, offline, TLS failure, unreadable response) instead of a generic "operation couldn't be completed" message, and a failed batch names the first reason.
+- x402 detection no longer marks a standard payment-required response as a provider error because its body has an `error` reason, and no longer treats an ordinary `Authorization` header as a payment proof. The x402 v2 headers (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`) and the v1 `accepts` list are recognized and redacted, and ordinary traffic is only parsed for x402 when its status, headers, or first body bytes point to a payment flow.
 - When another proxy app (such as Clash on `127.0.0.1:7890`) or a person changes the system proxy while Rockxy is capturing, stopping capture or quitting now asks whether to restore the proxy settings you had before capture; Rockxy still never writes over the newer settings on its own, but it no longer drops your previous settings without telling you.
 - Without the helper, Rockxy can now capture while another proxy app's local proxy is set, and restores that app's settings afterward; it no longer refuses with "Another running Rockxy instance owns the current system proxy session".
 - Opening a HAR file, a Rockxy session, or a nearby iPhone transfer keeps every request; imports were cut down to the live history limit without a warning, and live capture no longer trims imported requests.
@@ -161,6 +165,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Babylon capture is now off until you turn on **Accept Babylon Connections** (Babylon menu or the Pairing window). While it is off, Rockxy does not listen on the local network or advertise itself over Bonjour; turning it off disconnects every client. If you already use Babylon, turn it on once and Rockxy remembers the choice.
 - Made Rockxy's Language setting change the language only, as macOS does for a per-app language: numbers, sizes, times, and dates keep the Mac's region, 24-hour clock, and first weekday, while words inside a format (AM/PM, "5 minutes ago") follow the chosen language. Picking 简体中文 on a Mac set to Vietnam used to switch counts from "1.234" to "1,234" while times and sizes stayed regional.
 - Rebuilt Developer Setup as a compact native macOS workflow with a focused target sidebar, adaptive five-part guide, contextual actions, and an optional readiness inspector that honors the Rockxy font-size preference up to 28 pt.
 - Made Manual and Automatic Setup windows target-aware and resizable: Manual Setup now shows the selected target's own workflow or guide instead of always falling back to the generic terminal flow, and Automatic Setup only opens for shipped terminal runtimes and names the selected target.
