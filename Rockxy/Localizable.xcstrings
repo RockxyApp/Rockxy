@@ -14,6 +14,16 @@
         }
       }
     },
+    "%@ at %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（位于 %@）"
+          }
+        }
+      }
+    },
     "%@ of binary data. Save the part to inspect it in another app.": {
       "localizations": {
         "zh-Hans": {
@@ -64,12 +74,42 @@
         }
       }
     },
+    "^[%lld Response Error](inflect: true)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 个响应错误"
+          }
+        }
+      }
+    },
     "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "网络条件配置正在减慢或阻止匹配的流量。打开“网络条件”。"
+          }
+        }
+      }
+    },
+    "A secure connection to %@ couldn't be established.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法与 %@ 建立安全连接。"
+          }
+        }
+      }
+    },
+    "Accept Babylon Connections": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接受 Babylon 连接"
           }
         }
       }
@@ -104,6 +144,16 @@
         }
       }
     },
+    "Anonymous": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匿名"
+          }
+        }
+      }
+    },
     "Another reverse proxy already uses this local port.": {
       "localizations": {
         "zh-Hans": {
@@ -130,6 +180,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "任意操作"
+          }
+        }
+      }
+    },
+    "At %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位于 %@"
           }
         }
       }
@@ -180,6 +240,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Couldn't connect to %@. It may be down or refusing connections.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到 %@。它可能已停止运行或拒绝连接。"
+          }
+        }
+      }
+    },
+    "Couldn't find %@. Check the host name.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 %@。请检查主机名。"
           }
         }
       }
@@ -730,6 +810,16 @@
         }
       }
     },
+    "No message": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无消息"
+          }
+        }
+      }
+    },
     "No Parts": {
       "localizations": {
         "zh-Hans": {
@@ -1160,6 +1250,22 @@
         }
       }
     },
+    "Showing the first %lld of %lld errors.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Showing the first %1$lld of %2$lld errors."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共 %2$lld 个错误，仅显示前 %1$lld 个。"
+          }
+        }
+      }
+    },
     "SOCKS5 Listener": {
       "localizations": {
         "zh-Hans": {
@@ -1390,6 +1496,16 @@
         }
       }
     },
+    "The connection to %@ was lost before the response finished.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在响应完成之前，与 %@ 的连接已断开。"
+          }
+        }
+      }
+    },
     "The local port is Rockxy's proxy port. Choose another port.": {
       "localizations": {
         "zh-Hans": {
@@ -1460,6 +1576,66 @@
         }
       }
     },
+    "The request to %@ timed out.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对 %@ 的请求超时。"
+          }
+        }
+      }
+    },
+    "The request URL isn't valid.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求 URL 无效。"
+          }
+        }
+      }
+    },
+    "The response also returned data, so the operation partly succeeded.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应同时返回了数据，因此该操作部分成功。"
+          }
+        }
+      }
+    },
+    "The response from %@ couldn't be read.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取来自 %@ 的响应。"
+          }
+        }
+      }
+    },
+    "the server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器"
+          }
+        }
+      }
+    },
+    "The server closed the connection without sending a response.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器在未发送响应的情况下关闭了连接。"
+          }
+        }
+      }
+    },
     "The session is too large for nearby transfer.": {
       "localizations": {
         "zh-Hans": {
@@ -1520,6 +1696,16 @@
         }
       }
     },
+    "This Mac is offline.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 处于离线状态。"
+          }
+        }
+      }
+    },
     "This rule would forward to itself. Point it at the real server.": {
       "localizations": {
         "zh-Hans": {
@@ -1546,6 +1732,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "退出占用标准端口的应用后，再次尝试使用该端口。"
+          }
+        }
+      }
+    },
+    "Turn on Accept Babylon Connections to let clients on your local network connect.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启“接受 Babylon 连接”以允许本地网络上的客户端连接。"
           }
         }
       }
@@ -1586,6 +1782,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用端口 %@"
+          }
+        }
+      }
+    },
+    "When on, this Mac listens on the local network and advertises itself over Bonjour. Clients still need the pairing token.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启后，这台 Mac 会在本地网络上监听并通过 Bonjour 广播自身。客户端仍需要配对令牌。"
           }
         }
       }
@@ -44239,12 +44445,12 @@
         }
       }
     },
-    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules they create appear in the matching tool windows and count toward the same active-rule limits.": {
+    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules and JavaScript scripts, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules and scripts they create appear in the matching tool windows and count toward the same limits.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则会显示在对应的工具窗口中，并计入相同的启用规则上限。"
+            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则以及 JavaScript 脚本，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则和脚本会显示在对应的工具窗口中，并计入相同的上限。"
           }
         }
       }

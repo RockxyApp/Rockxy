@@ -172,9 +172,9 @@ Select one or more captured requests and ask what happened, what failed, what ch
 
 <img src="docs/images/features/DemoMCP.png" alt="Rockxy local MCP server exposing captured traffic to Claude Desktop and Cursor" width="820" />
 
-Let Claude Desktop or Cursor inspect captured traffic through ten read-only tools in Rockxy's local MCP server. Ask "why did this 500?" instead of pasting headers into chat. The implementation is open source, token-authenticated, and keeps sensitive-data redaction enabled by default.
+Let Claude Desktop, Claude Code, or another MCP client inspect captured traffic through ten read-only tools in Rockxy's local MCP server. Ask "why did this 500?" instead of pasting headers into chat. Ten more tools can create mock, breakpoint, redirect, block, and script rules or pause recording, but Rockxy refuses them until you turn on **Allow MCP Clients to Change Rules and Capture**. The implementation is open source, token-authenticated, and keeps sensitive-data redaction enabled by default.
 
-`Claude Desktop` · `Cursor` · `Local stdio` · `Redaction` · `Open Source`
+`Claude Desktop` · `Claude Code` · `Local stdio` · `Redaction` · `Open Source`
 
 ### Developer Setup Hub
 
@@ -403,7 +403,7 @@ Packet analyzers and API-only clients are outside this comparison.
 | **WebSocket workflows** | Text/binary frame inspection with bounded Protobuf heuristics | WS/WSS inspection; scripts can modify handshake URL/headers, not messages | WebSocket support is documented in the official version history | WebSocket interception and scripting; WebSocket replay is not supported | WebSocket inspection plus WebSocket-specific rules | WebSocket capture and inspection |
 | **Scripting and extensibility** | Sandboxed JavaScriptCore hooks with a bounded API and execution timeout | JavaScript request/response scripting | Rewrite rules and a control Web Interface; no general JavaScript scripting feature documented | Python addons and command-line automation | Rule-based automation plus public source and proxy libraries | Rule-based automation; no first-party general scripting feature documented |
 | **Upstream routing** | [HTTP/HTTPS upstream proxy and PAC URL routing](docs/features/upstream-proxy.mdx); Community policy disables proxy authentication and SOCKS5 and caps bypass rules at three | External HTTP/HTTPS/SOCKS and PAC routing with bypass rules | External HTTP/HTTPS/SOCKS proxies with authentication and bypass rules | HTTP/HTTPS upstream mode plus reverse and SOCKS listener modes | System, HTTP, HTTPS, and SOCKS upstream settings; plan limits may apply | Automatic chaining to system proxies plus reverse-proxy capture |
-| **AI and MCP** | [In-app AI Assistant](docs/features/ai-assistant.mdx) and [built-in local MCP](docs/features/mcp.mdx) with 10 read-only tools, token authentication, and redaction on by default | Built-in MCP for external AI clients, including traffic reads and app/rule controls | Not documented | Not documented | A bundled local MCP bridge is present in the current official source; no in-app assistant documented | Built-in MCP plus a Pro-tier Debugging Assistant whose current documentation requires captured traffic details to be pasted into chat |
+| **AI and MCP** | [In-app AI Assistant](docs/features/ai-assistant.mdx) and [built-in local MCP](docs/features/mcp.mdx) with 10 read-only tools, 10 opt-in rule and capture controls (off by default), token authentication, and redaction on by default | Built-in MCP for external AI clients, including traffic reads and app/rule controls | Not documented | Not documented | A bundled local MCP bridge is present in the current official source; no in-app assistant documented | Built-in MCP plus a Pro-tier Debugging Assistant whose current documentation requires captured traffic details to be pasted into chat |
 
 ### Adjacent interception tools
 
