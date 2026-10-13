@@ -27,7 +27,7 @@ enum TunnelReason: String, Codable, Sendable {
             )
         case .noDecryptionRule:
             String(
-                localized: "When captured, no HTTPS Decryption rule covered this host.",
+                localized: "When captured, this host was not set to be decrypted: no HTTPS Decryption rule applied, a Tunnel rule excluded it, or the certificate was not ready.",
                 bundle: RockxyLocalization.bundle
             )
         case .unresolvedApplication:

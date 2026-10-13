@@ -1610,12 +1610,12 @@
         }
       }
     },
-    "When captured, no HTTPS Decryption rule covered this host.": {
+    "When captured, this host was not set to be decrypted: no HTTPS Decryption rule applied, a Tunnel rule excluded it, or the certificate was not ready.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "捕获时，没有 HTTPS 解密规则覆盖该主机。"
+            "value": "捕获时，该主机未设置为解密：没有适用的 HTTPS 解密规则、被隧道规则排除，或证书尚未就绪。"
           }
         }
       }

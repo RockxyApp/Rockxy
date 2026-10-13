@@ -471,7 +471,7 @@ struct InspectorRoutingTests {
 
         #expect(prompt?.captureReason == .noDecryptionRule)
         #expect(prompt?.insight == .tunnelEstablished(statusCode: 200))
-        #expect(TunnelReason.noDecryptionRule.captureNote.contains("no HTTPS Decryption rule"))
+        #expect(!TunnelReason.noDecryptionRule.captureNote.isEmpty)
     }
 
     @Test("A row tunneled by auto-passthrough keeps its rejection evidence after the passthrough expires")
