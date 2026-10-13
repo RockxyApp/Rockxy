@@ -453,6 +453,56 @@ struct InspectorRoutingTests {
         #expect(prompt?.insight?.summary == "HTTPS content was not inspected.")
     }
 
+    @Test("A CONNECT row explains its tunnel with the reason recorded at capture")
+    func connectTunnelUsesCaptureReason() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://api.example.com:443",
+            statusCode: 200
+        )
+        transaction.tunnelReason = .noDecryptionRule
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: true,
+            appScope: nil
+        )
+
+        #expect(prompt?.captureReason == .noDecryptionRule)
+        #expect(prompt?.insight == .tunnelEstablished(statusCode: 200))
+        #expect(TunnelReason.noDecryptionRule.captureNote.contains("no HTTPS Decryption rule"))
+    }
+
+    @Test("A row tunneled by auto-passthrough keeps its rejection evidence after the passthrough expires")
+    func autoPassthroughReasonIsRejectionEvidence() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "CONNECT",
+            url: "https://pinned.example.com:443",
+            statusCode: 200
+        )
+        transaction.tunnelReason = .autoPassthrough
+
+        let prompt = HTTPSInspectionPromptModel.make(
+            transaction: transaction,
+            canInterceptHTTPS: true,
+            domainRuleEnabled: true,
+            hasRecentTLSRejection: false,
+            appScope: nil
+        )
+
+        #expect(prompt?.insight == .tlsInterceptionRejected)
+        #expect(prompt?.captureReason == .autoPassthrough)
+    }
+
+    @Test("Every raw tunnel decision maps to a recorded reason")
+    func rawTunnelReasonsMap() {
+        #expect(TLSInterceptHandler.RawTunnelReason.bypassProxyList.tunnelReason == .bypassList)
+        #expect(TLSInterceptHandler.RawTunnelReason.noSSLProxyingRule.tunnelReason == .noDecryptionRule)
+        #expect(TLSInterceptHandler.RawTunnelReason.unresolvedApplicationIdentity.tunnelReason == .unresolvedApplication)
+        #expect(TLSInterceptHandler.RawTunnelReason.autoPassthrough.tunnelReason == .autoPassthrough)
+    }
+
     @Test("CONNECT tunnel hides duplicate app action when only the current host is known")
     func connectTunnelHidesDuplicateAppAction() {
         let transaction = TestFixtures.makeTransaction(
