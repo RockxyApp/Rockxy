@@ -81,7 +81,10 @@ nonisolated enum GRPCDetector {
         var seen = Set<String>()
         return headers.filter { header in
             let name = header.name.lowercased()
-            guard !name.hasPrefix(":"), !protocolHeaderNames.contains(name) else {
+            guard !name.hasPrefix(":"),
+                  !protocolHeaderNames.contains(name),
+                  !ignoredHeaderPrefixes.contains(where: { name.hasPrefix($0) }) else
+            {
                 return false
             }
             return seen.insert("\(name)\u{0}\(header.value)").inserted
@@ -100,6 +103,10 @@ nonisolated enum GRPCDetector {
             return body
         }
         let compact = Array(text.filter { !$0.isWhitespace })
+        // Anything outside the base64 alphabet means this is not text-mode framing after all.
+        guard compact.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "+/=".contains($0)) }) else {
+            return body
+        }
         var decoded = Data()
         var start = 0
         var index = 0
@@ -107,8 +114,13 @@ nonisolated enum GRPCDetector {
             // A chunk closes after its last padding character, or at the end of the body.
             let closesChunk = compact[index] == "=" && (index + 1 == compact.count || compact[index + 1] != "=")
             if closesChunk || index + 1 == compact.count {
-                guard let piece = Data(base64Encoded: String(compact[start ... index])) else {
-                    return body
+                var chunk = String(compact[start ... index])
+                if !closesChunk, chunk.count % 4 != 0 {
+                    // A capture that ended mid-chunk: keep the complete quanta, drop the tail.
+                    chunk = String(chunk.prefix(chunk.count - chunk.count % 4))
+                }
+                guard let piece = Data(base64Encoded: chunk) else {
+                    return decoded.isEmpty ? body : decoded
                 }
                 decoded.append(piece)
                 start = index + 1
@@ -204,7 +216,13 @@ nonisolated enum GRPCDetector {
         "grpc-encoding", "grpc-accept-encoding", "grpc-timeout", "grpc-status", "grpc-message",
         "grpc-status-details-bin", "x-grpc-web", "x-user-agent", "access-control-allow-origin",
         "access-control-expose-headers", "access-control-allow-credentials",
+        // Browser, caching, and edge headers that a gRPC-Web call from a page carries.
+        "origin", "referer", "cookie", "set-cookie", "accept-language", "pragma", "cache-control",
+        "priority", "dnt", "alt-svc", "strict-transport-security", "expires", "etag", "age", "via",
+        "keep-alive", "upgrade-insecure-requests", "authority",
     ]
+
+    private static let ignoredHeaderPrefixes = ["sec-", "access-control-", "x-envoy-", "cf-", "x-amz-cf-"]
 
     /// A gRPC-Web trailer frame holds an HTTP/1-style header block: `name: value` lines.
     private static func parseTrailerBlock(_ payload: Data) -> [HTTPHeader] {

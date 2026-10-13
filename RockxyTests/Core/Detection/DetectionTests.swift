@@ -314,6 +314,28 @@ struct DetectionTests {
         #expect(inspection.grpcStatus == "0")
     }
 
+    @Test("Browser and CORS headers stay out of gRPC metadata")
+    func grpcMetadataSkipsBrowserHeaders() {
+        let metadata = GRPCDetector.customMetadata([
+            HTTPHeader(name: "Origin", value: "https://app.example.com"),
+            HTTPHeader(name: "Sec-Fetch-Mode", value: "cors"),
+            HTTPHeader(name: "Access-Control-Allow-Methods", value: "POST"),
+            HTTPHeader(name: "Cache-Control", value: "no-cache"),
+            HTTPHeader(name: "x-tenant", value: "acme"),
+        ])
+        #expect(metadata == [HTTPHeader(name: "x-tenant", value: "acme")])
+    }
+
+    @Test("A gRPC-Web text body cut off mid-chunk keeps its complete part")
+    func grpcWebTextTruncatedTail() {
+        let message = TestFixtures.grpcFrame(payload: Data([0x08, 0x2A, 0x10, 0x01]))
+        var text = message.base64EncodedString()
+        text.removeLast(2)
+        let decoded = GRPCDetector.decodedBody(Data(text.utf8), contentType: "application/grpc-web-text")
+        #expect(decoded.map { message.starts(with: $0) } == true)
+        #expect((decoded?.count ?? 0) > 0)
+    }
+
     @Test("Undecodable gRPC-Web text falls back to the raw body")
     func grpcWebTextFallsBack() {
         let raw = Data("not base64 !!".utf8)
