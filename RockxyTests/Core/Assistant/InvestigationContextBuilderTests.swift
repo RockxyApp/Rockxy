@@ -107,6 +107,48 @@ struct InvestigationContextBuilderTests {
         #expect(pack.payload.count <= limits.maxOutboundBytes)
     }
 
+    @Test("Every field in the context pack carries a stable evidence id, including repeated headers")
+    func fieldsCarryEvidenceIDs() throws {
+        let request = HTTPRequestData(
+            method: "POST",
+            url: try #require(URL(string: "https://api.example.com/orders")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Accept", value: "application/json")],
+            body: Data(#"{"item":"book"}"#.utf8),
+            contentType: .json
+        )
+        let transaction = HTTPTransaction(
+            request: request,
+            response: HTTPResponseData(
+                statusCode: 200,
+                statusMessage: "OK",
+                headers: [
+                    HTTPHeader(name: "Set-Cookie", value: "a=1"),
+                    HTTPHeader(name: "Set-Cookie", value: "b=2"),
+                ],
+                body: nil
+            ),
+            state: .completed
+        )
+        let flow = "flow:\(transaction.id.uuidString)"
+
+        let first = try InvestigationContextBuilder().build(snapshots: [InvestigationTransactionSnapshot(transaction: transaction)])
+        let second = try InvestigationContextBuilder().build(snapshots: [InvestigationTransactionSnapshot(transaction: transaction)])
+
+        #expect(first.preview == second.preview)
+        for id in [
+            "\(flow):request",
+            "\(flow):request.header.accept",
+            "\(flow):request.body",
+            "\(flow):response",
+            "\(flow):response.header.set-cookie",
+            "\(flow):response.header.set-cookie#2",
+            "\(flow):response.body",
+        ] {
+            #expect(first.preview.contains("\"\(id)\""), "missing \(id)")
+        }
+    }
+
     @Test("Manifest preserves the user-requested count after early snapshot bounding")
     func requestedCountSurvivesEarlyBounding() throws {
         let transactions = try (0 ..< 2).map { index -> HTTPTransaction in
