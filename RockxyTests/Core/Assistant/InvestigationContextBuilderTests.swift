@@ -107,6 +107,72 @@ struct InvestigationContextBuilderTests {
         #expect(pack.payload.count <= limits.maxOutboundBytes)
     }
 
+    @Test("Every field in the context pack carries a stable evidence id, including repeated headers")
+    func fieldsCarryEvidenceIDs() throws {
+        let request = HTTPRequestData(
+            method: "POST",
+            url: try #require(URL(string: "https://api.example.com/orders")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Accept", value: "application/json")],
+            body: Data(#"{"item":"book"}"#.utf8),
+            contentType: .json
+        )
+        let transaction = HTTPTransaction(
+            request: request,
+            response: HTTPResponseData(
+                statusCode: 200,
+                statusMessage: "OK",
+                headers: [
+                    HTTPHeader(name: "Set-Cookie", value: "a=1"),
+                    HTTPHeader(name: "Set-Cookie", value: "b=2"),
+                ],
+                body: nil
+            ),
+            state: .completed
+        )
+
+        let first = try InvestigationContextBuilder().build(snapshots: [InvestigationTransactionSnapshot(transaction: transaction)])
+        let second = try InvestigationContextBuilder().build(snapshots: [InvestigationTransactionSnapshot(transaction: transaction)])
+
+        #expect(first.preview == second.preview)
+        for id in [
+            "request",
+            "request.header.accept",
+            "request.body",
+            "response",
+            "response.header.set-cookie",
+            "response.header.set-cookie#2",
+            "response.body",
+        ] {
+            #expect(first.preview.contains("\"\(id)\""), "missing \(id)")
+        }
+        #expect(first.preview.contains(transaction.id.uuidString))
+    }
+
+    @Test("Evidence ids leave room for a realistic request in a small-context budget")
+    func evidenceIDsFitSmallContext() throws {
+        let headers = (0 ..< 12).map { HTTPHeader(name: "X-Header-\($0)", value: "value-\($0)") }
+        let request = HTTPRequestData(
+            method: "GET",
+            url: try #require(URL(string: "https://api.example.com/items")),
+            httpVersion: "HTTP/1.1",
+            headers: headers
+        )
+        let transaction = HTTPTransaction(
+            request: request,
+            response: HTTPResponseData(statusCode: 200, statusMessage: "OK", headers: headers, body: nil),
+            state: .completed
+        )
+        var limits = InvestigationContextLimits.default
+        limits.maxOutboundBytes = 6_912
+
+        let pack = try InvestigationContextBuilder().build(
+            snapshots: [InvestigationTransactionSnapshot(transaction: transaction)],
+            limits: limits
+        )
+        #expect(pack.manifest.requestCount == 1)
+    }
+
     @Test("Manifest preserves the user-requested count after early snapshot bounding")
     func requestedCountSurvivesEarlyBounding() throws {
         let transactions = try (0 ..< 2).map { index -> HTTPTransaction in

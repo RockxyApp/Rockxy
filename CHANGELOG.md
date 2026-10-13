@@ -180,6 +180,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- The context the AI Assistant reviews and sends now gives every request, response, header, and body a stable evidence id relative to its request (for example `response.header.set-cookie#2`), so answers can point at the exact captured field. The Review Data preview shows the same ids.
 - Babylon capture is now off until you turn on **Accept Babylon Connections** (Babylon menu or the Pairing window). While it is off, Rockxy does not listen on the local network or advertise itself over Bonjour; turning it off disconnects every client. If you already use Babylon, turn it on once and Rockxy remembers the choice.
 - Made Rockxy's Language setting change the language only, as macOS does for a per-app language: numbers, sizes, times, and dates keep the Mac's region, 24-hour clock, and first weekday, while words inside a format (AM/PM, "5 minutes ago") follow the chosen language. Picking 简体中文 on a Mac set to Vietnam used to switch counts from "1.234" to "1,234" while times and sizes stayed regional.
 - Rebuilt Developer Setup as a compact native macOS workflow with a focused target sidebar, adaptive five-part guide, contextual actions, and an optional readiness inspector that honors the Rockxy font-size preference up to 28 pt.
