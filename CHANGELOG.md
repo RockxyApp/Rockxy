@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
+- The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
 - The rule tester in the Breakpoint, Block, and Map Remote editors now warns when another enabled rule earlier in the list also matches the test URL, and names the rule that will apply first.
 - The GraphQL tab lists errors a server returned in the response body's `errors` array — message, error code, and path — so a failed operation that still answered HTTP 200 is visible without reading raw JSON; anonymous operations are labeled as such.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.

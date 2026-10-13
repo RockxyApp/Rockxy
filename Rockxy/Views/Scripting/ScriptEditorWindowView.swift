@@ -282,6 +282,36 @@ struct ScriptEditorWindowView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Spacer(minLength: 0)
+            if let lastRun = viewModel.lastRun {
+                lastRunLabel(lastRun)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func lastRunLabel(_ report: ScriptRunReport) -> some View {
+        let time = TimestampFormatter.timeOfDay(report.timestamp)
+        switch report.outcome {
+        case .succeeded:
+            Label(
+                String(localized: "Last run succeeded at \(time)", bundle: RockxyLocalization.bundle),
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(toolMetrics.secondaryFont())
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .accessibilityIdentifier("scriptEditor.lastRun")
+        case let .failed(reason):
+            Label(
+                String(localized: "Last run failed at \(time)", bundle: RockxyLocalization.bundle),
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(toolMetrics.secondaryFont())
+            .foregroundStyle(.red)
+            .lineLimit(1)
+            .help(reason)
+            .accessibilityValue(reason)
+            .accessibilityIdentifier("scriptEditor.lastRun")
         }
     }
 

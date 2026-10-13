@@ -124,6 +124,16 @@
         }
       }
     },
+    "Add a header to every matching request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个匹配的请求添加一个请求头。"
+          }
+        }
+      }
+    },
     "Add Reverse Proxy…": {
       "localizations": {
         "zh-Hans": {
@@ -170,6 +180,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "另一个正在运行的 Rockxy 实例拥有当前的系统代理会话"
+          }
+        }
+      }
+    },
+    "Answer locally with your own JSON response.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在本地用你自己的 JSON 响应作答。"
           }
         }
       }
@@ -234,12 +254,52 @@
         }
       }
     },
+    "Block Pattern": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止匹配项"
+          }
+        }
+      }
+    },
+    "Block requests whose URL contains a word.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阻止 URL 中包含某个词的请求。"
+          }
+        }
+      }
+    },
     "Boot an iOS, watchOS, or visionOS simulator from Xcode or the Simulator app, then try again.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Change the path of matching requests.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改匹配请求的路径。"
+          }
+        }
+      }
+    },
+    "Conditional Mock JSON": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "条件模拟 JSON"
           }
         }
       }
@@ -426,6 +486,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法检测到活跃的网络服务"
+          }
+        }
+      }
+    },
+    "Custom Response": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义响应"
           }
         }
       }
@@ -720,6 +790,36 @@
         }
       }
     },
+    "Last run failed at %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次运行于 %@ 失败"
+          }
+        }
+      }
+    },
+    "Last run succeeded at %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次运行于 %@ 成功"
+          }
+        }
+      }
+    },
+    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules and JavaScript scripts, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules and scripts they create appear in the matching tool windows and count toward the same limits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则以及 JavaScript 脚本，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则和脚本会显示在对应的工具窗口中，并计入相同的上限。"
+          }
+        }
+      }
+    },
     "Local Address": {
       "localizations": {
         "zh-Hans": {
@@ -740,12 +840,32 @@
         }
       }
     },
+    "Log Requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录请求"
+          }
+        }
+      }
+    },
     "Manual Setup…": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "手动设置…"
+          }
+        }
+      }
+    },
+    "Mock some paths and pass the rest through unchanged.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模拟部分路径，其余请求原样放行。"
           }
         }
       }
@@ -776,6 +896,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "多部分列表"
+          }
+        }
+      }
+    },
+    "New Script from Template": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从模板新建脚本"
           }
         }
       }
@@ -970,6 +1100,16 @@
         }
       }
     },
+    "Print each request's method and URL to the console.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在控制台中打印每个请求的方法和 URL。"
+          }
+        }
+      }
+    },
     "Projects could not be loaded, so Rockxy did not import the transferred session.": {
       "localizations": {
         "zh-Hans": {
@@ -1086,6 +1226,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "恢复模拟器代理"
+          }
+        }
+      }
+    },
+    "Rewrite URL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重写 URL"
           }
         }
       }
@@ -1472,6 +1622,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Android Studio 的 Device Manager 启动模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Start from a template, or click + or press ⌘N for a blank script.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从模板开始，或点按 + 或按下 ⌘N 新建空白脚本。"
           }
         }
       }
@@ -44445,12 +44605,12 @@
         }
       }
     },
-    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules and JavaScript scripts, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules and scripts they create appear in the matching tool windows and count toward the same limits.": {
+    "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules they create appear in the matching tool windows and count toward the same active-rule limits.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则以及 JavaScript 脚本，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则和脚本会显示在对应的工具窗口中，并计入相同的上限。"
+            "value": "允许 MCP 客户端创建断点、Map Local、Map Remote 和阻止规则，启用或停用规则，为域名启用 HTTPS 解密，切换禁用缓存，暂停录制以及清除会话。它们创建的规则会显示在对应的工具窗口中，并计入相同的启用规则上限。"
           }
         }
       }
