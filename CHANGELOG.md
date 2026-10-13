@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
+- The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.

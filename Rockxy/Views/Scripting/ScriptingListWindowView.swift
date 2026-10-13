@@ -383,23 +383,30 @@ struct ScriptingListWindowView: View {
         }
         .overlay {
             if viewModel.filteredDisplayRows.isEmpty {
-                ContentUnavailableView(
-                    isSearching
-                        ? String(localized: "No Matching Scripts", bundle: RockxyLocalization.bundle)
-                        : String(localized: "No Scripts", bundle: RockxyLocalization.bundle),
-                    systemImage: isSearching ? "magnifyingglass" : "curlybraces",
-                    description: Text(
-                        isSearching
-                            ? String(
-                                localized: "Try a different name, method, or matching rule.",
-                                bundle: RockxyLocalization.bundle
-                            )
-                            : String(
-                                localized: "Click + or press ⌘N to create a script.",
-                                bundle: RockxyLocalization.bundle
-                            )
+                if isSearching {
+                    ContentUnavailableView(
+                        String(localized: "No Matching Scripts", bundle: RockxyLocalization.bundle),
+                        systemImage: "magnifyingglass",
+                        description: Text(String(
+                            localized: "Try a different name, method, or matching rule.",
+                            bundle: RockxyLocalization.bundle
+                        ))
                     )
-                )
+                } else {
+                    ContentUnavailableView {
+                        Label(
+                            String(localized: "No Scripts", bundle: RockxyLocalization.bundle),
+                            systemImage: "curlybraces"
+                        )
+                    } description: {
+                        Text(String(
+                            localized: "Start from a template, or click + or press ⌘N for a blank script.",
+                            bundle: RockxyLocalization.bundle
+                        ))
+                    } actions: {
+                        templateGrid
+                    }
+                }
             }
         }
         .font(toolMetrics.font())
@@ -485,6 +492,15 @@ struct ScriptingListWindowView: View {
                 createNewScript()
             }
             .keyboardShortcut("n", modifiers: .command)
+            .disabled(viewModel.isCreatingOrDuplicating)
+
+            Menu(String(localized: "New Script from Template", bundle: RockxyLocalization.bundle)) {
+                ForEach(ScriptStarterTemplate.allCases) { template in
+                    Button(template.title) {
+                        createNewScript(from: template)
+                    }
+                }
+            }
             .disabled(viewModel.isCreatingOrDuplicating)
 
             Button(String(localized: "New Folder", bundle: RockxyLocalization.bundle)) {
@@ -747,12 +763,48 @@ struct ScriptingListWindowView: View {
         }
     }
 
-    private func createNewScript() {
+    private func createNewScript(from template: ScriptStarterTemplate? = nil) {
         Task {
-            if await viewModel.createNewScript() != nil {
+            if await viewModel.createNewScript(from: template) != nil {
                 openWindow(id: "scriptEditor")
             }
         }
+    }
+
+    /// Starter templates offered in the empty state, the main way to begin scripting.
+    private var templateGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 180, maximum: 240), spacing: toolMetrics.controlSpacing)],
+            spacing: toolMetrics.controlSpacing
+        ) {
+            ForEach(ScriptStarterTemplate.allCases) { template in
+                Button {
+                    createNewScript(from: template)
+                } label: {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: template.systemImage)
+                            .frame(width: 18)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(template.title)
+                                .font(toolMetrics.font(weight: .medium))
+                            Text(template.summary)
+                                .font(toolMetrics.secondaryFont())
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isCreatingOrDuplicating)
+                .accessibilityIdentifier("scripting.template.\(template.rawValue)")
+            }
+        }
+        .frame(maxWidth: 520)
     }
 
     private func openEditorForSelection() {
