@@ -799,7 +799,7 @@ struct ScriptingListWindowView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.bordered)
+                .rockxyGlassButtonStyle()
                 .disabled(viewModel.isCreatingOrDuplicating)
                 .accessibilityIdentifier("scripting.template.\(template.rawValue)")
             }
