@@ -1440,6 +1440,46 @@
         }
       }
     },
+    "The provider blocked this answer for safety or content-policy reasons (%@).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供方出于安全或内容政策原因阻止了此回答（%@）。"
+          }
+        }
+      }
+    },
+    "The provider is overloaded right now. Try again in ^[%lld second](inflect: true).": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供方当前负载过高。请在 %lld 秒后重试。"
+          }
+        }
+      }
+    },
+    "The provider is overloaded right now. Try again in a moment.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供方当前负载过高。请稍后重试。"
+          }
+        }
+      }
+    },
+    "The provider stopped the response: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提供方中止了响应：%@"
+          }
+        }
+      }
+    },
     "The proxy settings for %@ changed before Rockxy could apply its recorded update": {
       "localizations": {
         "zh-Hans": {

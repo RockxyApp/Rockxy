@@ -300,6 +300,11 @@ struct OpenAIResponsesStreamDecoder {
         let response = object["response"] as? [String: Any]
         let error = (object["error"] as? [String: Any]) ?? (response?["error"] as? [String: Any])
         let message = error?["message"] as? String ?? "The response stream failed"
-        return .server(statusCode: 200, message: String(message.prefix(1_024)))
+        if error?["code"] as? String == "content_filter" || (response?["status"] as? String == "incomplete"
+            && ((response?["incomplete_details"] as? [String: Any])?["reason"] as? String) == "content_filter")
+        {
+            return .contentBlocked("content_filter")
+        }
+        return .responseFailed(String(message.prefix(1_024)))
     }
 }
