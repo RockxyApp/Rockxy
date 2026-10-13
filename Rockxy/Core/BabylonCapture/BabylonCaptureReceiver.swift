@@ -115,6 +115,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// connection/session limits, cryptography, protocol, and session handling are
     /// all unchanged; any stale listener error is cleared before rebinding.
     func retryListener() {
+        // A receiver the person turned off must stay off; Retry only restarts an enabled one.
+        guard isEnabled else {
+            return
+        }
         queue.async { [weak self] in
             self?.restartListener()
         }
