@@ -198,6 +198,13 @@ struct HTTPSInspectionPromptView: View {
 
     private func insightDetails(_ insight: HTTPSConnectionInsight) -> some View {
         VStack(alignment: .leading, spacing: 5) {
+            if let captureReason = prompt.captureReason {
+                insightDetail(
+                    label: String(localized: "At Capture", bundle: RockxyLocalization.bundle),
+                    text: captureReason.captureNote
+                )
+                .accessibilityIdentifier("httpsPrompt.captureReason")
+            }
             insightDetail(
                 label: String(localized: "Evidence", bundle: RockxyLocalization.bundle),
                 text: insight.evidence

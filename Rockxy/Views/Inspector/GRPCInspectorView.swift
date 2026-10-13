@@ -218,7 +218,19 @@ struct GRPCInspectorView: View {
                     Spacer(minLength: 0)
                 }
 
-                if let payload = decodablePayload(frame, in: inspection) {
+                if frame.status == .trailers {
+                    VStack(spacing: 0) {
+                        ForEach(Array(frame.trailers.enumerated()), id: \.offset) { _, field in
+                            metadataRow(field.name, value: field.value)
+                        }
+                    }
+                    .background(Color(nsColor: .textBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                    }
+                } else if let payload = decodablePayload(frame, in: inspection) {
                     ProtobufPayloadInspectorView(
                         payload: payload,
                         context: ProtobufPayloadContext(
@@ -287,6 +299,39 @@ struct GRPCInspectorView: View {
                         bundle: RockxyLocalization.bundle
                     )
                 )
+                if let timeout = inspection.timeout {
+                    metadataRow("grpc-timeout", value: timeout)
+                }
+            }
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
+            }
+
+            customMetadataGroup(
+                String(localized: "Request Metadata", bundle: RockxyLocalization.bundle),
+                fields: inspection.requestMetadata
+            )
+            customMetadataGroup(
+                String(localized: "Response Metadata", bundle: RockxyLocalization.bundle),
+                fields: inspection.responseMetadata
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func customMetadataGroup(_ title: String, fields: [HTTPHeader]) -> some View {
+        if !fields.isEmpty {
+            Text(title)
+                .font(.system(size: metrics.secondaryFontSize, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 4)
+            VStack(spacing: 0) {
+                ForEach(Array(fields.enumerated()), id: \.offset) { _, field in
+                    metadataRow(field.name, value: field.value)
+                }
             }
             .background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -494,6 +539,8 @@ struct GRPCInspectorView: View {
             String(localized: "Truncated · \(actualBytes)/\(expectedBytes) bytes", bundle: RockxyLocalization.bundle)
         case let .unsupportedCompressionFlag(flag):
             String(localized: "Unknown compression flag \(Int(flag))", bundle: RockxyLocalization.bundle)
+        case .trailers:
+            String(localized: "Trailers", bundle: RockxyLocalization.bundle)
         }
     }
 
@@ -501,6 +548,8 @@ struct GRPCInspectorView: View {
         switch frame.status {
         case .complete:
             frame.isCompressed ? .orange : .secondary
+        case .trailers:
+            .secondary
         case .incompleteHeader,
              .truncatedPayload,
              .unsupportedCompressionFlag:
