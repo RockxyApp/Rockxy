@@ -299,7 +299,17 @@ struct OpenAIResponsesStreamDecoder {
     private func providerFailure(in object: [String: Any]) -> AssistantProviderError {
         let response = object["response"] as? [String: Any]
         let error = (object["error"] as? [String: Any]) ?? (response?["error"] as? [String: Any])
-        let message = error?["message"] as? String ?? "The response stream failed"
-        return .server(statusCode: 200, message: String(message.prefix(1_024)))
+        let incompleteReason = (response?["incomplete_details"] as? [String: Any])?["reason"] as? String
+        // An incomplete response has no error object; its reason (for example max_output_tokens)
+        // is the useful part.
+        let message = error?["message"] as? String
+            ?? incompleteReason.map { "The response is incomplete (\($0))" }
+            ?? "The response stream failed"
+        if error?["code"] as? String == "content_filter" || (response?["status"] as? String == "incomplete"
+            && ((response?["incomplete_details"] as? [String: Any])?["reason"] as? String) == "content_filter")
+        {
+            return .contentBlocked("content_filter")
+        }
+        return .responseFailed(String(message.prefix(1_024)))
     }
 }

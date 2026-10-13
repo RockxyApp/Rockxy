@@ -136,6 +136,8 @@ docs/                  # Mintlify docs site
 ## Reporting Bugs
 
 Open a [GitHub issue](https://github.com/RockxyApp/Rockxy/issues) with your macOS version, Rockxy version, and reproduction steps.
+Issues are for actionable bug reports and feature requests. For questions and setup help, use
+[GitHub Discussions](https://github.com/RockxyApp/Rockxy/discussions).
 
 ## Contributor License Agreement
 

@@ -46,6 +46,10 @@ struct RuleURLTesterSection: View {
     // MARK: Internal
 
     let toolMetrics: ToolWindowDisplayMetrics
+    /// The saved rule being edited, or `nil` for a rule that is not saved yet.
+    var ruleID: UUID?
+    /// Which rules this one competes with when several match the same request.
+    var slot: RuleEvaluationSlot = .primary
     /// Builds the condition from the editor's current fields.
     let condition: () -> RuleMatchCondition
 
@@ -77,6 +81,18 @@ struct RuleURLTesterSection: View {
             if let result {
                 resultLabel(result)
             }
+            if result == .matched, let earlierRuleName {
+                Label(
+                    String(
+                        localized: "“\(earlierRuleName)” is earlier in the rule list and also matches, so it applies first.",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    systemImage: "arrow.up.circle.fill"
+                )
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("ruleTester.earlierMatch")
+            }
         }
         .padding(9)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -88,9 +104,34 @@ struct RuleURLTesterSection: View {
     @State private var method: HTTPMethodFilter = .get
     @State private var urlText = ""
     @State private var result: RuleURLTestResult?
+    @State private var earlierRuleName: String?
+    @State private var earlierRuleTask: Task<Void, Never>?
 
     private func runTest() {
-        result = RuleURLTester.evaluate(condition: condition(), method: method.rawValue, urlText: urlText)
+        let condition = condition()
+        let method = method.rawValue
+        let candidate = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        result = RuleURLTester.evaluate(condition: condition, method: method, urlText: candidate)
+        earlierRuleName = nil
+        earlierRuleTask?.cancel()
+        guard result == .matched, let url = URL(string: candidate) else {
+            return
+        }
+        let ruleID = ruleID
+        let slot = slot
+        earlierRuleTask = Task {
+            let earlier = await RuleEngine.shared.earlierMatchingRule(
+                than: ruleID,
+                slot: slot,
+                method: method,
+                url: url,
+                graphQLOperationName: condition.graphQLOperationName
+            )
+            guard !Task.isCancelled else {
+                return
+            }
+            earlierRuleName = earlier.map { $0.name.isEmpty ? $0.action.matchedRuleActionSummary : $0.name }
+        }
     }
 
     @ViewBuilder

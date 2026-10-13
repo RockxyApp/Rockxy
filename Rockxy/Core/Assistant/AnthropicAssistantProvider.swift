@@ -159,6 +159,9 @@ struct AnthropicStreamDecoder {
             return [.completed(responseID: responseID)]
         case "error":
             let error = object["error"] as? [String: Any]
+            if error?["type"] as? String == "overloaded_error" {
+                throw AssistantProviderError.overloaded(retryAfterSeconds: nil)
+            }
             throw AssistantProviderError.validation(
                 String((error?["message"] as? String ?? "Anthropic stream failed").prefix(1_024))
             )
