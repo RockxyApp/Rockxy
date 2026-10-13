@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The Web3 tab shows a **Payment (x402)** section for payment-gated requests: stage, whether a payment was sent, whether requirements were included, and which fields are sensitive. Payment hints are saved in Rockxy sessions, kept in redacted exports, and detected again on HAR import.
+- Imported HAR files now get the same GraphQL, Web3 JSON-RPC, and x402 detection as live capture.
 - Two new AI Assistant investigations: **Why Is This Slow?** breaks the captured time into connection setup, server wait, and transfer and compares it with other requests to the same endpoint; **Find Related Requests** lists requests to the same endpoint and host, nearest first, and flags the ones that failed. Both work from captured evidence before any model is involved.
 - Developer Setup lets you choose the network devices use when this Mac has more than one LAN address (Wi-Fi, Ethernet, VPN). The choice is remembered and shared by the device endpoint, the toolbar proxy status, and certificate sharing links.
 - The AI tab shows stream timing measured live for Server-Sent Events responses: time to the first event, the longest gap between events, how many events arrived, and whether the stream completed (`[DONE]`, Anthropic `message_stop`, or OpenAI `response.completed`), ended without a final event, or was interrupted. Timing is saved with Rockxy sessions; imported and compressed streams say that no live timing was recorded.

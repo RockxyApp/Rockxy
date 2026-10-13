@@ -970,6 +970,26 @@
         }
       }
     },
+    "HTTP 402 without x402 details": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 402，无 x402 详情"
+          }
+        }
+      }
+    },
+    "Included": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已包含"
+          }
+        }
+      }
+    },
     "Install in Booted Simulators…": {
       "localizations": {
         "zh-Hans": {
@@ -1340,6 +1360,26 @@
         }
       }
     },
+    "Not seen": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未见"
+          }
+        }
+      }
+    },
+    "Not valid JSON; hints come from text": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是有效的 JSON；提示来自文本"
+          }
+        }
+      }
+    },
     "Nothing is listening on 127.0.0.1:%@ right now. Restoring it can block network access until the app that provides it is running again.": {
       "localizations": {
         "zh-Hans": {
@@ -1420,6 +1460,56 @@
         }
       }
     },
+    "Payment (x402)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支付（x402）"
+          }
+        }
+      }
+    },
+    "Payment accepted": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支付已接受"
+          }
+        }
+      }
+    },
+    "Payment rejected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支付被拒绝"
+          }
+        }
+      }
+    },
+    "Payment required": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要支付"
+          }
+        }
+      }
+    },
+    "Payment sent, awaiting result": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送支付，等待结果"
+          }
+        }
+      }
+    },
     "Plugin not loaded: %@": {
       "localizations": {
         "zh-Hans": {
@@ -1476,6 +1566,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法加载项目，因此 Rockxy 未导入传输的会话。"
+          }
+        }
+      }
+    },
+    "Proof Sent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已发送凭证"
           }
         }
       }
@@ -1556,6 +1656,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "请求元数据"
+          }
+        }
+      }
+    },
+    "Requirements": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "支付要求"
           }
         }
       }
@@ -1860,6 +1970,16 @@
         }
       }
     },
+    "Sensitive": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "敏感字段"
+          }
+        }
+      }
+    },
     "Server wait": {
       "localizations": {
         "zh-Hans": {
@@ -2082,6 +2202,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "部分代理设置已再次更改"
+          }
+        }
+      }
+    },
+    "Stage": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阶段"
           }
         }
       }

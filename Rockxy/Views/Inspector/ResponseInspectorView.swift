@@ -1016,6 +1016,10 @@ enum ProtocolTabKind: Hashable {
         if GRPCDetector.isGRPC(transaction: transaction) {
             return .grpc
         }
+        // Payment hints show in the Web3 tab, but a GraphQL or gRPC call keeps its own tab first.
+        if transaction.x402Info?.isX402Like == true {
+            return .web3
+        }
         return nil
     }
 
@@ -1041,7 +1045,7 @@ enum ProtocolTabKind: Hashable {
         case .websocket:
             transaction.webSocketConnection != nil
         case .web3:
-            transaction.web3RPCInfo != nil
+            transaction.web3RPCInfo != nil || transaction.x402Info?.isX402Like == true
         case .graphql:
             transaction.graphQLInfo != nil
         case .grpc:

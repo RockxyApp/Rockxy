@@ -285,4 +285,25 @@ struct SensitiveDataRedactorTests {
         let data = try #require(text.data(using: .utf8))
         return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
+
+    @Test("Redacting a transaction keeps its x402 lifecycle hints")
+    func redactionKeepsX402Hints() {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.x402Info = X402Info(
+            stage: .paymentAccepted,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: nil,
+            hasPaymentProof: true,
+            hasChallenge: false,
+            hasPaymentMetadata: true,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: ["X-Payment"],
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+
+        #expect(SensitiveDataRedactor().redactTransaction(transaction).x402Info == transaction.x402Info)
+    }
 }

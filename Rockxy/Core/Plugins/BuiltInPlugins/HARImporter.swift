@@ -30,7 +30,17 @@ enum HARImportError: LocalizedError {
 // MARK: - HARImporter
 
 struct HARImporter {
+    // MARK: Lifecycle
+
+    /// `runsProtocolDetection` is off for previews that only count entries, so a large HAR is
+    /// not body-parsed twice.
+    init(runsProtocolDetection: Bool = true) {
+        self.runsProtocolDetection = runsProtocolDetection
+    }
+
     // MARK: Internal
+
+    let runsProtocolDetection: Bool
 
     func importData(_ data: Data) throws -> [HTTPTransaction] {
         try importReportingSkips(data).transactions
@@ -120,13 +130,18 @@ struct HARImporter {
         let response = parseResponse(entry["response"] as? [String: Any])
         let timingInfo = parseTimings(entry["timings"] as? [String: Any])
 
+        // Run the same protocol detectors as live capture so imported GraphQL, JSON-RPC, and
+        // x402 traffic gets its inspector tabs, filters, and badges.
         let transaction = HTTPTransaction(
             id: UUID(),
             timestamp: timestamp,
             request: request,
             response: response,
             state: response == nil ? .failed : .completed,
-            timingInfo: timingInfo
+            timingInfo: timingInfo,
+            graphQLInfo: runsProtocolDetection ? GraphQLDetector.detect(request: request) : nil,
+            web3RPCInfo: runsProtocolDetection ? Web3RPCDetector.detect(request: request, response: response) : nil,
+            x402Info: runsProtocolDetection ? X402Detector.detect(request: request, response: response) : nil
         )
         // HAR has no client field; name the client from the User-Agent like live capture does.
         transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)
