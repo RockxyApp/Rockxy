@@ -3029,6 +3029,16 @@
         }
       }
     },
+    "“%@” is earlier in the rule list and also matches, so it applies first.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”在规则列表中位置更靠前且同样匹配，因此会优先生效。"
+          }
+        }
+      }
+    },
     "“%@” will be removed from disk. This cannot be undone.": {
       "localizations": {
         "zh-Hans": {
