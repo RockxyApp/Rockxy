@@ -1,4 +1,6 @@
 import Foundation
+import NIOCore
+import NIOPosix
 
 // MARK: - UpstreamProxyError
 
@@ -18,6 +20,8 @@ enum UpstreamProxyError: LocalizedError, Equatable {
     case pacNoSupportedRoute
     case pacSOCKS5Unavailable
     case timeout
+    /// The external proxy itself could not be reached, as opposed to the site behind it.
+    case proxyUnreachable(host: String, port: Int, reason: String)
 
     // MARK: Internal
 
@@ -55,7 +59,10 @@ enum UpstreamProxyError: LocalizedError, Equatable {
         case .pacTargetURLInvalid:
             String(localized: "Automatic proxy configuration target URL is invalid.", bundle: RockxyLocalization.bundle)
         case let .pacEvaluationFailed(message):
-            String(localized: "Automatic proxy configuration failed: \(message)", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Automatic proxy configuration failed: \(Self.redactingURLCredentials(in: message))",
+                bundle: RockxyLocalization.bundle
+            )
         case .pacNoSupportedRoute:
             String(
                 localized: "Automatic proxy configuration did not return a supported proxy route.",
@@ -68,6 +75,62 @@ enum UpstreamProxyError: LocalizedError, Equatable {
             )
         case .timeout:
             String(localized: "Upstream proxy connection timed out.", bundle: RockxyLocalization.bundle)
+        case let .proxyUnreachable(host, port, reason):
+            String(
+                localized: "Couldn't reach the external proxy \(host):\(String(port)) (\(reason)). Check that it is running, or turn off External Proxy.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+    }
+
+    /// Replaces `user:password@` in any URL inside `text`, so a PAC URL with embedded credentials
+    /// never reaches logs, the Connection Log, or exports.
+    static func redactingURLCredentials(in text: String) -> String {
+        let range = NSRange(text.startIndex ..< text.endIndex, in: text)
+        return credentialPattern.stringByReplacingMatches(
+            in: text,
+            range: range,
+            withTemplate: "$1[REDACTED]@"
+        )
+    }
+
+    /// Short, credential-free description of why a TCP connection to the proxy failed.
+    static func unreachableReason(_ error: Error) -> String {
+        if let channelError = error as? ChannelError, case .connectTimeout = channelError {
+            return String(localized: "timed out", bundle: RockxyLocalization.bundle)
+        }
+        if let connectionError = error as? NIOConnectionError,
+           let ioError = connectionError.connectionErrors.first?.error as? IOError
+        {
+            return reason(errno: ioError.errnoCode)
+        }
+        if let ioError = error as? IOError {
+            return reason(errno: ioError.errnoCode)
+        }
+        if error is NIOConnectionError {
+            return String(localized: "host not found", bundle: RockxyLocalization.bundle)
+        }
+        return redactingURLCredentials(in: error.localizedDescription)
+    }
+
+    // MARK: Private
+
+    // swiftlint:disable:next force_try
+    private static let credentialPattern = try! NSRegularExpression(
+        pattern: #"([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s@:]+(?::[^/\s@]*)?@"#
+    )
+
+    private static func reason(errno code: CInt) -> String {
+        switch code {
+        case ECONNREFUSED:
+            String(localized: "connection refused", bundle: RockxyLocalization.bundle)
+        case EHOSTUNREACH,
+             ENETUNREACH:
+            String(localized: "host unreachable", bundle: RockxyLocalization.bundle)
+        case ETIMEDOUT:
+            String(localized: "timed out", bundle: RockxyLocalization.bundle)
+        default:
+            String(cString: strerror(code))
         }
     }
 }

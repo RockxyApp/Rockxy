@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- **Tools > Proxy Settings** shows which route new traffic takes while External Proxy is on (for example "Routing via HTTP 127.0.0.1:7890"), and a request that fails because the external proxy is not running or not reachable now says so in its Connection Log instead of reporting a generic connection failure.
 - The gRPC tab reads gRPC-Web trailer frames for the call status, decodes `grpc-web-text` (base64) bodies, and lists `grpc-timeout` plus the custom request and response metadata separately from transport headers. A new gRPC page in the docs covers detection, decoding, and limits.
 - Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
 - The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
@@ -41,6 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Credentials embedded in a PAC URL (`user:password@`) are redacted from PAC error messages.
 - A tunneled HTTPS row now remembers why it was not decrypted (Bypass list, no decryption rule, unidentified app with a Tunnel rule, or auto-passthrough after a certificate rejection), and the HTTPS prompt shows that reason instead of guessing from settings that may have changed since; it is saved with Rockxy sessions.
 - gRPC-Web trailer frames are no longer reported as an "Unknown compression flag 128" message.
 - Repeat and Repeat Through Rules now say why a request failed (timed out, host not found, connection refused or lost, offline, TLS failure, unreadable response) instead of a generic "operation couldn't be completed" message, and a failed batch names the first reason.
