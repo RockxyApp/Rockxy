@@ -49,6 +49,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- A malformed line in an Ollama model download is reported as an invalid response instead of a network error.
 - With redaction on, MCP flow details now redact GraphQL documents (secret-looking string arguments such as `password:`) and variables and cap their size, and Gemini prompt fields (`contents`, `systemInstruction`) are redacted like other AI prompts in MCP output and redacted exports.
 - The AI Assistant now says when a provider is overloaded (Anthropic 529 or `overloaded_error`, with the retry time when given), when Gemini or OpenAI blocks an answer for safety or content policy, and when an OpenAI response stream fails, instead of reporting "HTTP 200" or a generic rejected request.
 - In the WebSocket tab, changing the direction filter or search clears a selected frame that the list no longer shows, instead of leaving the detail pane on a hidden frame; frames arriving live never move the selection.

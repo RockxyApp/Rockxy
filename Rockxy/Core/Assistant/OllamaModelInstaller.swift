@@ -347,8 +347,9 @@ struct OllamaModelInstaller: AssistantModelInstallerProtocol {
                 "An Ollama model download event exceeded Rockxy's size limit"
             )
         }
+        // A line that is not JSON is a malformed event, not a network failure.
         guard let data = line.data(using: .utf8),
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else
         {
             throw AssistantProviderError.malformedResponse(
                 "Ollama returned an invalid model download event"
