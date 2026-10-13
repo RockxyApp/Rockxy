@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- The gRPC tab reads gRPC-Web trailer frames for the call status, decodes `grpc-web-text` (base64) bodies, and lists `grpc-timeout` plus the custom request and response metadata separately from transport headers. A new gRPC page in the docs covers detection, decoding, and limits.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.
@@ -36,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- gRPC-Web trailer frames are no longer reported as an "Unknown compression flag 128" message.
 - When another proxy app (such as Clash on `127.0.0.1:7890`) or a person changes the system proxy while Rockxy is capturing, stopping capture or quitting now asks whether to restore the proxy settings you had before capture; Rockxy still never writes over the newer settings on its own, but it no longer drops your previous settings without telling you.
 - Without the helper, Rockxy can now capture while another proxy app's local proxy is set, and restores that app's settings afterward; it no longer refuses with "Another running Rockxy instance owns the current system proxy session".
 - Opening a HAR file, a Rockxy session, or a nearby iPhone transfer keeps every request; imports were cut down to the live history limit without a warning, and live capture no longer trims imported requests.

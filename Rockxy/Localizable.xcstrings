@@ -950,6 +950,26 @@
         }
       }
     },
+    "Request Metadata": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求元数据"
+          }
+        }
+      }
+    },
+    "Response Metadata": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应元数据"
+          }
+        }
+      }
+    },
     "Restore Previous Settings": {
       "localizations": {
         "zh-Hans": {

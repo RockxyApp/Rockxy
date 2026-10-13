@@ -43,7 +43,17 @@ nonisolated enum GRPCDetector {
         }
 
         let method = parseMethodPath(request.path)
-        return GRPCInspection(
+        let requestFrames = parseFrames(
+            decodedBody(request.body, contentType: headerValue(named: "content-type", in: request.headers)),
+            direction: .request
+        )
+        let responseFrames = parseFrames(
+            decodedBody(response?.body, contentType: headerValue(named: "content-type", in: response?.headers ?? [])),
+            direction: .response
+        )
+        // gRPC-Web carries status in a trailer frame inside the body instead of HTTP trailers.
+        let statusFields = statusHeaders(of: response) + responseFrames.flatMap(\.trailers)
+        var inspection = GRPCInspection(
             serviceName: method?.service,
             methodName: method?.method,
             fullMethodPath: method?.fullPath ?? request.path,
@@ -53,19 +63,59 @@ nonisolated enum GRPCDetector {
             responseEncoding: headerValue(named: "grpc-encoding", in: response?.headers ?? []),
             httpStatusCode: response?.statusCode,
             httpStatusMessage: response?.statusMessage,
-            grpcStatus: headerValue(named: "grpc-status", in: statusHeaders(of: response)),
-            grpcMessage: headerValue(named: "grpc-message", in: statusHeaders(of: response)),
-            grpcStatusDetails: headerValue(named: "grpc-status-details-bin", in: statusHeaders(of: response)),
+            grpcStatus: headerValue(named: "grpc-status", in: statusFields),
+            grpcMessage: headerValue(named: "grpc-message", in: statusFields),
+            grpcStatusDetails: headerValue(named: "grpc-status-details-bin", in: statusFields),
             duration: timingInfo?.totalDuration ?? measuredDuration,
-            requestFrames: parseFrames(
-                request.body,
-                direction: .request
-            ),
-            responseFrames: parseFrames(
-                response?.body,
-                direction: .response
-            )
+            requestFrames: requestFrames,
+            responseFrames: responseFrames
         )
+        inspection.timeout = headerValue(named: "grpc-timeout", in: request.headers)
+        inspection.requestMetadata = customMetadata(request.headers)
+        inspection.responseMetadata = customMetadata(statusFields)
+        return inspection
+    }
+
+    /// Metadata a person added, with transport, HTTP/2 pseudo, and gRPC protocol fields removed.
+    static func customMetadata(_ headers: [HTTPHeader]) -> [HTTPHeader] {
+        var seen = Set<String>()
+        return headers.filter { header in
+            let name = header.name.lowercased()
+            guard !name.hasPrefix(":"), !protocolHeaderNames.contains(name) else {
+                return false
+            }
+            return seen.insert("\(name)\u{0}\(header.value)").inserted
+        }
+    }
+
+    /// gRPC-Web text mode base64-encodes the framed body. Servers may send several padded chunks
+    /// back to back, so each chunk is decoded on its own.
+    static func decodedBody(_ body: Data?, contentType: String?) -> Data? {
+        guard let body, let contentType,
+              contentType.lowercased().hasPrefix("application/grpc-web-text") else
+        {
+            return body
+        }
+        guard let text = String(data: body, encoding: .ascii) else {
+            return body
+        }
+        let compact = Array(text.filter { !$0.isWhitespace })
+        var decoded = Data()
+        var start = 0
+        var index = 0
+        while index < compact.count {
+            // A chunk closes after its last padding character, or at the end of the body.
+            let closesChunk = compact[index] == "=" && (index + 1 == compact.count || compact[index + 1] != "=")
+            if closesChunk || index + 1 == compact.count {
+                guard let piece = Data(base64Encoded: String(compact[start ... index])) else {
+                    return body
+                }
+                decoded.append(piece)
+                start = index + 1
+            }
+            index += 1
+        }
+        return decoded
     }
 
     static func parseFrames(_ body: Data?, direction: GRPCMessageDirection) -> [GRPCMessageFrame] {
@@ -107,8 +157,11 @@ nonisolated enum GRPCDetector {
             let payloadEnd = body.index(payloadStart, offsetBy: payloadLength)
             let payload = Data(body[payloadStart ..< payloadEnd])
 
+            let isTrailerFrame = compressedFlag & 0x80 != 0
             let status: GRPCFrameParseStatus
-            if compressedFlag != 0, compressedFlag != 1 {
+            if isTrailerFrame, availablePayloadBytes >= declaredLength {
+                status = .trailers
+            } else if !isTrailerFrame, compressedFlag != 0, compressedFlag != 1 {
                 status = .unsupportedCompressionFlag(compressedFlag)
             } else if availablePayloadBytes < declaredLength {
                 status = .truncatedPayload(expectedBytes: declaredLength, actualBytes: availablePayloadBytes)
@@ -129,7 +182,8 @@ nonisolated enum GRPCDetector {
                 declaredLength: declaredLength,
                 payload: payload,
                 status: status,
-                heuristicTree: tree
+                heuristicTree: tree,
+                trailers: status == .trailers ? parseTrailerBlock(payload) : []
             ))
 
             if availablePayloadBytes < declaredLength {
@@ -144,6 +198,29 @@ nonisolated enum GRPCDetector {
 
     // MARK: Private
 
+    private static let protocolHeaderNames: Set<String> = [
+        "content-type", "content-length", "te", "user-agent", "host", "accept", "accept-encoding",
+        "content-encoding", "transfer-encoding", "connection", "date", "server", "vary",
+        "grpc-encoding", "grpc-accept-encoding", "grpc-timeout", "grpc-status", "grpc-message",
+        "grpc-status-details-bin", "x-grpc-web", "x-user-agent", "access-control-allow-origin",
+        "access-control-expose-headers", "access-control-allow-credentials",
+    ]
+
+    /// A gRPC-Web trailer frame holds an HTTP/1-style header block: `name: value` lines.
+    private static func parseTrailerBlock(_ payload: Data) -> [HTTPHeader] {
+        guard let text = String(data: payload, encoding: .utf8) else {
+            return []
+        }
+        return text.split(whereSeparator: \.isNewline).compactMap { line in
+            guard let colon = line.firstIndex(of: ":") else {
+                return nil
+            }
+            let name = line[..<colon].trimmingCharacters(in: .whitespaces)
+            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            return name.isEmpty ? nil : HTTPHeader(name: name, value: value)
+        }
+    }
+
     private static func isGRPCContentType(_ rawValue: String?) -> Bool {
         guard let rawValue else {
             return false
@@ -157,6 +234,8 @@ nonisolated enum GRPCDetector {
             || mediaType.hasPrefix("application/grpc+")
             || mediaType == "application/grpc-web"
             || mediaType.hasPrefix("application/grpc-web+")
+            || mediaType == "application/grpc-web-text"
+            || mediaType.hasPrefix("application/grpc-web-text+")
     }
 
     private static func parseMethodPath(_ path: String) -> (service: String, method: String, fullPath: String)? {
