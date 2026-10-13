@@ -88,7 +88,7 @@ struct CaptureStatusPresentation: Equatable {
     /// address itself for a specific interface, and nothing for loopback.
     static func lanAddress(
         forListenAddress address: String,
-        discoverLANAddress: () -> String? = { RootCADownloadServer.lanIPv4Addresses().first }
+        discoverLANAddress: () -> String? = { RootCADownloadServer.preferredLANAddress() }
     )
         -> String?
     {

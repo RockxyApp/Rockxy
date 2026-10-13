@@ -111,6 +111,41 @@ struct ReplayCoordinatorTests {
         #expect(mixed.style == .warning)
     }
 
+    @Test("A failed batch says why the first request failed")
+    func batchReplaySummaryIncludesReason() {
+        let toast = MainContentCoordinator.batchReplayToast(
+            sent: 2,
+            failed: 2,
+            skipped: 0,
+            firstFailure: "The request to api.example.com timed out."
+        )
+        #expect(toast.text == "Repeated 2 requests — 2 requests failed: The request to api.example.com timed out.")
+        #expect(toast.style == .warning)
+    }
+
+    @Test(
+        "Replay failures read as specific, actionable sentences",
+        arguments: [
+            (URLError.Code.timedOut, "The request to api.example.com timed out."),
+            (URLError.Code.cannotFindHost, "Couldn't find api.example.com. Check the host name."),
+            (URLError.Code.cannotConnectToHost, "Couldn't connect to api.example.com. It may be down or refusing connections."),
+            (URLError.Code.networkConnectionLost, "The connection to api.example.com was lost before the response finished."),
+            (URLError.Code.notConnectedToInternet, "This Mac is offline."),
+            (URLError.Code.serverCertificateUntrusted, "A secure connection to api.example.com couldn't be established."),
+            (URLError.Code.badServerResponse, "The response from api.example.com couldn't be read."),
+        ]
+    )
+    func replayFailureReasons(code: URLError.Code, expected: String) {
+        #expect(ReplayFailureReason.message(for: URLError(code), host: "api.example.com") == expected)
+    }
+
+    @Test("A replay that ends without a response explains itself")
+    func missingResponseReason() {
+        let message = ReplayFailureReason.message(for: ReplayError.invalidResponse, host: nil)
+        #expect(message == "The server closed the connection without sending a response.")
+        #expect(ReplayFailureReason.message(for: URLError(.timedOut), host: nil) == "The request to the server timed out.")
+    }
+
     @Test("Too many selected rows are refused before anything is sent")
     func batchReplayCap() {
         let coordinator = MainContentCoordinator()
