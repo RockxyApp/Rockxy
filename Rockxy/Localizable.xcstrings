@@ -94,6 +94,16 @@
         }
       }
     },
+    "A secure connection to %@ couldn't be established.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法与 %@ 建立安全连接。"
+          }
+        }
+      }
+    },
     "Accept SOCKS5 connections": {
       "localizations": {
         "zh-Hans": {
@@ -220,6 +230,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Couldn't connect to %@. It may be down or refusing connections.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法连接到 %@。它可能已停止运行或拒绝连接。"
+          }
+        }
+      }
+    },
+    "Couldn't find %@. Check the host name.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到 %@。请检查主机名。"
           }
         }
       }
@@ -1456,6 +1486,16 @@
         }
       }
     },
+    "The connection to %@ was lost before the response finished.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在响应完成之前，与 %@ 的连接已断开。"
+          }
+        }
+      }
+    },
     "The local port is Rockxy's proxy port. Choose another port.": {
       "localizations": {
         "zh-Hans": {
@@ -1526,12 +1566,62 @@
         }
       }
     },
+    "The request to %@ timed out.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对 %@ 的请求超时。"
+          }
+        }
+      }
+    },
+    "The request URL isn't valid.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求 URL 无效。"
+          }
+        }
+      }
+    },
     "The response also returned data, so the operation partly succeeded.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "响应同时返回了数据，因此该操作部分成功。"
+          }
+        }
+      }
+    },
+    "The response from %@ couldn't be read.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取来自 %@ 的响应。"
+          }
+        }
+      }
+    },
+    "the server": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器"
+          }
+        }
+      }
+    },
+    "The server closed the connection without sending a response.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器在未发送响应的情况下关闭了连接。"
           }
         }
       }
@@ -1592,6 +1682,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "这些模拟器将信任 Rockxy 签发的 HTTPS 证书。抹掉模拟器会移除该证书。"
+          }
+        }
+      }
+    },
+    "This Mac is offline.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这台 Mac 处于离线状态。"
           }
         }
       }
