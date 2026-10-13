@@ -469,6 +469,90 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions.map(\.id) == [ai.id])
     }
 
+    @Test("Smart search finds AI tool calls and streamed responses")
+    func smartSearchToolCallsAndStreaming() {
+        let coordinator = MainContentCoordinator()
+        let toolCall = TestFixtures.makeTransaction(method: "POST", url: "https://api.openai.com/v1/chat/completions")
+        toolCall.request.body = Data(#"{"model":"gpt-4o","messages":[]}"#.utf8)
+        toolCall.response?.body = Data(
+            #"{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"lookup"}}]}}]}"#.utf8
+        )
+        let streamed = TestFixtures.makeTransaction(method: "POST", url: "https://api.anthropic.com/v1/messages")
+        streamed.request.body = Data(#"{"model":"claude-sonnet-4-5","stream":true,"messages":[]}"#.utf8)
+        let plain = TestFixtures.makeTransaction(method: "POST", url: "https://api.openai.com/v1/responses")
+        plain.request.body = Data(#"{"model":"gpt-4o","input":"hi"}"#.utf8)
+        coordinator.transactions = [toolCall, streamed, plain]
+
+        coordinator.filterCriteria.searchText = "has:tool_call"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [toolCall.id])
+
+        coordinator.filterCriteria.searchText = "streaming:true"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [streamed.id])
+
+        coordinator.filterCriteria.searchText = "is:ai streaming:false"
+        coordinator.recomputeFilteredTransactions()
+        #expect(Set(coordinator.filteredTransactions.map(\.id)) == [toolCall.id, plain.id])
+    }
+
+    @Test("Smart search matches Web3 chains, transaction hashes, and x402 payment flows")
+    func smartSearchChainTxHashAndX402() {
+        let coordinator = MainContentCoordinator()
+        let mainnet = TestFixtures.makeWeb3RPCTransaction(method: "eth_chainId")
+        let broadcast = TestFixtures.makeWeb3RPCTransaction(method: "eth_sendRawTransaction")
+        broadcast.web3RPCInfo = Web3RPCInfo(
+            family: .evm,
+            providerHost: "rpc.example.com",
+            method: "eth_sendRawTransaction",
+            requestID: "1",
+            batch: nil,
+            error: nil,
+            chainHint: Web3RPCChainHint(chainID: "0x2105"),
+            transactionHash: "0xabc",
+            blockIdentifier: nil,
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+        let paywall = TestFixtures.makeTransaction(url: "https://paid.example.com/report", statusCode: 402)
+        paywall.x402Info = X402Info(
+            stage: .paymentRequired,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: true,
+            hasPaymentProof: false,
+            hasChallenge: true,
+            hasPaymentMetadata: false,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: [],
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+        coordinator.transactions = [mainnet, broadcast, paywall]
+
+        coordinator.filterCriteria.searchText = "has:tx_hash"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [broadcast.id])
+
+        for query in ["chain:base", "chain:8453", "chain:0x2105"] {
+            coordinator.filterCriteria.searchText = query
+            coordinator.recomputeFilteredTransactions()
+            #expect(coordinator.filteredTransactions.map(\.id) == [broadcast.id], "\(query)")
+        }
+
+        coordinator.filterCriteria.searchText = "is:x402"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [paywall.id])
+    }
+
+    @Test("Unknown values for new tokens fall back to plain text search")
+    func smartSearchUnknownValues() {
+        let filter = SmartTrafficFilter.parse("has:nothing streaming:maybe chain: hello")
+        #expect(!filter.hasPredicates)
+        #expect(filter.remainingSearchText == "has:nothing streaming:maybe chain: hello")
+    }
+
     @Test("Smart model search matches the requested model in the request body")
     func smartSearchAIModel() {
         let coordinator = MainContentCoordinator()
