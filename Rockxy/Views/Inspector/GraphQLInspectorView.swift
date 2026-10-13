@@ -51,9 +51,13 @@ struct GraphQLInspectorView: View {
                 .padding()
             }
             .task(id: responseKey) {
-                let body = transaction.response?.decodedBody(limit: GraphQLResponseErrorSummary.maxPayloadBytes)
+                errorSummary = nil
+                let response = transaction.response
+                // Decompression and parsing stay off the main actor.
                 let summary = await Task.detached(priority: .userInitiated) {
-                    GraphQLResponseErrorSummary.parse(body)
+                    GraphQLResponseErrorSummary.parse(
+                        response?.decodedBody(limit: GraphQLResponseErrorSummary.maxPayloadBytes)
+                    )
                 }.value
                 guard !Task.isCancelled else {
                     return
