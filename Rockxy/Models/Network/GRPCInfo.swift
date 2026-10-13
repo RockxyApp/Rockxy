@@ -21,6 +21,12 @@ struct GRPCInspection: Equatable, Sendable {
     let duration: TimeInterval?
     let requestFrames: [GRPCMessageFrame]
     let responseFrames: [GRPCMessageFrame]
+    /// `grpc-timeout` as sent by the client (for example `5S` or `250m`).
+    var timeout: String?
+    /// Custom metadata the client sent, without transport and gRPC protocol headers.
+    var requestMetadata: [HTTPHeader] = []
+    /// Custom metadata the server returned in headers or trailers, without status fields.
+    var responseMetadata: [HTTPHeader] = []
 
     var frames: [GRPCMessageFrame] {
         requestFrames + responseFrames
@@ -39,12 +45,14 @@ struct GRPCMessageFrame: Identifiable, Equatable, Sendable {
     let payload: Data
     let status: GRPCFrameParseStatus
     let heuristicTree: ProtobufDecodedTree?
+    /// Fields carried by a gRPC-Web trailer frame; empty for message frames.
+    var trailers: [HTTPHeader] = []
 
     var isCompressed: Bool {
-        guard let compressedFlag else {
+        guard let compressedFlag, status != .trailers else {
             return false
         }
-        return compressedFlag != 0
+        return compressedFlag & 0x01 != 0
     }
 }
 
@@ -62,4 +70,6 @@ enum GRPCFrameParseStatus: Equatable, Sendable {
     case incompleteHeader(remainingBytes: Int)
     case truncatedPayload(expectedBytes: Int, actualBytes: Int)
     case unsupportedCompressionFlag(UInt8)
+    /// A gRPC-Web trailer frame (flag bit `0x80`), which carries status and trailing metadata.
+    case trailers
 }
