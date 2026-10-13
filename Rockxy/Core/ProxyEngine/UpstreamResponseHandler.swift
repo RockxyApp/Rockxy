@@ -400,10 +400,13 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         readTimeoutTask = nil
         if !completed, responseHead != nil {
             completed = true
-            // A close-delimited body may legitimately end with an unclean TLS shutdown; any other
-            // error, such as an HTTP/2 stream reset, means the response was cut short.
+            // A close-delimited body may legitimately end with an unclean TLS shutdown. A body framed
+            // by Content-Length or chunked encoding that has not reached its end was cut short, and so
+            // was any response hit by another error, such as an HTTP/2 stream reset.
             if !Self.isUncleanTLSShutdown(error) {
                 earlyTermination = Self.midResponseFailureReason(for: error)
+            } else if let head = responseHead, Self.hasFramedBody(head) {
+                earlyTermination = "Upstream closed the connection before the response finished"
             }
             relayResponseEnd()
             buildAndCompleteTransaction()
@@ -448,6 +451,12 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
         }
         return "Upstream connection failed mid-response"
+    }
+
+    /// Whether the response declares its own length, so an early close means missing bytes.
+    nonisolated static func hasFramedBody(_ head: HTTPResponseHead) -> Bool {
+        head.headers.contains(name: "Content-Length")
+            || head.headers[canonicalForm: "Transfer-Encoding"].contains { $0.lowercased() == "chunked" }
     }
 
     /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.

@@ -67,6 +67,17 @@ struct HTTP2InterceptionLoopbackTests {
         }
     }
 
+    @Test("A Content-Length or chunked body counts as framed; a close-delimited body does not")
+    func framedBodyDetection() {
+        var lengthHeaders = HTTPHeaders()
+        lengthHeaders.add(name: "Content-Length", value: "100")
+        var chunkedHeaders = HTTPHeaders()
+        chunkedHeaders.add(name: "Transfer-Encoding", value: "chunked")
+        #expect(UpstreamResponseHandler.hasFramedBody(HTTPResponseHead(version: .http1_1, status: .ok, headers: lengthHeaders)))
+        #expect(UpstreamResponseHandler.hasFramedBody(HTTPResponseHead(version: .http1_1, status: .ok, headers: chunkedHeaders)))
+        #expect(!UpstreamResponseHandler.hasFramedBody(HTTPResponseHead(version: .http1_0, status: .ok)))
+    }
+
     @Test("HTTP/2 error codes are named as in RFC 9113")
     func http2ErrorNames() {
         #expect(UpstreamResponseHandler.http2ErrorName(.cancel) == "CANCEL")
