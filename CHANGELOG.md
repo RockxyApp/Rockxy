@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- In batched JSON-RPC calls, the chain and transaction-hash hints now come from the response that matches each call's id, even when the provider answers out of order, instead of from the first call only.
 - A response the server cuts off partway (an HTTP/2 stream reset or a dropped connection) is now a failed row instead of a completed one, and its Connection Log names the HTTP/2 error code (for example `CANCEL` or `REFUSED_STREAM`).
 - Credentials embedded in a PAC URL (`user:password@`) are redacted from PAC error messages.
 - A tunneled HTTPS row now remembers why it was not decrypted (Bypass list, no decryption rule, unidentified app with a Tunnel rule, or auto-passthrough after a certificate rejection), and the HTTPS prompt shows that reason instead of guessing from settings that may have changed since; it is saved with Rockxy sessions.

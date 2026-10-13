@@ -499,6 +499,31 @@ struct DetectionTests {
         #expect(batch.methods == ["eth_chainId", "eth_blockNumber"])
     }
 
+    @Test("Web3RPCDetector pairs out-of-order batch responses with their calls by id")
+    func detectWeb3BatchOutOfOrder() throws {
+        let hash = "0x" + String(repeating: "ab", count: 32)
+        let request = try web3Request(
+            body: [
+                ["jsonrpc": "2.0", "id": 7, "method": "eth_blockNumber", "params": []],
+                ["jsonrpc": "2.0", "id": 8, "method": "eth_sendRawTransaction", "params": ["0xf86c"]],
+                ["jsonrpc": "2.0", "id": 9, "method": "eth_chainId", "params": []],
+            ]
+        )
+        let response = try web3Response(
+            body: [
+                ["jsonrpc": "2.0", "id": 9, "result": "0x2105"],
+                ["jsonrpc": "2.0", "id": 8, "result": hash],
+                ["jsonrpc": "2.0", "id": 7, "result": "0x10"],
+            ]
+        )
+
+        let info = try #require(Web3RPCDetector.detect(request: request, response: response))
+
+        #expect(info.chainHint?.chainID == "0x2105")
+        #expect(info.transactionHash == hash)
+        #expect(info.batch?.responseCount == 3)
+    }
+
     @Test("Web3RPCDetector reads a compressed provider response")
     func detectWeb3CompressedResponse() throws {
         let request = try web3Request(
