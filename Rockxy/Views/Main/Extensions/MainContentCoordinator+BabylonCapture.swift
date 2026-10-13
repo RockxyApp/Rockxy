@@ -30,7 +30,10 @@ extension MainContentCoordinator {
         }
     }
 
-    func receiveBabylonTransaction(_ transaction: HTTPTransaction) async {
+    /// `isUpdate` marks a later delivery of a row already handed over (a WebSocket that closed). It
+    /// only refreshes a row that is still live, so it can never add the same row a second time when
+    /// it overtakes the first delivery; that first delivery then adds the already-finished row.
+    func receiveBabylonTransaction(_ transaction: HTTPTransaction, isUpdate: Bool = false) async {
         guard captureRecordingGate.allowsCapture() else {
             return
         }
@@ -39,7 +42,7 @@ extension MainContentCoordinator {
             return
         }
         transaction.assignCaptureContextIfMissing(activeCaptureContext)
-        await sessionManager.addTransaction(transaction)
+        await sessionManager.addTransaction(transaction, acceptsNewRows: !isUpdate)
     }
 
     func registerBabylonCapture(identity: BabylonCaptureIdentity) async {

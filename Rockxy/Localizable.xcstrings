@@ -64,6 +64,16 @@
         }
       }
     },
+    "^[%lld more connection](inflect: true) still authenticating.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另有 %lld 个连接仍在验证中。"
+          }
+        }
+      }
+    },
     "A Network Conditions profile is slowing or blocking matching traffic. Open Network Conditions.": {
       "localizations": {
         "zh-Hans": {
@@ -190,6 +200,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "请从 Xcode 或“模拟器”App 启动 iOS、watchOS 或 visionOS 模拟器，然后重试。"
+          }
+        }
+      }
+    },
+    "Captures Rockxy could not read. The reasons are listed in Runtime Events.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 无法读取的捕获。原因列在“运行时事件”中。"
           }
         }
       }
@@ -820,6 +840,16 @@
         }
       }
     },
+    "Paired Apps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的应用"
+          }
+        }
+      }
+    },
     "Pass this name as hostName when a Babylon client should only connect to this Mac.": {
       "localizations": {
         "zh-Hans": {
@@ -1166,6 +1196,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "要让 %lld 个正在运行的模拟器通过 Rockxy 路由吗？"
+          }
+        }
+      }
+    },
+    "Skipped Captures": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过的捕获"
           }
         }
       }

@@ -21,9 +21,17 @@ struct BabylonConnectionPackageDTO: Codable {
 // MARK: - BabylonTrafficPackageDTO
 
 struct BabylonTrafficPackageDTO: Codable {
+    /// Unknown values from a newer SDK decode as `.unknown` instead of failing the whole frame.
     enum PackageType: String, Codable {
         case http
         case websocket
+        case grpc
+        case unknown
+
+        init(from decoder: Decoder) throws {
+            let raw = try decoder.singleValueContainer().decode(String.self)
+            self = PackageType(rawValue: raw) ?? .unknown
+        }
     }
 
     struct Header: Codable {
@@ -63,11 +71,22 @@ struct BabylonTrafficPackageDTO: Codable {
     }
 
     struct WebSocketMessage: Codable {
+        /// `ping`, `pong`, and `receiveCloseMessage` come from newer SDKs that tell the control
+        /// frames apart; older SDKs send `pingPong`. Unknown values decode as `.unknown`.
         enum MessageType: String, Codable {
             case pingPong
+            case ping
+            case pong
             case send
             case receive
             case sendCloseMessage
+            case receiveCloseMessage
+            case unknown
+
+            init(from decoder: Decoder) throws {
+                let raw = try decoder.singleValueContainer().decode(String.self)
+                self = MessageType(rawValue: raw) ?? .unknown
+            }
         }
 
         let id: String
@@ -75,6 +94,27 @@ struct BabylonTrafficPackageDTO: Codable {
         let messageType: MessageType
         let stringValue: String?
         let dataValue: Data?
+        /// Close frame status code and reason, sent by SDKs that report them separately.
+        let closeCode: Int?
+        let closeReason: String?
+
+        init(
+            id: String,
+            createdAt: TimeInterval,
+            messageType: MessageType,
+            stringValue: String?,
+            dataValue: Data?,
+            closeCode: Int? = nil,
+            closeReason: String? = nil
+        ) {
+            self.id = id
+            self.createdAt = createdAt
+            self.messageType = messageType
+            self.stringValue = stringValue
+            self.dataValue = dataValue
+            self.closeCode = closeCode
+            self.closeReason = closeReason
+        }
     }
 
     let id: String
@@ -159,6 +199,7 @@ enum BabylonCaptureMappingError: LocalizedError {
     case invalidStatusCode
     case oversizedBody
     case missingWebSocketMessage
+    case unsupportedPackage
 
     // MARK: Internal
 
@@ -170,6 +211,7 @@ enum BabylonCaptureMappingError: LocalizedError {
         case .invalidStatusCode: "The Babylon response status code is invalid."
         case .oversizedBody: "The Babylon body exceeds the capture limit."
         case .missingWebSocketMessage: "The Babylon WebSocket package has no frame."
+        case .unsupportedPackage: "The Babylon package type is not supported by this Rockxy version."
         }
     }
 }
