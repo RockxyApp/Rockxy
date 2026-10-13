@@ -461,6 +461,16 @@ struct MCPFlowQueryServiceTests {
         #expect(raw.content.first?.text?.contains("graphql-secret") == true)
     }
 
+    @Test("GraphQL block strings and cut-off literals are redacted too")
+    func graphQLBlockAndTruncatedStrings() {
+        let block = MCPFlowQueryService.redactGraphQLStringArguments(#"mutation { login(password: """block-secret""") { ok } }"#)
+        #expect(!block.contains("block-secret"))
+        let cut = MCPFlowQueryService.redactGraphQLStringArguments(#"mutation { login(token: "cut-off-sec"#)
+        #expect(!cut.contains("cut-off-sec"))
+        let plain = MCPFlowQueryService.redactGraphQLStringArguments(#"query { user(name: "ada") { id } }"#)
+        #expect(plain.contains("ada"))
+    }
+
     @Test("Gemini prompt contents are redacted like other prompts")
     func geminiContentsAreRedacted() {
         let policy = MCPRedactionPolicy(isEnabled: true)

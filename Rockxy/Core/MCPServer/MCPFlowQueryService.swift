@@ -408,7 +408,8 @@ struct MCPFlowQueryService {
 
     // swiftlint:disable:next force_try
     private static let graphQLSecretArgument = try! NSRegularExpression(
-        pattern: #"(?i)(\b\w*(?:password|passwd|secret|token|apikey|api_key|privatekey|private_key|mnemonic|seed)\w*\s*:\s*)"(?:[^"\\]|\\.)*""#
+        // A block string (`"""…"""`), a quoted string, or a literal cut off by the size bound.
+        pattern: #"(?i)(\b\w*(?:password|passwd|secret|token|apikey|api_key|privatekey|private_key|mnemonic|seed)\w*\s*:\s*)(?:"{3}[\s\S]*?(?:"{3}|$)|"(?:[^"\\]|\\.)*(?:"|$))"#
     )
 
     private func bodyPreview(_ body: Data, contentType: ContentType?) -> MCPJSONValue {
