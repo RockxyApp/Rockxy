@@ -1298,7 +1298,7 @@ struct ToolWindowReadabilityTests {
 
         // List-to-editor handoff is preserved on create / edit / double-click.
         #expect(source.contains(#"openWindow(id: "scriptEditor")"#))
-        #expect(source.contains("viewModel.createNewScript()"))
+        #expect(source.contains("viewModel.createNewScript(from: template)"))
         #expect(source.contains("viewModel.openEditorForSelection()"))
         #expect(source.contains("viewModel.openEditor(for: id)"))
 

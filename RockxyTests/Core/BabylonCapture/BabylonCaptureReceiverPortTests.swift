@@ -42,6 +42,35 @@ struct BabylonCaptureReceiverPortTests {
         #expect(!receiver.isUsingFallbackPort)
     }
 
+    @Test("The receiver stays off until the person turns it on, and remembers the choice")
+    func receiverIsOptIn() async throws {
+        let suiteName = "BabylonReceiverOptIn-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let probe = try await Self.boundListener()
+        let freePort = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(200))
+
+        let receiver = BabylonCaptureReceiver(preferredPort: freePort, defaults: defaults)
+        defer { receiver.stop() }
+        #expect(!receiver.isEnabled)
+        receiver.start(coordinator: MainContentCoordinator(), pairingStore: BabylonPairingStore())
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(receiver.listenerStatus == .stopped)
+        #expect(receiver.listeningPort == nil)
+
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+        #expect(defaults.bool(forKey: BabylonCaptureReceiver.enabledDefaultsKey))
+        #expect(BabylonCaptureReceiver(preferredPort: freePort, defaults: defaults).isEnabled)
+
+        receiver.setEnabled(false)
+        try await Self.waitUntilStopped(receiver)
+        #expect(receiver.listeningPort == nil)
+        #expect(!defaults.bool(forKey: BabylonCaptureReceiver.enabledDefaultsKey))
+    }
+
     @Test("Only address-in-use errors trigger the fallback")
     func detectsAddressInUse() {
         #expect(BabylonCaptureReceiver.isAddressInUse(.posix(.EADDRINUSE)))
@@ -67,6 +96,16 @@ struct BabylonCaptureReceiverPortTests {
             break
         }
         return listener
+    }
+
+    private static func waitUntilStopped(_ receiver: BabylonCaptureReceiver) async throws {
+        for _ in 0 ..< 100 {
+            if receiver.listenerStatus == .stopped {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        Issue.record("Listener did not stop: \(receiver.listenerStatus)")
     }
 
     private static func waitUntilReady(_ receiver: BabylonCaptureReceiver) async throws {

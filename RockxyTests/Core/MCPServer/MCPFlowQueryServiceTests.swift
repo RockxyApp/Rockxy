@@ -438,6 +438,61 @@ struct MCPFlowQueryServiceTests {
         #expect(rawText.contains("body-secret"))
     }
 
+    @Test(
+        "Export cURL redacts credentials in every request body format",
+        arguments: [
+            ("application/x-www-form-urlencoded", "username=stephen&password=form-secret", ContentType.form),
+            ("application/xml", "<login><username>stephen</username><password>xml-secret</password></login>", ContentType.xml),
+            ("application/json", #"{"username":"stephen","password":"broken-secret""#, ContentType.json),
+            ("text/plain", "username=stephen password=text-secret", ContentType.text),
+        ]
+    )
+    func exportCurlRedactsBodyFormats(
+        contentTypeHeader: String,
+        body: String,
+        contentType: ContentType
+    ) async throws {
+        let provider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/login")
+        transaction.request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/login")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: contentTypeHeader)],
+            body: Data(body.utf8),
+            contentType: contentType
+        )
+        provider.transactions = [transaction]
+
+        let service = makeService(provider: provider, redactionEnabled: true)
+        let text = await service.exportFlowAsCurl(flowId: transaction.id).content.first?.text ?? ""
+
+        #expect(!text.contains("-secret"))
+        #expect(text.contains("[REDACTED]"))
+        #expect(text.contains("stephen"))
+    }
+
+    @Test("Export cURL never inlines binary request bodies")
+    func exportCurlOmitsBinaryBody() async throws {
+        let provider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/upload")
+        transaction.request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/upload")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/octet-stream")],
+            body: Data([0xFF, 0xFE, 0x00, 0x81, 0xC3, 0x28]),
+            contentType: nil
+        )
+        provider.transactions = [transaction]
+
+        let service = makeService(provider: provider, redactionEnabled: true)
+        let text = await service.exportFlowAsCurl(flowId: transaction.id).content.first?.text ?? ""
+
+        #expect(text.contains("<binary data"))
+        #expect(text.contains("curl"))
+    }
+
     @Test("Export cURL redacts sensitive headers when enabled")
     func exportCurlRedacted() async throws {
         let provider = MockFlowProvider()

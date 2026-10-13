@@ -106,6 +106,9 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// only occurs on legacy/reloaded/imported transactions whose capture disposition was not
     /// persisted (and on TLS-failure rows, which are never shown in the request list).
     var sslCapture: SSLCaptureMode?
+    /// Why a raw tunnel was not decrypted, recorded at capture time. `nil` for decrypted traffic
+    /// and for rows captured before this was recorded.
+    var tunnelReason: TunnelReason?
     var webSocketFrameVersion: Int = 0
     var matchedRuleID: UUID?
     var matchedRuleName: String?

@@ -206,6 +206,7 @@ final class ScriptEditorViewModel {
         self.policyGate = policyGate
         self.pluginsDirectoryOverride = pluginsDirectory
         installRuntimeConsoleObserver()
+        installRunReportObserver()
     }
 
     // MARK: Internal
@@ -229,6 +230,9 @@ final class ScriptEditorViewModel {
     private(set) var savedAndActive: Bool = false
     private(set) var statusMessage: String = ""
     private(set) var statusTone: ScriptEditorStatusTone = .neutral
+    /// The most recent time this script ran on live traffic, shown next to the status line so
+    /// a JavaScript exception or timeout is visible without opening the console.
+    private(set) var lastRun: ScriptRunReport?
 
     /// Editor
     var code: String = ScriptTemplates.defaultSource
@@ -770,6 +774,7 @@ final class ScriptEditorViewModel {
     private var pluginBundlePath: URL?
     private var loadGeneration: UInt = 0
     private var runtimeConsoleObserver: NSObjectProtocol?
+    private var runReportObserver: NSObjectProtocol?
 
     private var effectivePolicyGate: ScriptPolicyGate {
         policyGate ?? ScriptPolicyGate.shared
@@ -863,6 +868,7 @@ final class ScriptEditorViewModel {
         statusMessage = ""
         sampleURL = "https://api.example.com/path"
         consoleEntries.removeAll()
+        lastRun = nil
     }
 
     private func loadExisting(pluginID: String, generation: UInt) async {
@@ -1000,6 +1006,33 @@ final class ScriptEditorViewModel {
                 self?.appendRuntimeConsoleEvent(event)
             }
         }
+    }
+
+    private func installRunReportObserver() {
+        runReportObserver = NotificationCenter.default.addObserver(
+            forName: .scriptRunDidFinish,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let report = notification.object as? ScriptRunReport else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.receiveRunReport(report)
+            }
+        }
+    }
+
+    func receiveRunReport(_ report: ScriptRunReport) {
+        guard report.pluginID == pluginID else {
+            return
+        }
+        // Keep a failure visible until a newer success replaces it; a success only needs updating
+        // when nothing newer has arrived.
+        if let lastRun, lastRun.timestamp > report.timestamp {
+            return
+        }
+        lastRun = report
     }
 
     private func appendRuntimeConsoleEvent(_ event: ScriptConsoleEvent) {

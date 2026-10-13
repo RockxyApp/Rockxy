@@ -431,6 +431,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             )
         )
         transaction.connectionLog = tunnelConnectionLog
+        transaction.tunnelReason = rawTunnelReason?.tunnelReason
         return transaction
     }
 
@@ -501,6 +502,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     private var bufferedByteCount = 0, tunnelOutcomeRecorded = false
     /// How the raw tunnel reached the server (or why it could not), for the CONNECT row.
     private var tunnelConnectionLog: ConnectionLog?
+    /// Why the connection is a raw tunnel, stamped on its CONNECT row.
+    private var rawTunnelReason: RawTunnelReason?
     /// Runs once the client's first tunnel bytes arrive (or the sniff timer fires) so a
     /// plain-HTTP tunnel can be relayed even when TLS interception is unavailable.
     private var pendingTunnelSniff: (() -> Void)?
@@ -533,6 +536,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             unresolvedApplicationMustTunnel: unresolvedApplicationMustTunnel
         ) {
         case let .rawTunnel(reason):
+            rawTunnelReason = reason
             switch reason {
             case .bypassProxyList:
                 tlsLogger.info("Bypass proxy list matched \(host), passing through as raw tunnel")
@@ -939,8 +943,9 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             return
         }
         tunnelOutcomeRecorded = true
+        let reason = rawTunnelReason?.tunnelReason
         onTransactionComplete(
-            Self.withConnectionLog(tunnelConnectionLog, Self.makeTunnelTransaction(
+            Self.withTunnelReason(reason, Self.withConnectionLog(tunnelConnectionLog, Self.makeTunnelTransaction(
                 host: host,
                 port: port,
                 statusCode: 200,
@@ -955,8 +960,16 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                     connectionDescriptor: clientConnectionDescriptor
                 ),
                 scheme: scheme
-            ))
+            )))
         )
+    }
+
+    nonisolated private static func withTunnelReason(
+        _ reason: TunnelReason?,
+        _ transaction: HTTPTransaction
+    ) -> HTTPTransaction {
+        transaction.tunnelReason = reason
+        return transaction
     }
 
     nonisolated private func tunnelElapsedDuration() -> TimeInterval {
