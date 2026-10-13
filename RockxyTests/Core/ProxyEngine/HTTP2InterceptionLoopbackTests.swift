@@ -42,6 +42,41 @@ struct HTTP2InterceptionLoopbackTests {
         }
     }
 
+    @Test("A stream the server resets before responding is a failed row that names the reset")
+    func streamResetBeforeResponse() async throws {
+        try await HTTP2LoopbackHarness.run(http2Enabled: true, originSpeaksHTTP2: true) { harness in
+            _ = try? await harness.get(paths: ["/h2/reset-early"], offering: ["h2"])
+
+            let row = try await harness.transaction(path: "/h2/reset-early")
+            #expect(row.state == .failed)
+            #expect(row.response?.statusCode == 502)
+            #expect(row.connectionLog?.failure?.message.contains("CANCEL") == true)
+        }
+    }
+
+    @Test("A stream the server resets mid-response is failed, not a success")
+    func streamResetMidResponse() async throws {
+        try await HTTP2LoopbackHarness.run(http2Enabled: true, originSpeaksHTTP2: true) { harness in
+            _ = try? await harness.get(paths: ["/h2/reset-mid"], offering: ["h2"])
+
+            let row = try await harness.transaction(path: "/h2/reset-mid")
+            #expect(row.state == .failed)
+            #expect(row.response?.statusCode == 200)
+            #expect(row.connectionLog?.failure?.stage == .response)
+            #expect(row.connectionLog?.failure?.message.contains("mid-response") == true)
+        }
+    }
+
+    @Test("HTTP/2 error codes are named as in RFC 9113")
+    func http2ErrorNames() {
+        #expect(UpstreamResponseHandler.http2ErrorName(.cancel) == "CANCEL")
+        #expect(UpstreamResponseHandler.http2ErrorName(.refusedStream) == "REFUSED_STREAM")
+        #expect(UpstreamResponseHandler.http2ErrorName(HTTP2ErrorCode(networkCode: 0x42)) == "0x42")
+        let reset = NIOHTTP2Errors.streamClosed(streamID: HTTP2StreamID(1), errorCode: .cancel)
+        #expect(ConnectionLogCapture.failure(for: reset).message.contains("CANCEL"))
+        #expect(UpstreamResponseHandler.midResponseFailureReason(for: reset).contains("mid-response"))
+    }
+
     @Test("Concurrent streams on one client connection each become their own row")
     func concurrentStreamsAreSeparateRows() async throws {
         try await HTTP2LoopbackHarness.run(http2Enabled: true, originSpeaksHTTP2: true) { harness in
@@ -406,6 +441,23 @@ private final class H2OriginResponder: ChannelInboundHandler, @unchecked Sendabl
         case .body:
             break
         case .end:
+            if path.hasPrefix("/h2/reset-early") {
+                // Closing an unfinished HTTP/2 stream sends RST_STREAM(CANCEL).
+                context.close(promise: nil)
+                return
+            }
+            if path.hasPrefix("/h2/reset-mid") {
+                var headers = HTTPHeaders()
+                headers.add(name: "content-type", value: "text/plain")
+                headers.add(name: "content-length", value: "100")
+                context.write(wrapOutboundOut(.head(HTTPResponseHead(version: .http1_1, status: .ok, headers: headers))), promise: nil)
+                var partial = context.channel.allocator.buffer(capacity: 8)
+                partial.writeString("partial")
+                context.writeAndFlush(wrapOutboundOut(.body(.byteBuffer(partial)))).whenComplete { _ in
+                    context.close(promise: nil)
+                }
+                return
+            }
             let body = "hello \(path)"
             var headers = HTTPHeaders()
             headers.add(name: "content-type", value: "text/plain")

@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOHTTP1
+import NIOHTTP2
 import NIOSSL
 import NIOTLS
 import NIOWebSocket
@@ -201,6 +202,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         completed = true
         if responseHead != nil {
+            // The response started but its end never arrived, so the body is incomplete.
+            earlyTermination = earlyTermination ?? "Connection closed before the response finished"
             buildAndCompleteTransaction()
         } else {
             failClientBeforeResponse(reason: "Upstream closed the connection before responding")
@@ -397,6 +400,11 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         readTimeoutTask = nil
         if !completed, responseHead != nil {
             completed = true
+            // A close-delimited body may legitimately end with an unclean TLS shutdown; any other
+            // error, such as an HTTP/2 stream reset, means the response was cut short.
+            if !Self.isUncleanTLSShutdown(error) {
+                earlyTermination = Self.midResponseFailureReason(for: error)
+            }
             relayResponseEnd()
             buildAndCompleteTransaction()
         } else if !completed, !Self.isUncleanTLSShutdown(error) {
@@ -428,7 +436,39 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         if error is NIOSSLExtraError {
             return "Upstream TLS handshake failed (certificate rejected)"
         }
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream before responding (\(http2ErrorName(reset.errorCode)))"
+        }
         return "Upstream connection failed before responding"
+    }
+
+    /// Why a response that had already started did not finish.
+    nonisolated static func midResponseFailureReason(for error: Error) -> String {
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
+        }
+        return "Upstream connection failed mid-response"
+    }
+
+    /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.
+    nonisolated static func http2ErrorName(_ code: HTTP2ErrorCode) -> String {
+        switch code {
+        case .noError: "NO_ERROR"
+        case .protocolError: "PROTOCOL_ERROR"
+        case .internalError: "INTERNAL_ERROR"
+        case .flowControlError: "FLOW_CONTROL_ERROR"
+        case .settingsTimeout: "SETTINGS_TIMEOUT"
+        case .streamClosed: "STREAM_CLOSED"
+        case .frameSizeError: "FRAME_SIZE_ERROR"
+        case .refusedStream: "REFUSED_STREAM"
+        case .cancel: "CANCEL"
+        case .compressionError: "COMPRESSION_ERROR"
+        case .connectError: "CONNECT_ERROR"
+        case .enhanceYourCalm: "ENHANCE_YOUR_CALM"
+        case .inadequateSecurity: "INADEQUATE_SECURITY"
+        case .http11Required: "HTTP_1_1_REQUIRED"
+        default: "0x\(String(code.networkCode, radix: 16, uppercase: true))"
+        }
     }
 
     // MARK: Private
@@ -474,6 +514,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var responseBreakpointSuppressed = false
     private var firstByteTime: DispatchTime?
     private var completed = false
+    /// Set when a response that had started was cut short, so its row is not reported as a success.
+    private var earlyTermination: String?
     private var readTimeoutTask: Scheduled<Void>?
     /// The unstructured Task bridging an in-flight response breakpoint to the
     /// @MainActor queue. Retained so a downstream-client disconnect can cancel it and
@@ -920,10 +962,14 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
 
         let timing = buildTimingInfo(endTime: endTime)
 
+        let finalState: TransactionState = earlyTermination == nil ? .completed : .failed
+        if let earlyTermination, connectionLog?.failure == nil {
+            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: earlyTermination)
+        }
         let transaction = HTTPTransaction(
             request: requestData,
             response: responseData,
-            state: .completed,
+            state: finalState,
             timingInfo: timing,
             graphQLInfo: graphQLInfo,
             web3RPCInfo: Web3RPCDetector.detect(request: requestData, response: responseData),
@@ -951,7 +997,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             live.noCachingApplied = transaction.noCachingApplied
             live.serverHTTPVersion = transaction.serverHTTPVersion
             live.connectionLog = transaction.connectionLog
-            live.state = .completed
+            live.state = finalState
             onTransactionComplete(live)
         }
     }
