@@ -118,8 +118,10 @@ extension MainContentCoordinator {
                     _ = try await RequestReplay.replay(transaction.request, throughProxyPort: port)
                 } catch {
                     failed += 1
+                    // Through rules, the request goes to Rockxy's own listener; origin failures come
+                    // back as 502 responses, so a thrown error is about the local proxy hop.
                     firstFailure = firstFailure
-                        ?? ReplayFailureReason.message(for: error, host: transaction.request.url.host)
+                        ?? ReplayFailureReason.message(for: error, host: "Rockxy")
                     Self.logger.error("Replay through rules failed: \(error.localizedDescription)")
                 }
             }
