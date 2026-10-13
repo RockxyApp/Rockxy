@@ -12,7 +12,8 @@ struct AIFilterFacts: Equatable, Sendable {
     let model: String?
     /// Whether the model asked for a tool call or the client returned a tool result.
     let hasToolCalls: Bool
-    /// Whether the response was streamed (SSE or NDJSON) or the request asked for a stream.
+    /// Whether the response was streamed (SSE or NDJSON), for any traffic, or an AI request
+    /// asked for a stream.
     let isStreaming: Bool
 }
 
@@ -37,16 +38,17 @@ extension AITrafficDetector {
     }
 
     static func filterFacts(snapshot: AITrafficSnapshot) -> AIFilterFacts {
-        guard isLikelyAI(snapshot: snapshot) else {
-            return .none
-        }
-        let requestJSON = parseJSONObject(snapshot.requestBody)
-        let model = stringValue(forKey: "model", in: requestJSON) ?? modelFromGeminiPath(snapshot.path)
+        // Streaming is a property of any response, not only AI traffic.
         let streamingResponse = snapshot.responseHeaders.contains { header in
             header.name.caseInsensitiveCompare("Content-Type") == .orderedSame
                 && (header.value.localizedCaseInsensitiveContains("text/event-stream")
                     || header.value.localizedCaseInsensitiveContains("ndjson"))
         }
+        guard isLikelyAI(snapshot: snapshot) else {
+            return AIFilterFacts(model: nil, hasToolCalls: false, isStreaming: streamingResponse)
+        }
+        let requestJSON = parseJSONObject(snapshot.requestBody)
+        let model = stringValue(forKey: "model", in: requestJSON) ?? modelFromGeminiPath(snapshot.path)
         let isStreaming = streamingResponse || boolValue(forKey: "stream", in: requestJSON) == true
         return AIFilterFacts(
             model: model,

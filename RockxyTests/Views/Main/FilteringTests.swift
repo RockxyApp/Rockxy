@@ -546,11 +546,28 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions.map(\.id) == [paywall.id])
     }
 
+    @Test("streaming: applies to any streamed response, not only AI traffic")
+    func streamingAppliesToAllTraffic() {
+        let coordinator = MainContentCoordinator()
+        let events = TestFixtures.makeTransaction(url: "https://api.example.com/events")
+        events.response?.headers = [HTTPHeader(name: "Content-Type", value: "text/event-stream")]
+        let page = TestFixtures.makeTransaction(url: "https://www.example.com/index.html")
+        coordinator.transactions = [events, page]
+
+        coordinator.filterCriteria.searchText = "streaming:true"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [events.id])
+
+        coordinator.filterCriteria.searchText = "streaming:false"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [page.id])
+    }
+
     @Test("Unknown values for new tokens fall back to plain text search")
     func smartSearchUnknownValues() {
-        let filter = SmartTrafficFilter.parse("has:nothing streaming:maybe chain: hello")
+        let filter = SmartTrafficFilter.parse("has:nothing streaming:maybe chain: chain:moonbase hello")
         #expect(!filter.hasPredicates)
-        #expect(filter.remainingSearchText == "has:nothing streaming:maybe chain: hello")
+        #expect(filter.remainingSearchText == "has:nothing streaming:maybe chain: chain:moonbase hello")
     }
 
     @Test("Smart model search matches the requested model in the request body")

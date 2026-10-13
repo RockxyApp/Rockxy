@@ -124,7 +124,8 @@ struct SmartTrafficFilter: Equatable {
         case "streaming", "stream":
             return parseBool(value).map(Predicate.streaming)
         case "chain":
-            return .chain(value)
+            // Only names and numbers Rockxy can compare; anything else stays plain search text.
+            return isKnownChain(value) ? .chain(value) : nil
         case "rpc_error":
             return parseBool(value).map(Predicate.rpcError)
         case "rpc":
@@ -159,6 +160,10 @@ struct SmartTrafficFilter: Equatable {
             return actual == named
         }
         return chainNumber(normalized) == actual
+    }
+
+    private static func isKnownChain(_ value: String) -> Bool {
+        namedChains[value.lowercased()] != nil || chainNumber(value) != nil
     }
 
     private static func chainNumber(_ text: String) -> UInt64? {
