@@ -35,10 +35,10 @@ struct UpstreamProxyDiagnosticsTests {
         }
         #expect(host == "127.0.0.1")
         #expect(reportedPort == port)
-        #expect(reason == "connection refused")
+        #expect(reason == UpstreamProxyError.unreachableReason(IOError(errnoCode: ECONNREFUSED, reason: "connect")))
         let failure = try ConnectionLogCapture.failure(for: #require(error))
         #expect(failure.stage == .proxy)
-        #expect(failure.message.contains("external proxy 127.0.0.1"))
+        #expect(failure.message.contains("127.0.0.1:\(port)"))
     }
 
     @Test("Credentials embedded in URLs are removed from PAC error text")
