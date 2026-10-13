@@ -293,7 +293,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         case let .body(buffer):
             if sseCaptureAccumulator != nil {
                 let offset = nanosecondsToSeconds(from: startTime, to: .now())
-                sseCaptureAccumulator?.append(Array(buffer.readableBytesView), at: offset)
+                sseCaptureAccumulator?.append(buffer.readableBytesView, at: offset)
             }
             if !responseBodyTruncated {
                 if ProxyHandlerShared.shouldTruncateCapture(
@@ -543,7 +543,13 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     /// Detects a `text/event-stream` response so the SSE framer is created only for
     /// streaming responses.
     nonisolated private static func isEventStream(_ headers: HTTPHeaders) -> Bool {
-        headers["Content-Type"].contains { $0.lowercased().contains("text/event-stream") }
+        // Timing is measured on the bytes as they arrive; a compressed stream cannot be framed
+        // without decompressing it on the event loop, so it gets no live timing.
+        let encodings = headers["Content-Encoding"].map { $0.lowercased().trimmingCharacters(in: .whitespaces) }
+        guard encodings.allSatisfy({ $0.isEmpty || $0 == "identity" }) else {
+            return false
+        }
+        return headers["Content-Type"].contains { $0.lowercased().contains("text/event-stream") }
     }
 
     // MARK: - Client Relay

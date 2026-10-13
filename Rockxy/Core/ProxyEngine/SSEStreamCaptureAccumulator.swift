@@ -27,20 +27,44 @@ struct SSEStreamCaptureAccumulator: Sendable {
 
     /// Feed a chunk of response bytes observed at `time` (seconds, already relative to the
     /// capture/request start). The value is recorded verbatim as the relative event time — the
-    /// accumulator does not rebase against its first call.
-    mutating func append(_ bytes: [UInt8], at time: TimeInterval) {
+    /// accumulator does not rebase against its first call. Each byte is scanned once.
+    mutating func append<Bytes: Collection>(_ bytes: Bytes, at time: TimeInterval) where Bytes.Element == UInt8 {
         guard !finished, !bytes.isEmpty else {
             return
         }
-        partial.append(contentsOf: bytes)
-        processCompleteLines(at: time)
+        var remaining = bytes[...]
+        if skippingOversizedLine {
+            // The rest of a very long line (a large `data:` value) only counts toward the event's
+            // size; its field was already read from the head of the line.
+            guard let lineFeedIndex = remaining.firstIndex(of: Self.lineFeed) else {
+                currentEventBytes += remaining.count
+                return
+            }
+            currentEventBytes += remaining.distance(from: remaining.startIndex, to: lineFeedIndex) + 1
+            skippingOversizedLine = false
+            remaining = remaining[remaining.index(after: lineFeedIndex)...]
+        }
 
-        // Any leftover in `partial` is a single line with no terminator yet. If it exceeds the
-        // per-frame cap it is treated as malformed and discarded to keep storage bounded.
+        let scanFrom = partial.count
+        partial.append(contentsOf: remaining)
+        processCompleteLines(scanningFrom: scanFrom, at: time)
+
+        // Leftover bytes are one unterminated line. A line past the per-frame cap is not dropped:
+        // its head still names the field, and the event keeps its `event:` name (for example a
+        // `response.completed` that carries the whole response), so only the bytes are skipped.
         if partial.count > ProxyLimits.maxSSEPartialFrameBytes {
-            didObserveMalformedFrame = true
-            resetCurrentEvent()
+            let head = partial.prefix(Self.oversizedLineHeadBytes)
+            if head.first != Self.colon {
+                currentHasContent = true
+                parseField(head, isComplete: false)
+            }
+            if !head.contains(Self.colon) {
+                // No field name at all: not a well-formed SSE line.
+                didObserveMalformedFrame = true
+            }
+            currentEventBytes += partial.count
             partial.removeAll(keepingCapacity: false)
+            skippingOversizedLine = true
         }
     }
 
@@ -86,12 +110,16 @@ struct SSEStreamCaptureAccumulator: Sendable {
     // MARK: Private
 
     private static let maxEventNameLength = 256
+    /// Enough of an oversized line to read its field name and recognize `data: [DONE]`.
+    private static let oversizedLineHeadBytes = 512
+    private static let doneMarker = Array("[DONE]".utf8)
     private static let lineFeed: UInt8 = 0x0A
     private static let carriageReturn: UInt8 = 0x0D
     private static let colon: UInt8 = 0x3A
     private static let space: UInt8 = 0x20
 
     private var partial: [UInt8] = []
+    private var skippingOversizedLine = false
     private var finished = false
 
     private var events: [SSEEventMetadata] = []
@@ -111,17 +139,21 @@ struct SSEStreamCaptureAccumulator: Sendable {
     private var currentHasContent = false
     private var currentSawDone = false
 
-    private mutating func processCompleteLines(at time: TimeInterval) {
+    /// `scanningFrom` is where new bytes start: earlier bytes were already searched and hold no
+    /// line feed, so a long line split across many chunks is never rescanned from its start.
+    private mutating func processCompleteLines(scanningFrom scanFrom: Int, at time: TimeInterval) {
         var cursor = 0
+        var searchFrom = scanFrom
         let count = partial.count
 
-        while let lineFeedIndex = partial[cursor ..< count].firstIndex(of: Self.lineFeed) {
+        while let lineFeedIndex = partial[searchFrom ..< count].firstIndex(of: Self.lineFeed) {
             var end = lineFeedIndex
             if end > cursor, partial[end - 1] == Self.carriageReturn {
                 end -= 1
             }
             consumeLine(partial[cursor ..< end], rawByteCount: lineFeedIndex - cursor + 1, at: time)
             cursor = lineFeedIndex + 1
+            searchFrom = cursor
         }
 
         if cursor > 0 {
@@ -145,32 +177,29 @@ struct SSEStreamCaptureAccumulator: Sendable {
 
         currentHasContent = true
         currentEventBytes += rawByteCount
-        parseField(content)
+        parseField(content, isComplete: true)
     }
 
-    private mutating func parseField(_ content: ArraySlice<UInt8>) {
+    /// Reads the field a line sets. Only `event:` values become strings; `data:` is compared as
+    /// bytes, and `[DONE]` only counts when the whole line was seen (`isComplete`).
+    private mutating func parseField(_ content: ArraySlice<UInt8>, isComplete: Bool) {
         guard let colonIndex = content.firstIndex(of: Self.colon) else {
             // A line with no colon is a field name with an empty value — not relevant here.
             return
         }
 
-        let name = String(bytes: content[content.startIndex ..< colonIndex], encoding: .utf8) ?? ""
-
+        let name = content[content.startIndex ..< colonIndex]
         var valueStart = content.index(after: colonIndex)
         if valueStart < content.endIndex, content[valueStart] == Self.space {
             valueStart = content.index(after: valueStart)
         }
-        let value = String(bytes: content[valueStart ..< content.endIndex], encoding: .utf8) ?? ""
+        let value = content[valueStart ..< content.endIndex]
 
-        switch name {
-        case "event":
-            currentEventName = String(value.prefix(Self.maxEventNameLength))
-        case "data":
-            if value == "[DONE]" {
-                currentSawDone = true
-            }
-        default:
-            break
+        if name.elementsEqual("event".utf8) {
+            let bounded = value.prefix(Self.maxEventNameLength * 4)
+            currentEventName = String(bytes: bounded, encoding: .utf8).map { String($0.prefix(Self.maxEventNameLength)) }
+        } else if name.elementsEqual("data".utf8), isComplete, value.elementsEqual(Self.doneMarker) {
+            currentSawDone = true
         }
     }
 

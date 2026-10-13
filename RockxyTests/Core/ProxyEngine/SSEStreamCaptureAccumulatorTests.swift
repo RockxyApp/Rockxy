@@ -203,6 +203,34 @@ struct SSEStreamCaptureAccumulatorTests {
         #expect(diagnostics.hasUnterminatedPartialFrame == false)
     }
 
+    @Test("a final event with a huge data line keeps its name and completes the stream")
+    func oversizedFinalEventKeepsCompletion() {
+        var acc = SSEStreamCaptureAccumulator()
+        acc.append(bytes("event: response.output_text.delta\ndata: {}\n\n"), at: 0.1)
+        acc.append(bytes("event: response.completed\ndata: {\"output\":\""), at: 0.5)
+        let huge = [UInt8](repeating: 0x41, count: ProxyLimits.maxSSEPartialFrameBytes + 10)
+        // Delivered in many chunks, as a network read would.
+        stride(from: 0, to: huge.count, by: 4_096).forEach { start in
+            acc.append(huge[start ..< min(start + 4_096, huge.count)], at: 0.6)
+        }
+        acc.append(bytes("\"}\n\n"), at: 0.7)
+        let diagnostics = acc.finish(reason: .endOfStream)
+
+        #expect(diagnostics.eventCount == 2)
+        #expect(diagnostics.terminalMarker == .responseFinished)
+        #expect(diagnostics.outcome == .completedWithTerminalMarker)
+        #expect(diagnostics.didObserveMalformedFrame == false)
+        #expect(diagnostics.events.last?.byteCount ?? 0 > ProxyLimits.maxSSEPartialFrameBytes)
+    }
+
+    @Test("[DONE] split across chunks is still recognized")
+    func doneSplitAcrossChunks() {
+        var acc = SSEStreamCaptureAccumulator()
+        acc.append(bytes("data: [DO"), at: 0.1)
+        acc.append(bytes("NE]\n\n"), at: 0.2)
+        #expect(acc.finish(reason: .endOfStream).terminalMarker == .done)
+    }
+
     // MARK: Private
 
     // MARK: Helpers
