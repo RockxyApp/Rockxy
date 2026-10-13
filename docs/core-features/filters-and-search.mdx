@@ -46,6 +46,23 @@ Use search when you already know a clue:
 - operation name,
 - or a value that appears in the request URL.
 
+#### Smart tokens
+
+Type these tokens in the search field to match captured protocol metadata. Tokens combine with each other and with plain text, which still searches the selected field.
+
+| Token | Matches |
+| --- | --- |
+| `is:ai`, `is:ai_api`, `is:ai_session` | AI traffic, AI API calls, or AI app sessions |
+| `provider:openai`, `model:gpt-4o` | AI provider and requested model (also the Web3 RPC host) |
+| `has:tool_call` | AI exchanges where the model called a tool or the client returned a tool result |
+| `streaming:true` / `streaming:false` | Streamed (SSE or NDJSON) AI responses, or ones that were not streamed |
+| `is:web3`, `rpc:eth_call`, `rpc_error:true` | Web3 JSON-RPC traffic, a method (including batch members), and RPC errors |
+| `chain:base`, `chain:8453`, `chain:0x2105` | The JSON-RPC chain hint, by name, decimal, or hex |
+| `has:tx_hash` | Web3 calls that carry a transaction hash |
+| `is:x402` | x402 payment-gated requests |
+
+A token with a value Rockxy does not recognize is treated as plain search text.
+
 ## Focus Sets
 
 A Focus Set is a named, reusable traffic scope. Open the sidebar's **Focus** mode and choose **Add** beside **Focus Sets** to create one.

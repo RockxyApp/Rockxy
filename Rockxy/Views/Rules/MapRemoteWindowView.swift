@@ -710,7 +710,7 @@ struct MapRemoteEditorWindowView: View {
 
                     ruleDetailsSection
                     remoteDestinationSection
-                    RuleURLTesterSection(toolMetrics: toolMetrics) {
+                    RuleURLTesterSection(toolMetrics: toolMetrics, ruleID: viewModel.originalRule?.id) {
                         viewModel.matchCondition()
                     }
                 }

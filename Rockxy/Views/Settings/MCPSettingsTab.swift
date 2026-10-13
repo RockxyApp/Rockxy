@@ -415,10 +415,10 @@ struct MCPSettingsTab: View {
             Text(
                 String(
                     localized: """
-                    Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn \
-                    rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause \
-                    recording, and clear the session. Rules they create appear in the matching tool \
-                    windows and count toward the same active-rule limits.
+                    Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules and \
+                    JavaScript scripts, turn rules on or off, enable HTTPS decryption for a domain, \
+                    switch No Caching, pause recording, and clear the session. Rules and scripts they \
+                    create appear in the matching tool windows and count toward the same limits.
                     """,
                     bundle: RockxyLocalization.bundle
                 )
