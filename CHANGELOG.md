@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- New search tokens: `has:tool_call`, `streaming:true|false`, `chain:` (name, decimal, or hex), `has:tx_hash`, and `is:x402`. AI facts used by search are cached per request, so `model:` no longer re-parses request bodies on every filter pass.
+- x402 payment-gated requests get an **x402** badge in the request list.
 - **Tools > Proxy Settings** shows which route new traffic takes while External Proxy is on (for example "Routing via HTTP 127.0.0.1:7890"), and a request that fails because the external proxy is not running or not reachable now says so in its Connection Log instead of reporting a generic connection failure.
 - The gRPC tab reads gRPC-Web trailer frames for the call status, decodes `grpc-web-text` (base64) bodies, and lists `grpc-timeout` plus the custom request and response metadata separately from transport headers. A new gRPC page in the docs covers detection, decoding, and limits.
 - Scripting has six starter templates (Modify Headers, Log Requests, Block Pattern, Custom Response, Rewrite URL, Conditional Mock JSON), offered in the empty Scripting window and under **New Script from Template**; mock templates turn on Run as Mock automatically.
