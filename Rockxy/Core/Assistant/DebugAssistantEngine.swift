@@ -474,18 +474,21 @@ struct DebugAssistantEngine {
             sourceTransactionID: primary.id
         ))
 
-        var dominant: (name: String, seconds: TimeInterval)?
+        var dominant: (key: String, name: String, seconds: TimeInterval)?
         if let timing = primary.timing {
             let connection = timing.dnsLookup + timing.tcpConnection + timing.tlsHandshake
-            let phases: [(String, TimeInterval)] = [
-                (String(localized: "Connection setup", bundle: RockxyLocalization.bundle), connection),
-                (String(localized: "Server wait", bundle: RockxyLocalization.bundle), timing.timeToFirstByte),
-                (String(localized: "Response transfer", bundle: RockxyLocalization.bundle), timing.contentTransfer),
+            // Fixed keys keep evidence ids stable whatever the UI language.
+            let phases: [(key: String, name: String, seconds: TimeInterval)] = [
+                ("connection", String(localized: "Connection setup", bundle: RockxyLocalization.bundle), connection),
+                ("server-wait", String(localized: "Server wait", bundle: RockxyLocalization.bundle), timing.timeToFirstByte),
+                ("transfer", String(localized: "Response transfer", bundle: RockxyLocalization.bundle), timing.contentTransfer),
             ]
-            dominant = phases.max { $0.1 < $1.1 }
-            for (name, seconds) in phases {
+            if let top = phases.max(by: { $0.seconds < $1.seconds }) {
+                dominant = (top.key, top.name, top.seconds)
+            }
+            for (key, name, seconds) in phases {
                 evidence.append(.init(
-                    id: "flow:\(primary.id):timing.\(name.lowercased().replacingOccurrences(of: " ", with: "-"))",
+                    id: "flow:\(primary.id):timing.\(key)",
                     kind: .observed,
                     title: "\(name): \(DurationFormatter.format(seconds: seconds))",
                     detail: String(localized: "Captured timing phase.", bundle: RockxyLocalization.bundle),
@@ -544,18 +547,18 @@ struct DebugAssistantEngine {
             )
         }
         let summary = [leading, comparison].compactMap(\.self).joined(separator: " ")
-        let nextStep: String = switch dominant?.name {
-        case String(localized: "Server wait", bundle: RockxyLocalization.bundle):
+        let nextStep: String = switch dominant?.key {
+        case "server-wait":
             String(
                 localized: "The server took the time before answering. Check server-side logs or query cost for this endpoint.",
                 bundle: RockxyLocalization.bundle
             )
-        case String(localized: "Connection setup", bundle: RockxyLocalization.bundle):
+        case "connection":
             String(
                 localized: "Connection setup dominated. Check DNS, TLS, and whether the client reuses connections.",
                 bundle: RockxyLocalization.bundle
             )
-        case String(localized: "Response transfer", bundle: RockxyLocalization.bundle):
+        case "transfer":
             String(
                 localized: "Transfer dominated. Check the response size, compression, and network conditions.",
                 bundle: RockxyLocalization.bundle
@@ -599,7 +602,10 @@ struct DebugAssistantEngine {
         let scope = boundedScope(primary: primary, selected: selected, related: related)
         var evidence: [InvestigationEvidence] = []
 
-        for transaction in scope.dropFirst().prefix(8) {
+        // Evidence lists the related requests themselves; other selected requests are not
+        // related just because they were selected.
+        let scopeIDs = Set(scope.map(\.id))
+        for transaction in related.filter({ scopeIDs.contains($0.id) }).prefix(8) {
             let status = transaction.statusCode.map { "HTTP \($0)" }
                 ?? String(localized: "no response", bundle: RockxyLocalization.bundle)
             let relation = sameEndpointIDs.contains(transaction.id)

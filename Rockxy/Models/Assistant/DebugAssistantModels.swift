@@ -134,7 +134,7 @@ enum DebugAssistantRecipe: String, CaseIterable, Identifiable {
         {
             return .whyIsThisSlow
         }
-        if normalized.contains("related")
+        if (normalized.contains("related") && !normalized.contains("unrelated"))
             || normalized.contains("same endpoint")
             || normalized.contains("other requests")
         {
