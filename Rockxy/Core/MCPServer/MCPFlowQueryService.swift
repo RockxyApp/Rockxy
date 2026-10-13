@@ -359,10 +359,13 @@ struct MCPFlowQueryService {
         if let graphql = transaction.graphQLInfo {
             var gqlFields: [String: MCPJSONValue] = [
                 "operation_type": .string(graphql.operationType.rawValue),
-                "query": .string(graphql.query),
+                "query": .string(boundedGraphQLText(graphql.query, contentType: nil)),
             ]
             if let name = graphql.operationName {
                 gqlFields["operation_name"] = .string(name)
+            }
+            if let variables = graphql.variables {
+                gqlFields["variables"] = .string(boundedGraphQLText(variables, contentType: .json))
             }
             detail["graphql"] = .object(gqlFields)
         }
@@ -377,6 +380,37 @@ struct MCPFlowQueryService {
             .object(["name": .string(header.name), "value": .string(header.value)])
         }
     }
+
+    /// GraphQL documents can inline secrets as literal arguments (`login(password: "...")`), and
+    /// variables are JSON; both go through the same redaction and size bound as bodies.
+    private func boundedGraphQLText(_ text: String, contentType: ContentType?) -> String {
+        let limit = MCPLimits.maxBodyPreviewSize
+        let bounded = text.utf8.count > limit ? String(text.prefix(limit / 4)) : text
+        var redacted = redactionPolicy.redactBody(bounded, contentType: contentType)
+        if contentType == nil, redactionPolicy.isEnabled {
+            redacted = Self.redactGraphQLStringArguments(redacted)
+        }
+        if text.utf8.count > limit {
+            return redacted + "\n... [truncated, total \(SizeFormatter.format(bytes: text.utf8.count))]"
+        }
+        return redacted
+    }
+
+    /// Replaces string literals passed to sensitive-looking GraphQL arguments.
+    static func redactGraphQLStringArguments(_ document: String) -> String {
+        let range = NSRange(document.startIndex ..< document.endIndex, in: document)
+        return graphQLSecretArgument.stringByReplacingMatches(
+            in: document,
+            range: range,
+            withTemplate: "$1\"[REDACTED]\""
+        )
+    }
+
+    // swiftlint:disable:next force_try
+    private static let graphQLSecretArgument = try! NSRegularExpression(
+        // A block string (`"""…"""`), a quoted string, or a literal cut off by the size bound.
+        pattern: #"(?i)(\b\w*(?:password|passwd|secret|token|apikey|api_key|privatekey|private_key|mnemonic|seed)\w*\s*:\s*)(?:"{3}[\s\S]*?(?:"{3}|$)|"(?:[^"\\]|\\.)*(?:"|$))"#
+    )
 
     private func bodyPreview(_ body: Data, contentType: ContentType?) -> MCPJSONValue {
         let previewSize = min(body.count, MCPLimits.maxBodyPreviewSize)

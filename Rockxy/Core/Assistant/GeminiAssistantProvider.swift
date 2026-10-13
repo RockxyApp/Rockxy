@@ -151,6 +151,11 @@ struct GeminiAssistantProvider: AssistantModelProvider {
 }
 
 enum GeminiStreamDecoder {
+    /// Finish reasons that mean Gemini refused or cut off the answer, not that it finished.
+    static let blockedFinishReasons: Set<String> = [
+        "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY",
+    ]
+
     struct Result {
         let events: [AssistantStreamEvent]
         let finished: Bool
@@ -176,8 +181,19 @@ enum GeminiStreamDecoder {
             )
         }
 
+        if let feedback = object["promptFeedback"] as? [String: Any],
+           let blockReason = feedback["blockReason"] as? String
+        {
+            throw AssistantProviderError.contentBlocked(blockReason)
+        }
+
         var events: [AssistantStreamEvent] = []
         let candidates = object["candidates"] as? [[String: Any]] ?? []
+        if let blocked = candidates.lazy.compactMap({ $0["finishReason"] as? String })
+            .first(where: { blockedFinishReasons.contains($0) })
+        {
+            throw AssistantProviderError.contentBlocked(blocked)
+        }
         for candidate in candidates {
             let content = candidate["content"] as? [String: Any]
             let parts = content?["parts"] as? [[String: Any]] ?? []

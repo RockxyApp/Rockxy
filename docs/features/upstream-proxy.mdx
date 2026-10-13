@@ -86,6 +86,12 @@ The test action opens a short-lived outbound connection through the current upst
 
 The default test target is `example.com:80`.
 
+## Seeing the active route
+
+While External Proxy is on, **Tools > Proxy Settings** shows the route new traffic takes under the toggle, for example **Routing via HTTP 127.0.0.1:7890** or **Routing via Automatic (PAC from config.example.com)**.
+
+When a request fails because of the external proxy, its Connection Log reports a **proxy** stage with the specific reason: authentication required or rejected, CONNECT refused, a PAC evaluation failure, an unavailable SOCKS5 route, a timeout, or an external proxy that is not reachable at all (for example "connection refused" when the other proxy app is not running). That last case is reported separately from failures to reach the site itself.
+
 ## Community UI Behavior
 
 The External Proxy Settings window shows the same protocol choices as the underlying connector, but locked controls remain backed by app policy:
@@ -103,7 +109,7 @@ The UI only reflects store predicates. Store and service boundaries still enforc
 - HTTPS upstream proxy connections use normal certificate-chain validation against the proxy hostname.
 - PAC URLs must use `http` or `https`.
 - Upstream proxy passwords are not stored in UserDefaults.
-- Credentials are never included in surfaced error text.
+- Credentials are never included in surfaced error text, including `user:password@` embedded in a PAC URL, which is replaced with `[REDACTED]`.
 - Proxy handshake reads are bounded to avoid untrusted oversized responses.
 
 ## Limitations

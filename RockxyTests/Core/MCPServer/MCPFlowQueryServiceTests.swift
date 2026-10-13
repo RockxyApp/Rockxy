@@ -438,6 +438,104 @@ struct MCPFlowQueryServiceTests {
         #expect(rawText.contains("body-secret"))
     }
 
+    @Test("Flow detail redacts and bounds GraphQL documents and variables")
+    func flowDetailRedactsGraphQL() async throws {
+        let provider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/graphql")
+        transaction.graphQLInfo = GraphQLInfo(
+            operationName: "Login",
+            operationType: .mutation,
+            query: #"mutation Login { login(email: "ada@example.com", password: "graphql-secret") { token } }"#,
+            variables: #"{"password":"variable-secret","remember":true}"#
+        )
+        provider.transactions = [transaction]
+
+        let redacted = await makeService(provider: provider, redactionEnabled: true).getFlowDetail(flowId: transaction.id)
+        let text = redacted.content.first?.text ?? ""
+        #expect(!text.contains("graphql-secret"))
+        #expect(!text.contains("variable-secret"))
+        #expect(text.contains("ada@example.com"))
+        #expect(text.contains("Login"))
+
+        let raw = await makeService(provider: provider, redactionEnabled: false).getFlowDetail(flowId: transaction.id)
+        #expect(raw.content.first?.text?.contains("graphql-secret") == true)
+    }
+
+    @Test("GraphQL block strings and cut-off literals are redacted too")
+    func graphQLBlockAndTruncatedStrings() {
+        let block = MCPFlowQueryService.redactGraphQLStringArguments(#"mutation { login(password: """block-secret""") { ok } }"#)
+        #expect(!block.contains("block-secret"))
+        let cut = MCPFlowQueryService.redactGraphQLStringArguments(#"mutation { login(token: "cut-off-sec"#)
+        #expect(!cut.contains("cut-off-sec"))
+        let plain = MCPFlowQueryService.redactGraphQLStringArguments(#"query { user(name: "ada") { id } }"#)
+        #expect(plain.contains("ada"))
+    }
+
+    @Test("Gemini prompt contents are redacted like other prompts")
+    func geminiContentsAreRedacted() {
+        let policy = MCPRedactionPolicy(isEnabled: true)
+        let body = #"{"contents":[{"role":"user","parts":[{"text":"private prompt"}]}],"systemInstruction":{"parts":[{"text":"hidden"}]},"generationConfig":{"temperature":0.2}}"#
+        let redacted = policy.redactBody(body, contentType: .json)
+        #expect(!redacted.contains("private prompt"))
+        #expect(!redacted.contains("hidden"))
+        #expect(redacted.contains("temperature"))
+    }
+
+    @Test(
+        "Export cURL redacts credentials in every request body format",
+        arguments: [
+            ("application/x-www-form-urlencoded", "username=stephen&password=form-secret", ContentType.form),
+            ("application/xml", "<login><username>stephen</username><password>xml-secret</password></login>", ContentType.xml),
+            ("application/json", #"{"username":"stephen","password":"broken-secret""#, ContentType.json),
+            ("text/plain", "username=stephen password=text-secret", ContentType.text),
+        ]
+    )
+    func exportCurlRedactsBodyFormats(
+        contentTypeHeader: String,
+        body: String,
+        contentType: ContentType
+    ) async throws {
+        let provider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/login")
+        transaction.request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/login")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: contentTypeHeader)],
+            body: Data(body.utf8),
+            contentType: contentType
+        )
+        provider.transactions = [transaction]
+
+        let service = makeService(provider: provider, redactionEnabled: true)
+        let text = await service.exportFlowAsCurl(flowId: transaction.id).content.first?.text ?? ""
+
+        #expect(!text.contains("-secret"))
+        #expect(text.contains("[REDACTED]"))
+        #expect(text.contains("stephen"))
+    }
+
+    @Test("Export cURL never inlines binary request bodies")
+    func exportCurlOmitsBinaryBody() async throws {
+        let provider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/upload")
+        transaction.request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/upload")),
+            httpVersion: "HTTP/1.1",
+            headers: [HTTPHeader(name: "Content-Type", value: "application/octet-stream")],
+            body: Data([0xFF, 0xFE, 0x00, 0x81, 0xC3, 0x28]),
+            contentType: nil
+        )
+        provider.transactions = [transaction]
+
+        let service = makeService(provider: provider, redactionEnabled: true)
+        let text = await service.exportFlowAsCurl(flowId: transaction.id).content.first?.text ?? ""
+
+        #expect(text.contains("<binary data"))
+        #expect(text.contains("curl"))
+    }
+
     @Test("Export cURL redacts sensitive headers when enabled")
     func exportCurlRedacted() async throws {
         let provider = MockFlowProvider()
