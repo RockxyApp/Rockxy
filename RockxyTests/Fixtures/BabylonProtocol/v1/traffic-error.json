@@ -1,0 +1,1 @@
+{"correlation_context":null,"end_at":1725000000.5,"error":{"code":-1001,"message":"The request timed out."},"id":"traffic-error","package_type":"http","request":{"body":null,"headers":[],"method":"GET","url":"https://example.test/error"},"response":null,"response_body_data":"","start_at":1725000000.1,"websocket_message_package":null}

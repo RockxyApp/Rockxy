@@ -1,0 +1,140 @@
+name: Babylon Protocol Compatibility
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '17 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: babylon-compatibility-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    name: Detect protocol changes
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - name: Check out repository history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check changed paths
+        id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA" -- \
+            'Rockxy/Core/BabylonCapture/**' \
+            'Rockxy/Models/BabylonCapture/**' \
+            'RockxyTests/Core/BabylonCapture/**' \
+            'RockxyTests/Fixtures/BabylonProtocol/**' \
+            'docs/tools/validate_babylon_fixtures.py' \
+            '.github/workflows/babylon-compatibility.yml')
+          if [ -n "$changed" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  compatibility:
+    name: SDK and receiver contract
+    needs: detect
+    if: needs.detect.outputs.relevant == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out Rockxy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
+        with:
+          persist-credentials: false
+      - name: Check out Babylon SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
+        with:
+          repository: RockxyApp/Babylon
+          path: babylon
+          persist-credentials: false
+      - name: Use matching Babylon branch for paired repository PRs
+        env:
+          MATCHING_BRANCH: ${{ github.event.pull_request.head.ref }}
+          SAME_REPOSITORY_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [ "$SAME_REPOSITORY_PR" != "true" ] || [ -z "$MATCHING_BRANCH" ]; then
+            echo "Using Babylon main"
+            exit 0
+          fi
+          git check-ref-format --branch "$MATCHING_BRANCH"
+          if git -C babylon ls-remote --exit-code --heads origin "refs/heads/$MATCHING_BRANCH" >/dev/null; then
+            git -C babylon fetch --no-tags --depth=1 origin "refs/heads/$MATCHING_BRANCH"
+            git -C babylon checkout --detach FETCH_HEAD
+            echo "Using matching Babylon branch $MATCHING_BRANCH"
+          else
+            echo "No matching Babylon branch; using main"
+          fi
+      - name: Validate shared fixture corpus
+        run: python3 docs/tools/validate_babylon_fixtures.py "$GITHUB_WORKSPACE/babylon"
+      - name: Select Xcode
+        run: |
+          for candidate in \
+            /Applications/Xcode_26.3.app/Contents/Developer \
+            /Applications/Xcode_16.4.app/Contents/Developer \
+            /Applications/Xcode.app/Contents/Developer; do
+            if [ -d "$candidate" ]; then
+              sudo xcode-select -s "$candidate"
+              exit 0
+            fi
+          done
+          echo "No supported Xcode installation found" >&2
+          exit 1
+      - name: Prepare local developer configuration
+        run: |
+          cat > Configuration/Developer.xcconfig <<'EOF'
+          #include "LocalDev.xcconfig"
+          ROCKXY_TEAM_ID =
+          CODE_SIGN_IDENTITY =
+          DEVELOPMENT_TEAM =
+          EOF
+      - name: Test Babylon SDK fixtures
+        working-directory: babylon
+        run: swift test --no-parallel --filter RockxyProtocolFixtureTests
+      - name: Test Rockxy receiver fixtures and TCP loopback
+        run: >-
+          xcodebuild -project Rockxy.xcodeproj -scheme Rockxy
+          -destination 'platform=macOS'
+          -only-testing:RockxyTests/BabylonSharedFixtureTests
+          -only-testing:RockxyTests/BabylonCaptureTCPCompatibilityTests
+          test
+
+  compatibility-gate:
+    name: Compatibility Gate
+    if: always()
+    needs: [detect, compatibility]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require detection and relevant compatibility tests to pass
+        env:
+          DETECT_RESULT: ${{ needs.detect.result }}
+          RELEVANT: ${{ needs.detect.outputs.relevant }}
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+        run: |
+          if [ "$DETECT_RESULT" != "success" ]; then
+            echo "Protocol change detection did not succeed" >&2
+            exit 1
+          fi
+          if [ "$RELEVANT" = "true" ] && [ "$COMPATIBILITY_RESULT" != "success" ]; then
+            echo "Protocol changes require a passing SDK and receiver contract run" >&2
+            exit 1
+          fi

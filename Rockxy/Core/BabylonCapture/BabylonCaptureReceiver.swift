@@ -32,6 +32,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     static let maximumRuntimePayloadSize = 2 * 1_024 * 1_024
     static let enabledDefaultsKey = RockxyIdentity.current.defaultsKey("babylon.receiverEnabled")
 
+    static let maximumAggregateBufferedBytes = BabylonCaptureProtocol.maximumFrameSize + 64 * 1_024 + 8
+
     let preferredPort: UInt16
 
     /// Whether this Mac accepts Babylon capture connections. Off until the person turns it on,
@@ -47,6 +49,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Babylon clients that pin a host name must use this value.
     private(set) var advertisedServiceName: String?
 
+    /// Number of live TCP connections. Increments before authentication, so a
+    /// non-zero value does not imply any paired/authenticated Babylon client.
+    private(set) var openConnectionCount = 0
+
     var isUsingFallbackPort: Bool {
         guard let listeningPort else {
             return false
@@ -61,10 +67,26 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Captures skipped because one package could not be read; the connection stays open.
     private(set) var skippedPackageCount = 0
 
+    static func validateAggregateBufferedBytes(current: Int, adding: Int) throws {
+        guard current >= 0, adding >= 0,
+              adding <= maximumAggregateBufferedBytes,
+              current <= maximumAggregateBufferedBytes - adding else
+        {
+            throw BabylonCaptureProtocolError.frameTooLarge
+        }
+    }
+
     static func validateRuntimePayloadSize(_ byteCount: Int) throws {
         guard byteCount >= 0, byteCount <= maximumRuntimePayloadSize else {
             throw BabylonCaptureProtocolError.frameTooLarge
         }
+    }
+
+    static func isAddressInUse(_ error: NWError) -> Bool {
+        if case let .posix(code) = error {
+            return code == .EADDRINUSE
+        }
+        return false
     }
 
     @MainActor
@@ -198,7 +220,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private static let authenticationTimeout: TimeInterval = 10
     private static let runtimeBatchSize = 128
     private static let runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)
-    private static let maximumAggregateBufferedBytes = BabylonCaptureProtocol.maximumFrameSize + 64 * 1_024 + 8
     private static let logger = Logger(
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "BabylonCapture"
@@ -406,11 +427,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
                 let previousBufferedByteCount = context.accumulator.bufferedByteCount
                 var reconciledBufferedByteCount = false
                 do {
-                    guard data.count <= Self.maximumAggregateBufferedBytes,
-                          aggregateBufferedByteCount <= Self.maximumAggregateBufferedBytes - data.count else
-                    {
-                        throw BabylonCaptureProtocolError.frameTooLarge
-                    }
+                    try Self.validateAggregateBufferedBytes(
+                        current: aggregateBufferedByteCount,
+                        adding: data.count
+                    )
                     let frames = try context.accumulator.append(data)
                     reconcileBufferedByteCount(for: context, previousByteCount: previousBufferedByteCount)
                     reconciledBufferedByteCount = true
@@ -852,13 +872,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in
             self?.advertisedServiceName = name
         }
-    }
-
-    static func isAddressInUse(_ error: NWError) -> Bool {
-        if case let .posix(code) = error {
-            return code == .EADDRINUSE
-        }
-        return false
     }
 
     private func publishOpenConnectionCount() {

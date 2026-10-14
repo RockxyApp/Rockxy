@@ -1,0 +1,6 @@
+{
+  "protocolVersion": 1,
+  "framing": "8-byte unsigned big-endian payload length followed by one JSON SecureFrame",
+  "families": ["connection", "traffic-success", "traffic-error", "websocket", "grpc", "runtime", "ack", "rejection"],
+  "fixtures": ["connection.json", "traffic-success.json", "traffic-error.json", "websocket.json", "grpc.json", "runtime.json", "ack.json", "rejection.json"]
+}
