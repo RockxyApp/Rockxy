@@ -49,12 +49,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Babylon clients that pin a host name must use this value.
     private(set) var advertisedServiceName: String?
 
-    var isUsingFallbackPort: Bool {
-        guard let listeningPort else {
-            return false
-        }
-        return listeningPort != preferredPort
-    }
     /// Number of live TCP connections. Increments before authentication, so a
     /// non-zero value does not imply any paired/authenticated Babylon client.
     private(set) var openConnectionCount = 0
@@ -62,6 +56,13 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private(set) var pairedClientCount = 0
     /// Captures skipped because one package could not be read; the connection stays open.
     private(set) var skippedPackageCount = 0
+
+    var isUsingFallbackPort: Bool {
+        guard let listeningPort else {
+            return false
+        }
+        return listeningPort != preferredPort
+    }
 
     static func validateAggregateBufferedBytes(current: Int, adding: Int) throws {
         guard current >= 0, adding >= 0,
@@ -237,6 +238,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private var runtimeIntake = BabylonRuntimeIntakeBuffer(batchSize: BabylonCaptureReceiver.runtimeBatchSize)
     private var runtimeFlushWorkItem: DispatchWorkItem?
     private let runtimePublicationGate = BabylonRuntimePublicationGate()
+
+    private static func sessionKey(clientID: String, sessionID: String) -> String {
+        "\(clientID):\(sessionID)"
+    }
 
     private func startListenerIfNeeded() {
         installPairingObserverIfNeeded()
@@ -588,8 +593,11 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// message; show it in Runtime Events instead of discarding it.
     private func handleClientError(_ payload: BabylonPayloadEnvelope, state: SessionState) {
         guard let identity = state.identity,
-              let report = try? BabylonCaptureProtocol.decoder.decode(BabylonProtocolErrorPayload.self, from: payload.content)
-        else {
+              let report = try? BabylonCaptureProtocol.decoder.decode(
+                  BabylonProtocolErrorPayload.self,
+                  from: payload.content
+              ) else
+        {
             return
         }
         publishDiagnosticEvent(
@@ -665,10 +673,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             return
         }
         enqueueRuntimeEvent(event)
-    }
-
-    private static func sessionKey(clientID: String, sessionID: String) -> String {
-        "\(clientID):\(sessionID)"
     }
 
     private func handleRuntime(_ payload: BabylonPayloadEnvelope, state: SessionState) throws {
@@ -809,7 +813,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func disconnectAllClients() {
-        sessions.values.forEach { finishOpenRows(in: $0, reason: "Babylon capture stopped before the WebSocket closed") }
+        sessions.values
+            .forEach { finishOpenRows(in: $0, reason: "Babylon capture stopped before the WebSocket closed") }
         connections.values.forEach { $0.connection.cancel() }
         connections.removeAll()
         aggregateBufferedByteCount = 0
