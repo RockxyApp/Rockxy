@@ -123,8 +123,48 @@ jobs:
           CODE_SIGN_IDENTITY =
           DEVELOPMENT_TEAM =
           EOF
-      - name: Test Rockxy shared fixtures and receiver loopback cases
-        timeout-minutes: 35
+      - name: Build Rockxy compatibility tests
+        timeout-minutes: 30
+        env:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
+        run: |
+          xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
+            -destination 'platform=macOS' \
+            CODE_SIGN_STYLE="$CODE_SIGN_STYLE" \
+            CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
+            CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
+            CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+            build-for-testing
+      - name: Test Rockxy shared fixture decoder
+        timeout-minutes: 3
+        env:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
+        run: |
+          echo "Running BabylonSharedFixtureTests/sharedFixturesDecode"
+          xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
+            -destination 'platform=macOS' \
+            -only-testing:RockxyTests/BabylonSharedFixtureTests/sharedFixturesDecode \
+            CODE_SIGN_STYLE="$CODE_SIGN_STYLE" CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
+            CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" test-without-building
+      - name: Test Rockxy production receiver loopback cases
+        timeout-minutes: 20
         env:
           CODE_SIGN_STYLE: Manual
           CODE_SIGNING_ALLOWED: NO
@@ -135,31 +175,22 @@ jobs:
           PROVISIONING_PROFILE_SPECIFIER: ""
         run: |
           run_test() {
-            local suite="$1"
-            local test_name="$2"
-            echo "Running Rockxy compatibility test: $suite/$test_name"
+            local test_name="$1"
+            echo "Running BabylonCaptureTCPCompatibilityTests/$test_name"
             xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
               -destination 'platform=macOS' \
-              -only-testing:"RockxyTests/$suite/$test_name" \
-              CODE_SIGN_STYLE="$CODE_SIGN_STYLE" \
-              CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
-              CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
-              CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
-              DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
-              PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
-              PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
-              test
+              -only-testing:"RockxyTests/BabylonCaptureTCPCompatibilityTests/$test_name" \
+              CODE_SIGN_STYLE="$CODE_SIGN_STYLE" CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
+              CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+              DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
+              PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" test-without-building
           }
-          run_test BabylonSharedFixtureTests sharedFixturesDecode
-          for test_name in \
-            loopbackFramingAndDuplicateDelivery \
-            incompleteMaximumFramePeerIsolation \
-            aggregateBufferedByteLimitUnderLoad \
-            grpcFixtureThroughProductionReceiver \
-            receiverRestartAcceptsFreshSession \
-            malformedPeerIsolation; do
-            run_test BabylonCaptureTCPCompatibilityTests "$test_name"
-          done
+          run_test loopbackFramingAndDuplicateDelivery
+          run_test incompleteMaximumFramePeerIsolation
+          run_test aggregateBufferedByteLimitUnderLoad
+          run_test grpcFixtureThroughProductionReceiver
+          run_test receiverRestartAcceptsFreshSession
+          run_test malformedPeerIsolation
 
   compatibility-gate:
     name: Compatibility Gate
