@@ -601,7 +601,7 @@ private final class BabylonAckReader {
             }
             frames += try accumulator.append(data)
         }
-        let frameData = try #require(frames.removeFirst())
+        let frameData = frames.removeFirst()
         let (_, payload) = try BabylonSecureFrameCodec.decodeFrame(frameData, pairingToken: token)
         #expect(payload.messageType == .ack)
         return try BabylonCaptureProtocol.decoder.decode(BabylonAcknowledgement.self, from: payload.content).messageID
