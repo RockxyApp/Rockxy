@@ -39,6 +39,8 @@ struct BabylonSharedFixtureTests {
 
         #expect(connection.project.bundleIdentifier == "com.example.fixture")
         #expect(success.id == "traffic-success")
+        #expect(success.startAt == 1_725_000_000)
+        #expect(success.packageType == .http)
         #expect(success.correlationContext?.traceID == "trace-success")
         #expect(failure.error?.code == -1_001)
         #expect(websocket.packageType == .websocket)
