@@ -64,7 +64,7 @@ jobs:
           persist-credentials: false
       - name: Test Babylon SDK fixtures
         timeout-minutes: 10
-        run: timeout 540 swift test --no-parallel --filter RockxyProtocolFixtureTests
+        run: swift test --no-parallel --filter RockxyProtocolFixtureTests
 
   compatibility:
     name: SDK and receiver contract
@@ -138,7 +138,7 @@ jobs:
             local suite="$1"
             local test_name="$2"
             echo "Running Rockxy compatibility test: $suite/$test_name"
-            timeout 300 xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
+            xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
               -destination 'platform=macOS' \
               -only-testing:"RockxyTests/$suite/$test_name" \
               CODE_SIGN_STYLE="$CODE_SIGN_STYLE" \
