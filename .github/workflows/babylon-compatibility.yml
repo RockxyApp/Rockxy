@@ -64,7 +64,7 @@ jobs:
           persist-credentials: false
       - name: Test Babylon SDK fixtures
         timeout-minutes: 10
-        run: swift test --no-parallel --filter RockxyProtocolFixtureTests
+        run: swift test --no-parallel
 
   compatibility:
     name: SDK and receiver contract
