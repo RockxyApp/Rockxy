@@ -110,20 +110,43 @@ jobs:
       - name: Test Babylon SDK fixtures
         working-directory: babylon
         run: swift test --no-parallel --filter RockxyProtocolFixtureTests
-      - name: Test Rockxy receiver fixtures and TCP loopback
-        run: >-
-          xcodebuild -project Rockxy.xcodeproj -scheme Rockxy
-          -destination 'platform=macOS'
-          -only-testing:RockxyTests/BabylonSharedFixtureTests
-          -only-testing:RockxyTests/BabylonCaptureTCPCompatibilityTests
-          CODE_SIGN_STYLE=Manual
-          CODE_SIGNING_ALLOWED=NO
-          CODE_SIGNING_REQUIRED=NO
-          CODE_SIGN_IDENTITY=""
-          DEVELOPMENT_TEAM=""
-          PROVISIONING_PROFILE=""
-          PROVISIONING_PROFILE_SPECIFIER=""
-          test
+      - name: Test Rockxy shared fixtures and receiver loopback cases
+        timeout-minutes: 35
+        env:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGNING_ALLOWED: NO
+          CODE_SIGNING_REQUIRED: NO
+          CODE_SIGN_IDENTITY: ""
+          DEVELOPMENT_TEAM: ""
+          PROVISIONING_PROFILE: ""
+          PROVISIONING_PROFILE_SPECIFIER: ""
+        run: |
+          run_test() {
+            local suite="$1"
+            local test_name="$2"
+            echo "Running Rockxy compatibility test: $suite/$test_name"
+            timeout 300 xcodebuild -quiet -project Rockxy.xcodeproj -scheme Rockxy \
+              -destination 'platform=macOS' \
+              -only-testing:"RockxyTests/$suite/$test_name" \
+              CODE_SIGN_STYLE="$CODE_SIGN_STYLE" \
+              CODE_SIGNING_ALLOWED="$CODE_SIGNING_ALLOWED" \
+              CODE_SIGNING_REQUIRED="$CODE_SIGNING_REQUIRED" \
+              CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+              DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+              PROVISIONING_PROFILE="$PROVISIONING_PROFILE" \
+              PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+              test
+          }
+          run_test BabylonSharedFixtureTests sharedFixturesDecode
+          for test_name in \
+            loopbackFramingAndDuplicateDelivery \
+            incompleteMaximumFramePeerIsolation \
+            aggregateBufferedByteLimitUnderLoad \
+            grpcFixtureThroughProductionReceiver \
+            receiverRestartAcceptsFreshSession \
+            malformedPeerIsolation; do
+            run_test BabylonCaptureTCPCompatibilityTests "$test_name"
+          done
 
   compatibility-gate:
     name: Compatibility Gate
