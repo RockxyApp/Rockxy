@@ -369,8 +369,8 @@ struct BabylonCaptureTCPCompatibilityTests {
         let rotatedPeer = try await Self.connect(port: port)
         defer { rotatedPeer.cancel() }
         let rotatedAckReader = BabylonAckReader(token: rotatedToken)
-        let connectionFixture = try Data(contentsOf: fixtureURL("connection.json"))
-        let runtimeFixture = try Data(contentsOf: fixtureURL("runtime.json"))
+        let connectionFixture = try Data(contentsOf: Self.fixtureURL("connection.json"))
+        let runtimeFixture = try Data(contentsOf: Self.fixtureURL("runtime.json"))
         let connectionFrame = try Self.encoded(
             type: .connection, content: connectionFixture, messageID: "rotated-connection", sequence: 1,
             sessionID: "rotated-session", clientID: "com.example.fixture", token: rotatedToken
