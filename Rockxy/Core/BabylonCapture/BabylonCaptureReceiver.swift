@@ -49,10 +49,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Babylon clients that pin a host name must use this value.
     private(set) var advertisedServiceName: String?
 
-    /// Number of live TCP connections. Increments before authentication, so a
-    /// non-zero value does not imply any paired/authenticated Babylon client.
-    private(set) var openConnectionCount = 0
-
     var isUsingFallbackPort: Bool {
         guard let listeningPort else {
             return false
