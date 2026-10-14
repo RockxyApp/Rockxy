@@ -50,12 +50,28 @@ jobs:
             echo "relevant=false" >> "$GITHUB_OUTPUT"
           fi
 
-  compatibility:
-    name: SDK and receiver contract
+  sdk-fixtures:
+    name: Babylon SDK fixtures
     needs: detect
     if: needs.detect.outputs.relevant == 'true'
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 12
+    steps:
+      - name: Check out Babylon SDK
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
+        with:
+          repository: RockxyApp/Babylon
+          persist-credentials: false
+      - name: Test Babylon SDK fixtures
+        timeout-minutes: 10
+        run: timeout 540 swift test --no-parallel --filter RockxyProtocolFixtureTests
+
+  compatibility:
+    name: SDK and receiver contract
+    needs: [detect, sdk-fixtures]
+    if: needs.detect.outputs.relevant == 'true' && needs.sdk-fixtures.result == 'success'
+    runs-on: macos-15
+    timeout-minutes: 35
     steps:
       - name: Check out Rockxy
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
@@ -107,9 +123,6 @@ jobs:
           CODE_SIGN_IDENTITY =
           DEVELOPMENT_TEAM =
           EOF
-      - name: Test Babylon SDK fixtures
-        working-directory: babylon
-        run: swift test --no-parallel --filter RockxyProtocolFixtureTests
       - name: Test Rockxy shared fixtures and receiver loopback cases
         timeout-minutes: 35
         env:
@@ -151,20 +164,25 @@ jobs:
   compatibility-gate:
     name: Compatibility Gate
     if: always()
-    needs: [detect, compatibility]
+    needs: [detect, sdk-fixtures, compatibility]
     runs-on: ubuntu-latest
     steps:
       - name: Require detection and relevant compatibility tests to pass
         env:
           DETECT_RESULT: ${{ needs.detect.result }}
           RELEVANT: ${{ needs.detect.outputs.relevant }}
+          SDK_RESULT: ${{ needs.sdk-fixtures.result }}
           COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
         run: |
           if [ "$DETECT_RESULT" != "success" ]; then
             echo "Protocol change detection did not succeed" >&2
             exit 1
           fi
+          if [ "$RELEVANT" = "true" ] && [ "$SDK_RESULT" != "success" ]; then
+            echo "Protocol changes require a passing Babylon SDK fixture run" >&2
+            exit 1
+          fi
           if [ "$RELEVANT" = "true" ] && [ "$COMPATIBILITY_RESULT" != "success" ]; then
-            echo "Protocol changes require a passing SDK and receiver contract run" >&2
+            echo "Protocol changes require a passing Rockxy receiver compatibility run" >&2
             exit 1
           fi
