@@ -273,6 +273,7 @@ struct BabylonCaptureTCPCompatibilityTests {
             endAt: nil,
             packageType: .websocket,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: earlyMessage,
             grpcCapture: nil
         )
@@ -294,6 +295,7 @@ struct BabylonCaptureTCPCompatibilityTests {
             endAt: 2,
             packageType: .websocket,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: nil,
             grpcCapture: nil
         )

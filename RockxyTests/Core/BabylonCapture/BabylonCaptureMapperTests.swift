@@ -204,6 +204,7 @@ struct BabylonCaptureMapperTests {
             endAt: 2,
             packageType: .grpc,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: nil,
             grpcCapture: .init(
                 schemaVersion: 1,
@@ -240,7 +241,8 @@ struct BabylonCaptureMapperTests {
         #expect(trailers.contains { $0.name == "grpc-message" && $0.value == "unavailable" })
         #expect(transaction.request.headers.contains { $0.name == "grpc-encoding" && $0.value == "gzip" })
         #expect(transaction.request.body?.first == 1)
-        #expect(transaction.response?.headers.contains { $0.name == "grpc-encoding" && $0.value == "gzip" } == true)
+        let responseHeaders = transaction.response?.headers ?? []
+        #expect(responseHeaders.contains { $0.name == "grpc-encoding" && $0.value == "gzip" })
     }
 
     @Test("Typed gRPC aggregation rejects messages beyond the body budget")
@@ -320,6 +322,7 @@ struct BabylonCaptureMapperTests {
             endAt: 2,
             packageType: .http,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: nil,
             grpcCapture: nil
         )
@@ -341,6 +344,7 @@ struct BabylonCaptureMapperTests {
             endAt: 2,
             packageType: .websocket,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: .init(
                 id: "socket",
                 createdAt: 3,
@@ -443,6 +447,7 @@ struct BabylonCaptureMapperTests {
             endAt: 2,
             packageType: .grpc,
             correlationContext: nil,
+            urlSessionTiming: nil,
             websocketMessagePackage: nil,
             grpcCapture: .init(
                 schemaVersion: 1,
