@@ -21,6 +21,7 @@ struct GRPCInspection: Equatable, Sendable {
     let duration: TimeInterval?
     let requestFrames: [GRPCMessageFrame]
     let responseFrames: [GRPCMessageFrame]
+    var callType: String?
     /// `grpc-timeout` as sent by the client (for example `5S` or `250m`).
     var timeout: String?
     /// Custom metadata the client sent, without transport and gRPC protocol headers.

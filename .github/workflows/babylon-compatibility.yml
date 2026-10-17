@@ -188,7 +188,9 @@ jobs:
           run_test loopbackFramingAndDuplicateDelivery
           run_test incompleteMaximumFramePeerIsolation
           run_test aggregateBufferedByteLimitUnderLoad
+          run_test websocketPreUpgradeFrameSurvivesParentUpdate
           run_test grpcFixtureThroughProductionReceiver
+          run_test allGRPCCallTypesThroughProductionReceiver
           run_test receiverRestartAcceptsFreshSession
           run_test malformedPeerIsolation
 

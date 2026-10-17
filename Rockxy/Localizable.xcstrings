@@ -18289,16 +18289,6 @@
         }
       }
     },
-    "HAR, session, and Gist exports can include captured headers, cookies, authorization tokens, and request/response bodies. Review exports before sharing or publishing.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "HAR、会话和 Gist 导出内容可能包含捕获的标头、Cookie、授权令牌以及请求/响应正文。共享或发布前请审查导出内容。"
-          }
-        }
-      }
-    },
     "Header": {
       "localizations": {
         "zh-Hans": {
@@ -50086,6 +50076,476 @@
           "stringUnit": {
             "state": "translated",
             "value": "macOS 未接受代理更改。请在 Rockxy 中检查捕获状态。"
+          }
+        }
+      }
+    },
+    "Babylon advertises a body limit larger than Rockxy's safe capture limit. Rockxy will keep its own limit and may omit larger bodies.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明的正文上限超过 Rockxy 的安全捕获上限。Rockxy 将继续使用自身上限，并可能省略较大的正文。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an incompatible schema version. Update Rockxy or the Babylon SDK before relying on that capture data.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明的架构版本不兼容。使用该捕获数据前，请更新 Rockxy 或 Babylon SDK。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an optional schema that this Rockxy version does not consume. Update Rockxy or disable that producer capability.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明了此 Rockxy 版本无法处理的可选架构。请更新 Rockxy 或停用该生产端功能。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an unsupported optional message type. Update Rockxy or disable that producer capability.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明了不受支持的可选消息类型。请更新 Rockxy 或停用该生产端功能。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an unsupported traffic type. Update Rockxy or disable that producer capability.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明了不受支持的流量类型。请更新 Rockxy 或停用该生产端功能。"
+          }
+        }
+      }
+    },
+    "Babylon Capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 捕获"
+          }
+        }
+      }
+    },
+    "Babylon SDK": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon SDK"
+          }
+        }
+      }
+    },
+    "Babylon SDK major version may not match this receiver. Update Rockxy and the Babylon SDK to compatible releases.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon SDK 的主版本可能与此接收器不匹配。请将 Rockxy 和 Babylon SDK 更新到兼容版本。"
+          }
+        }
+      }
+    },
+    "Bidirectional streaming": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "双向流式调用"
+          }
+        }
+      }
+    },
+    "Body omission reason": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文省略原因"
+          }
+        }
+      }
+    },
+    "Bundle ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bundle ID"
+          }
+        }
+      }
+    },
+    "Captured Error": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获的错误"
+          }
+        }
+      }
+    },
+    "Client ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端 ID"
+          }
+        }
+      }
+    },
+    "Client streaming": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端流式调用"
+          }
+        }
+      }
+    },
+    "Compatibility": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兼容性"
+          }
+        }
+      }
+    },
+    "Connect Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接耗时"
+          }
+        }
+      }
+    },
+    "Device": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设备"
+          }
+        }
+      }
+    },
+    "DNS Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 耗时"
+          }
+        }
+      }
+    },
+    "Fetch Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取耗时"
+          }
+        }
+      }
+    },
+    "HAR, session, and Gist exports can include captured headers, cookies, authorization tokens, request/response bodies, and Babylon source, device, session, trace, and timing metadata when present. Review exports before sharing or publishing.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HAR、会话和 Gist 导出内容可能包含捕获的标头、Cookie、授权令牌、请求/响应正文，以及可用的 Babylon 来源、设备、会话、追踪和计时元数据。共享或发布前请审查导出内容。"
+          }
+        }
+      }
+    },
+    "Observed bytes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已观测字节数"
+          }
+        }
+      }
+    },
+    "Omitted Transactions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "省略的事务数"
+          }
+        }
+      }
+    },
+    "Original bytes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原始字节数"
+          }
+        }
+      }
+    },
+    "Package": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "软件包"
+          }
+        }
+      }
+    },
+    "Payload Schemas": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负载架构"
+          }
+        }
+      }
+    },
+    "Producer Capabilities": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产端功能"
+          }
+        }
+      }
+    },
+    "Producer Limits": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产端限制"
+          }
+        }
+      }
+    },
+    "Producer Platform": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产端平台"
+          }
+        }
+      }
+    },
+    "Proxy Connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理连接"
+          }
+        }
+      }
+    },
+    "Redirect Count": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重定向次数"
+          }
+        }
+      }
+    },
+    "Reported Transactions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "报告的事务数"
+          }
+        }
+      }
+    },
+    "Request body is incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求正文不完整"
+          }
+        }
+      }
+    },
+    "Request body was truncated during capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获期间请求正文被截断"
+          }
+        }
+      }
+    },
+    "Request Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求耗时"
+          }
+        }
+      }
+    },
+    "Response Transfer Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应传输耗时"
+          }
+        }
+      }
+    },
+    "Reused Connection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复用连接"
+          }
+        }
+      }
+    },
+    "Secure Connect Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安全连接耗时"
+          }
+        }
+      }
+    },
+    "Server streaming": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务端流式调用"
+          }
+        }
+      }
+    },
+    "Server Wait Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "服务器等待耗时"
+          }
+        }
+      }
+    },
+    "Step ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "步骤 ID"
+          }
+        }
+      }
+    },
+    "Task Duration": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任务时长"
+          }
+        }
+      }
+    },
+    "The captured request body was omitted or truncated.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获的请求正文已省略或截断。"
+          }
+        }
+      }
+    },
+    "Trace ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟踪 ID"
+          }
+        }
+      }
+    },
+    "Transaction %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "事务 %lld"
+          }
+        }
+      }
+    },
+    "Transport Session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输会话"
+          }
+        }
+      }
+    },
+    "Unary": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一元调用"
+          }
+        }
+      }
+    },
+    "URLSession Metrics": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLSession 指标"
           }
         }
       }

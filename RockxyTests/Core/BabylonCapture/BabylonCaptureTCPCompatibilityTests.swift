@@ -34,9 +34,15 @@ struct BabylonCaptureTCPCompatibilityTests {
         let catalog = ProjectCatalog.makeDefault(now: Date(timeIntervalSince1970: 1_725_000_000))
         let repository = TCPFixtureProjectRepository(catalog: catalog)
         let coordinator = MainContentCoordinator(projectCatalogRepository: repository)
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
-        defer { receiver.stop() }
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
         let connection = try Data(contentsOf: Self.fixtureURL("connection.json"))
@@ -89,6 +95,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.waitUntilReady(receiver)
         let listenerProbe = try await Self.connect(port: port)
         listenerProbe.cancel()
+        try await Self.waitForTransactions(coordinator, expected: 1)
         let captured = coordinator.transactions.filter {
             $0.request.url.absoluteString == "https://example.test/success"
         }
@@ -106,10 +113,11 @@ struct BabylonCaptureTCPCompatibilityTests {
         )
         try await Self.send(BabylonFrameAccumulator.frame(heartbeatFrame), on: reconnect)
         #expect(try await reconnectAckReader.next(on: reconnect) == "post-restart-heartbeat")
-        try await Task.sleep(for: .milliseconds(100))
+        try await Self.waitForTransactions(coordinator, expected: 1)
         #expect(coordinator.transactions.filter {
             $0.request.url.absoluteString == "https://example.test/success"
         }.count == 1)
+        try await Self.stopAndWait(receiver)
     }
 
     @Test("Incomplete maximum-size frame peer is isolated from a healthy client")
@@ -121,9 +129,14 @@ struct BabylonCaptureTCPCompatibilityTests {
         probe.cancel()
         try await Task.sleep(for: .milliseconds(150))
 
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
-        defer { receiver.stop() }
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
         let slowPeer = try await Self.connect(port: port)
@@ -135,11 +148,9 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.waitForConnectionCount(receiver, expected: 2)
 
         var declaredLength = UInt64(BabylonCaptureProtocol.maximumFrameSize).bigEndian
-        let oversizedPrefix = Data(bytes: &declaredLength, count: MemoryLayout<UInt64>.size)
+        let incompletePrefix = Data(bytes: &declaredLength, count: MemoryLayout<UInt64>.size)
             + Data(repeating: 0x7F, count: 56 * 1_024)
-        let slowPeerClosed = Task { await Self.waitUntilDisconnected(slowPeer) }
-        try await Self.send(oversizedPrefix, on: slowPeer)
-        await slowPeerClosed.value
+        try await Self.send(incompletePrefix, on: slowPeer)
 
         let heartbeat = try Self.encoded(
             type: .heartbeat, content: Data("{}".utf8), messageID: "healthy-after-budget", sequence: 1,
@@ -148,6 +159,8 @@ struct BabylonCaptureTCPCompatibilityTests {
         let ackReader = BabylonAckReader(token: token)
         try await Self.send(BabylonFrameAccumulator.frame(heartbeat), on: healthyPeer)
         #expect(try await ackReader.next(on: healthyPeer) == "healthy-after-budget")
+        #expect(receiver.openConnectionCount == 2)
+        try await Self.stopAndWait(receiver)
     }
 
     @Test("Concurrent incomplete frames cannot exceed the aggregate buffer budget")
@@ -159,9 +172,14 @@ struct BabylonCaptureTCPCompatibilityTests {
         probe.cancel()
         try await Task.sleep(for: .milliseconds(150))
 
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
-        defer { receiver.stop() }
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
         let firstPartialPeer = try await Self.connect(port: port)
@@ -195,6 +213,110 @@ struct BabylonCaptureTCPCompatibilityTests {
         let ackReader = BabylonAckReader(token: token)
         try await Self.send(BabylonFrameAccumulator.frame(heartbeat), on: healthyPeer)
         #expect(try await ackReader.next(on: healthyPeer) == "healthy-after-aggregate-limit")
+        try await Self.stopAndWait(receiver)
+    }
+
+    @Test("WebSocket frames received before upgrade are kept when the parent closes")
+    func websocketPreUpgradeFrameSurvivesParentUpdate() async throws {
+        let token = String(repeating: "b", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let coordinator = MainContentCoordinator()
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let client = try await Self.connect(port: port)
+        defer { client.cancel() }
+        let ackReader = BabylonAckReader(token: token)
+        let sessionID = "websocket-pre-upgrade-session"
+        let clientID = "com.example.websocket"
+        let connectionPayload = try Data(contentsOf: Self.fixtureURL("connection.json"))
+        let connectionFrame = try Self.encoded(
+            type: .connection, content: connectionPayload, messageID: "websocket-connection", sequence: 1,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "websocket-connection")
+
+        let request = BabylonTrafficPackageDTO.Request(
+            url: "wss://example.test/socket",
+            method: "GET",
+            headers: [],
+            body: nil
+        )
+        let earlyMessage = BabylonTrafficPackageDTO.WebSocketMessage(
+            id: "websocket-early-ping",
+            createdAt: 1.5,
+            messageType: .ping,
+            stringValue: nil,
+            dataValue: Data("ping".utf8)
+        )
+        let earlyPackage = BabylonTrafficPackageDTO(
+            id: "websocket-parent",
+            startAt: 1,
+            request: request,
+            response: nil,
+            error: nil,
+            responseBodyData: Data(),
+            endAt: nil,
+            packageType: .websocket,
+            correlationContext: nil,
+            websocketMessagePackage: earlyMessage,
+            grpcCapture: nil
+        )
+        let earlyPayload = try BabylonCaptureProtocol.encoder.encode(earlyPackage)
+        let earlyFrame = try Self.encoded(
+            type: .websocket, content: earlyPayload, messageID: "websocket-early-frame", sequence: 2,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(earlyFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "websocket-early-frame")
+
+        let completedPackage = BabylonTrafficPackageDTO(
+            id: "websocket-parent",
+            startAt: 1,
+            request: request,
+            response: .init(statusCode: 101, headers: [.init(key: "Upgrade", value: "websocket")]),
+            error: nil,
+            responseBodyData: Data(),
+            endAt: 2,
+            packageType: .websocket,
+            correlationContext: nil,
+            websocketMessagePackage: nil,
+            grpcCapture: nil
+        )
+        let completedPayload = try BabylonCaptureProtocol.encoder.encode(completedPackage)
+        let completedFrame = try Self.encoded(
+            type: .websocket, content: completedPayload, messageID: "websocket-upgrade-complete", sequence: 3,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(completedFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "websocket-upgrade-complete")
+
+        try await Self.waitForTransactions(coordinator, expected: 1)
+        let transaction = try #require(coordinator.transactions.first {
+            $0.request.url.absoluteString == "wss://example.test/socket"
+        })
+        let connection = try #require(transaction.webSocketConnection)
+        #expect(transaction.state == .completed)
+        #expect(transaction.response?.statusCode == 101)
+        #expect(connection.frameCount == 1)
+        #expect(connection.frames.first?.direction == .sent)
+        #expect(connection.frames.first?.opcode == .ping)
+        #expect(connection.frames.first?.payload == Data("ping".utf8))
+        try await Self.stopAndWait(receiver)
     }
 
     @Test("gRPC shared fixture is captured as HTTP/2 with protobuf frame and status trailers")
@@ -207,9 +329,15 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Task.sleep(for: .milliseconds(150))
 
         let coordinator = MainContentCoordinator()
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
-        defer { receiver.stop() }
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
         let connection = try await Self.connect(port: port)
@@ -240,6 +368,123 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(transaction.request.body == Data([0, 0, 0, 0, 2, 8, 1]))
         #expect(transaction.response?.body == Data([0, 0, 0, 0, 2, 8, 2]))
         #expect(transaction.response?.trailers?.contains { $0.name == "grpc-status" && $0.value == "0" } == true)
+        try await Self.stopAndWait(receiver)
+    }
+
+    @Test("Production receiver preserves all gRPC call types and ordered message directions")
+    func allGRPCCallTypesThroughProductionReceiver() async throws {
+        let token = String(repeating: "e", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let coordinator = MainContentCoordinator()
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let connection = try await Self.connect(port: port)
+        defer { connection.cancel() }
+        let ackReader = BabylonAckReader(token: token)
+        let sessionID = "grpc-call-types-session"
+        let clientID = "com.example.fixture"
+        let connectionPayload = try Data(contentsOf: Self.fixtureURL("connection.json"))
+        let connectionFrame = try Self.encoded(
+            type: .connection, content: connectionPayload, messageID: "grpc-call-types-connection", sequence: 1,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: connection)
+        #expect(try await ackReader.next(on: connection) == "grpc-call-types-connection")
+
+        let fixture = try Data(contentsOf: Self.fixtureURL("grpc.json"))
+        let baseObject = try #require(JSONSerialization.jsonObject(with: fixture) as? [String: Any])
+        let callCases: [(type: String, messages: [(direction: String, sequence: Int, value: UInt8)])] = [
+            ("unary", [("request", 0, 1), ("response", 0, 9)]),
+            ("clientStreaming", [("request", 0, 1), ("request", 1, 2), ("response", 0, 9)]),
+            ("serverStreaming", [("request", 0, 1), ("response", 0, 9), ("response", 1, 10)]),
+            (
+                "bidirectionalStreaming",
+                [("request", 0, 1), ("response", 0, 9), ("request", 1, 2), ("response", 1, 10)]
+            ),
+        ]
+
+        for (index, call) in callCases.enumerated() {
+            var payloadObject = baseObject
+            var grpcCapture = try #require(payloadObject["grpcCapture"] as? [String: Any])
+            let endpoint = "/example.Greeter/\(call.type)"
+            grpcCapture["callType"] = call.type
+            grpcCapture["endpoint"] = endpoint
+            grpcCapture["messages"] = call.messages.map { message in
+                [
+                    "sequence": message.sequence,
+                    "direction": message.direction,
+                    "data": Data([8, message.value]).base64EncodedString(),
+                    "observedBytes": 2,
+                    "omitted": false,
+                    "compressed": false,
+                    "timestamp": 1_725_000_000.1 + Double(message.sequence) / 10,
+                ] as [String: Any]
+            }
+            payloadObject["grpcCapture"] = grpcCapture
+            payloadObject["id"] = "traffic-grpc-\(call.type)"
+            var request = try #require(payloadObject["request"] as? [String: Any])
+            request["url"] = endpoint
+            payloadObject["request"] = request
+
+            let payload = try JSONSerialization.data(withJSONObject: payloadObject, options: [.sortedKeys])
+            let messageID = "traffic-grpc-\(call.type)"
+            let frame = try Self.encoded(
+                type: .traffic, content: payload, messageID: messageID, sequence: UInt64(index + 2),
+                sessionID: sessionID, clientID: clientID, token: token
+            )
+            try await Self.send(BabylonFrameAccumulator.frame(frame), on: connection)
+            #expect(try await ackReader.next(on: connection) == messageID)
+        }
+
+        try await Self.waitForTransactions(coordinator, expected: callCases.count)
+        for call in callCases {
+            let endpoint = "/example.Greeter/\(call.type)"
+            let transaction = try #require(coordinator.transactions.first { $0.request.url.path == endpoint })
+            #expect(transaction.request.httpVersion == "HTTP/2")
+            #expect(transaction.babylonGRPCCallType == call.type)
+            #expect(transaction.response?.trailers?.contains { $0.name == "grpc-status" && $0.value == "0" } == true)
+
+            var expectedRequestBody = Data()
+            for message in call.messages.filter({ $0.direction == "request" })
+                .sorted(by: { $0.sequence < $1.sequence })
+            {
+                expectedRequestBody.append(contentsOf: [0, 0, 0, 0, 2, 8, message.value])
+            }
+            var expectedResponseBody = Data()
+            for message in call.messages.filter({ $0.direction == "response" })
+                .sorted(by: { $0.sequence < $1.sequence })
+            {
+                expectedResponseBody.append(contentsOf: [0, 0, 0, 0, 2, 8, message.value])
+            }
+            #expect(transaction.request.body == expectedRequestBody)
+            #expect(transaction.response?.body == expectedResponseBody)
+
+            let inspection = GRPCDetector.detect(
+                request: transaction.request,
+                response: transaction.response,
+                timingInfo: transaction.timingInfo,
+                measuredDuration: transaction.measuredDuration,
+                callType: transaction.babylonGRPCCallType
+            )
+            #expect(inspection?.callType == call.type)
+            #expect(inspection?.requestFrames.count == call.messages.count(where: { $0.direction == "request" }))
+            #expect(inspection?.responseFrames.count == call.messages.count(where: { $0.direction == "response" }))
+        }
+        try await Self.stopAndWait(receiver)
     }
 
     @Test("Receiver stop and restart accepts a fresh SDK session")
@@ -252,12 +497,19 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Task.sleep(for: .milliseconds(150))
 
         let coordinator = MainContentCoordinator()
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         let sessionID = "receiver-restart-session"
         let clientID = "com.example.fixture"
         let connection = try Data(contentsOf: Self.fixtureURL("connection.json"))
         let traffic = try Data(contentsOf: Self.fixtureURL("traffic-success.json"))
         receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
         let firstClient = try await Self.connect(port: port)
@@ -302,9 +554,10 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(coordinator.transactions.filter {
             $0.request.url.absoluteString == "https://example.test/success"
         }.count == 2)
+        try await Self.stopAndWait(receiver)
     }
 
-    @Test("Malformed peer does not interrupt a second valid client")
+    @Test("Malformed peer isolation survives credential rotation and stop flushes final runtime event")
     func malformedPeerIsolation() async throws {
         let token = String(repeating: "b", count: 64)
         let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
@@ -313,9 +566,18 @@ struct BabylonCaptureTCPCompatibilityTests {
         probe.cancel()
         try await Task.sleep(for: .milliseconds(150))
 
-        let receiver = BabylonCaptureReceiver(preferredPort: port)
-        defer { receiver.stop() }
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(
+            preferredPort: port,
+            defaults: defaults,
+            runtimeFlushMaxLatency: .seconds(5)
+        )
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
         BabylonRuntimeEventStore.shared.clear()
 
@@ -333,14 +595,13 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.waitForConnectionCount(receiver, expected: 8)
         let overflowPeer = try await Self.connect(port: port)
         defer { overflowPeer.cancel() }
-        let overflowPeerClosed = Task { await Self.waitUntilDisconnected(overflowPeer) }
-        await overflowPeerClosed.value
+        try await Self.waitUntilRemoteClose(overflowPeer, label: "overflow peer")
 
         var oversizedLength = UInt64(BabylonCaptureProtocol.maximumFrameSize + 1).bigEndian
         let invalidHeader = Data(bytes: &oversizedLength, count: MemoryLayout<UInt64>.size)
-        let malformedPeerClosed = Task { await Self.waitUntilDisconnected(invalidPeer) }
         try await Self.send(invalidHeader, on: invalidPeer)
-        await malformedPeerClosed.value
+        try await Self.waitUntilRemoteClose(invalidPeer, label: "malformed peer")
+        try await Self.waitForConnectionCount(receiver, expected: 7)
 
         let oldCredentialAckReader = BabylonAckReader(token: token)
         let heartbeatFrame = try Self.encoded(
@@ -350,21 +611,19 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.send(BabylonFrameAccumulator.frame(heartbeatFrame), on: validPeer)
         #expect(try await oldCredentialAckReader.next(on: validPeer) == "isolated-heartbeat")
 
-        let establishedPeerClosed = Task { await Self.waitUntilDisconnected(validPeer) }
         pairingStore.regenerate()
         let rotatedToken = pairingStore.currentToken()
         #expect(rotatedToken != token)
-        await establishedPeerClosed.value
+        try await Self.waitUntilRemoteClose(validPeer, label: "peer with rotated credential")
 
         let stalePeer = try await Self.connect(port: port)
         defer { stalePeer.cancel() }
-        let stalePeerClosed = Task { await Self.waitUntilDisconnected(stalePeer) }
         let staleFrame = try Self.encoded(
             type: .heartbeat, content: Data("{}".utf8), messageID: "stale-token-heartbeat", sequence: 1,
             sessionID: "rotated-session", clientID: "rotated-client", token: token
         )
         try await Self.send(BabylonFrameAccumulator.frame(staleFrame), on: stalePeer)
-        await stalePeerClosed.value
+        try await Self.waitUntilRemoteClose(stalePeer, label: "stale credential peer")
 
         let rotatedPeer = try await Self.connect(port: port)
         defer { rotatedPeer.cancel() }
@@ -384,6 +643,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.send(BabylonFrameAccumulator.frame(runtimeFrame), on: rotatedPeer)
         #expect(try await rotatedAckReader.next(on: rotatedPeer) == "runtime-event-1")
 
+        #expect(!BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "runtime-event-1" })
         receiver.stop()
         try await Self.waitUntilStopped(receiver)
         #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "runtime-event-1" })
@@ -394,8 +654,15 @@ struct BabylonCaptureTCPCompatibilityTests {
     private static func fixtureURL(_ name: String) -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
             .appendingPathComponent("Fixtures/BabylonProtocol/v1")
             .appendingPathComponent(name)
+    }
+
+    private static func isolatedDefaults() throws -> (UserDefaults, String) {
+        let suiteName = "BabylonCaptureTCP-\(UUID().uuidString)"
+        return try (#require(UserDefaults(suiteName: suiteName)), suiteName)
     }
 
     private static func waitForConnectionCount(
@@ -410,7 +677,10 @@ struct BabylonCaptureTCPCompatibilityTests {
             }
             try await Task.sleep(for: .milliseconds(50))
         }
-        Issue.record("Babylon receiver did not reach the expected connection count")
+        throw BabylonTCPCompatibilityTestError.connectionCount(
+            expected: expected,
+            actual: receiver.openConnectionCount
+        )
     }
 
     private static func waitForTransactions(
@@ -428,29 +698,46 @@ struct BabylonCaptureTCPCompatibilityTests {
         Issue.record("Babylon receiver did not publish the expected transactions")
     }
 
-    private static func waitUntilDisconnected(_ connection: NWConnection) async {
-        let disconnected = AsyncStream<Void> { continuation in
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .cancelled,
-                     .failed:
-                    continuation.yield()
-                    continuation.finish()
-                default:
-                    break
+    private static func waitUntilRemoteClose(_ connection: NWConnection, label: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let completed = OSAllocatedUnfairLock(initialState: false)
+            let timeout = DispatchWorkItem {
+                let shouldResume = completed.withLock { didComplete -> Bool in
+                    guard !didComplete else {
+                        return false
+                    }
+                    didComplete = true
+                    return true
+                }
+                guard shouldResume else {
+                    return
+                }
+                continuation.resume(
+                    throwing: BabylonTCPCompatibilityTestError.connectionStillOpen(
+                        label: label,
+                        state: connection.state
+                    )
+                )
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5), execute: timeout)
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 1) { data, _, isComplete, error in
+                let shouldResume = completed.withLock { didComplete -> Bool in
+                    guard !didComplete else {
+                        return false
+                    }
+                    didComplete = true
+                    return true
+                }
+                guard shouldResume else {
+                    return
+                }
+                timeout.cancel()
+                if error != nil || isComplete || data == nil {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: BabylonTCPCompatibilityTestError.unexpectedData(label: label))
                 }
             }
-            switch connection.state {
-            case .cancelled,
-                 .failed:
-                continuation.yield()
-                continuation.finish()
-            default:
-                break
-            }
-        }
-        for await _ in disconnected {
-            return
         }
     }
 
@@ -462,6 +749,11 @@ struct BabylonCaptureTCPCompatibilityTests {
             try await Task.sleep(for: .milliseconds(50))
         }
         Issue.record("Babylon TCP receiver did not stop")
+    }
+
+    private static func stopAndWait(_ receiver: BabylonCaptureReceiver) async throws {
+        receiver.stop()
+        try await waitUntilStopped(receiver)
     }
 
     private static func encoded(
@@ -548,6 +840,27 @@ struct BabylonCaptureTCPCompatibilityTests {
             try await Task.sleep(for: .milliseconds(50))
         }
         Issue.record("Babylon TCP receiver did not become ready")
+    }
+}
+
+// MARK: - BabylonTCPCompatibilityTestError
+
+private enum BabylonTCPCompatibilityTestError: Error, LocalizedError {
+    case connectionCount(expected: Int, actual: Int)
+    case connectionStillOpen(label: String, state: NWConnection.State)
+    case unexpectedData(label: String)
+
+    // MARK: Internal
+
+    var errorDescription: String? {
+        switch self {
+        case let .connectionCount(expected, actual):
+            "Babylon receiver connection count was \(actual), expected \(expected)."
+        case let .connectionStillOpen(label, state):
+            "Babylon TCP \(label) remained in state \(state) after the 5 second deadline."
+        case let .unexpectedData(label):
+            "Babylon TCP \(label) received data from an overloaded listener."
+        }
     }
 }
 

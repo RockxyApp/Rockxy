@@ -42,6 +42,29 @@ struct HARImporter {
 
     let runsProtocolDetection: Bool
 
+    /// Browsers write `http/2.0` (Chrome), `HTTP/2` (Firefox) or ALPN ids (`h2`, `h3`); live
+    /// capture stores `HTTP/x.y`, which is what the list, diff, and exporters expect.
+    static func normalizedHTTPVersion(_ raw: String?) -> String {
+        let trimmed = raw?.trimmingCharacters(in: .whitespaces) ?? ""
+        switch trimmed.lowercased() {
+        case "":
+            return "HTTP/1.1"
+        case "h2",
+             "http/2",
+             "http/2.0":
+            return "HTTP/2.0"
+        case "h3",
+             "http/3",
+             "http/3.0":
+            return "HTTP/3.0"
+        default:
+            if trimmed.lowercased().hasPrefix("http/") {
+                return "HTTP/" + trimmed.dropFirst(5)
+            }
+            return trimmed
+        }
+    }
+
     func importData(_ data: Data) throws -> [HTTPTransaction] {
         try importReportingSkips(data).transactions
     }
@@ -80,7 +103,7 @@ struct HARImporter {
 
         for (index, entry) in entries.enumerated() {
             do {
-                transactions.append(try parseEntry(entry, at: index))
+                try transactions.append(parseEntry(entry, at: index))
             } catch {
                 firstError = firstError ?? error
                 skipped += 1
@@ -143,9 +166,26 @@ struct HARImporter {
             web3RPCInfo: runsProtocolDetection ? Web3RPCDetector.detect(request: request, response: response) : nil,
             x402Info: runsProtocolDetection ? X402Detector.detect(request: request, response: response) : nil
         )
+        transaction.babylonCaptureMetadata = parseBabylonCaptureMetadata(entry["_rockxyBabylonCapture"])
+        if let callType = entry["_rockxyBabylonGRPCCallType"] as? String,
+           ["unary", "clientStreaming", "serverStreaming", "bidirectionalStreaming"].contains(callType)
+        {
+            transaction.babylonGRPCCallType = callType
+        }
         // HAR has no client field; name the client from the User-Agent like live capture does.
         transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(request.headers)
         return transaction
+    }
+
+    private func parseBabylonCaptureMetadata(_ value: Any?) -> BabylonCaptureMetadata? {
+        guard let value = value as? [String: Any],
+              JSONSerialization.isValidJSONObject(value),
+              let data = try? JSONSerialization.data(withJSONObject: value),
+              let metadata = try? JSONDecoder().decode(BabylonCaptureMetadata.self, from: data) else
+        {
+            return nil
+        }
+        return metadata
     }
 
     // MARK: - Request Parsing
@@ -163,6 +203,7 @@ struct HARImporter {
         var headers = parseHeaders(dict["headers"] as? [[String: Any]])
         let postData = dict["postData"] as? [String: Any]
         let body = parseRequestBody(postData)
+        let bodyOmission = parseBodyOmission(dict["_rockxyBodyOmission"])
         // Browser HARs can omit the request's Content-Type header and keep the type only in
         // `postData.mimeType`; restore it so a repeat sends the body with its real type.
         if body != nil, let mimeType = (postData?["mimeType"] as? String)?.trimmingCharacters(in: .whitespaces),
@@ -178,31 +219,10 @@ struct HARImporter {
             httpVersion: httpVersion,
             headers: headers,
             body: body,
+            bodyTruncated: bodyOmission.isTruncated,
+            bodyOmission: bodyOmission.metadata,
             contentType: contentType
         )
-    }
-
-    /// Browsers write `http/2.0` (Chrome), `HTTP/2` (Firefox) or ALPN ids (`h2`, `h3`); live
-    /// capture stores `HTTP/x.y`, which is what the list, diff, and exporters expect.
-    static func normalizedHTTPVersion(_ raw: String?) -> String {
-        let trimmed = raw?.trimmingCharacters(in: .whitespaces) ?? ""
-        switch trimmed.lowercased() {
-        case "":
-            return "HTTP/1.1"
-        case "h2",
-             "http/2",
-             "http/2.0":
-            return "HTTP/2.0"
-        case "h3",
-             "http/3",
-             "http/3.0":
-            return "HTTP/3.0"
-        default:
-            if trimmed.lowercased().hasPrefix("http/") {
-                return "HTTP/" + trimmed.dropFirst(5)
-            }
-            return trimmed
-        }
     }
 
     // MARK: - Response Parsing
@@ -215,6 +235,7 @@ struct HARImporter {
         let statusMessage = dict["statusText"] as? String ?? ""
         let headers = parseHeaders(dict["headers"] as? [[String: Any]])
         let body = parseResponseBody(dict["content"] as? [String: Any])
+        let bodyOmission = parseBodyOmission(dict["_rockxyBodyOmission"])
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
         return HTTPResponseData(
@@ -222,7 +243,35 @@ struct HARImporter {
             statusMessage: statusMessage,
             headers: headers,
             body: body,
+            bodyTruncated: bodyOmission.isTruncated,
+            bodyOmission: bodyOmission.metadata,
             contentType: contentType
+        )
+    }
+
+    private func parseBodyOmission(_ value: Any?) -> (metadata: BodyOmissionMetadata?, isTruncated: Bool) {
+        guard let fields = value as? [String: Any] else {
+            return (nil, false)
+        }
+        let truncated = fields["truncated"] as? Bool ?? false
+        guard let rawReason = fields["reason"] as? String,
+              let observedBytes = fields["observedBytes"] as? Int,
+              observedBytes >= 0,
+              observedBytes <= 1_000_000_000 else
+        {
+            return (nil, truncated)
+        }
+        let reason = String(rawReason.filter { $0.isASCII && !$0.isNewline }.prefix(128))
+        guard !reason.isEmpty else {
+            return (nil, truncated)
+        }
+        let originalBytes = fields["originalBytes"] as? Int
+        guard originalBytes.map({ $0 >= observedBytes && $0 <= 1_000_000_000 }) ?? true else {
+            return (nil, truncated)
+        }
+        return (
+            BodyOmissionMetadata(reason: reason, observedBytes: observedBytes, originalBytes: originalBytes),
+            true
         )
     }
 

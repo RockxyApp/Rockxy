@@ -204,6 +204,7 @@ struct ContextDetailsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ruleImpactSection(transaction)
                     overviewSection(transaction)
+                    babylonCaptureSection(transaction)
                     payloadSection(transaction)
                     insightSection(transaction)
                     timingSection(transaction)
@@ -262,6 +263,132 @@ struct ContextDetailsView: View {
             ContextInspectorFieldTable(
                 title: String(localized: "Details", bundle: RockxyLocalization.bundle),
                 fields: overviewFields(transaction, now: context.date)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func babylonCaptureSection(_ transaction: HTTPTransaction) -> some View {
+        if let metadata = transaction.babylonCaptureMetadata {
+            var fields = [
+                ContextTableField(
+                    label: String(localized: "Package", bundle: RockxyLocalization.bundle),
+                    value: metadata.packageName,
+                    monospaced: false
+                ),
+                ContextTableField(
+                    label: String(localized: "Client ID", bundle: RockxyLocalization.bundle),
+                    value: metadata.clientID
+                ),
+                ContextTableField(
+                    label: String(localized: "Transport Session", bundle: RockxyLocalization.bundle),
+                    value: metadata.transportSessionID
+                ),
+            ]
+            if !metadata.bundleIdentifier.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Bundle ID", bundle: RockxyLocalization.bundle),
+                    value: metadata.bundleIdentifier
+                ))
+            }
+            let deviceDescription = [metadata.deviceName, metadata.deviceModel]
+                .filter { !$0.isEmpty }
+                .joined(separator: " · ")
+            if !deviceDescription.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Device", bundle: RockxyLocalization.bundle),
+                    value: deviceDescription,
+                    monospaced: false
+                ))
+            }
+            if let sdkVersion = metadata.sdkVersion {
+                fields.append(ContextTableField(
+                    label: String(localized: "Babylon SDK", bundle: RockxyLocalization.bundle),
+                    value: sdkVersion
+                ))
+            }
+            if let platform = metadata.platform {
+                fields.append(ContextTableField(
+                    label: String(localized: "Producer Platform", bundle: RockxyLocalization.bundle),
+                    value: platform
+                ))
+            }
+            if let runtimeSessionID = metadata.runtimeSessionID {
+                fields.append(ContextTableField(
+                    label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                    value: runtimeSessionID
+                ))
+            }
+            if let traceID = metadata.traceID {
+                fields.append(ContextTableField(
+                    label: String(localized: "Trace ID", bundle: RockxyLocalization.bundle),
+                    value: traceID
+                ))
+            }
+            if let stepID = metadata.stepID {
+                fields.append(ContextTableField(
+                    label: String(localized: "Step ID", bundle: RockxyLocalization.bundle),
+                    value: stepID
+                ))
+            }
+            if !metadata.payloadSchemaVersions.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Payload Schemas", bundle: RockxyLocalization.bundle),
+                    value: metadata.payloadSchemaVersions.sorted(by: { $0.key < $1.key })
+                        .map { "\($0.key) v\($0.value)" }.joined(separator: ", "),
+                    monospaced: false
+                ))
+            }
+            let capabilities = metadata.supportedTrafficTypes + metadata.supportedMessageTypes
+            if !capabilities.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Producer Capabilities", bundle: RockxyLocalization.bundle),
+                    value: capabilities.joined(separator: ", "),
+                    monospaced: false
+                ))
+            }
+            let producerLimits = [
+                metadata.maximumBodyBytes
+                    .map { "Body \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" },
+                metadata.maximumWebSocketFrameBytes.map {
+                    "WebSocket \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+                },
+                metadata.maximumCaptureMemoryBytes.map {
+                    "Memory \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+                },
+            ].compactMap { $0 }
+            if !producerLimits.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Producer Limits", bundle: RockxyLocalization.bundle),
+                    value: producerLimits.joined(separator: ", "),
+                    monospaced: false
+                ))
+            }
+            if let timing = metadata.urlSessionTiming {
+                appendURLSessionTiming(timing, to: &fields)
+            }
+            if let code = metadata.errorCode {
+                let error = [metadata.errorDomain, "\(code)", metadata.failurePhase, metadata.errorMessage]
+                    .compactMap { $0 }
+                    .joined(separator: " · ")
+                fields.append(ContextTableField(
+                    label: String(localized: "Captured Error", bundle: RockxyLocalization.bundle),
+                    value: error,
+                    monospaced: false,
+                    color: .red
+                ))
+            }
+            if !metadata.compatibilityDiagnostics.isEmpty {
+                fields.append(ContextTableField(
+                    label: String(localized: "Compatibility", bundle: RockxyLocalization.bundle),
+                    value: metadata.compatibilityDiagnostics.joined(separator: "\n"),
+                    monospaced: false,
+                    color: .orange
+                ))
+            }
+            ContextInspectorFieldTable(
+                title: String(localized: "Babylon Capture", bundle: RockxyLocalization.bundle),
+                fields: fields
             )
         }
     }
@@ -338,18 +465,53 @@ struct ContextDetailsView: View {
                 label: String(localized: "Response Headers", bundle: RockxyLocalization.bundle),
                 value: CountFormatter.format(transaction.response?.headers.count ?? 0)
             ))
-            if transaction.response?.bodyTruncated == true {
+            if transaction.request.isBodyIncomplete {
                 Divider()
-                ContextInspectorFullRow {
-                    Label(
-                        String(
-                            localized: "Response body was truncated during capture",
-                            bundle: RockxyLocalization.bundle
-                        ),
-                        systemImage: "scissors"
-                    )
+                bodyOmissionNotice(
+                    title: String(
+                        localized: "Request body was truncated during capture",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    metadata: transaction.request.bodyOmission
+                )
+            }
+            if transaction.response?.isBodyIncomplete == true {
+                Divider()
+                bodyOmissionNotice(
+                    title: String(
+                        localized: "Response body was truncated during capture",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    metadata: transaction.response?.bodyOmission
+                )
+            }
+        }
+    }
+
+    private func bodyOmissionNotice(title: String, metadata: BodyOmissionMetadata?) -> some View {
+        ContextInspectorFullRow {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(title, systemImage: "scissors")
                     .font(.system(size: metrics.metadataFontSize))
                     .foregroundStyle(.orange)
+                if let metadata {
+                    LabeledContent(
+                        String(localized: "Body omission reason", bundle: RockxyLocalization.bundle),
+                        value: metadata.reason
+                    )
+                    LabeledContent(
+                        String(localized: "Observed bytes", bundle: RockxyLocalization.bundle),
+                        value: ByteCountFormatter.string(
+                            fromByteCount: Int64(metadata.observedBytes),
+                            countStyle: .file
+                        )
+                    )
+                    if let originalBytes = metadata.originalBytes {
+                        LabeledContent(
+                            String(localized: "Original bytes", bundle: RockxyLocalization.bundle),
+                            value: ByteCountFormatter.string(fromByteCount: Int64(originalBytes), countStyle: .file)
+                        )
+                    }
                 }
             }
         }
@@ -562,6 +724,73 @@ struct ContextDetailsView: View {
         DurationFormatter.format(seconds: duration)
     }
 
+    private func appendURLSessionTiming(
+        _ timing: BabylonURLSessionTimingMetadata,
+        to fields: inout [ContextTableField]
+    ) {
+        fields.append(ContextTableField(
+            label: String(localized: "URLSession Metrics", bundle: RockxyLocalization.bundle),
+            value: "Schema v\(timing.schemaVersion)",
+            monospaced: false
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Redirect Count", bundle: RockxyLocalization.bundle),
+            value: String(timing.redirectCount)
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Reported Transactions", bundle: RockxyLocalization.bundle),
+            value: String(timing.reportedTransactionCount)
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Omitted Transactions", bundle: RockxyLocalization.bundle),
+            value: String(timing.omittedTransactionCount)
+        ))
+        if let taskDuration = timing.taskDuration {
+            fields.append(ContextTableField(
+                label: String(localized: "Task Duration", bundle: RockxyLocalization.bundle),
+                value: formatDuration(taskDuration)
+            ))
+        }
+        for metric in timing.transactions {
+            let details = [
+                metric.networkProtocolName,
+                metric.resourceFetchType,
+                metric.reusedConnection
+                    ? String(localized: "Reused Connection", bundle: RockxyLocalization.bundle)
+                    : nil,
+                metric.proxyConnection
+                    ? String(localized: "Proxy Connection", bundle: RockxyLocalization.bundle)
+                    : nil,
+            ].compactMap { $0 }
+            let phases: [(String, TimeInterval?)] = [
+                (String(localized: "Fetch Duration", bundle: RockxyLocalization.bundle), metric.fetchDuration),
+                (String(localized: "DNS Duration", bundle: RockxyLocalization.bundle), metric.dnsDuration),
+                (String(localized: "Connect Duration", bundle: RockxyLocalization.bundle), metric.connectDuration),
+                (
+                    String(localized: "Secure Connect Duration", bundle: RockxyLocalization.bundle),
+                    metric.secureConnectDuration
+                ),
+                (String(localized: "Request Duration", bundle: RockxyLocalization.bundle), metric.requestDuration),
+                (
+                    String(localized: "Server Wait Duration", bundle: RockxyLocalization.bundle),
+                    metric.serverWaitDuration
+                ),
+                (
+                    String(localized: "Response Transfer Duration", bundle: RockxyLocalization.bundle),
+                    metric.responseTransferDuration
+                ),
+            ]
+            let phaseDetails = phases.compactMap { label, duration in
+                duration.map { "\(label): \(formatDuration($0))" }
+            }
+            fields.append(ContextTableField(
+                label: String(localized: "Transaction \(metric.index + 1)", bundle: RockxyLocalization.bundle),
+                value: (details + phaseDetails).joined(separator: " · "),
+                monospaced: false
+            ))
+        }
+    }
+
     private func overviewFields(_ transaction: HTTPTransaction, now: Date) -> [ContextTableField] {
         var fields: [ContextTableField] = [
             ContextTableField(
@@ -757,7 +986,19 @@ struct ContextDetailsView: View {
     }
 
     private func appendCaptureInsights(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        if transaction.response?.bodyTruncated == true {
+        if transaction.request.isBodyIncomplete {
+            values.append(ContextInsight(
+                id: "request-truncated",
+                title: String(localized: "Request body is incomplete", bundle: RockxyLocalization.bundle),
+                detail: String(
+                    localized: "The captured request body was omitted or truncated.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                systemImage: "scissors",
+                color: .orange
+            ))
+        }
+        if transaction.response?.isBodyIncomplete == true {
             values.append(ContextInsight(
                 id: "truncated",
                 title: String(localized: "Response body is incomplete", bundle: RockxyLocalization.bundle),

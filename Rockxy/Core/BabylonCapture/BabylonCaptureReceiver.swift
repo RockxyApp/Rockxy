@@ -20,9 +20,14 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     // MARK: Lifecycle
 
     /// `preferredPort` is the protocol's fixed port; tests pass another one.
-    init(preferredPort: UInt16 = BabylonCaptureProtocol.port, defaults: UserDefaults = .standard) {
+    init(
+        preferredPort: UInt16 = BabylonCaptureProtocol.port,
+        defaults: UserDefaults = .standard,
+        runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)
+    ) {
         self.preferredPort = preferredPort
         self.defaults = defaults
+        self.runtimeFlushMaxLatency = runtimeFlushMaxLatency
         isEnabled = defaults.bool(forKey: Self.enabledDefaultsKey)
     }
 
@@ -84,6 +89,77 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             return code == .EADDRINUSE
         }
         return false
+    }
+
+    static func compatibilityDiagnostics(
+        for capabilities: BabylonConnectionPackageDTO.Capabilities?
+    )
+        -> [String]
+    {
+        guard let capabilities else {
+            return []
+        }
+        let supportedSchemas = [
+            "connection": 1,
+            "traffic": 1,
+            "runtime": 1,
+            "grpcCapture": 1,
+            "urlSessionTiming": 1,
+        ]
+        var diagnostics = [String]()
+        if let majorVersion = Int(capabilities.sdkVersion.split(separator: ".").first ?? ""), majorVersion != 1 {
+            diagnostics.append(String(
+                localized: "Babylon SDK major version may not match this receiver. Update Rockxy and the Babylon SDK to compatible releases.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        for (name, version) in capabilities.payloadSchemaVersions.sorted(by: { $0.key < $1.key }).prefix(64) {
+            guard let supportedVersion = supportedSchemas[name] else {
+                diagnostics.append(String(
+                    localized: "Babylon advertises an optional schema that this Rockxy version does not consume. Update Rockxy or disable that producer capability.",
+                    bundle: RockxyLocalization.bundle
+                ))
+                continue
+            }
+            if version != supportedVersion {
+                diagnostics.append(String(
+                    localized: "Babylon advertises an incompatible schema version. Update Rockxy or the Babylon SDK before relying on that capture data.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            }
+        }
+        let knownMessageTypes: Set = [
+            "connection",
+            "traffic",
+            "websocket",
+            "runtime",
+            "heartbeat",
+            "ack",
+            "error",
+            "rejection"
+        ]
+        for type in capabilities.supportedMessageTypes.prefix(64) where !knownMessageTypes.contains(type.lowercased()) {
+            diagnostics.append(String(
+                localized: "Babylon advertises an unsupported optional message type. Update Rockxy or disable that producer capability.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        let knownTrafficTypes: Set = ["http", "websocket", "grpc"]
+        for type in (capabilities.supportedTrafficTypes ?? []).prefix(64)
+            where !knownTrafficTypes.contains(type.lowercased())
+        {
+            diagnostics.append(String(
+                localized: "Babylon advertises an unsupported traffic type. Update Rockxy or disable that producer capability.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        if capabilities.maximumBodyBytes > BabylonCaptureProtocol.maximumCapturedBodySize {
+            diagnostics.append(String(
+                localized: "Babylon advertises a body limit larger than Rockxy's safe capture limit. Rockxy will keep its own limit and may omit larger bodies.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        return Array(diagnostics.prefix(16))
     }
 
     @MainActor
@@ -195,6 +271,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
         var outboundSequence: UInt64 = 0
         var identity: BabylonCaptureIdentity?
+        var producerCapabilities: BabylonConnectionPackageDTO.Capabilities?
+        var compatibilityDiagnostics: [String] = []
         var transactions: [String: HTTPTransaction] = [:]
 
         func accept(frame: BabylonSecureFrame) throws -> BabylonReplayDisposition {
@@ -216,7 +294,6 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private static let maximumTrackedTransactions = 10_000
     private static let authenticationTimeout: TimeInterval = 10
     private static let runtimeBatchSize = 128
-    private static let runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)
     private static let logger = Logger(
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "BabylonCapture"
@@ -224,6 +301,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
     private let queue = DispatchQueue(label: "com.rockxy.macos.babylon-capture", qos: .userInitiated)
     private let defaults: UserDefaults
+    private let runtimeFlushMaxLatency: DispatchTimeInterval
     private weak var coordinator: MainContentCoordinator?
     private weak var pairingStore: BabylonPairingStore?
     private var listener: NWListener?
@@ -518,6 +596,11 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             deviceModel: String(package.device.model.prefix(255))
         )
         state.identity = identity
+        state.producerCapabilities = package.capabilities
+        state.compatibilityDiagnostics = Self.compatibilityDiagnostics(for: package.capabilities)
+        for diagnostic in state.compatibilityDiagnostics {
+            publishDiagnosticEvent(name: "Babylon compatibility", message: diagnostic, identity: identity)
+        }
         Task { @MainActor [weak coordinator] in
             await coordinator?.registerBabylonCapture(identity: identity)
         }
@@ -529,10 +612,11 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         }
         let package = try BabylonCaptureProtocol.decoder.decode(BabylonTrafficPackageDTO.self, from: payload.content)
         if let existing = state.transactions[package.id] {
-            update(existing, with: package)
+            update(existing, with: package, state: state)
             return
         }
         let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        transaction.babylonCaptureMetadata = captureMetadata(package, identity: identity, state: state)
         remember(transaction: transaction, packageID: package.id, state: state)
         Task { [weak coordinator] in
             await coordinator?.receiveBabylonTransaction(transaction)
@@ -547,9 +631,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let transaction: HTTPTransaction
         if let existing = state.transactions[package.id] {
             transaction = existing
-            update(existing, with: package)
+            update(existing, with: package, state: state)
         } else {
             transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+            transaction.babylonCaptureMetadata = captureMetadata(package, identity: identity, state: state)
             remember(transaction: transaction, packageID: package.id, state: state)
             Task { [weak coordinator] in
                 await coordinator?.receiveBabylonTransaction(transaction)
@@ -572,8 +657,9 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
     /// Applies a later package to a captured row on the main actor, then hands the row back to the
     /// session so a live WebSocket row is updated in place when it closes.
-    private func update(_ transaction: HTTPTransaction, with package: BabylonTrafficPackageDTO) {
+    private func update(_ transaction: HTTPTransaction, with package: BabylonTrafficPackageDTO, state: SessionState) {
         let coordinator = coordinator
+        let updatedMetadata = state.identity.map { captureMetadata(package, identity: $0, state: state) }
         Task { @MainActor in
             let wasActive = transaction.state == .active
             do {
@@ -582,11 +668,31 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
                 Self.logger.warning("Ignored Babylon update: \(error.localizedDescription, privacy: .public)")
                 return
             }
+            if let updatedMetadata {
+                transaction.babylonCaptureMetadata = updatedMetadata
+            }
             transaction.webSocketFrameVersion += 1
             if wasActive, transaction.state != .active {
                 await coordinator?.receiveBabylonTransaction(transaction, isUpdate: true)
             }
         }
+    }
+
+    private func captureMetadata(
+        _ package: BabylonTrafficPackageDTO,
+        identity: BabylonCaptureIdentity,
+        state: SessionState
+    )
+        -> BabylonCaptureMetadata
+    {
+        BabylonCaptureMetadata(
+            identity: identity,
+            capabilities: state.producerCapabilities,
+            correlation: package.correlationContext,
+            urlSessionTiming: package.urlSessionTiming,
+            error: package.error,
+            compatibilityDiagnostics: state.compatibilityDiagnostics
+        )
     }
 
     /// The SDK reports its own problems (a capture it had to drop, a protocol mismatch) as an error
@@ -710,7 +816,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             self?.flushRuntimeEvents()
         }
         runtimeFlushWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + Self.runtimeFlushMaxLatency, execute: workItem)
+        queue.asyncAfter(deadline: .now() + runtimeFlushMaxLatency, execute: workItem)
     }
 
     private func flushRuntimeEvents() {
