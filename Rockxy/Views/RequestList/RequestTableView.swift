@@ -440,7 +440,6 @@ struct RequestTableView: NSViewRepresentable {
 
     // MARK: Private
 
-
     @Environment(\.appUIDisplayMetrics) private var displayMetrics
 
     private var effectiveDisplayMetrics: AppUIDisplayMetrics {
@@ -601,6 +600,32 @@ extension RequestTableView {
         /// Guard flag to prevent feedback loops when syncing sort descriptors from
         /// coordinator state back into NSTableView.
         private(set) var isUpdatingSortDescriptors = false
+
+        /// URL text led by a small marker for exchanges a rule or script changed.
+        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            let configuration = NSImage.SymbolConfiguration(pointSize: (font?.pointSize ?? 12) - 1, weight: .semibold)
+            if let symbol = NSImage(
+                systemSymbolName: "wand.and.rays",
+                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle)
+            )?.withSymbolConfiguration(configuration) {
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                result.append(NSAttributedString(attachment: attachment))
+                result.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.systemOrange,
+                    range: NSRange(location: 0, length: result.length)
+                )
+                result.append(NSAttributedString(string: " "))
+            }
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
+            if let font {
+                attributes[.font] = font
+            }
+            result.append(NSAttributedString(string: address, attributes: attributes))
+            return result
+        }
 
         // MARK: - NSTableViewDataSource
 
@@ -1695,6 +1720,19 @@ extension RequestTableView {
             return NSColor(srgbRed: red, green: green, blue: blue, alpha: 1.0)
         }
 
+        private static func applyStrikethrough(to field: NSTextField) {
+            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
+            guard text.length > 0 else {
+                return
+            }
+            text.addAttribute(
+                .strikethroughStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: NSRange(location: 0, length: text.length)
+            )
+            field.attributedStringValue = text
+        }
+
         // MARK: - Menu Building
 
         private func menuItem(
@@ -2463,6 +2501,15 @@ extension RequestTableView {
             cell.imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: dotSize, weight: .regular)
             cell.imageView.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
             cell.imageView.contentTintColor = statusDotColor(for: row)
+            cell.toolTip = row.source?.babylonCaptureMetadata.flatMap { metadata in
+                guard let code = metadata.errorCode else {
+                    return nil
+                }
+                let prefix = [metadata.errorDomain, String(code), metadata.failurePhase]
+                    .compactMap { $0 }
+                    .joined(separator: " · ")
+                return [prefix, metadata.errorMessage].compactMap { $0 }.joined(separator: ": ")
+            }
             cell.updateIconSize(dotSize)
         }
 
@@ -2806,19 +2853,6 @@ extension RequestTableView {
             return container
         }
 
-        private static func applyStrikethrough(to field: NSTextField) {
-            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
-            guard text.length > 0 else {
-                return
-            }
-            text.addAttribute(
-                .strikethroughStyle,
-                value: NSUnderlineStyle.single.rawValue,
-                range: NSRange(location: 0, length: text.length)
-            )
-            field.attributedStringValue = text
-        }
-
         private func configureCellContent(
             _ cell: NSTextField,
             column: String,
@@ -3000,32 +3034,6 @@ extension RequestTableView {
             default:
                 .secondaryLabelColor
             }
-        }
-
-        /// URL text led by a small marker for exchanges a rule or script changed.
-        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
-            let result = NSMutableAttributedString()
-            let configuration = NSImage.SymbolConfiguration(pointSize: (font?.pointSize ?? 12) - 1, weight: .semibold)
-            if let symbol = NSImage(
-                systemSymbolName: "wand.and.rays",
-                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle)
-            )?.withSymbolConfiguration(configuration) {
-                let attachment = NSTextAttachment()
-                attachment.image = symbol
-                result.append(NSAttributedString(attachment: attachment))
-                result.addAttribute(
-                    .foregroundColor,
-                    value: NSColor.systemOrange,
-                    range: NSRange(location: 0, length: result.length)
-                )
-                result.append(NSAttributedString(string: " "))
-            }
-            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
-            if let font {
-                attributes[.font] = font
-            }
-            result.append(NSAttributedString(string: address, attributes: attributes))
-            return result
         }
 
         private func methodColor(for method: String) -> NSColor {

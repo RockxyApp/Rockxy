@@ -207,7 +207,9 @@ struct BabylonCaptureIntakeTests {
             endAt: endAt,
             packageType: packageType,
             correlationContext: nil,
-            websocketMessagePackage: nil
+            urlSessionTiming: nil,
+            websocketMessagePackage: nil,
+            grpcCapture: nil
         )
     }
 
@@ -222,7 +224,9 @@ struct BabylonCaptureIntakeTests {
             endAt: nil,
             packageType: .websocket,
             correlationContext: nil,
-            websocketMessagePackage: message
+            urlSessionTiming: nil,
+            websocketMessagePackage: message,
+            grpcCapture: nil
         )
     }
 }

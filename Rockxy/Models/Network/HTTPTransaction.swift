@@ -56,16 +56,6 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     let id: UUID
     let timestamp: Date
-    var request: HTTPRequestData {
-        didSet { signalEvidenceRevision &+= 1 }
-    }
-    var response: HTTPResponseData? {
-        didSet { signalEvidenceRevision &+= 1 }
-    }
-    /// Changes whenever request or response evidence used by cached list signals changes.
-    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0 {
-        didSet { customColumnValueCache.removeAll() }
-    }
     /// Values of body columns, keyed by column, kept once the transaction has finished.
     @ObservationIgnored let customColumnValueCache = CustomColumnValueCache()
     var state: TransactionState
@@ -84,6 +74,12 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     var graphQLInfo: GraphQLInfo?
     var web3RPCInfo: Web3RPCInfo?
     var x402Info: X402Info?
+    /// Call shape supplied by a typed Babylon gRPC capture. Persisted for inspection; the
+    /// framed request/response remain the source of truth for message bytes.
+    var babylonGRPCCallType: String?
+    /// Bounded source, producer capability, correlation, and app-reported error metadata.
+    /// Older sessions omit this optional field.
+    var babylonCaptureMetadata: BabylonCaptureMetadata?
     var sourcePort: UInt16?
     var clientApp: String?
 
@@ -139,6 +135,19 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// the coordinator, independent of `timestamp`. Used only for the request-list "row #"
     /// column sort. Must not be used by export, persistence, inspector, or replay.
     var sequenceNumber: Int = 0
+
+    var request: HTTPRequestData {
+        didSet { signalEvidenceRevision &+= 1 }
+    }
+
+    var response: HTTPResponseData? {
+        didSet { signalEvidenceRevision &+= 1 }
+    }
+
+    /// Changes whenever request or response evidence used by cached list signals changes.
+    @ObservationIgnored private(set) var signalEvidenceRevision: UInt64 = 0 {
+        didSet { customColumnValueCache.removeAll() }
+    }
 
     /// Whether this transaction carries a user note. Membership in the Library's Notes
     /// collection is derived from a non-empty, whitespace-trimmed `comment` — there is no

@@ -70,6 +70,9 @@ struct GRPCInspectorView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 badge(String(localized: "gRPC", bundle: RockxyLocalization.bundle), color: .blue)
+                if let callType = inspection.callType {
+                    badge(callTypeLabel(callType), color: .purple)
+                }
                 badge(
                     inspection.requestContentType ?? inspection.responseContentType ?? "application/grpc",
                     color: .secondary
@@ -443,12 +446,14 @@ struct GRPCInspectorView: View {
         let response = transaction.response
         let timingInfo = transaction.timingInfo
         let measuredDuration = transaction.measuredDuration
+        let babylonGRPCCallType = transaction.babylonGRPCCallType
         let inspection = await Task.detached {
             GRPCDetector.detect(
                 request: request,
                 response: response,
                 timingInfo: timingInfo,
-                measuredDuration: measuredDuration
+                measuredDuration: measuredDuration,
+                callType: babylonGRPCCallType
             )
         }.value
 
@@ -472,6 +477,21 @@ struct GRPCInspectorView: View {
             return inspection.frames.first
         }
         return inspection.frames.first { $0.id == selectedFrameID } ?? inspection.frames.first
+    }
+
+    private func callTypeLabel(_ value: String) -> String {
+        switch value {
+        case "unary":
+            String(localized: "Unary", bundle: RockxyLocalization.bundle)
+        case "clientStreaming":
+            String(localized: "Client streaming", bundle: RockxyLocalization.bundle)
+        case "serverStreaming":
+            String(localized: "Server streaming", bundle: RockxyLocalization.bundle)
+        case "bidirectionalStreaming":
+            String(localized: "Bidirectional streaming", bundle: RockxyLocalization.bundle)
+        default:
+            value
+        }
     }
 
     private func methodTitle(_ inspection: GRPCInspection) -> String {
