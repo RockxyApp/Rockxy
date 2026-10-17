@@ -282,6 +282,95 @@ struct BabylonRuntimeEvent: Identifiable, Equatable, Sendable {
     }
 }
 
+// MARK: - BabylonRuntimeStepNode
+
+/// A deterministic view of nested runtime steps. Missing parents and malformed cycles are
+/// promoted to roots so every retained step remains visible.
+struct BabylonRuntimeStepNode: Identifiable, Equatable {
+    let stepID: String
+    let events: [BabylonRuntimeEvent]
+    let children: [BabylonRuntimeStepNode]
+
+    var id: String {
+        stepID
+    }
+
+    var descendantCount: Int {
+        1 + children.reduce(0) { $0 + $1.descendantCount }
+    }
+}
+
+// MARK: - BabylonRuntimeStepHierarchy
+
+enum BabylonRuntimeStepHierarchy {
+    // MARK: Internal
+
+    static func build(from events: [BabylonRuntimeEvent]) -> [BabylonRuntimeStepNode] {
+        let grouped = Dictionary(grouping: events.compactMap { event -> (String, BabylonRuntimeEvent)? in
+            guard let stepID = event.stepID else {
+                return nil
+            }
+            return (stepID, event)
+        }, by: \.0).mapValues { $0.map(\.1).sorted(by: chronologicalOrder) }
+        let identifiers = Set(grouped.keys)
+        let parentByStep = grouped.compactMapValues { values in
+            values.compactMap(\.parentStepID).first(where: { $0 != values.first?.stepID })
+        }
+        let childrenByParent = Dictionary(grouping: parentByStep.compactMap { stepID, parentID -> (String, String)? in
+            guard parentID != stepID, identifiers.contains(parentID) else {
+                return nil
+            }
+            return (parentID, stepID)
+        }, by: \.0).mapValues { $0.map(\.1).sorted { stepOrder($0, $1, grouped: grouped) } }
+
+        var visited = Set<String>()
+        func makeNode(_ stepID: String) -> BabylonRuntimeStepNode? {
+            guard visited.insert(stepID).inserted, let stepEvents = grouped[stepID] else {
+                return nil
+            }
+            let children = (childrenByParent[stepID] ?? []).compactMap(makeNode)
+            return BabylonRuntimeStepNode(stepID: stepID, events: stepEvents, children: children)
+        }
+
+        let orderedIDs = grouped.keys.sorted { stepOrder($0, $1, grouped: grouped) }
+        var roots = orderedIDs.filter { stepID in
+            guard let parentID = parentByStep[stepID], parentID != stepID else {
+                return true
+            }
+            return !identifiers.contains(parentID)
+        }.compactMap(makeNode)
+        // A cycle has no natural root. Starting at the earliest step breaks it deterministically.
+        roots.append(contentsOf: orderedIDs.filter { !visited.contains($0) }.compactMap(makeNode))
+        return roots
+    }
+
+    // MARK: Private
+
+    private static func chronologicalOrder(_ lhs: BabylonRuntimeEvent, _ rhs: BabylonRuntimeEvent) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt < rhs.createdAt
+        }
+        return lhs.packageID < rhs.packageID
+    }
+
+    private static func stepOrder(
+        _ lhs: String,
+        _ rhs: String,
+        grouped: [String: [BabylonRuntimeEvent]]
+    )
+        -> Bool
+    {
+        let left = grouped[lhs]?.first
+        let right = grouped[rhs]?.first
+        if left?.createdAt != right?
+            .createdAt
+        {
+            return (left?.createdAt ?? .distantPast) < (right?.createdAt ?? .distantPast)
+        }
+        return lhs < rhs
+    }
+}
+
 // MARK: - BabylonRuntimeOutcome
 
 /// Presentation-only classification of an event's result. Derived purely from
@@ -412,11 +501,15 @@ struct BabylonRuntimeEventFilter: Equatable {
     init(
         kind: BabylonRuntimePackageDTO.Kind? = nil,
         sourceClientID: String? = nil,
+        sessionID: String? = nil,
+        stepID: String? = nil,
         traceID: String? = nil,
         searchText: String = ""
     ) {
         self.kind = kind
         self.sourceClientID = sourceClientID
+        self.sessionID = sessionID
+        self.stepID = stepID
         self.traceID = traceID
         self.searchText = searchText
     }
@@ -425,12 +518,17 @@ struct BabylonRuntimeEventFilter: Equatable {
 
     var kind: BabylonRuntimePackageDTO.Kind?
     var sourceClientID: String?
+    /// Limits the list to one runtime session, matched exactly.
+    var sessionID: String?
+    /// Limits the list to one step, matched exactly.
+    var stepID: String?
     /// Limits the list to one trace, matched exactly.
     var traceID: String?
     var searchText = ""
 
     var isActive: Bool {
-        kind != nil || sourceClientID != nil || traceID != nil || !trimmedSearch.isEmpty
+        kind != nil || sourceClientID != nil || sessionID != nil || stepID != nil || traceID != nil || !trimmedSearch
+            .isEmpty
     }
 
     func apply(to events: [BabylonRuntimeEvent]) -> [BabylonRuntimeEvent] {
@@ -442,6 +540,12 @@ struct BabylonRuntimeEventFilter: Equatable {
             return false
         }
         if let sourceClientID, event.source.clientID != sourceClientID {
+            return false
+        }
+        if let sessionID, event.sessionID != sessionID {
+            return false
+        }
+        if let stepID, event.stepID != stepID {
             return false
         }
         if let traceID, event.traceID != traceID {

@@ -274,6 +274,12 @@ struct ContextDetailsView: View {
     private func runtimeTraceSection(_ correlation: BabylonCorrelation) -> some View {
         ContextInspectorTable(title: String(localized: "Babylon Runtime", bundle: RockxyLocalization.bundle)) {
             ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Source Client", bundle: RockxyLocalization.bundle),
+                value: correlation.sourceClientID ?? "—",
+                monospaced: correlation.sourceClientID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
                 label: String(localized: "Trace", bundle: RockxyLocalization.bundle),
                 value: correlation.traceID
             ))
@@ -293,12 +299,21 @@ struct ContextDetailsView: View {
             ContextInspectorFullRow {
                 HStack(spacing: 8) {
                     Button(String(localized: "Show in Runtime Events", bundle: RockxyLocalization.bundle)) {
-                        BabylonRuntimeNavigation.shared.focus(traceID: correlation.traceID, stepID: correlation.stepID)
+                        BabylonRuntimeNavigation.shared.focus(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID,
+                            stepID: correlation.stepID
+                        )
                         openWindow(id: "babylonRuntime")
                     }
                     .accessibilityIdentifier("contextDetails.showInRuntimeEvents")
                     Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
-                        coordinator.showBabylonTraceRequests(traceID: correlation.traceID)
+                        coordinator.showBabylonTraceRequests(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID
+                        )
                     }
                     .accessibilityIdentifier("contextDetails.showTraceRequests")
                 }

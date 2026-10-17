@@ -8,7 +8,8 @@ import Foundation
 struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
     // MARK: Lifecycle
 
-    init(sessionID: String, traceID: String, stepID: String?) {
+    init(sourceClientID: String? = nil, sessionID: String, traceID: String, stepID: String?) {
+        self.sourceClientID = sourceClientID
         self.sessionID = sessionID
         self.traceID = traceID
         self.stepID = stepID
@@ -16,8 +17,9 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
 
     /// Returns `nil` unless every identifier is a usable, bounded identifier. An empty step
     /// means the request was made in the trace but outside any step.
-    init?(context: BabylonTrafficPackageDTO.CorrelationContext?) {
+    init?(context: BabylonTrafficPackageDTO.CorrelationContext?, sourceClientID: String? = nil) {
         guard let context,
+              sourceClientID.map(Self.isValidSourceIdentifier) ?? true,
               Self.isValidIdentifier(context.sessionID),
               Self.isValidIdentifier(context.traceID) else
         {
@@ -27,11 +29,17 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
         guard step.isEmpty || Self.isValidIdentifier(context.stepID) else {
             return nil
         }
-        self.init(sessionID: context.sessionID, traceID: context.traceID, stepID: step.isEmpty ? nil : context.stepID)
+        self.init(
+            sourceClientID: sourceClientID,
+            sessionID: context.sessionID,
+            traceID: context.traceID,
+            stepID: step.isEmpty ? nil : context.stepID
+        )
     }
 
     // MARK: Internal
 
+    let sourceClientID: String?
     let sessionID: String
     let traceID: String
     let stepID: String?
@@ -40,8 +48,15 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
 
     private static func isValidIdentifier(_ value: String) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && value.utf8.count <= BabylonRuntimeEvent.maximumIdentifierByteCount
+            && value.utf8.count <= BabylonCaptureProtocol.maximumClientIDSize
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
             && !value.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    private static func isValidSourceIdentifier(_ value: String) -> Bool {
+        !value.isEmpty
+            && value.utf8.count <= BabylonRuntimeEvent.maximumIdentifierByteCount
+            && !value.contains(":")
+            && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
     }
 }

@@ -14,6 +14,7 @@ struct BabylonTraceCorrelationTests {
         )
 
         #expect(transaction.babylonCorrelation == BabylonCorrelation(
+            sourceClientID: "client",
             sessionID: "s1",
             traceID: "checkout",
             stepID: "pay"
@@ -34,7 +35,7 @@ struct BabylonTraceCorrelationTests {
         BabylonTrafficPackageDTO.CorrelationContext(sessionID: "s", traceID: "t", stepID: "bad\nstep", createdAt: 1),
         BabylonTrafficPackageDTO.CorrelationContext(
             sessionID: "s",
-            traceID: String(repeating: "x", count: 300),
+            traceID: String(repeating: "x", count: BabylonCaptureProtocol.maximumClientIDSize + 1),
             stepID: "a",
             createdAt: 1
         ),
@@ -63,7 +64,9 @@ struct BabylonTraceCorrelationTests {
         #expect(all.filter(checkout.matches).map(\.id) == [first.id])
 
         // The same step name in two traces is told apart by also matching the trace.
-        let step = SmartTrafficFilter.parse(MainContentCoordinator.babylonTraceQuery(traceID: "sync", stepID: "pay"))
+        let step = SmartTrafficFilter.parse(
+            MainContentCoordinator.babylonTraceQuery(sessionID: "s", traceID: "sync", stepID: "pay")
+        )
         #expect(all.filter(step.matches).map(\.id) == [second.id])
         #expect(step.remainingSearchText.isEmpty)
     }
@@ -77,6 +80,65 @@ struct BabylonTraceCorrelationTests {
         #expect(SmartTrafficFilter.parse("trace:Checkout-1").matches(transaction))
         #expect(!SmartTrafficFilter.parse("trace:checkout-1").matches(transaction))
         #expect(!SmartTrafficFilter.parse("trace:Checkout").matches(transaction))
+    }
+
+    @Test("Runtime session, trace, and step traffic tokens compose exactly")
+    func sessionTokenScopesRepeatedTraceIDs() throws {
+        let first = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(
+                id: "first",
+                context: .init(sessionID: "s1", traceID: "checkout", stepID: "pay", createdAt: 1)
+            ),
+            identity: identity
+        )
+        let second = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(
+                id: "second",
+                context: .init(sessionID: "s2", traceID: "checkout", stepID: "pay", createdAt: 1)
+            ),
+            identity: identity
+        )
+        let query = MainContentCoordinator.babylonTraceQuery(sessionID: "s2", traceID: "checkout", stepID: "pay")
+        let filter = SmartTrafficFilter.parse(query)
+
+        #expect([first, second].filter(filter.matches).map(\.id) == [second.id])
+        #expect(filter.remainingSearchText.isEmpty)
+    }
+
+    @Test("Source, session, trace, and step tokens isolate identical contexts from different clients")
+    func sourceTokenScopesRepeatedClientContexts() throws {
+        let context = BabylonTrafficPackageDTO.CorrelationContext(
+            sessionID: "shared-session",
+            traceID: "checkout",
+            stepID: "pay",
+            createdAt: 1
+        )
+        let first = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(id: "first", context: context),
+            identity: identity
+        )
+        let secondIdentity = BabylonCaptureIdentity(
+            clientID: "client \"2\"",
+            sessionID: identity.sessionID,
+            projectName: identity.projectName,
+            bundleIdentifier: identity.bundleIdentifier,
+            deviceName: identity.deviceName,
+            deviceModel: identity.deviceModel
+        )
+        let second = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(id: "second", context: context),
+            identity: secondIdentity
+        )
+        let query = MainContentCoordinator.babylonTraceQuery(
+            sourceClientID: "client \"2\"",
+            sessionID: "shared-session",
+            traceID: "checkout",
+            stepID: "pay"
+        )
+        let filter = SmartTrafficFilter.parse(query)
+
+        #expect([first, second].filter(filter.matches).map(\.id) == [second.id])
+        #expect(filter.remainingSearchText.isEmpty)
     }
 
     @Test("Saving and reloading a session keeps the correlation")
@@ -133,6 +195,82 @@ struct BabylonTraceCorrelationTests {
         #expect(filter.apply(to: events).map(\.packageID) == ["1"])
     }
 
+    @Test("Runtime filters isolate reused trace identifiers by runtime session")
+    func runtimeFilterBySessionAndTrace() throws {
+        let first = try event(id: "first", kind: .traceStarted, trace: "checkout", session: "s1")
+        let second = try event(id: "second", kind: .traceStarted, trace: "checkout", session: "s2")
+        let filter = BabylonRuntimeEventFilter(sessionID: "s2", traceID: "checkout")
+
+        #expect(filter.apply(to: [first, second]).map(\.packageID) == ["second"])
+    }
+
+    @Test("Runtime step filter is exact within its trace and source scope")
+    func runtimeFilterByStep() throws {
+        let sourceA = try event(id: "a", kind: .stepStarted, trace: "checkout", step: "pay", clientID: "client-a")
+        let sameStepOtherTrace = try event(
+            id: "b",
+            kind: .stepStarted,
+            trace: "sync",
+            step: "pay",
+            clientID: "client-a"
+        )
+        let sameTraceOtherSource = try event(
+            id: "c",
+            kind: .stepStarted,
+            trace: "checkout",
+            step: "pay",
+            clientID: "client-b"
+        )
+        let filter = BabylonRuntimeEventFilter(
+            sourceClientID: "client-a",
+            sessionID: "s",
+            stepID: "pay",
+            traceID: "checkout"
+        )
+
+        #expect(filter.apply(to: [sourceA, sameStepOtherTrace, sameTraceOtherSource]).map(\.packageID) == ["a"])
+    }
+
+    @Test("Step hierarchy is chronological and repairs missing parents and cycles")
+    func nestedStepHierarchyHandlesOutOfOrderEvents() throws {
+        let events = try [
+            event(
+                id: "child-finished",
+                kind: .stepFinished,
+                trace: "t",
+                step: "child",
+                parentStep: "parent",
+                createdAt: 4
+            ),
+            event(id: "cycle-a", kind: .stepStarted, trace: "t", step: "cycle-a", parentStep: "cycle-b", createdAt: 5),
+            event(id: "parent-started", kind: .stepStarted, trace: "t", step: "parent", createdAt: 1),
+            event(
+                id: "orphan",
+                kind: .stepStarted,
+                trace: "t",
+                step: "orphan",
+                parentStep: "evicted-parent",
+                createdAt: 3
+            ),
+            event(id: "cycle-b", kind: .stepStarted, trace: "t", step: "cycle-b", parentStep: "cycle-a", createdAt: 6),
+            event(
+                id: "child-started",
+                kind: .stepStarted,
+                trace: "t",
+                step: "child",
+                parentStep: "parent",
+                createdAt: 2
+            ),
+        ]
+
+        let hierarchy = BabylonRuntimeStepHierarchy.build(from: events)
+
+        #expect(hierarchy.map(\.stepID) == ["parent", "orphan", "cycle-a"])
+        #expect(hierarchy[0].children.map(\.stepID) == ["child"])
+        #expect(hierarchy[0].children[0].events.map(\.packageID) == ["child-started", "child-finished"])
+        #expect(hierarchy.reduce(0) { $0 + $1.descendantCount } == 5)
+    }
+
     @Test("Showing a step selects its start")
     func focusSelectsStepStart() throws {
         let events = try [
@@ -141,7 +279,7 @@ struct BabylonTraceCorrelationTests {
             event(id: "end", kind: .stepFinished, trace: "t", step: "pay"),
         ]
 
-        let focus = BabylonRuntimeNavigation.Focus(traceID: "t", stepID: "pay")
+        let focus = BabylonRuntimeNavigation.Focus(sessionID: "s", traceID: "t", stepID: "pay")
 
         #expect(BabylonRuntimeNavigation.eventID(for: focus, in: events) == events[1].id)
     }
@@ -149,13 +287,14 @@ struct BabylonTraceCorrelationTests {
     @Test("A step whose start was not received still resolves to that step")
     func focusHandlesOutOfOrderStep() throws {
         let events = try [
-            event(id: "end", kind: .stepFinished, trace: "t", step: "pay"),
-            event(id: "trace", kind: .traceStarted, trace: "t"),
+            event(id: "end", kind: .stepFinished, trace: "t", step: "pay", createdAt: 2),
+            event(id: "start", kind: .stepStarted, trace: "t", step: "pay", createdAt: 1),
+            event(id: "trace", kind: .traceStarted, trace: "t", createdAt: 0),
         ]
 
-        let focus = BabylonRuntimeNavigation.Focus(traceID: "t", stepID: "pay")
+        let focus = BabylonRuntimeNavigation.Focus(sessionID: "s", traceID: "t", stepID: "pay")
 
-        #expect(BabylonRuntimeNavigation.eventID(for: focus, in: events) == events[0].id)
+        #expect(BabylonRuntimeNavigation.eventID(for: focus, in: events) == events[1].id)
     }
 
     @Test("An unknown step falls back to the trace, and an unknown trace selects nothing")
@@ -165,21 +304,59 @@ struct BabylonTraceCorrelationTests {
             event(id: "trace", kind: .traceStarted, trace: "t"),
         ]
 
-        let unknownStep = BabylonRuntimeNavigation.Focus(traceID: "t", stepID: "missing")
-        let unknownTrace = BabylonRuntimeNavigation.Focus(traceID: "other", stepID: nil)
+        let unknownStep = BabylonRuntimeNavigation.Focus(sessionID: "s", traceID: "t", stepID: "missing")
+        let unknownTrace = BabylonRuntimeNavigation.Focus(sessionID: "s", traceID: "other", stepID: nil)
 
         #expect(BabylonRuntimeNavigation.eventID(for: unknownStep, in: events) == events[1].id)
         #expect(BabylonRuntimeNavigation.eventID(for: unknownTrace, in: events) == nil)
     }
 
-    @Test("A focus request is applied once")
-    @MainActor
-    func focusIsConsumedOnce() {
-        let navigation = BabylonRuntimeNavigation()
-        navigation.focus(traceID: "t", stepID: nil)
+    @Test("Focused trace selection stays within its runtime session")
+    func focusScopesRepeatedTraceIDsBySession() throws {
+        let first = try event(id: "first", kind: .traceStarted, trace: "t", session: "s", clientID: "client-1")
+        let second = try event(id: "second", kind: .traceStarted, trace: "t", session: "s", clientID: "client 2")
+        let focus = BabylonRuntimeNavigation.Focus(
+            sourceClientID: "client 2",
+            sessionID: "s",
+            traceID: "t",
+            stepID: nil
+        )
 
-        #expect(navigation.consume()?.traceID == "t")
-        #expect(navigation.consume() == nil)
+        #expect(BabylonRuntimeNavigation.eventID(for: focus, in: [first, second]) == second.id)
+    }
+
+    @Test("A hidden old event cannot remain in the inspector after the visible trace changes")
+    func selectionFollowsVisibleEvents() throws {
+        let previous = try event(id: "previous", kind: .mark, trace: "old", session: "old-session")
+        let current = try event(id: "current", kind: .mark, trace: "new", session: "new-session")
+
+        #expect(BabylonRuntimeNavigation.selectedVisibleEvent(for: previous.id, in: [current]) == nil)
+        #expect(BabylonRuntimeNavigation.selectedVisibleEvent(for: current.id, in: [current]) == current)
+        #expect(BabylonRuntimeNavigation.reconciledSelection(previous.id, visibleIDs: [current.id]) == current.id)
+        #expect(BabylonRuntimeNavigation.reconciledSelection(nil, visibleIDs: [current.id]) == nil)
+        #expect(BabylonRuntimeNavigation.reconciledSelection(previous.id, visibleIDs: []) == nil)
+    }
+
+    @Test("A focus request stays pending until its event arrives or is cleared")
+    @MainActor
+    func focusWaitsForLateEvents() throws {
+        let navigation = BabylonRuntimeNavigation()
+        navigation.focus(sessionID: "s1", traceID: "t", stepID: "late")
+
+        #expect(navigation.pendingFocus?.sessionID == "s1")
+        #expect(navigation.pendingFocus?.traceID == "t")
+        #expect(try BabylonRuntimeNavigation.eventID(for: #require(navigation.pendingFocus), in: []) == nil)
+
+        let lateStep = try event(id: "late-step", kind: .stepStarted, trace: "t", step: "late", session: "s1")
+        #expect(
+            try BabylonRuntimeNavigation.eventID(for: #require(navigation.pendingFocus), in: [lateStep]) == lateStep.id
+        )
+        navigation.clearPendingFocus()
+        #expect(navigation.pendingFocus == nil)
+
+        navigation.focus(sessionID: "s2", traceID: "late", stepID: "step")
+        navigation.clearPendingFocus()
+        #expect(navigation.pendingFocus == nil)
     }
 
     // MARK: Private
@@ -217,7 +394,11 @@ struct BabylonTraceCorrelationTests {
         id: String,
         kind: BabylonRuntimePackageDTO.Kind,
         trace: String?,
-        step: String? = nil
+        step: String? = nil,
+        parentStep: String? = nil,
+        session: String = "s",
+        clientID: String = "client",
+        createdAt: TimeInterval = 1
     )
         throws -> BabylonRuntimeEvent
     {
@@ -225,19 +406,26 @@ struct BabylonTraceCorrelationTests {
             validating: BabylonRuntimePackageDTO(
                 id: id,
                 kind: kind,
-                sessionID: "s",
+                sessionID: session,
                 traceID: trace,
                 stepID: step,
-                parentStepID: nil,
+                parentStepID: parentStep,
                 name: id,
-                createdAt: 1,
+                createdAt: createdAt,
                 startedAt: nil,
                 endedAt: nil,
                 duration: nil,
                 metadata: [:],
                 error: nil
             ),
-            source: identity
+            source: BabylonCaptureIdentity(
+                clientID: clientID,
+                sessionID: identity.sessionID,
+                projectName: identity.projectName,
+                bundleIdentifier: identity.bundleIdentifier,
+                deviceName: identity.deviceName,
+                deviceModel: identity.deviceModel
+            )
         )
     }
 }
