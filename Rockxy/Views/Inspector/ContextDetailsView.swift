@@ -270,125 +270,9 @@ struct ContextDetailsView: View {
     @ViewBuilder
     private func babylonCaptureSection(_ transaction: HTTPTransaction) -> some View {
         if let metadata = transaction.babylonCaptureMetadata {
-            var fields = [
-                ContextTableField(
-                    label: String(localized: "Package", bundle: RockxyLocalization.bundle),
-                    value: metadata.packageName,
-                    monospaced: false
-                ),
-                ContextTableField(
-                    label: String(localized: "Client ID", bundle: RockxyLocalization.bundle),
-                    value: metadata.clientID
-                ),
-                ContextTableField(
-                    label: String(localized: "Transport Session", bundle: RockxyLocalization.bundle),
-                    value: metadata.transportSessionID
-                ),
-            ]
-            if !metadata.bundleIdentifier.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Bundle ID", bundle: RockxyLocalization.bundle),
-                    value: metadata.bundleIdentifier
-                ))
-            }
-            let deviceDescription = [metadata.deviceName, metadata.deviceModel]
-                .filter { !$0.isEmpty }
-                .joined(separator: " · ")
-            if !deviceDescription.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Device", bundle: RockxyLocalization.bundle),
-                    value: deviceDescription,
-                    monospaced: false
-                ))
-            }
-            if let sdkVersion = metadata.sdkVersion {
-                fields.append(ContextTableField(
-                    label: String(localized: "Babylon SDK", bundle: RockxyLocalization.bundle),
-                    value: sdkVersion
-                ))
-            }
-            if let platform = metadata.platform {
-                fields.append(ContextTableField(
-                    label: String(localized: "Producer Platform", bundle: RockxyLocalization.bundle),
-                    value: platform
-                ))
-            }
-            if let runtimeSessionID = metadata.runtimeSessionID {
-                fields.append(ContextTableField(
-                    label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
-                    value: runtimeSessionID
-                ))
-            }
-            if let traceID = metadata.traceID {
-                fields.append(ContextTableField(
-                    label: String(localized: "Trace ID", bundle: RockxyLocalization.bundle),
-                    value: traceID
-                ))
-            }
-            if let stepID = metadata.stepID {
-                fields.append(ContextTableField(
-                    label: String(localized: "Step ID", bundle: RockxyLocalization.bundle),
-                    value: stepID
-                ))
-            }
-            if !metadata.payloadSchemaVersions.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Payload Schemas", bundle: RockxyLocalization.bundle),
-                    value: metadata.payloadSchemaVersions.sorted(by: { $0.key < $1.key })
-                        .map { "\($0.key) v\($0.value)" }.joined(separator: ", "),
-                    monospaced: false
-                ))
-            }
-            let capabilities = metadata.supportedTrafficTypes + metadata.supportedMessageTypes
-            if !capabilities.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Producer Capabilities", bundle: RockxyLocalization.bundle),
-                    value: capabilities.joined(separator: ", "),
-                    monospaced: false
-                ))
-            }
-            let producerLimits = [
-                metadata.maximumBodyBytes
-                    .map { "Body \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" },
-                metadata.maximumWebSocketFrameBytes.map {
-                    "WebSocket \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
-                },
-                metadata.maximumCaptureMemoryBytes.map {
-                    "Memory \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
-                },
-            ].compactMap { $0 }
-            if !producerLimits.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Producer Limits", bundle: RockxyLocalization.bundle),
-                    value: producerLimits.joined(separator: ", "),
-                    monospaced: false
-                ))
-            }
-            if let timing = metadata.urlSessionTiming {
-                appendURLSessionTiming(timing, to: &fields)
-            }
-            if let code = metadata.errorCode {
-                let error = [metadata.errorDomain, "\(code)", metadata.failurePhase, metadata.errorMessage]
-                    .compactMap { $0 }
-                    .joined(separator: " · ")
-                fields.append(ContextTableField(
-                    label: String(localized: "Captured Error", bundle: RockxyLocalization.bundle),
-                    value: error,
-                    monospaced: false,
-                    color: .red
-                ))
-            }
-            if !metadata.compatibilityDiagnostics.isEmpty {
-                fields.append(ContextTableField(
-                    label: String(localized: "Compatibility", bundle: RockxyLocalization.bundle),
-                    value: metadata.compatibilityDiagnostics.joined(separator: "\n"),
-                    monospaced: false,
-                    color: .orange
-                ))
-            }
             ContextInspectorFieldTable(
                 title: String(localized: "Babylon Capture", bundle: RockxyLocalization.bundle),
-                fields: fields
+                fields: babylonCaptureFields(metadata)
             )
         }
     }
@@ -722,6 +606,126 @@ struct ContextDetailsView: View {
 
     private static func formatDuration(_ duration: TimeInterval) -> String {
         DurationFormatter.format(seconds: duration)
+    }
+
+    private func babylonCaptureFields(_ metadata: BabylonCaptureMetadata) -> [ContextTableField] {
+        var fields = [
+            ContextTableField(
+                label: String(localized: "Package", bundle: RockxyLocalization.bundle),
+                value: metadata.packageName,
+                monospaced: false
+            ),
+            ContextTableField(
+                label: String(localized: "Client ID", bundle: RockxyLocalization.bundle),
+                value: metadata.clientID
+            ),
+            ContextTableField(
+                label: String(localized: "Transport Session", bundle: RockxyLocalization.bundle),
+                value: metadata.transportSessionID
+            ),
+        ]
+        if !metadata.bundleIdentifier.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Bundle ID", bundle: RockxyLocalization.bundle),
+                value: metadata.bundleIdentifier
+            ))
+        }
+        let deviceDescription = [metadata.deviceName, metadata.deviceModel]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        if !deviceDescription.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Device", bundle: RockxyLocalization.bundle),
+                value: deviceDescription,
+                monospaced: false
+            ))
+        }
+        if let sdkVersion = metadata.sdkVersion {
+            fields.append(ContextTableField(
+                label: String(localized: "Babylon SDK", bundle: RockxyLocalization.bundle),
+                value: sdkVersion
+            ))
+        }
+        if let platform = metadata.platform {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Platform", bundle: RockxyLocalization.bundle),
+                value: platform
+            ))
+        }
+        if let runtimeSessionID = metadata.runtimeSessionID {
+            fields.append(ContextTableField(
+                label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                value: runtimeSessionID
+            ))
+        }
+        if let traceID = metadata.traceID {
+            fields.append(ContextTableField(
+                label: String(localized: "Trace ID", bundle: RockxyLocalization.bundle),
+                value: traceID
+            ))
+        }
+        if let stepID = metadata.stepID {
+            fields.append(ContextTableField(
+                label: String(localized: "Step ID", bundle: RockxyLocalization.bundle),
+                value: stepID
+            ))
+        }
+        if !metadata.payloadSchemaVersions.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Payload Schemas", bundle: RockxyLocalization.bundle),
+                value: metadata.payloadSchemaVersions.sorted(by: { $0.key < $1.key })
+                    .map { "\($0.key) v\($0.value)" }.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        let capabilities = metadata.supportedTrafficTypes + metadata.supportedMessageTypes
+        if !capabilities.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Capabilities", bundle: RockxyLocalization.bundle),
+                value: capabilities.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        let producerLimits = [
+            metadata.maximumBodyBytes
+                .map { "Body \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" },
+            metadata.maximumWebSocketFrameBytes.map {
+                "WebSocket \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+            },
+            metadata.maximumCaptureMemoryBytes.map {
+                "Memory \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+            },
+        ].compactMap { $0 }
+        if !producerLimits.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Limits", bundle: RockxyLocalization.bundle),
+                value: producerLimits.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        if let timing = metadata.urlSessionTiming {
+            appendURLSessionTiming(timing, to: &fields)
+        }
+        if let code = metadata.errorCode {
+            let error = [metadata.errorDomain, "\(code)", metadata.failurePhase, metadata.errorMessage]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+            fields.append(ContextTableField(
+                label: String(localized: "Captured Error", bundle: RockxyLocalization.bundle),
+                value: error,
+                monospaced: false,
+                color: .red
+            ))
+        }
+        if !metadata.compatibilityDiagnostics.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Compatibility", bundle: RockxyLocalization.bundle),
+                value: metadata.compatibilityDiagnostics.joined(separator: "\n"),
+                monospaced: false,
+                color: .orange
+            ))
+        }
+        return fields
     }
 
     private func appendURLSessionTiming(
