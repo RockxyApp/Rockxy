@@ -190,7 +190,7 @@ enum BabylonCaptureMapper {
         let path = package.request.url.hasPrefix("/") ? package.request.url : "/" + package.request.url
         let metadata = headers(package.request.headers)
         let authority = package.request.headers.first {
-            [":authority", "host"].contains($0.name.lowercased())
+            [":authority", "host"].contains($0.key.lowercased())
         }?.value ?? "grpc.babylon"
         guard let url = grpcURL(authority: authority, endpoint: path) else {
             throw BabylonCaptureMappingError.invalidURL

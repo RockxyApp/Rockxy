@@ -1,6 +1,6 @@
 import Foundation
 
-private func boundedBabylonString(_ value: String, bytes: Int) -> String {
+func boundedBabylonString(_ value: String, bytes: Int) -> String {
     var truncatedBytes = Array(value.utf8.prefix(bytes))
     while !truncatedBytes.isEmpty {
         if let decoded = String(bytes: truncatedBytes, encoding: .utf8) {
