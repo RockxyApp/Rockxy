@@ -560,7 +560,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.stopAndWait(receiver)
     }
 
-    @Test("Malformed peer isolation survives credential rotation and stop flushes final runtime event")
+    @Test("Malformed peer isolation preserves a healthy peer")
     func malformedPeerIsolation() async throws {
         let token = String(repeating: "b", count: 64)
         let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
@@ -582,7 +582,6 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
-        BabylonRuntimeEventStore.shared.clear()
 
         let invalidPeer = try await Self.connect(port: port)
         let validPeer = try await Self.connect(port: port)
@@ -614,10 +613,42 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.send(BabylonFrameAccumulator.frame(heartbeatFrame), on: validPeer)
         #expect(try await oldCredentialAckReader.next(on: validPeer) == "isolated-heartbeat")
 
+        try await Self.stopAndWait(receiver)
+    }
+
+    @Test("Credential rotation rejects old tokens and accepts the regenerated token")
+    func credentialRotationRejectsStalePeers() async throws {
+        let token = String(repeating: "b", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let oldPeer = try await Self.connect(port: port)
+        defer { oldPeer.cancel() }
+        let oldAckReader = BabylonAckReader(token: token)
+        let originalFrame = try Self.encoded(
+            type: .heartbeat, content: Data("{}".utf8), messageID: "before-rotation", sequence: 1,
+            sessionID: "rotation-session", clientID: "rotation-client", token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(originalFrame), on: oldPeer)
+        #expect(try await oldAckReader.next(on: oldPeer) == "before-rotation")
+
         pairingStore.regenerate()
         let rotatedToken = pairingStore.currentToken()
         #expect(rotatedToken != token)
-        try await Self.waitUntilRemoteClose(validPeer, label: "peer with rotated credential")
+        try await Self.waitUntilRemoteClose(oldPeer, label: "peer with rotated credential")
 
         let stalePeer = try await Self.connect(port: port)
         defer { stalePeer.cancel() }
@@ -631,25 +662,61 @@ struct BabylonCaptureTCPCompatibilityTests {
         let rotatedPeer = try await Self.connect(port: port)
         defer { rotatedPeer.cancel() }
         let rotatedAckReader = BabylonAckReader(token: rotatedToken)
+        let rotatedFrame = try Self.encoded(
+            type: .heartbeat, content: Data("{}".utf8), messageID: "after-rotation", sequence: 1,
+            sessionID: "rotation-session-new", clientID: "rotation-client", token: rotatedToken
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(rotatedFrame), on: rotatedPeer)
+        #expect(try await rotatedAckReader.next(on: rotatedPeer) == "after-rotation")
+        try await Self.stopAndWait(receiver)
+    }
+
+    @Test("Receiver stop flushes its final runtime lifecycle event")
+    func receiverStopFlushesFinalRuntimeEvent() async throws {
+        let token = String(repeating: "b", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(
+            preferredPort: port,
+            defaults: defaults,
+            runtimeFlushMaxLatency: .seconds(5)
+        )
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        BabylonRuntimeEventStore.shared.clear()
+        receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let client = try await Self.connect(port: port)
+        defer { client.cancel() }
+        let ackReader = BabylonAckReader(token: token)
         let connectionFixture = try Data(contentsOf: Self.fixtureURL("connection.json"))
         let runtimeFixture = try Data(contentsOf: Self.fixtureURL("runtime.json"))
         let connectionFrame = try Self.encoded(
-            type: .connection, content: connectionFixture, messageID: "rotated-connection", sequence: 1,
-            sessionID: "rotated-session", clientID: "com.example.fixture", token: rotatedToken
+            type: .connection, content: connectionFixture, messageID: "flush-connection", sequence: 1,
+            sessionID: "flush-session", clientID: "com.example.fixture", token: token
         )
         let runtimeFrame = try Self.encoded(
-            type: .runtime, content: runtimeFixture, messageID: "runtime-event-1", sequence: 2,
-            sessionID: "rotated-session", clientID: "com.example.fixture", token: rotatedToken
+            type: .runtime, content: runtimeFixture, messageID: "flush-runtime-event", sequence: 2,
+            sessionID: "flush-session", clientID: "com.example.fixture", token: token
         )
-        try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: rotatedPeer)
-        #expect(try await rotatedAckReader.next(on: rotatedPeer) == "rotated-connection")
-        try await Self.send(BabylonFrameAccumulator.frame(runtimeFrame), on: rotatedPeer)
-        #expect(try await rotatedAckReader.next(on: rotatedPeer) == "runtime-event-1")
+        try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "flush-connection")
+        try await Self.send(BabylonFrameAccumulator.frame(runtimeFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "flush-runtime-event")
+        #expect(!BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "flush-runtime-event" })
 
-        #expect(!BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "runtime-event-1" })
         receiver.stop()
         try await Self.waitUntilStopped(receiver)
-        #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "runtime-event-1" })
+        #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "flush-runtime-event" })
     }
 
     // MARK: Private

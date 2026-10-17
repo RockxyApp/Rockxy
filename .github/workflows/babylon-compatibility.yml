@@ -193,6 +193,8 @@ jobs:
           run_test allGRPCCallTypesThroughProductionReceiver
           run_test receiverRestartAcceptsFreshSession
           run_test malformedPeerIsolation
+          run_test credentialRotationRejectsStalePeers
+          run_test receiverStopFlushesFinalRuntimeEvent
 
   compatibility-gate:
     name: Compatibility Gate
