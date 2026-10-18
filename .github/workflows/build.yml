@@ -87,6 +87,14 @@ jobs:
           CODE_SIGN_IDENTITY =
           DEVELOPMENT_TEAM =
           EOF
+      - name: Check out Babylon SDK fixture corpus
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # immutable commit
+        with:
+          repository: RockxyApp/Babylon
+          path: babylon
+          persist-credentials: false
+      - name: Validate release fixtures against Babylon SDK
+        run: python3 docs/tools/validate_babylon_fixtures.py "$GITHUB_WORKSPACE/babylon"
       - name: Select Xcode
         run: |
           for candidate in \
@@ -108,6 +116,8 @@ jobs:
           exit 1
       - name: Run tests
         run: |
+          # The protected Test check includes Babylon fixture/cross-repo and TCP receiver tests.
+          # Keep this full suite unfiltered on develop -> main release promotion.
           mkdir -p build/test-results
           xcodebuild -project Rockxy.xcodeproj \
             -scheme Rockxy \
