@@ -154,6 +154,21 @@ struct BabylonTraceCorrelationTests {
         #expect(reloaded.babylonCorrelation == transaction.babylonCorrelation)
     }
 
+    @Test("Exporting and importing a session keeps the runtime correlation")
+    func exportedSessionRoundTripKeepsCorrelation() throws {
+        let transaction = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(context: .init(sessionID: "s1", traceID: "checkout", stepID: "pay", createdAt: 1)),
+            identity: identity
+        )
+        let metadata = SessionSerializer.makeMetadata(transactionCount: 1)
+
+        let data = try SessionSerializer.serialize(transactions: [transaction], metadata: metadata)
+        let imported = try SessionSerializer.deserialize(from: data)
+        let restored = try #require(imported.transactions.first).toLiveModel()
+
+        #expect(restored.babylonCorrelation == transaction.babylonCorrelation)
+    }
+
     @Test("A session saved before correlation was recorded still opens")
     func legacySessionDecodesWithoutCorrelation() throws {
         let transaction = try BabylonCaptureMapper.makeTransaction(from: makePackage(), identity: identity)
