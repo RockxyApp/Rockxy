@@ -401,7 +401,9 @@ struct BabylonTraceCorrelationTests {
             endAt: 100.5,
             packageType: .http,
             correlationContext: context,
-            websocketMessagePackage: nil
+            urlSessionTiming: nil,
+            websocketMessagePackage: nil,
+            grpcCapture: nil
         )
     }
 

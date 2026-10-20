@@ -9,7 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - Babylon requests keep the runtime session, trace, and step they were made in, also in saved sessions. Details links to the matching runtime session, trace, and step; Runtime Events shows a chronological trace/step hierarchy with session and trace filters, and traffic search accepts `session:`, `trace:`, and `step:`.
-- Babylon captures gRPC calls as gRPC exchanges with their status and message, and shows WebSocket ping, pong, and close frames with the close code and reason.
+- Babylon captures gRPC calls as gRPC exchanges with their status and message, preserves the original size of omitted gRPC messages, and shows WebSocket ping, pong, and close frames with the close code, reason, origin, and abnormal termination state.
+- Babylon enforces the producer's per-transaction body budget across request, response, gRPC messages, and WebSocket frames.
 - The Web3 tab shows a **Payment (x402)** section for payment-gated requests: stage, whether a payment was sent, whether requirements were included, and which fields are sensitive. Payment hints are saved in Rockxy sessions, kept in redacted exports, and detected again on HAR import.
 - Imported HAR files now get the same GraphQL, Web3 JSON-RPC, and x402 detection as live capture.
 - Two new AI Assistant investigations: **Why Is This Slow?** breaks the captured time into connection setup, server wait, and transfer and compares it with other requests to the same endpoint; **Find Related Requests** lists requests to the same endpoint and host, nearest first, and flags the ones that failed. Both work from captured evidence before any model is involved.
@@ -23,6 +24,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The Script Editor's status line shows when the script last ran on live traffic and whether it succeeded, so a JavaScript exception or timeout is visible without opening the console.
 - The rule tester in the Breakpoint, Block, and Map Remote editors now warns when another enabled rule earlier in the list also matches the test URL, and names the rule that will apply first.
 - The GraphQL tab lists errors a server returned in the response body's `errors` array — message, error code, and path — so a failed operation that still answered HTTP 200 is visible without reading raw JSON; anonymous operations are labeled as such.
+- Added shared Babylon v1 protocol fixtures and a macOS CI gate that checks SDK/receiver compatibility, real TCP framing, replay acknowledgements, reconnects, and malformed-peer isolation.
+- Babylon captures now retain bounded producer, source, correlation, error, and URLSession timing metadata through sessions and HAR, with compatibility warnings for schema and capability mismatches.
+- Babylon body omissions now show request or response reason and byte counts, and retain truncation state when exported to HAR or saved sessions.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
 - Developer Setup shows how many booted simulators trust Rockxy's certificate, and simulator installs are verified against each simulator's trust store.
@@ -52,6 +56,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 
 - Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
+- Babylon gRPC calls with absolute endpoint URLs are now accepted by the gRPC inspector; conflicting authorities are rejected.
 - Babylon WebSocket rows stay live until the app reports them closed, and rows an app left open are marked failed when it disconnects.
 - Babylon shows a body the SDK did not capture as omitted, keeps the error code and message the app reported, and counts paired apps separately from connections still authenticating.
 - A malformed line in an Ollama model download is reported as an invalid response instead of a network error.

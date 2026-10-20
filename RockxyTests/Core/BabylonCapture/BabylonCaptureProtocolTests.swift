@@ -39,6 +39,21 @@ struct BabylonCaptureProtocolTests {
         }
     }
 
+    @Test("Aggregate receiver byte budget rejects overflow without integer overflow")
+    func aggregateReceiverByteBudget() throws {
+        let maximum = BabylonCaptureReceiver.maximumAggregateBufferedBytes
+        try BabylonCaptureReceiver.validateAggregateBufferedBytes(current: maximum - 1, adding: 1)
+        #expect(throws: BabylonCaptureProtocolError.frameTooLarge) {
+            try BabylonCaptureReceiver.validateAggregateBufferedBytes(current: maximum, adding: 1)
+        }
+        #expect(throws: BabylonCaptureProtocolError.frameTooLarge) {
+            try BabylonCaptureReceiver.validateAggregateBufferedBytes(current: 0, adding: maximum + 1)
+        }
+        #expect(throws: BabylonCaptureProtocolError.frameTooLarge) {
+            try BabylonCaptureReceiver.validateAggregateBufferedBytes(current: -1, adding: 1)
+        }
+    }
+
     @Test("Fixed secure frame fixture authenticates and decodes")
     func secureFrameGoldenFixture() throws {
         let content = try BabylonCaptureProtocol.encoder.encode(BabylonAcknowledgement(messageID: "accepted-message"))

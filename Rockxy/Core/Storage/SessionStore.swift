@@ -343,6 +343,10 @@ actor SessionStore {
     private static let wsOpcode = SQLite.Expression<Int>("opcode")
     private static let wsPayload = SQLite.Expression<Data>("payload")
     private static let wsIsFinal = SQLite.Expression<Int>("is_final")
+    private static let wsCloseCode = SQLite.Expression<Int?>("close_code")
+    private static let wsCloseReason = SQLite.Expression<String?>("close_reason")
+    private static let wsCloseOrigin = SQLite.Expression<String?>("close_origin")
+    private static let wsIsAbnormal = SQLite.Expression<Int>("is_abnormal")
 
     private let db: Connection
 
@@ -427,6 +431,10 @@ actor SessionStore {
             table.column(Self.wsOpcode)
             table.column(Self.wsPayload)
             table.column(Self.wsIsFinal)
+            table.column(Self.wsCloseCode)
+            table.column(Self.wsCloseReason)
+            table.column(Self.wsCloseOrigin)
+            table.column(Self.wsIsAbnormal, defaultValue: 0)
             table.foreignKey(
                 Self.wsTransactionId,
                 references: Self.transactions, Self.txId,
@@ -502,6 +510,12 @@ actor SessionStore {
             (5, [
                 "ALTER TABLE transactions ADD COLUMN is_struck_through INTEGER NOT NULL DEFAULT 0",
             ]),
+            (6, [
+                "ALTER TABLE websocket_frames ADD COLUMN close_code INTEGER",
+                "ALTER TABLE websocket_frames ADD COLUMN close_reason TEXT",
+                "ALTER TABLE websocket_frames ADD COLUMN close_origin TEXT",
+                "ALTER TABLE websocket_frames ADD COLUMN is_abnormal INTEGER NOT NULL DEFAULT 0",
+            ]),
         ]
 
         let pending = migrations.filter { $0.version > currentVersion }
@@ -513,8 +527,10 @@ actor SessionStore {
         for migration in pending {
             // A database created by this build already has every column, so re-adding one
             // (a seeded downgrade, an interrupted upgrade) must not fail the whole open.
-            let existing = try existingColumnNames(table: "transactions")
             for sql in migration.statements {
+                let tableName = sql.components(separatedBy: "ALTER TABLE ").last?
+                    .split(separator: " ").first.map(String.init)
+                let existing = try tableName.map { try existingColumnNames(table: $0) } ?? []
                 if let column = sql.components(separatedBy: "ADD COLUMN ").last?.split(separator: " ").first,
                    sql.contains("ADD COLUMN "), existing.contains(String(column))
                 {
@@ -580,7 +596,11 @@ actor SessionStore {
                 Self.wsDirection <- frame.direction.rawValue,
                 Self.wsOpcode <- Int(frame.opcode.rawValue),
                 Self.wsPayload <- frame.payload,
-                Self.wsIsFinal <- (frame.isFinal ? 1 : 0)
+                Self.wsIsFinal <- (frame.isFinal ? 1 : 0),
+                Self.wsCloseCode <- frame.closeCode,
+                Self.wsCloseReason <- frame.closeReason,
+                Self.wsCloseOrigin <- frame.closeOrigin,
+                Self.wsIsAbnormal <- (frame.isAbnormalTermination ? 1 : 0)
             )
             try db.run(insert)
         }
@@ -607,7 +627,11 @@ actor SessionStore {
                 direction: direction,
                 opcode: opcode,
                 payload: row[Self.wsPayload],
-                isFinal: row[Self.wsIsFinal] != 0
+                isFinal: row[Self.wsIsFinal] != 0,
+                closeCode: row[Self.wsCloseCode],
+                closeReason: row[Self.wsCloseReason],
+                closeOrigin: row[Self.wsCloseOrigin],
+                isAbnormalTermination: row[Self.wsIsAbnormal] != 0
             )
             frames.append(frame)
         }

@@ -284,7 +284,7 @@ struct HARImporterTests {
 
     @Test("Rejects invalid JSON")
     func rejectsInvalidJSON() throws {
-        let badData = "not json".data(using: .utf8)!
+        let badData = Data("not json".utf8)
         #expect(throws: HARImportError.self) {
             try importer.importData(badData)
         }
@@ -583,7 +583,7 @@ struct HARImporterTests {
 
     @Test("HAR round-trip preserves core fields")
     func harRoundTripPreservesCoreFields() throws {
-        let bodyData = "{\"user\":\"alice\"}".data(using: .utf8)
+        let bodyData = Data("{\"user\":\"alice\"}".utf8)
         let request = try HTTPRequestData(
             method: "POST",
             url: #require(URL(string: "https://api.example.com/users")),
@@ -593,14 +593,31 @@ struct HARImporterTests {
                 HTTPHeader(name: "Authorization", value: "Bearer tok123")
             ],
             body: bodyData,
+            bodyOmission: .init(reason: "bodyLimit", observedBytes: 18, originalBytes: 42),
             contentType: .json
         )
         let transaction = HTTPTransaction(request: request, state: .completed)
+        transaction.babylonGRPCCallType = "serverStreaming"
+        transaction.babylonCaptureMetadata = BabylonCaptureMetadata(
+            identity: BabylonCaptureIdentity(
+                clientID: "fixture-client",
+                sessionID: "transport-session",
+                projectName: "Fixture App",
+                bundleIdentifier: "com.example.fixture",
+                deviceName: "iPhone",
+                deviceModel: "iPhone"
+            ),
+            capabilities: nil,
+            correlation: .init(sessionID: "runtime", traceID: "trace", stepID: "step", createdAt: 1),
+            error: .init(code: -1_001, message: "timed out", domain: "NSURLErrorDomain", phase: "response"),
+            compatibilityDiagnostics: ["Update Rockxy"]
+        )
         transaction.response = HTTPResponseData(
             statusCode: 201,
             statusMessage: "Created",
             headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: "{\"id\":1}".data(using: .utf8),
+            body: Data("{\"id\":1}".utf8),
+            bodyOmission: .init(reason: "privacyPolicy", observedBytes: 0, originalBytes: 8),
             contentType: .json
         )
 
@@ -615,12 +632,49 @@ struct HARImporterTests {
         #expect(restored.request.headers.count == 2)
         #expect(restored.response?.statusCode == 201)
         #expect(restored.response?.statusMessage == "Created")
+        #expect(restored.request.bodyOmission == .init(reason: "bodyLimit", observedBytes: 18, originalBytes: 42))
+        #expect(restored.response?.bodyOmission == .init(reason: "privacyPolicy", observedBytes: 0, originalBytes: 8))
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.response?.bodyTruncated == true)
+        #expect(restored.babylonCaptureMetadata?.clientID == "fixture-client")
+        #expect(restored.babylonCaptureMetadata?.traceID == "trace")
+        #expect(restored.babylonCaptureMetadata?.errorDomain == "NSURLErrorDomain")
+        #expect(restored.babylonCaptureMetadata?.errorCode == -1_001)
+        #expect(restored.babylonGRPCCallType == "serverStreaming")
 
         let restoredBody = restored.request.body.flatMap { String(data: $0, encoding: .utf8) }
         #expect(restoredBody == "{\"user\":\"alice\"}")
 
         let respBody = restored.response?.body.flatMap { String(data: $0, encoding: .utf8) }
         #expect(respBody == "{\"id\":1}")
+    }
+
+    @Test("HAR round-trip keeps truncation without omission details")
+    func harRoundTripKeepsUnspecifiedTruncation() throws {
+        let request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/upload")),
+            httpVersion: "HTTP/2",
+            headers: [],
+            body: Data("partial".utf8),
+            bodyTruncated: true
+        )
+        let transaction = HTTPTransaction(request: request, state: .completed)
+        transaction.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [],
+            body: nil,
+            bodyTruncated: true
+        )
+
+        let harData = try HARExporter().export(transactions: [transaction])
+        let restored = try #require(importer.importData(harData).first)
+
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.request.bodyOmission == nil)
+        #expect(restored.response?.bodyTruncated == true)
+        #expect(restored.response?.bodyOmission == nil)
     }
 
     @Test("HAR round-trip drops non-HAR fields")
@@ -698,7 +752,7 @@ struct HARImporterTests {
         let provider = MockFlowProvider()
         provider.transactions = imported
         let service = makeMCPFlowService(provider: provider, redactionEnabled: true)
-        let result = await service.getFlowDetail(flowId: try #require(imported.first).id)
+        let result = try await service.getFlowDetail(flowId: #require(imported.first).id)
         let text = try #require(result.content.first?.text)
 
         #expect(text.contains("[REDACTED]"))

@@ -61,6 +61,8 @@ struct DeveloperSetupProbeResponse {
 // MARK: - DeveloperSetupProbeResponder
 
 enum DeveloperSetupProbeResponder {
+    // MARK: Internal
+
     static func response(
         method: HTTPMethod,
         uri: String,
@@ -73,8 +75,8 @@ enum DeveloperSetupProbeResponder {
         }
 
         guard let components = URLComponents(string: uri),
-              components.path == session.path
-        else {
+              components.path == session.path else
+        {
             return plainResponse(status: .notFound, message: "Not found")
         }
 
@@ -88,6 +90,8 @@ enum DeveloperSetupProbeResponder {
             body: Data("{\"ok\":true}\n".utf8)
         )
     }
+
+    // MARK: Private
 
     private static func plainResponse(status: HTTPResponseStatus, message: String) -> DeveloperSetupProbeResponse {
         DeveloperSetupProbeResponse(
@@ -105,6 +109,14 @@ enum DeveloperSetupProbeResponder {
 // MARK: - DeveloperSetupProbeServer
 
 actor DeveloperSetupProbeServer {
+    // MARK: Lifecycle
+
+    init(afterBind: @escaping @Sendable () async -> Void = {}) {
+        self.afterBind = afterBind
+    }
+
+    // MARK: Internal
+
     private(set) var activeSession: DeveloperSetupProbeSession?
 
     var isRunning: Bool {
@@ -151,6 +163,7 @@ actor DeveloperSetupProbeServer {
                 targetID: targetID,
                 token: placeholderSession.token
             )
+            await afterBind()
 
             guard lifecycleGeneration == generation else {
                 try? await channel.close().get()
@@ -198,15 +211,25 @@ actor DeveloperSetupProbeServer {
         await close(channel: channel, group: group)
     }
 
+    // MARK: Private
+
+    private let afterBind: @Sendable () async -> Void
+    private var lifecycleGeneration = 0
+    private var eventLoopGroup: MultiThreadedEventLoopGroup?
+    private var serverChannel: Channel?
+
     private func close(
         channel: Channel?,
         group: MultiThreadedEventLoopGroup?
-    ) async {
+    )
+        async
+    {
         if let channel {
             do {
                 try await channel.close().get()
             } catch {
-                developerSetupProbeLogger.error("Failed to close Developer Setup probe channel: \(error.localizedDescription)")
+                developerSetupProbeLogger
+                    .error("Failed to close Developer Setup probe channel: \(error.localizedDescription)")
             }
         }
 
@@ -214,25 +237,26 @@ actor DeveloperSetupProbeServer {
             do {
                 try await group.shutdownGracefully()
             } catch {
-                developerSetupProbeLogger.error("Failed to shut down Developer Setup probe event loop: \(error.localizedDescription)")
+                developerSetupProbeLogger
+                    .error("Failed to shut down Developer Setup probe event loop: \(error.localizedDescription)")
             }
         }
     }
-
-    private var lifecycleGeneration = 0
-    private var eventLoopGroup: MultiThreadedEventLoopGroup?
-    private var serverChannel: Channel?
 }
 
 // MARK: - DeveloperSetupProbeHandler
 
 private final class DeveloperSetupProbeHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = HTTPServerRequestPart
-    typealias OutboundOut = HTTPServerResponsePart
+    // MARK: Lifecycle
 
     init(session: DeveloperSetupProbeSession) {
         self.session = session
     }
+
+    // MARK: Internal
+
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         switch unwrapInboundIn(data) {
@@ -245,6 +269,11 @@ private final class DeveloperSetupProbeHandler: ChannelInboundHandler, @unchecke
             currentRequestHead = nil
         }
     }
+
+    // MARK: Private
+
+    private let session: DeveloperSetupProbeSession
+    private var currentRequestHead: HTTPRequestHead?
 
     private func respond(context: ChannelHandlerContext) {
         let response = DeveloperSetupProbeResponder.response(
@@ -270,15 +299,14 @@ private final class DeveloperSetupProbeHandler: ChannelInboundHandler, @unchecke
             context.close(promise: nil)
         }
     }
-
-    private let session: DeveloperSetupProbeSession
-    private var currentRequestHead: HTTPRequestHead?
 }
 
 // MARK: - DeveloperSetupProbeError
 
 enum DeveloperSetupProbeError: LocalizedError {
     case portUnavailable
+
+    // MARK: Internal
 
     var errorDescription: String? {
         switch self {

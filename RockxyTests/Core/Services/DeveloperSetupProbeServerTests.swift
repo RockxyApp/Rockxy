@@ -24,6 +24,8 @@ struct DeveloperSetupProbeSessionTests {
 // MARK: - DeveloperSetupProbeResponderTests
 
 struct DeveloperSetupProbeResponderTests {
+    // MARK: Internal
+
     @Test("valid token path returns ok without reflected request data")
     func validTokenPathReturnsOK() {
         let session = DeveloperSetupProbeSession.make(port: 12_345, targetID: .python, token: "token")
@@ -67,6 +69,8 @@ struct DeveloperSetupProbeResponderTests {
 
         #expect(response.status == .methodNotAllowed)
     }
+
+    // MARK: Private
 
     private func header(_ name: String, in response: DeveloperSetupProbeResponse) -> String? {
         response.headers.first { $0.0.caseInsensitiveCompare(name) == .orderedSame }?.1
@@ -129,17 +133,61 @@ struct DeveloperSetupProbeServerTests {
 
     @Test("Stop prevents an in-flight start from publishing afterward")
     func stopIsPublicationBarrier() async {
-        let server = DeveloperSetupProbeServer()
+        let barrier = ProbeServerStartBarrier()
+        let server = DeveloperSetupProbeServer(afterBind: { await barrier.pauseAfterBind() })
         let startTask = Task {
             try await server.start(targetID: .python)
         }
-        await Task.yield()
+        await barrier.waitUntilBound()
 
         await server.stop()
-        _ = try? await startTask.value
-        await Task.yield()
+        await barrier.resumeStart()
+        do {
+            _ = try await startTask.value
+            Issue.record("A start cancelled by stop must not publish a session.")
+        } catch is CancellationError {
+            // Expected: stop advances the lifecycle generation while this start is suspended.
+        } catch {
+            Issue.record("Unexpected start failure: \(error)")
+        }
 
         #expect(await server.activeSession == nil)
         #expect(await server.isRunning == false)
     }
+}
+
+// MARK: - ProbeServerStartBarrier
+
+private actor ProbeServerStartBarrier {
+    // MARK: Internal
+
+    func pauseAfterBind() async {
+        didBind = true
+        boundWaiter?.resume()
+        boundWaiter = nil
+        guard !isReleased else {
+            return
+        }
+        await withCheckedContinuation { releaseWaiter = $0 }
+    }
+
+    func waitUntilBound() async {
+        guard !didBind else {
+            return
+        }
+        await withCheckedContinuation { boundWaiter = $0 }
+    }
+
+    func resumeStart() {
+        isReleased = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+
+    // MARK: Private
+
+    private var boundWaiter: CheckedContinuation<Void, Never>?
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var didBind = false
+    private var isReleased = false
 }

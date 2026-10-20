@@ -9,17 +9,34 @@ import Testing
 struct ExportRedactionTests {
     @Test("A redacted HAR export hides secrets and leaves the captured session untouched")
     func redactedHARHidesSecrets() throws {
-        let request = HTTPRequestData(
+        let request = try HTTPRequestData(
             method: "POST",
-            url: try #require(URL(string: "https://api.example.com/v1/chat?api_key=sk-query-secret&page=2")),
+            url: #require(URL(string: "https://api.example.com/v1/chat?api_key=sk-query-secret&page=2")),
             httpVersion: "HTTP/1.1",
             headers: [
                 HTTPHeader(name: "Authorization", value: "Bearer sk-live-secret"),
                 HTTPHeader(name: "Content-Type", value: "application/json"),
             ],
-            body: Data(#"{"model":"gpt","password":"hunter2"}"#.utf8)
+            body: Data(#"{"model":"gpt","password":"hunter2"}"#.utf8),
+            bodyTruncated: true,
+            bodyOmission: .init(reason: "bodyLimit", observedBytes: 18, originalBytes: 42)
         )
         let transaction = HTTPTransaction(request: request, state: .completed)
+        transaction.babylonGRPCCallType = "bidirectionalStreaming"
+        transaction.babylonCaptureMetadata = BabylonCaptureMetadata(
+            identity: BabylonCaptureIdentity(
+                clientID: "fixture-client",
+                sessionID: "transport-session",
+                projectName: "Example App",
+                bundleIdentifier: "com.example.app",
+                deviceName: "Test Device",
+                deviceModel: "Test Model"
+            ),
+            capabilities: nil,
+            correlation: .init(sessionID: "runtime", traceID: "trace", stepID: "step", createdAt: 1),
+            error: nil,
+            compatibilityDiagnostics: []
+        )
         let plan = ExportExecutionPlan(
             format: .har,
             scope: .all,
@@ -40,6 +57,15 @@ struct ExportRedactionTests {
         #expect(har.contains("REDACTED"))
         #expect(har.contains("page=2"))
         #expect(transaction.request.headers.contains { $0.value == "Bearer sk-live-secret" })
+        let redactedTransaction = try #require(redacted.eligibleTransactions.first)
+        #expect(redactedTransaction.request.bodyTruncated)
+        #expect(redactedTransaction.request.bodyOmission == .init(
+            reason: "bodyLimit",
+            observedBytes: 18,
+            originalBytes: 42
+        ))
+        #expect(redactedTransaction.babylonCaptureMetadata?.traceID == "trace")
+        #expect(redactedTransaction.babylonGRPCCallType == "bidirectionalStreaming")
     }
 
     @Test("Only formats that write headers, bodies, or URLs offer redaction")

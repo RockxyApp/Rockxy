@@ -30,6 +30,7 @@ struct InspectorPanelView: View {
                         openWindow(id: "detachedInspector")
                     }
                 )
+                .id(transaction.id)
                 Divider()
                 HSplitView {
                     RequestInspectorView(

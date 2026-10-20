@@ -18,6 +18,8 @@ import Testing
 /// Rockxy presented its own leaf and relayed the origin's response.
 @Suite(.serialized)
 struct HTTPSInterceptionLoopbackTests {
+    // MARK: Internal
+
     @Test("A decrypted HTTPS round trip is captured when the upstream certificate is accepted")
     func decryptedRoundTripWithRelaxedUpstreamTrust() async throws {
         try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: true) { harness in
@@ -152,7 +154,12 @@ struct HTTPSInterceptionLoopbackTests {
             name: "CORS",
             matchCondition: RuleMatchCondition(urlPattern: "https://localhost.*"),
             action: .modifyHeader(operations: [
-                HeaderOperation(type: .replace, headerName: "Access-Control-Allow-Origin", headerValue: "*", phase: .response),
+                HeaderOperation(
+                    type: .replace,
+                    headerName: "Access-Control-Allow-Origin",
+                    headerValue: "*",
+                    phase: .response
+                ),
             ])
         ))
         await engine.addRule(ProxyRule(
@@ -250,7 +257,10 @@ struct HTTPSInterceptionLoopbackTests {
     @Test("A client that waits before its first request inside a CONNECT tunnel is still captured")
     func plainHTTPAfterPauseInsideTunnelIsCaptured() async throws {
         try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: false, interceptTLS: false) { harness in
-            let response = try await harness.getPlainThroughTunnel("/tunneled/after-pause", firstRequestDelay: .milliseconds(800))
+            let response = try await harness.getPlainThroughTunnel(
+                "/tunneled/after-pause",
+                firstRequestDelay: .milliseconds(800)
+            )
 
             #expect(response.status == 200)
             try await Task.sleep(for: .milliseconds(300))
@@ -282,8 +292,22 @@ struct HTTPSInterceptionLoopbackTests {
         }
     }
 
-    @Test("Strict upstream validation answers 502 quickly and records the rejected handshake")
-    func strictUpstreamTrustRejectsPrivateCAOrigin() async throws {
+    @Test("Strict upstream HTTP/1 validation answers 502 and records the rejected handshake")
+    func strictUpstreamTrustRejectsPrivateCAOriginHTTP1() async throws {
+        try await assertStrictUpstreamTrustRejection(http2Enabled: false)
+    }
+
+    @Test("Strict upstream HTTP/2 validation answers 502 and records the rejected handshake")
+    func strictUpstreamTrustRejectsPrivateCAOriginHTTP2() async throws {
+        try await assertStrictUpstreamTrustRejection(http2Enabled: true)
+    }
+
+    // MARK: Private
+
+    private func assertStrictUpstreamTrustRejection(http2Enabled: Bool) async throws {
+        HTTP2ProxyOptions.setOverride(http2Enabled)
+        defer { HTTP2ProxyOptions.setOverride(nil) }
+
         try await HTTPSLoopbackHarness.run(acceptUntrustedUpstream: false) { harness in
             let started = ContinuousClock.now
             let response = try await harness.get("/secure/items")
@@ -334,11 +358,16 @@ private actor HTTPSLoopbackHarness {
     static let originMarkerHeader = "X-Rockxy-TLS-Origin"
     static let originHost = "localhost"
 
+    nonisolated var plainOriginPort: Int {
+        plainOrigin.boundPort
+    }
+
     static func run(
         acceptUntrustedUpstream: Bool,
         interceptTLS: Bool = true,
         ruleEngine: RuleEngine = RuleEngine(),
-        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil,
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
+            nil,
         _ body: (HTTPSLoopbackHarness) async throws -> Void
     )
         async throws
@@ -362,13 +391,14 @@ private actor HTTPSLoopbackHarness {
         recorder.snapshot()
     }
 
-    nonisolated var plainOriginPort: Int {
-        plainOrigin.boundPort
-    }
-
     /// Issues `GET http://localhost:<plainPort><path>` inside a CONNECT tunnel without any TLS,
     /// the way `ws://` clients and some HTTP libraries tunnel plain traffic through a proxy.
-    func getPlainThroughTunnel(_ path: String, firstRequestDelay: TimeAmount = .zero) async throws -> LoopbackHTTPResponse {
+    func getPlainThroughTunnel(
+        _ path: String,
+        firstRequestDelay: TimeAmount = .zero
+    )
+        async throws -> LoopbackHTTPResponse
+    {
         try await LoopbackHTTPSClient.get(
             host: Self.originHost,
             port: plainOrigin.boundPort,
@@ -625,7 +655,10 @@ private actor TLSOriginFixtureServer {
     static func start(identity: CustomTLSIdentity?) async throws -> TLSOriginFixtureServer {
         let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         let sslContext: NIOSSLContext? = try identity.map { identity in
-            try NIOSSLContext(configuration: TLSInterceptHandler.makeServerTLSConfiguration(identity: identity, allowsHTTP2: false))
+            try NIOSSLContext(configuration: TLSInterceptHandler.makeServerTLSConfiguration(
+                identity: identity,
+                allowsHTTP2: false
+            ))
         }
         let marker = identity == nil ? "plain-origin" : "tls-origin"
         let bootstrap = ServerBootstrap(group: group)
@@ -824,6 +857,23 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
         installTransport(context: context)
     }
 
+    func errorCaught(context: ChannelHandlerContext, error: Error) {
+        promise.fail(error)
+        context.close(promise: nil)
+    }
+
+    // MARK: Private
+
+    private let targetHost: String
+    private let targetPort: Int
+    private let path: String
+    private let sslContext: NIOSSLContext?
+    private let useSOCKS: Bool
+    private let firstRequestDelay: TimeAmount
+    private let promise: EventLoopPromise<LoopbackHTTPResponse>
+    private var pending = ByteBufferAllocator().buffer(capacity: 256)
+    private var socksGreetingDone = false
+
     /// SOCKS5: greeting reply (2 bytes), then CONNECT reply (10 bytes), then TLS.
     private func readSOCKS(context: ChannelHandlerContext) {
         if !socksGreetingDone {
@@ -886,23 +936,6 @@ private final class TunnelThenTLSHandler: ChannelInboundHandler, RemovableChanne
             }
         }
     }
-
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
-        promise.fail(error)
-        context.close(promise: nil)
-    }
-
-    // MARK: Private
-
-    private let targetHost: String
-    private let targetPort: Int
-    private let path: String
-    private let sslContext: NIOSSLContext?
-    private let useSOCKS: Bool
-    private let firstRequestDelay: TimeAmount
-    private let promise: EventLoopPromise<LoopbackHTTPResponse>
-    private var pending = ByteBufferAllocator().buffer(capacity: 256)
-    private var socksGreetingDone = false
 }
 
 // MARK: - TunneledRequestHandler

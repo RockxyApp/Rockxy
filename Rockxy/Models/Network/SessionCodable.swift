@@ -84,6 +84,8 @@ struct CodableTransaction: Codable {
         self.serverHTTPVersion = transaction.serverHTTPVersion
         self.connectionLog = transaction.connectionLog
         self.tunnelReason = transaction.tunnelReason
+        self.babylonCaptureMetadata = transaction.babylonCaptureMetadata
+        self.babylonGRPCCallType = transaction.babylonGRPCCallType
         self.babylonCorrelation = transaction.babylonCorrelation
     }
 
@@ -124,6 +126,11 @@ struct CodableTransaction: Codable {
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
         connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
         tunnelReason = try? container.decodeIfPresent(TunnelReason.self, forKey: .tunnelReason)
+        babylonCaptureMetadata = try? container.decodeIfPresent(
+            BabylonCaptureMetadata.self,
+            forKey: .babylonCaptureMetadata
+        )
+        babylonGRPCCallType = try container.decodeIfPresent(String.self, forKey: .babylonGRPCCallType)
         babylonCorrelation = try? container.decodeIfPresent(BabylonCorrelation.self, forKey: .babylonCorrelation)
     }
 
@@ -160,6 +167,8 @@ struct CodableTransaction: Codable {
         case serverHTTPVersion
         case connectionLog
         case tunnelReason
+        case babylonCaptureMetadata
+        case babylonGRPCCallType
         case babylonCorrelation
     }
 
@@ -196,6 +205,8 @@ struct CodableTransaction: Codable {
     let serverHTTPVersion: String?
     let connectionLog: ConnectionLog?
     let tunnelReason: TunnelReason?
+    let babylonCaptureMetadata: BabylonCaptureMetadata?
+    let babylonGRPCCallType: String?
     let babylonCorrelation: BabylonCorrelation?
 
     func toLiveModel() -> HTTPTransaction {
@@ -231,6 +242,8 @@ struct CodableTransaction: Codable {
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog
         transaction.tunnelReason = tunnelReason
+        transaction.babylonCaptureMetadata = babylonCaptureMetadata
+        transaction.babylonGRPCCallType = babylonGRPCCallType
         transaction.babylonCorrelation = babylonCorrelation
         return transaction
     }
@@ -248,7 +261,8 @@ struct CodableRequest: Codable {
         self.headers = request.headers.map { CodableHeader(from: $0) }
         let encoded = BodyEncoding.encode(request.body)
         self.bodyBase64 = encoded.base64
-        self.bodyTruncated = encoded.truncated
+        self.bodyTruncated = encoded.truncated || request.bodyTruncated
+        self.bodyOmission = request.bodyOmission
         self.originalBodySize = encoded.originalSize
         self.contentType = request.contentType?.rawValue
     }
@@ -261,6 +275,7 @@ struct CodableRequest: Codable {
     let headers: [CodableHeader]
     let bodyBase64: String?
     let bodyTruncated: Bool
+    let bodyOmission: BodyOmissionMetadata?
     let originalBodySize: Int?
     let contentType: String?
 
@@ -271,6 +286,8 @@ struct CodableRequest: Codable {
             httpVersion: httpVersion,
             headers: headers.map { $0.toLiveModel() },
             body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            bodyTruncated: bodyTruncated,
+            bodyOmission: bodyOmission,
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
     }
@@ -287,7 +304,8 @@ struct CodableResponse: Codable {
         self.headers = response.headers.map { CodableHeader(from: $0) }
         let encoded = BodyEncoding.encode(response.body)
         self.bodyBase64 = encoded.base64
-        self.bodyTruncated = encoded.truncated
+        self.bodyTruncated = encoded.truncated || response.bodyTruncated
+        self.bodyOmission = response.bodyOmission
         self.originalBodySize = encoded.originalSize
         self.contentType = response.contentType?.rawValue
         self.trailers = response.trailers?.map { CodableHeader(from: $0) }
@@ -300,6 +318,7 @@ struct CodableResponse: Codable {
     let headers: [CodableHeader]
     let bodyBase64: String?
     let bodyTruncated: Bool
+    let bodyOmission: BodyOmissionMetadata?
     let originalBodySize: Int?
     let contentType: String?
     /// Absent in sessions saved before trailers were recorded.
@@ -311,6 +330,8 @@ struct CodableResponse: Codable {
             statusMessage: statusMessage,
             headers: headers.map { $0.toLiveModel() },
             body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            bodyTruncated: bodyTruncated,
+            bodyOmission: bodyOmission,
             trailers: trailers?.map { $0.toLiveModel() },
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
@@ -506,6 +527,10 @@ struct CodableWebSocketFrame: Codable {
         self.opcode = frame.opcode.rawValue
         self.payloadBase64 = frame.payload.base64EncodedString()
         self.isFinal = frame.isFinal
+        self.closeCode = frame.closeCode
+        self.closeReason = frame.closeReason
+        self.closeOrigin = frame.closeOrigin
+        self.isAbnormalTermination = frame.isAbnormalTermination
     }
 
     // MARK: Internal
@@ -516,6 +541,10 @@ struct CodableWebSocketFrame: Codable {
     let opcode: UInt8
     let payloadBase64: String
     let isFinal: Bool
+    let closeCode: Int?
+    let closeReason: String?
+    let closeOrigin: String?
+    let isAbnormalTermination: Bool?
 
     func toLiveModel() -> WebSocketFrameData {
         WebSocketFrameData(
@@ -524,7 +553,11 @@ struct CodableWebSocketFrame: Codable {
             direction: FrameDirection(rawValue: direction) ?? .received,
             opcode: FrameOpcode(rawValue: opcode) ?? .text,
             payload: Data(base64Encoded: payloadBase64) ?? Data(),
-            isFinal: isFinal
+            isFinal: isFinal,
+            closeCode: closeCode,
+            closeReason: closeReason,
+            closeOrigin: closeOrigin,
+            isAbnormalTermination: isAbnormalTermination == true
         )
     }
 }
