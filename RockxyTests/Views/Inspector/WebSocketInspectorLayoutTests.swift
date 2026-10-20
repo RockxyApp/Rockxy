@@ -28,6 +28,22 @@ struct WebSocketInspectorLayoutTests {
         #expect(!source.contains(".frame(maxHeight: 200)"))
     }
 
+    @Test("WebSocket inspector distinguishes closed, failed, blocked, and active states")
+    func connectionStatusReflectsTransactionState() {
+        #expect(WebSocketConnectionStatus(transactionState: .completed) == .closed)
+        #expect(WebSocketConnectionStatus(transactionState: .failed) == .failed)
+        #expect(WebSocketConnectionStatus(transactionState: .blocked) == .blocked)
+        #expect(WebSocketConnectionStatus(transactionState: .active) == .active)
+        #expect(
+            WebSocketConnectionStatus(transactionState: .failed).title ==
+                String(localized: "Failed", bundle: RockxyLocalization.bundle)
+        )
+        #expect(
+            WebSocketConnectionStatus(transactionState: .active).title ==
+                String(localized: "Active", bundle: RockxyLocalization.bundle)
+        )
+    }
+
     // MARK: Private
 
     private static func occurrences(of needle: String, in haystack: String) -> Int {

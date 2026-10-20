@@ -197,12 +197,11 @@ struct WebSocketInspectorView: View {
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
                     summaryLabel(String(localized: "State", bundle: RockxyLocalization.bundle))
+                    let status = WebSocketConnectionStatus(transactionState: transaction.state)
                     Image(systemName: "circle.fill")
                         .font(.system(size: 6))
-                        .foregroundStyle(transaction.state == .completed ? .red : .green)
-                    Text(transaction.state == .completed
-                        ? String(localized: "Closed", bundle: RockxyLocalization.bundle)
-                        : String(localized: "Active", bundle: RockxyLocalization.bundle))
+                        .foregroundStyle(status.color)
+                    Text(status.title)
                         .font(.system(size: metrics.secondaryFontSize, design: .monospaced))
                 }
                 TimelineView(.animation(minimumInterval: 1, paused: !transaction.isRunning)) { context in
@@ -630,6 +629,58 @@ struct WebSocketInspectorView: View {
 
     private func formatTimestamp(_ date: Date) -> String {
         TimestampFormatter.timeOfDayWithMilliseconds(date)
+    }
+}
+
+// MARK: - WebSocketConnectionStatus
+
+enum WebSocketConnectionStatus: Equatable {
+    case active
+    case closed
+    case failed
+    case blocked
+
+    // MARK: Lifecycle
+
+    init(transactionState: TransactionState) {
+        switch transactionState {
+        case .pending,
+             .active:
+            self = .active
+        case .completed:
+            self = .closed
+        case .failed:
+            self = .failed
+        case .blocked:
+            self = .blocked
+        }
+    }
+
+    // MARK: Internal
+
+    var title: String {
+        switch self {
+        case .active:
+            String(localized: "Active", bundle: RockxyLocalization.bundle)
+        case .closed:
+            String(localized: "Closed", bundle: RockxyLocalization.bundle)
+        case .failed:
+            String(localized: "Failed", bundle: RockxyLocalization.bundle)
+        case .blocked:
+            String(localized: "Blocked", bundle: RockxyLocalization.bundle)
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .active:
+            .green
+        case .closed,
+             .failed:
+            .red
+        case .blocked:
+            .orange
+        }
     }
 }
 

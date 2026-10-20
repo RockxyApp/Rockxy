@@ -58,6 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
 - Babylon gRPC calls with absolute endpoint URLs are now accepted by the gRPC inspector; conflicting authorities are rejected.
 - Babylon WebSocket rows stay live until the app reports them closed, and rows an app left open are marked failed when it disconnects.
+- The WebSocket inspector now shows failed and blocked connection states instead of labeling every non-completed connection as active.
 - Babylon shows a body the SDK did not capture as omitted, keeps the error code and message the app reported, and counts paired apps separately from connections still authenticating.
 - A malformed line in an Ollama model download is reported as an invalid response instead of a network error.
 - With redaction on, MCP flow details now redact GraphQL documents (secret-looking string arguments such as `password:`) and variables and cap their size, and Gemini prompt fields (`contents`, `systemInstruction`) are redacted like other AI prompts in MCP output and redacted exports.
