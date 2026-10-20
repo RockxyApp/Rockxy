@@ -385,15 +385,12 @@ struct ContextDetailsView: View {
                     )
                     LabeledContent(
                         String(localized: "Observed bytes", bundle: RockxyLocalization.bundle),
-                        value: ByteCountFormatter.string(
-                            fromByteCount: Int64(metadata.observedBytes),
-                            countStyle: .file
-                        )
+                        value: SizeFormatter.format(bytes: metadata.observedBytes)
                     )
                     if let originalBytes = metadata.originalBytes {
                         LabeledContent(
                             String(localized: "Original bytes", bundle: RockxyLocalization.bundle),
-                            value: ByteCountFormatter.string(fromByteCount: Int64(originalBytes), countStyle: .file)
+                            value: SizeFormatter.format(bytes: originalBytes)
                         )
                     }
                 }
@@ -688,12 +685,12 @@ struct ContextDetailsView: View {
         }
         let producerLimits = [
             metadata.maximumBodyBytes
-                .map { "Body \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))" },
+                .map { "Body \(SizeFormatter.format(bytes: Int64($0)))" },
             metadata.maximumWebSocketFrameBytes.map {
-                "WebSocket \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+                "WebSocket \(SizeFormatter.format(bytes: Int64($0)))"
             },
             metadata.maximumCaptureMemoryBytes.map {
-                "Memory \(ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file))"
+                "Memory \(SizeFormatter.format(bytes: Int64($0)))"
             },
         ].compactMap { $0 }
         if !producerLimits.isEmpty {
@@ -739,15 +736,15 @@ struct ContextDetailsView: View {
         ))
         fields.append(ContextTableField(
             label: String(localized: "Redirect Count", bundle: RockxyLocalization.bundle),
-            value: String(timing.redirectCount)
+            value: CountFormatter.format(timing.redirectCount)
         ))
         fields.append(ContextTableField(
             label: String(localized: "Reported Transactions", bundle: RockxyLocalization.bundle),
-            value: String(timing.reportedTransactionCount)
+            value: CountFormatter.format(timing.reportedTransactionCount)
         ))
         fields.append(ContextTableField(
             label: String(localized: "Omitted Transactions", bundle: RockxyLocalization.bundle),
-            value: String(timing.omittedTransactionCount)
+            value: CountFormatter.format(timing.omittedTransactionCount)
         ))
         if let taskDuration = timing.taskDuration {
             fields.append(ContextTableField(

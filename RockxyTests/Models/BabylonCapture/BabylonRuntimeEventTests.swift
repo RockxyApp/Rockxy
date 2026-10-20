@@ -24,10 +24,11 @@ struct BabylonRuntimeEventTests {
 
         #expect(event.packageID == "pkg-1")
         #expect(event.name.utf8.count == BabylonRuntimeEvent.maximumNameByteCount)
-        #expect(event.errorMessage?.utf8.count == BabylonRuntimeEvent.maximumErrorByteCount)
+        // CapturedError applies the tighter wire-level cap before runtime-event retention.
+        #expect(event.errorMessage?.utf8.count == 1_024)
         #expect(event.metadata == ["a": "alpha", "b": "beta"])
         #expect(event.isContentTruncated)
-        #expect(event.truncatedFields == [.name, .error])
+        #expect(event.truncatedFields == [.name])
         #expect(event.byteCount > 0)
     }
 
