@@ -186,6 +186,7 @@ struct RequestInspectorView: View {
                     source: .request,
                     coordinator: coordinator
                 )
+                .id(transaction.id)
                 .padding()
             }
         }
