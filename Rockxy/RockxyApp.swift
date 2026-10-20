@@ -88,7 +88,7 @@ struct RockxyApp: App {
 
         Window(String(localized: "Babylon Runtime", bundle: RockxyLocalization.bundle), id: "babylonRuntime") {
             ToolWindowDisplayMetricsProvider {
-                BabylonRuntimeView()
+                BabylonRuntimeView(coordinator: mainCoordinator)
             }
         }
         .commandsRemoved()

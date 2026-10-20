@@ -4,6 +4,8 @@ import Foundation
 /// `streaming:true`, `chain:0x1`, `has:tx_hash`, and `is:x402` into metadata predicates.
 /// Unrecognized text remains available for the normal selected-field substring search.
 struct SmartTrafficFilter: Equatable {
+    // MARK: Internal
+
     enum Predicate: Equatable {
         case isAI
         case isAIAPI
@@ -18,6 +20,10 @@ struct SmartTrafficFilter: Equatable {
         case chain(String)
         case hasTransactionHash
         case isX402
+        case babylonTrace(String)
+        case babylonStep(String)
+        case babylonSession(String)
+        case babylonSource(String)
     }
 
     let predicates: [Predicate]
@@ -31,7 +37,7 @@ struct SmartTrafficFilter: Equatable {
         var predicates: [Predicate] = []
         var remainingTokens: [String] = []
 
-        for token in searchText.split(whereSeparator: \.isWhitespace).map(String.init) {
+        for token in tokens(in: searchText) {
             guard let parsed = parseToken(token) else {
                 remainingTokens.append(token)
                 continue
@@ -80,8 +86,56 @@ struct SmartTrafficFilter: Equatable {
                 transaction.web3RPCInfo?.transactionHash != nil
             case .isX402:
                 transaction.x402Info?.isX402Like == true
+            case let .babylonTrace(traceID):
+                transaction.babylonCorrelation?.traceID == traceID
+            case let .babylonStep(stepID):
+                transaction.babylonCorrelation?.stepID == stepID
+            case let .babylonSession(sessionID):
+                transaction.babylonCorrelation?.sessionID == sessionID
+            case let .babylonSource(clientID):
+                transaction.babylonCorrelation?.sourceClientID == clientID
             }
         }
+    }
+
+    // MARK: Private
+
+    private static let namedChains: [String: UInt64] = [
+        "mainnet": 1, "ethereum": 1, "eth": 1,
+        "sepolia": 11_155_111, "holesky": 17_000,
+        "base": 8_453, "optimism": 10, "arbitrum": 42_161,
+        "polygon": 137, "bsc": 56,
+    ]
+
+    private static func tokens(in searchText: String) -> [String] {
+        var tokens: [String] = []
+        var token = ""
+        var isQuoted = false
+        var isEscaped = false
+        for character in searchText {
+            if isEscaped {
+                token.append(character)
+                isEscaped = false
+            } else if character == "\\", isQuoted {
+                isEscaped = true
+            } else if character == "\"" {
+                isQuoted.toggle()
+            } else if character.isWhitespace, !isQuoted {
+                if !token.isEmpty {
+                    tokens.append(token)
+                    token = ""
+                }
+            } else {
+                token.append(character)
+            }
+        }
+        if isEscaped {
+            token.append("\\")
+        }
+        if !token.isEmpty {
+            tokens.append(token)
+        }
+        return tokens
     }
 
     private static func parseToken(_ token: String) -> Predicate? {
@@ -101,9 +155,15 @@ struct SmartTrafficFilter: Equatable {
             switch value.lowercased() {
             case "ai":
                 return .isAI
-            case "ai_api", "ai-api", "api_ai", "api-ai":
+            case "ai_api",
+                 "ai-api",
+                 "api_ai",
+                 "api-ai":
                 return .isAIAPI
-            case "ai_session", "ai-session", "session_ai", "session-ai":
+            case "ai_session",
+                 "ai-session",
+                 "session_ai",
+                 "session-ai":
                 return .isAISession
             case "web3":
                 return .isWeb3
@@ -114,14 +174,21 @@ struct SmartTrafficFilter: Equatable {
             }
         case "has":
             switch value.lowercased() {
-            case "tool_call", "tool-call", "tool_calls", "tools":
+            case "tool_call",
+                 "tool-call",
+                 "tool_calls",
+                 "tools":
                 return .hasToolCall
-            case "tx_hash", "tx-hash", "txhash", "transaction_hash":
+            case "tx_hash",
+                 "tx-hash",
+                 "txhash",
+                 "transaction_hash":
                 return .hasTransactionHash
             default:
                 return nil
             }
-        case "streaming", "stream":
+        case "streaming",
+             "stream":
             return parseBool(value).map(Predicate.streaming)
         case "chain":
             // Only names and numbers Rockxy can compare; anything else stays plain search text.
@@ -134,6 +201,16 @@ struct SmartTrafficFilter: Equatable {
             return .provider(value)
         case "model":
             return .model(value)
+        case "trace":
+            // Runtime identifiers are opaque and compared exactly.
+            return .babylonTrace(value)
+        case "step":
+            return .babylonStep(value)
+        case "session":
+            return .babylonSession(value)
+        case "source",
+             "client":
+            return .babylonSource(value)
         default:
             return nil
         }
@@ -141,9 +218,13 @@ struct SmartTrafficFilter: Equatable {
 
     private static func parseBool(_ value: String) -> Bool? {
         switch value.lowercased() {
-        case "true", "yes", "1":
+        case "true",
+             "yes",
+             "1":
             true
-        case "false", "no", "0":
+        case "false",
+             "no",
+             "0":
             false
         default:
             nil
@@ -173,13 +254,6 @@ struct SmartTrafficFilter: Equatable {
         }
         return UInt64(trimmed)
     }
-
-    private static let namedChains: [String: UInt64] = [
-        "mainnet": 1, "ethereum": 1, "eth": 1,
-        "sepolia": 11_155_111, "holesky": 17_000,
-        "base": 8_453, "optimism": 10, "arbitrum": 42_161,
-        "polygon": 137, "bsc": 56,
-    ]
 
     private func rpcMethods(in transaction: HTTPTransaction) -> [String] {
         guard let info = transaction.web3RPCInfo else {

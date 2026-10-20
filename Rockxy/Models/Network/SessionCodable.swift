@@ -84,6 +84,7 @@ struct CodableTransaction: Codable {
         self.serverHTTPVersion = transaction.serverHTTPVersion
         self.connectionLog = transaction.connectionLog
         self.tunnelReason = transaction.tunnelReason
+        self.babylonCorrelation = transaction.babylonCorrelation
     }
 
     init(from decoder: Decoder) throws {
@@ -123,6 +124,7 @@ struct CodableTransaction: Codable {
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
         connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
         tunnelReason = try? container.decodeIfPresent(TunnelReason.self, forKey: .tunnelReason)
+        babylonCorrelation = try? container.decodeIfPresent(BabylonCorrelation.self, forKey: .babylonCorrelation)
     }
 
     // MARK: Internal
@@ -158,6 +160,7 @@ struct CodableTransaction: Codable {
         case serverHTTPVersion
         case connectionLog
         case tunnelReason
+        case babylonCorrelation
     }
 
     let id: UUID
@@ -193,6 +196,7 @@ struct CodableTransaction: Codable {
     let serverHTTPVersion: String?
     let connectionLog: ConnectionLog?
     let tunnelReason: TunnelReason?
+    let babylonCorrelation: BabylonCorrelation?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -227,6 +231,7 @@ struct CodableTransaction: Codable {
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog
         transaction.tunnelReason = tunnelReason
+        transaction.babylonCorrelation = babylonCorrelation
         return transaction
     }
 }

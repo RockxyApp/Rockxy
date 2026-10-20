@@ -67,6 +67,10 @@ enum BabylonCaptureMapper {
         }
         transaction.clientApp = identity.displayName
         transaction.connectionLog = appReportedFailure(package.error, url: url)
+        transaction.babylonCorrelation = BabylonCorrelation(
+            context: package.correlationContext,
+            sourceClientID: identity.clientID
+        )
         return transaction
     }
 
@@ -100,6 +104,71 @@ enum BabylonCaptureMapper {
     static func isGRPC(_ package: BabylonTrafficPackageDTO) -> Bool {
         package.packageType == .grpc || package.request.method.caseInsensitiveCompare("GRPC") == .orderedSame
     }
+
+    /// `notFound (code=5)` → 5. The SDK reports the status as a description, not a number.
+    static func grpcStatusCode(from description: String) -> Int? {
+        if let value = Int(description.trimmingCharacters(in: .whitespaces)) {
+            return value
+        }
+        guard let range = description.range(of: "code=") else {
+            return nil
+        }
+        return Int(description[range.upperBound...].prefix { $0.isNumber })
+    }
+
+    static func makeWebSocketFrame(from package: BabylonTrafficPackageDTO) throws -> WebSocketFrameData {
+        guard let message = package.websocketMessagePackage else {
+            throw BabylonCaptureMappingError.missingWebSocketMessage
+        }
+        let direction: FrameDirection = switch message.messageType {
+        case .receive,
+             .receiveCloseMessage,
+             .pong:
+            .received
+        case .send,
+             .sendCloseMessage,
+             .pingPong,
+             .ping,
+             .unknown:
+            .sent
+        }
+        let opcode: FrameOpcode
+        let payload: Data
+        switch message.messageType {
+        case .sendCloseMessage,
+             .receiveCloseMessage:
+            opcode = .connectionClose
+            payload = closePayload(message)
+        case .pingPong,
+             .ping:
+            opcode = .ping
+            payload = message.dataValue ?? Data((message.stringValue ?? "").utf8)
+        case .pong:
+            opcode = .pong
+            payload = message.dataValue ?? Data((message.stringValue ?? "").utf8)
+        case .send,
+             .receive,
+             .unknown:
+            if let data = message.dataValue {
+                opcode = .binary
+                payload = data
+            } else {
+                opcode = .text
+                payload = Data((message.stringValue ?? "").utf8)
+            }
+        }
+        guard payload.count <= ProxyLimits.maxWebSocketFrameSize else {
+            throw BabylonCaptureMappingError.oversizedBody
+        }
+        return WebSocketFrameData(
+            timestamp: Date(timeIntervalSince1970: message.createdAt),
+            direction: direction,
+            opcode: opcode,
+            payload: payload
+        )
+    }
+
+    // MARK: Private
 
     private static func makeGRPCTransaction(
         from package: BabylonTrafficPackageDTO,
@@ -140,7 +209,10 @@ enum BabylonCaptureMapper {
             let all = headers(response.headers)
             let status = all.first { $0.name.lowercased() == "statuscode" }.flatMap { grpcStatusCode(from: $0.value) }
             let message = all.first { $0.name.lowercased() == "statusmessage" }?.value
-            var trailers = [HTTPHeader(name: "grpc-status", value: String(status ?? (response.statusCode == 200 ? 0 : 2)))]
+            var trailers = [HTTPHeader(
+                name: "grpc-status",
+                value: String(status ?? (response.statusCode == 200 ? 0 : 2))
+            )]
             if let message, message != "nil", !message.isEmpty {
                 trailers.append(HTTPHeader(name: "grpc-message", value: message))
             }
@@ -169,18 +241,11 @@ enum BabylonCaptureMapper {
         transaction.clientApp = identity.displayName
         transaction.serverHTTPVersion = "2"
         transaction.connectionLog = appReportedFailure(package.error, url: url)
+        transaction.babylonCorrelation = BabylonCorrelation(
+            context: package.correlationContext,
+            sourceClientID: identity.clientID
+        )
         return transaction
-    }
-
-    /// `notFound (code=5)` → 5. The SDK reports the status as a description, not a number.
-    static func grpcStatusCode(from description: String) -> Int? {
-        if let value = Int(description.trimmingCharacters(in: .whitespaces)) {
-            return value
-        }
-        guard let range = description.range(of: "code=") else {
-            return nil
-        }
-        return Int(description[range.upperBound...].prefix { $0.isNumber })
     }
 
     /// Wraps a raw message in the 5-byte gRPC length prefix unless it already has one.
@@ -251,7 +316,9 @@ enum BabylonCaptureMapper {
     private static func appReportedFailure(
         _ error: BabylonTrafficPackageDTO.CapturedError?,
         url: URL
-    ) -> ConnectionLog? {
+    )
+        -> ConnectionLog?
+    {
         guard let error else {
             return nil
         }
@@ -266,60 +333,6 @@ enum BabylonCaptureMapper {
             )
         )
     }
-
-    static func makeWebSocketFrame(from package: BabylonTrafficPackageDTO) throws -> WebSocketFrameData {
-        guard let message = package.websocketMessagePackage else {
-            throw BabylonCaptureMappingError.missingWebSocketMessage
-        }
-        let direction: FrameDirection = switch message.messageType {
-        case .receive,
-             .receiveCloseMessage,
-             .pong:
-            .received
-        case .send,
-             .sendCloseMessage,
-             .pingPong,
-             .ping,
-             .unknown:
-            .sent
-        }
-        let opcode: FrameOpcode
-        let payload: Data
-        switch message.messageType {
-        case .sendCloseMessage,
-             .receiveCloseMessage:
-            opcode = .connectionClose
-            payload = closePayload(message)
-        case .pingPong,
-             .ping:
-            opcode = .ping
-            payload = message.dataValue ?? Data((message.stringValue ?? "").utf8)
-        case .pong:
-            opcode = .pong
-            payload = message.dataValue ?? Data((message.stringValue ?? "").utf8)
-        case .send,
-             .receive,
-             .unknown:
-            if let data = message.dataValue {
-                opcode = .binary
-                payload = data
-            } else {
-                opcode = .text
-                payload = Data((message.stringValue ?? "").utf8)
-            }
-        }
-        guard payload.count <= ProxyLimits.maxWebSocketFrameSize else {
-            throw BabylonCaptureMappingError.oversizedBody
-        }
-        return WebSocketFrameData(
-            timestamp: Date(timeIntervalSince1970: message.createdAt),
-            direction: direction,
-            opcode: opcode,
-            payload: payload
-        )
-    }
-
-    // MARK: Private
 
     /// A close frame's payload is the 2-byte status code followed by the reason, as on the wire.
     private static func closePayload(_ message: BabylonTrafficPackageDTO.WebSocketMessage) -> Data {

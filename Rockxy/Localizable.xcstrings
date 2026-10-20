@@ -314,6 +314,66 @@
         }
       }
     },
+    "Babylon advertises a body limit larger than Rockxy's safe capture limit. Rockxy will keep its own limit and may omit larger bodies.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明的正文上限超过 Rockxy 的安全捕获上限。Rockxy 将继续使用自身上限，并可能省略较大的正文。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an incompatible schema version. Update Rockxy or the Babylon SDK before relying on that capture data.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明的架构版本不兼容。使用该捕获数据前，请更新 Rockxy 或 Babylon SDK。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an optional schema that this Rockxy version does not consume. Update Rockxy or disable that producer capability.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明了此 Rockxy 版本无法处理的可选架构。请更新 Rockxy 或停用该生产端功能。"
+          }
+        }
+      }
+    },
+    "Babylon advertises an unsupported traffic type. Update Rockxy or disable that producer capability.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 声明了不受支持的流量类型。请更新 Rockxy 或停用该生产端功能。"
+          }
+        }
+      }
+    },
+    "Babylon Capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon 捕获"
+          }
+        }
+      }
+    },
+    "Babylon SDK": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Babylon SDK"
+          }
+        }
+      }
+    },
     "Bars show each captured event's payload size in stream order. Times above were measured by Rockxy as events arrived.": {
       "localizations": {
         "zh-Hans": {
@@ -374,6 +434,16 @@
         }
       }
     },
+    "Captured Error": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获的错误"
+          }
+        }
+      }
+    },
     "Captured timing phase.": {
       "localizations": {
         "zh-Hans": {
@@ -404,12 +474,32 @@
         }
       }
     },
+    "Client ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端 ID"
+          }
+        }
+      }
+    },
     "Compare with a faster request to this endpoint to see what differs.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "与发往此端点的更快请求比较，查看有何不同。"
+          }
+        }
+      }
+    },
+    "Compatibility": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兼容性"
           }
         }
       }
@@ -1000,6 +1090,26 @@
         }
       }
     },
+    "In This Step": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此步骤中"
+          }
+        }
+      }
+    },
+    "In This Trace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此追踪中"
+          }
+        }
+      }
+    },
     "Included": {
       "localizations": {
         "zh-Hans": {
@@ -1450,6 +1560,26 @@
         }
       }
     },
+    "Outside any step": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不在任何步骤中"
+          }
+        }
+      }
+    },
+    "Package": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "软件包"
+          }
+        }
+      }
+    },
     "Paired Apps": {
       "localizations": {
         "zh-Hans": {
@@ -1486,6 +1616,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "暂停或继续录制"
+          }
+        }
+      }
+    },
+    "Payload Schemas": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "负载架构"
           }
         }
       }
@@ -1590,6 +1730,26 @@
         }
       }
     },
+    "Producer Capabilities": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产端功能"
+          }
+        }
+      }
+    },
+    "Producer Platform": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "生产端平台"
+          }
+        }
+      }
+    },
     "Projects could not be loaded, so Rockxy did not import the transferred session.": {
       "localizations": {
         "zh-Hans": {
@@ -1616,6 +1776,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "敏感数据脱敏"
+          }
+        }
+      }
+    },
+    "Related Traffic": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相关流量"
           }
         }
       }
@@ -2020,6 +2190,66 @@
         }
       }
     },
+    "Show All Traces": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示所有追踪"
+          }
+        }
+      }
+    },
+    "Show in Runtime Events": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在运行时事件中显示"
+          }
+        }
+      }
+    },
+    "Show Only This Trace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅显示此追踪"
+          }
+        }
+      }
+    },
+    "Show Step Requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示步骤请求"
+          }
+        }
+      }
+    },
+    "Show Trace Requests": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示追踪请求"
+          }
+        }
+      }
+    },
+    "Showing one trace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在显示一个追踪"
+          }
+        }
+      }
+    },
     "Showing the first %lld of %lld errors.": {
       "localizations": {
         "en": {
@@ -2282,6 +2512,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "随代理启动"
+          }
+        }
+      }
+    },
+    "Step ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "步骤 ID"
           }
         }
       }
@@ -2646,12 +2886,42 @@
         }
       }
     },
+    "Trace %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追踪 %@"
+          }
+        }
+      }
+    },
+    "Trace ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跟踪 ID"
+          }
+        }
+      }
+    },
     "Transfer dominated. Check the response size, compression, and network conditions.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "传输占主导。请检查响应大小、压缩和网络状况。"
+          }
+        }
+      }
+    },
+    "Transport Session": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "传输会话"
           }
         }
       }
@@ -7267,6 +7537,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有来源"
+          }
+        }
+      }
+    },
+    "All Sessions": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有会话"
           }
         }
       }
@@ -50086,6 +50366,242 @@
           "stringUnit": {
             "state": "translated",
             "value": "macOS 未接受代理更改。请在 Rockxy 中检查捕获状态。"
+          }
+        }
+      }
+    },
+    "Runtime Step": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运行时步骤"
+          }
+        }
+      }
+    },
+    "All Steps": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有步骤"
+          }
+        }
+      }
+    },
+    "-%@": {
+      "comment": "A label that shows the number of lines that have been removed in a diff. The argument is the number of removed lines.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-%@"
+          }
+        }
+      }
+    },
+    "%@ / %@": {
+      "comment": "A tooltip that displays the session ID and trace ID of the trace.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ / %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "%@ %@\n%@": {
+      "comment": "A tooltip that shows the HTTP method and URL of the transaction, and a hint to reveal the transaction in the main window. The argument is the string “Click to select this request”.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ %2$@\n%3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@\n%3$@"
+          }
+        }
+      }
+    },
+    "%@ %@ · %@": {
+      "comment": "A tooltip that shows the offset, title, and size of the event.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ %2$@ · %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ · %3$@"
+          }
+        }
+      }
+    },
+    "%@, %@, %@": {
+      "comment": "A11y label that combines the title and value of the tile.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@, %2$@, %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@、%3$@"
+          }
+        }
+      }
+    },
+    "%@: %@. %@": {
+      "comment": "A row in the Traffic Insights findings list. The first argument is the string “Info”, the string “Notice” or the string “Warning”. The second argument is the finding's title. The third argument is the finding's detail.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@: %2$@. %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@。%3$@"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "comment": "The error rate as a percentage.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "+%@": {
+      "comment": "A label that shows the number of added lines and a plus sign. The argument is the number of added lines.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%@"
+          }
+        }
+      }
+    },
+    "Direction": {
+      "comment": "The \"received\" series is used to distinguish between incoming and outgoing data in the traffic insights chart.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向"
+          }
+        }
+      }
+    },
+    "End": {
+      "comment": "Label for the end of a time bin.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束"
+          }
+        }
+      }
+    },
+    "From": {
+      "comment": "Label for the y-axis in the latency chart.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起始"
+          }
+        }
+      }
+    },
+    "p95": {
+      "comment": "The 95th percentile latency.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p95"
+          }
+        }
+      }
+    },
+    "Series": {
+      "comment": "Tail of a latency plot.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系列"
+          }
+        }
+      }
+    },
+    "Share": {
+      "comment": "Label for the accessibility element representing the share of a protocol.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占比"
+          }
+        }
+      }
+    },
+    "To": {
+      "comment": "Y-axis value label for the upper bound of a value.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至"
           }
         }
       }
