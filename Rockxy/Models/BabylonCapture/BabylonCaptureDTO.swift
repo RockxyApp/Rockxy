@@ -176,7 +176,9 @@ struct BabylonTrafficPackageDTO: Codable {
             stringValue: String?,
             dataValue: Data?,
             closeCode: Int? = nil,
-            closeReason: String? = nil
+            closeReason: String? = nil,
+            closeOrigin: String? = nil,
+            abnormal: Bool? = nil
         ) {
             self.id = id
             self.createdAt = createdAt
@@ -185,6 +187,8 @@ struct BabylonTrafficPackageDTO: Codable {
             self.dataValue = dataValue
             self.closeCode = closeCode
             self.closeReason = closeReason
+            self.closeOrigin = closeOrigin
+            self.abnormal = abnormal
         }
 
         // MARK: Internal
@@ -199,6 +203,7 @@ struct BabylonTrafficPackageDTO: Codable {
             case receive
             case sendCloseMessage
             case receiveCloseMessage
+            case abnormalTermination
             case unknown
 
             // MARK: Lifecycle
@@ -217,6 +222,8 @@ struct BabylonTrafficPackageDTO: Codable {
         /// Close frame status code and reason, sent by SDKs that report them separately.
         let closeCode: Int?
         let closeReason: String?
+        let closeOrigin: String?
+        let abnormal: Bool?
     }
 
     struct GRPCCapture: Codable {

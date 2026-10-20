@@ -134,6 +134,16 @@
         }
       }
     },
+    "Abnormal Termination": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "异常终止"
+          }
+        }
+      }
+    },
     "Accept Babylon Connections": {
       "localizations": {
         "zh-Hans": {
@@ -400,6 +410,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "更改匹配请求的路径。"
+          }
+        }
+      }
+    },
+    "Close Code": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭代码"
+          }
+        }
+      }
+    },
+    "Close Origin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭发起方"
+          }
+        }
+      }
+    },
+    "Close Reason": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭原因"
           }
         }
       }
@@ -1120,6 +1160,16 @@
         }
       }
     },
+    "Local": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地"
+          }
+        }
+      }
+    },
     "Local Address": {
       "localizations": {
         "zh-Hans": {
@@ -1626,6 +1676,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "请在模拟器中重新启动 App，然后为其主机启用 HTTPS 解密。"
+          }
+        }
+      }
+    },
+    "Remote": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "远程"
           }
         }
       }

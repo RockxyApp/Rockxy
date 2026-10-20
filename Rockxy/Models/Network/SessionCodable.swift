@@ -522,6 +522,10 @@ struct CodableWebSocketFrame: Codable {
         self.opcode = frame.opcode.rawValue
         self.payloadBase64 = frame.payload.base64EncodedString()
         self.isFinal = frame.isFinal
+        self.closeCode = frame.closeCode
+        self.closeReason = frame.closeReason
+        self.closeOrigin = frame.closeOrigin
+        self.isAbnormalTermination = frame.isAbnormalTermination
     }
 
     // MARK: Internal
@@ -532,6 +536,10 @@ struct CodableWebSocketFrame: Codable {
     let opcode: UInt8
     let payloadBase64: String
     let isFinal: Bool
+    let closeCode: Int?
+    let closeReason: String?
+    let closeOrigin: String?
+    let isAbnormalTermination: Bool?
 
     func toLiveModel() -> WebSocketFrameData {
         WebSocketFrameData(
@@ -540,7 +548,11 @@ struct CodableWebSocketFrame: Codable {
             direction: FrameDirection(rawValue: direction) ?? .received,
             opcode: FrameOpcode(rawValue: opcode) ?? .text,
             payload: Data(base64Encoded: payloadBase64) ?? Data(),
-            isFinal: isFinal
+            isFinal: isFinal,
+            closeCode: closeCode,
+            closeReason: closeReason,
+            closeOrigin: closeOrigin,
+            isAbnormalTermination: isAbnormalTermination == true
         )
     }
 }

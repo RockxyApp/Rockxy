@@ -423,9 +423,10 @@ struct BabylonCaptureTCPCompatibilityTests {
         for (index, call) in callCases.enumerated() {
             var payloadObject = baseObject
             var grpcCapture = try #require(payloadObject["grpcCapture"] as? [String: Any])
-            let endpoint = "/example.Greeter/\(call.type)"
+            let endpoint = "https://api.example.test:8443/example.Greeter/\(call.type)"
             grpcCapture["callType"] = call.type
             grpcCapture["endpoint"] = endpoint
+            grpcCapture["authority"] = "api.example.test:8443"
             grpcCapture["messages"] = call.messages.map { message in
                 [
                     "sequence": message.sequence,
@@ -453,13 +454,30 @@ struct BabylonCaptureTCPCompatibilityTests {
             #expect(try await ackReader.next(on: connection) == messageID)
         }
 
-        try await Self.waitForTransactions(coordinator, expected: callCases.count)
+        let failedEndpoint = "https://api.example.test:8443/example.Greeter/Unavailable"
+        let failedPayload = try Self.unavailableGRPCFixture(from: baseObject, endpoint: failedEndpoint)
+        let failedFrame = try Self.encoded(
+            type: .traffic, content: failedPayload, messageID: "traffic-grpc-unavailable", sequence: 6,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(failedFrame), on: connection)
+        #expect(try await ackReader.next(on: connection) == "traffic-grpc-unavailable")
+
+        try await Self.waitForTransactions(coordinator, expected: callCases.count + 1)
         for call in callCases {
-            let endpoint = "/example.Greeter/\(call.type)"
-            let transaction = try #require(coordinator.transactions.first { $0.request.url.path == endpoint })
+            let endpoint = "https://api.example.test:8443/example.Greeter/\(call.type)"
+            let transaction = try #require(coordinator.transactions.first {
+                $0.request.url.absoluteString == endpoint
+            })
             #expect(transaction.request.httpVersion == "HTTP/2")
             #expect(transaction.babylonGRPCCallType == call.type)
             #expect(transaction.response?.trailers?.contains { $0.name == "grpc-status" && $0.value == "0" } == true)
+            #expect(transaction.response?.trailers?.contains { $0.name == "grpc-message" && $0.value == "ok" } == true)
+            #expect(transaction.request.headers
+                .contains { $0.name == "content-type" && $0.value == "application/grpc+proto" })
+            #expect(transaction.response?.headers
+                .contains { $0.name == "x-request-id" && $0.value == "fixture-123" } == true)
+            #expect(transaction.measuredDuration == 0.25)
 
             var expectedRequestBody = Data()
             for message in call.messages.filter({ $0.direction == "request" })
@@ -487,6 +505,23 @@ struct BabylonCaptureTCPCompatibilityTests {
             #expect(inspection?.requestFrames.count == call.messages.count(where: { $0.direction == "request" }))
             #expect(inspection?.responseFrames.count == call.messages.count(where: { $0.direction == "response" }))
         }
+
+        let failedTransaction = try #require(coordinator.transactions.first {
+            $0.request.url.absoluteString == failedEndpoint
+        })
+        let failedInspection = GRPCDetector.detect(
+            request: failedTransaction.request,
+            response: failedTransaction.response,
+            timingInfo: failedTransaction.timingInfo,
+            measuredDuration: failedTransaction.measuredDuration,
+            callType: failedTransaction.babylonGRPCCallType
+        )
+        #expect(failedInspection?.grpcStatus == "14")
+        #expect(failedInspection?.grpcMessage == "synthetic unavailable")
+        #expect(failedTransaction.response?.body == nil)
+        #expect(failedTransaction.response?.bodyOmission?.reason == "grpcMessageOmitted")
+        #expect(failedTransaction.response?.bodyOmission?.observedBytes == 4_096)
+        #expect(failedTransaction.response?.bodyOmission?.originalBytes == 4_096)
         try await Self.stopAndWait(receiver)
     }
 
@@ -700,6 +735,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         let ackReader = BabylonAckReader(token: token)
         let connectionFixture = try Data(contentsOf: Self.fixtureURL("connection.json"))
         let runtimeFixture = try Data(contentsOf: Self.fixtureURL("runtime.json"))
+        let runtimePackageID = "runtime-event-1"
         let connectionFrame = try Self.encoded(
             type: .connection, content: connectionFixture, messageID: "flush-connection", sequence: 1,
             sessionID: "flush-session", clientID: "com.example.fixture", token: token
@@ -712,11 +748,11 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(try await ackReader.next(on: client) == "flush-connection")
         try await Self.send(BabylonFrameAccumulator.frame(runtimeFrame), on: client)
         #expect(try await ackReader.next(on: client) == "flush-runtime-event")
-        #expect(!BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "flush-runtime-event" })
+        #expect(!BabylonRuntimeEventStore.shared.events.contains { $0.packageID == runtimePackageID })
 
         receiver.stop()
         try await Self.waitUntilStopped(receiver)
-        #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == "flush-runtime-event" })
+        #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == runtimePackageID })
     }
 
     // MARK: Private
@@ -728,6 +764,47 @@ struct BabylonCaptureTCPCompatibilityTests {
             .deletingLastPathComponent()
             .appendingPathComponent("Fixtures/BabylonProtocol/v1")
             .appendingPathComponent(name)
+    }
+
+    private static func unavailableGRPCFixture(from baseObject: [String: Any], endpoint: String) throws -> Data {
+        var payloadObject = baseObject
+        var capture = try #require(payloadObject["grpcCapture"] as? [String: Any])
+        capture["callType"] = "unary"
+        capture["endpoint"] = endpoint
+        capture["authority"] = "api.example.test:8443"
+        capture["statusCode"] = 14
+        capture["statusMessage"] = "synthetic unavailable"
+        capture["trailers"] = [
+            ["key": "grpc-status", "value": "14"],
+            ["key": "grpc-message", "value": "synthetic unavailable"],
+        ]
+        let messages: [[String: Any]] = [
+            [
+                "sequence": 0,
+                "direction": "request",
+                "data": Data([8, 42]).base64EncodedString(),
+                "observedBytes": 2,
+                "omitted": false,
+                "compressed": false,
+                "timestamp": 1_725_000_000.1,
+            ],
+            [
+                "sequence": 0,
+                "direction": "response",
+                "data": NSNull(),
+                "observedBytes": 4_096,
+                "omitted": true,
+                "compressed": false,
+                "timestamp": 1_725_000_000.2,
+            ],
+        ]
+        capture["messages"] = messages
+        payloadObject["grpcCapture"] = capture
+        payloadObject["id"] = "traffic-grpc-unavailable"
+        var request = try #require(payloadObject["request"] as? [String: Any])
+        request["url"] = endpoint
+        payloadObject["request"] = request
+        return try JSONSerialization.data(withJSONObject: payloadObject, options: [.sortedKeys])
     }
 
     private static func isolatedDefaults() throws -> (UserDefaults, String) {

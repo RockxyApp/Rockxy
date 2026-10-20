@@ -134,6 +134,7 @@ struct BabylonCaptureMapperTests {
         #expect(decoded.babylonCaptureMetadata?.transportSessionID == "session")
         #expect(decoded.babylonCaptureMetadata?.runtimeSessionID == "runtime-session")
         #expect(decoded.babylonCaptureMetadata?.traceID == "trace")
+        #expect(decoded.babylonCaptureMetadata?.stepID == "step")
         #expect(decoded.babylonCaptureMetadata?.urlSessionTiming?.taskDuration == 1.25)
         #expect(decoded.babylonCaptureMetadata?.urlSessionTiming?.redirectCount == 1)
         #expect(decoded.babylonCaptureMetadata?.urlSessionTiming?.transactions.first?.dnsDuration == 0.01)
@@ -174,7 +175,7 @@ struct BabylonCaptureMapperTests {
         let capabilities = BabylonConnectionPackageDTO.Capabilities(
             sdkVersion: "2.0.0",
             platform: "macOS",
-            payloadSchemaVersions: ["traffic": 2, "urlSessionTiming": 1],
+            payloadSchemaVersions: ["futureEvent": 1, "traffic": 2, "urlSessionTiming": 1],
             supportedMessageTypes: ["connection", "futureEvent"],
             supportedTrafficTypes: ["http", "webtransport"],
             maximumBodyBytes: 60 * 1_024 * 1_024,
@@ -245,9 +246,9 @@ struct BabylonCaptureMapperTests {
         #expect(responseHeaders.contains { $0.name == "grpc-encoding" && $0.value == "gzip" })
     }
 
-    @Test("Typed gRPC aggregation rejects messages beyond the body budget")
-    func rejectsOversizedTypedGRPCAggregate() {
-        let messageSize = 26_214_400
+    @Test("Typed gRPC directions share the producer body budget")
+    func rejectsOversizedTypedGRPCAggregateAcrossDirections() {
+        let messageSize = 26_214_401
         let package = makeTypedGRPCPackage(messages: [
             .init(
                 sequence: 0,
@@ -260,7 +261,7 @@ struct BabylonCaptureMapperTests {
             ),
             .init(
                 sequence: 1,
-                direction: .request,
+                direction: .response,
                 data: Data(repeating: 0, count: messageSize),
                 observedBytes: messageSize,
                 omitted: false,
@@ -268,6 +269,39 @@ struct BabylonCaptureMapperTests {
                 timestamp: 2
             ),
         ])
+
+        #expect(throws: BabylonCaptureMappingError.oversizedBody) {
+            try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        }
+    }
+
+    @Test("HTTP request and response share the producer body budget")
+    func rejectsOversizedHTTPAggregateBody() {
+        let bodySize = 26_214_401
+        let package = makePackage(
+            requestBody: Data(repeating: 0, count: bodySize),
+            responseBody: Data(repeating: 0, count: bodySize)
+        )
+
+        #expect(throws: BabylonCaptureMappingError.oversizedBody) {
+            try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        }
+    }
+
+    @Test("WebSocket frame bytes share the producer transaction body budget")
+    func rejectsOversizedWebSocketAggregateBody() {
+        let frame = BabylonTrafficPackageDTO.WebSocketMessage(
+            id: "large-frame",
+            createdAt: 1,
+            messageType: .send,
+            stringValue: nil,
+            dataValue: Data(repeating: 1, count: 6 * 1_024 * 1_024)
+        )
+        let package = makePackage(
+            url: "wss://api.example.com/socket",
+            requestBody: Data(repeating: 0, count: 45 * 1_024 * 1_024),
+            websocketMessage: frame
+        )
 
         #expect(throws: BabylonCaptureMappingError.oversizedBody) {
             try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
@@ -283,8 +317,8 @@ struct BabylonCaptureMapperTests {
         }
     }
 
-    @Test("Omitted typed gRPC messages retain observed byte counts")
-    func mapsOmittedTypedGRPCMessage() throws {
+    @Test("Omitted typed gRPC messages retain aggregate observed and original byte counts")
+    func mapsOmittedTypedGRPCMessages() throws {
         let package = makeTypedGRPCPackage(messages: [
             .init(
                 sequence: 0,
@@ -295,6 +329,15 @@ struct BabylonCaptureMapperTests {
                 compressed: false,
                 timestamp: 1
             ),
+            .init(
+                sequence: 1,
+                direction: .request,
+                data: nil,
+                observedBytes: 3_072,
+                omitted: true,
+                compressed: false,
+                timestamp: 2
+            ),
         ])
 
         let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
@@ -302,7 +345,119 @@ struct BabylonCaptureMapperTests {
         #expect(transaction.request.body == nil)
         #expect(transaction.request.bodyTruncated)
         #expect(transaction.request.bodyOmission?.reason == "grpcMessageOmitted")
-        #expect(transaction.request.bodyOmission?.observedBytes == 4_096)
+        #expect(transaction.request.bodyOmission?.observedBytes == 7_168)
+        #expect(transaction.request.bodyOmission?.originalBytes == 7_168)
+
+        let restored = try JSONDecoder().decode(
+            CodableTransaction.self,
+            from: JSONEncoder().encode(CodableTransaction(from: transaction))
+        ).toLiveModel()
+        #expect(restored.request.bodyOmission == .init(
+            reason: "grpcMessageOmitted",
+            observedBytes: 7_168,
+            originalBytes: 7_168
+        ))
+    }
+
+    @Test("Omitted typed gRPC message sizes stay within the metadata limit")
+    func clampsOmittedTypedGRPCMessageSizes() throws {
+        let package = makeTypedGRPCPackage(messages: [
+            .init(
+                sequence: 0,
+                direction: .request,
+                data: nil,
+                observedBytes: 800_000_000,
+                omitted: true,
+                compressed: false,
+                timestamp: 1
+            ),
+            .init(
+                sequence: 1,
+                direction: .request,
+                data: nil,
+                observedBytes: 800_000_000,
+                omitted: true,
+                compressed: false,
+                timestamp: 2
+            ),
+        ])
+
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+
+        #expect(transaction.request.bodyOmission?.observedBytes == 1_000_000_000)
+        #expect(transaction.request.bodyOmission?.originalBytes == 1_000_000_000)
+    }
+
+    @Test("Typed gRPC maps the absolute endpoint URL accepted by the Babylon SDK")
+    func mapsTypedGRPCAbsoluteEndpointURL() throws {
+        let endpoint = "https://grpc.example.com:8443/example.Service/Call"
+        let package = makeTypedGRPCPackage(authority: "grpc.example.com:8443", endpoint: endpoint)
+
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+
+        #expect(transaction.request.url.absoluteString == endpoint)
+        #expect(transaction.request.url.path == "/example.Service/Call")
+        #expect(transaction.babylonGRPCCallType == "unary")
+    }
+
+    @Test("Typed gRPC absolute endpoint URLs may omit a separate authority")
+    func mapsTypedGRPCAbsoluteEndpointWithoutAuthority() throws {
+        let endpoint = "http://grpc.example.com/example.Service/Call"
+        let package = makeTypedGRPCPackage(authority: nil, endpoint: endpoint)
+
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+
+        #expect(transaction.request.url.absoluteString == endpoint)
+    }
+
+    @Test("Typed gRPC path endpoints keep their legacy default authority")
+    func mapsTypedGRPCPathWithoutAuthority() throws {
+        let package = makeTypedGRPCPackage(authority: nil)
+
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+
+        #expect(transaction.request.url.absoluteString == "https://grpc.babylon/example.Service/Call")
+    }
+
+    @Test("Typed gRPC rejects an authority that conflicts with its absolute endpoint URL")
+    func rejectsConflictingTypedGRPCAuthority() {
+        let package = makeTypedGRPCPackage(
+            authority: "other.example.com",
+            endpoint: "https://grpc.example.com/example.Service/Call"
+        )
+
+        #expect(throws: BabylonCaptureMappingError.invalidURL) {
+            try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        }
+    }
+
+    @Test("Typed gRPC rejects an authority port that conflicts with its absolute endpoint URL")
+    func rejectsConflictingTypedGRPCAuthorityPort() {
+        let package = makeTypedGRPCPackage(
+            authority: "grpc.example.com:8444",
+            endpoint: "https://grpc.example.com:8443/example.Service/Call"
+        )
+
+        #expect(throws: BabylonCaptureMappingError.invalidURL) {
+            try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        }
+    }
+
+    @Test("Typed gRPC absolute endpoint URLs reject credentials and URL parameters")
+    func rejectsUnsafeTypedGRPCAbsoluteEndpointURL() {
+        for endpoint in [
+            "https://user:secret@grpc.example.com/example.Service/Call",
+            "https://grpc.example.com/example.Service/Call?debug=true",
+            "https://grpc.example.com/example.Service/Call#fragment",
+            "ftp://grpc.example.com/example.Service/Call",
+            "https://grpc.example.com:invalid/example.Service/Call",
+        ] {
+            let package = makeTypedGRPCPackage(authority: nil, endpoint: endpoint)
+
+            #expect(throws: BabylonCaptureMappingError.invalidURL) {
+                try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+            }
+        }
     }
 
     @Test("A GraphQL request from the SDK keeps its operation name")
@@ -403,6 +558,8 @@ struct BabylonCaptureMapperTests {
     private func makePackage(
         url: String = "https://api.example.com/items",
         requestBody: Data? = Data("request".utf8),
+        responseBody: Data = Data("response".utf8),
+        websocketMessage: BabylonTrafficPackageDTO.WebSocketMessage? = nil,
         extraHeaders: [BabylonTrafficPackageDTO.Header] = [],
         correlation: BabylonTrafficPackageDTO.CorrelationContext? = nil,
         error: BabylonTrafficPackageDTO.CapturedError? = nil,
@@ -421,18 +578,19 @@ struct BabylonCaptureMapperTests {
             ),
             response: .init(statusCode: 201, headers: [.init(key: "Content-Type", value: "text/plain")]),
             error: error,
-            responseBodyData: Data("response".utf8),
+            responseBodyData: responseBody,
             endAt: 100.75,
             packageType: url.hasPrefix("ws") ? .websocket : .http,
             correlationContext: correlation,
             urlSessionTiming: urlSessionTiming,
-            websocketMessagePackage: nil,
+            websocketMessagePackage: websocketMessage,
             grpcCapture: nil
         )
     }
 
     private func makeTypedGRPCPackage(
-        authority: String = "grpc.example.com",
+        authority: String? = "grpc.example.com",
+        endpoint: String = "/example.Service/Call",
         messages: [BabylonTrafficPackageDTO.GRPCCapture.Message] = []
     )
         -> BabylonTrafficPackageDTO
@@ -440,7 +598,7 @@ struct BabylonCaptureMapperTests {
         BabylonTrafficPackageDTO(
             id: "grpc-test",
             startAt: 1,
-            request: .init(url: "/example.Service/Call", method: "POST", headers: [], body: nil),
+            request: .init(url: endpoint, method: "POST", headers: [], body: nil),
             response: nil,
             error: nil,
             responseBodyData: Data(),
@@ -451,7 +609,7 @@ struct BabylonCaptureMapperTests {
             websocketMessagePackage: nil,
             grpcCapture: .init(
                 schemaVersion: 1,
-                endpoint: "/example.Service/Call",
+                endpoint: endpoint,
                 authority: authority,
                 service: "example.Service",
                 method: "Call",

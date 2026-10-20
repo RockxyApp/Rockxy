@@ -15,6 +15,7 @@ enum BabylonCaptureMapper {
         guard package.packageType != .unknown else {
             throw BabylonCaptureMappingError.unsupportedPackage
         }
+        try validateCapturedBodyBudget(package)
         guard !package.request.method.isEmpty, package.request.method.count <= 32 else {
             throw BabylonCaptureMappingError.invalidMethod
         }
@@ -131,6 +132,8 @@ enum BabylonCaptureMapper {
              .ping,
              .unknown:
             .sent
+        case .abnormalTermination:
+            message.closeOrigin?.caseInsensitiveCompare("local") == .orderedSame ? .sent : .received
         }
         let opcode: FrameOpcode
         let payload: Data
@@ -139,6 +142,10 @@ enum BabylonCaptureMapper {
              .receiveCloseMessage:
             opcode = .connectionClose
             payload = closePayload(message)
+        case .abnormalTermination:
+            // The SDK's termination reason is metadata, not a WebSocket close-frame payload.
+            opcode = .connectionClose
+            payload = Data()
         case .pingPong,
              .ping:
             opcode = .ping
@@ -160,11 +167,25 @@ enum BabylonCaptureMapper {
         guard payload.count <= ProxyLimits.maxWebSocketFrameSize else {
             throw BabylonCaptureMappingError.oversizedBody
         }
+        let inferredCloseOrigin: String? = switch message.messageType {
+        case .sendCloseMessage:
+            "local"
+        case .receiveCloseMessage,
+             .abnormalTermination:
+            "remote"
+        default:
+            nil
+        }
+        let closeOrigin = message.closeOrigin ?? inferredCloseOrigin
         return WebSocketFrameData(
             timestamp: Date(timeIntervalSince1970: message.createdAt),
             direction: direction,
             opcode: opcode,
-            payload: payload
+            payload: payload,
+            closeCode: message.closeCode.flatMap { (0 ... Int(UInt16.max)).contains($0) ? $0 : nil },
+            closeReason: message.closeReason.map { boundedBabylonString($0, bytes: 123) },
+            closeOrigin: closeOrigin.map { boundedBabylonString($0, bytes: 32) },
+            isAbnormalTermination: message.abnormal == true || message.messageType == .abnormalTermination
         )
     }
 
@@ -262,7 +283,7 @@ enum BabylonCaptureMapper {
     {
         let authority = capture.authority ?? package.request.headers.first {
             [":authority", "host"].contains($0.key.lowercased())
-        }?.value ?? "grpc.babylon"
+        }?.value
         guard capture.endpoint.utf8.count <= ProxyLimits.maxURILength,
               capture.service.utf8.count <= 512,
               !capture.service.isEmpty,
@@ -375,20 +396,46 @@ enum BabylonCaptureMapper {
             ? BodyOmissionMetadata(
                 reason: "grpcMessageOmitted",
                 observedBytes: omittedObservedBytes,
-                originalBytes: nil
+                originalBytes: omittedObservedBytes
             )
             : nil
         return (result.isEmpty ? nil : result, omission)
     }
 
-    private static func grpcURL(authority: String, endpoint: String) -> URL? {
+    private static func grpcURL(authority: String?, endpoint: String) -> URL? {
         guard endpoint.utf8.count <= ProxyLimits.maxURILength,
-              endpoint.hasPrefix("/"),
-              !endpoint.hasPrefix("//"),
               !endpoint.contains("?"),
               !endpoint.contains("#"),
-              endpoint.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7F }),
-              let authorityURL = URL(string: "https://\(authority)"),
+              endpoint.unicodeScalars.allSatisfy({ $0.value > 0x20 && $0.value != 0x7F }) else
+        {
+            return nil
+        }
+
+        if let endpointComponents = URLComponents(string: endpoint),
+           endpointComponents.scheme != nil
+        {
+            guard let scheme = endpointComponents.scheme?.lowercased(),
+                  ["http", "https"].contains(scheme),
+                  endpointComponents.host?.isEmpty == false,
+                  endpointComponents.user == nil,
+                  endpointComponents.password == nil,
+                  endpointComponents.path.hasPrefix("/"),
+                  !endpointComponents.path.hasPrefix("//"),
+                  endpointComponents.query == nil,
+                  endpointComponents.fragment == nil,
+                  let url = endpointComponents.url else
+            {
+                return nil
+            }
+            if let authority, !authorityMatches(authority, endpoint: endpointComponents, scheme: scheme) {
+                return nil
+            }
+            return url
+        }
+
+        guard endpoint.hasPrefix("/"),
+              !endpoint.hasPrefix("//"),
+              let authorityURL = URL(string: "https://\(authority ?? "grpc.babylon")"),
               var components = URLComponents(url: authorityURL, resolvingAgainstBaseURL: false),
               components.host?.isEmpty == false,
               components.user == nil,
@@ -401,6 +448,33 @@ enum BabylonCaptureMapper {
         }
         components.path = endpoint
         return components.url
+    }
+
+    private static func authorityMatches(
+        _ authority: String,
+        endpoint: URLComponents,
+        scheme: String
+    )
+        -> Bool
+    {
+        guard let authorityURL = URL(string: "\(scheme)://\(authority)"),
+              let components = URLComponents(url: authorityURL, resolvingAgainstBaseURL: false),
+              let endpointHost = endpoint.host,
+              let authorityHost = components.host,
+              authorityHost.caseInsensitiveCompare(endpointHost) == .orderedSame,
+              components.user == nil,
+              components.password == nil,
+              components.path.isEmpty,
+              components.query == nil,
+              components.fragment == nil else
+        {
+            return false
+        }
+        return effectivePort(components.port, scheme: scheme) == effectivePort(endpoint.port, scheme: scheme)
+    }
+
+    private static func effectivePort(_ port: Int?, scheme: String) -> Int? {
+        port ?? (scheme == "https" ? 443 : 80)
     }
 
     private static func appendGRPCEncodingHeader(_ value: String?, to destination: inout [HTTPHeader]) {
@@ -531,7 +605,10 @@ enum BabylonCaptureMapper {
     /// A close frame's payload is the 2-byte status code followed by the reason, as on the wire.
     private static func closePayload(_ message: BabylonTrafficPackageDTO.WebSocketMessage) -> Data {
         guard let code = message.closeCode, (0 ... Int(UInt16.max)).contains(code) else {
-            return message.dataValue ?? Data((message.stringValue ?? "").utf8)
+            if let dataValue = message.dataValue {
+                return dataValue
+            }
+            return Data((message.closeReason ?? message.stringValue ?? "").utf8.prefix(123))
         }
         var payload = Data()
         withUnsafeBytes(of: UInt16(code).bigEndian) { payload.append(contentsOf: $0) }
@@ -577,6 +654,40 @@ enum BabylonCaptureMapper {
     private static func validateBody(_ body: Data) throws {
         guard body.count <= BabylonCaptureProtocol.maximumCapturedBodySize else {
             throw BabylonCaptureMappingError.oversizedBody
+        }
+    }
+
+    private static func validateCapturedBodyBudget(_ package: BabylonTrafficPackageDTO) throws {
+        let maximum = BabylonCaptureProtocol.maximumCapturedBodySize
+        var capturedBytes = 0
+
+        func include(_ byteCount: Int) throws {
+            guard byteCount >= 0, byteCount <= maximum - capturedBytes else {
+                throw BabylonCaptureMappingError.oversizedBody
+            }
+            capturedBytes += byteCount
+        }
+
+        func capturedSize(_ body: Data?) -> Int {
+            guard let body, body != omittedBodyMarker else {
+                return 0
+            }
+            return body.count
+        }
+
+        try include(capturedSize(package.request.body))
+        try include(capturedSize(package.responseBodyData))
+
+        if let message = package.websocketMessagePackage, message.messageType != .sendCloseMessage {
+            if let data = message.dataValue, data != omittedBodyMarker {
+                try include(data.count)
+            } else if let value = message.stringValue, value != "<Skip Large Body>" {
+                try include(value.utf8.count)
+            }
+        }
+
+        for message in package.grpcCapture?.messages ?? [] {
+            try include(message.data?.count ?? 0)
         }
     }
 }
