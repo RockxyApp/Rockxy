@@ -592,6 +592,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 context: context,
                 status: 502,
                 requestData: requestData,
+                reason: UpstreamResponseHandler.upstreamFailureReason(for: error),
                 callback: ConnectionLogCapture.attachingFailure(
                     error,
                     host: upstreamHost,
@@ -911,7 +912,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         }
     }
 
-
     nonisolated private func sendMappedResponse(
         context: ChannelHandlerContext,
         responseData: HTTPResponseData,
@@ -950,13 +950,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         context: ChannelHandlerContext,
         status: Int,
         requestData: HTTPRequestData,
+        reason: String? = nil,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard context.channel.isActive else {
             return
         }
         let httpStatus = HTTPResponseStatus(statusCode: status)
-        var responseHead = HTTPResponseHead(version: .http1_1, status: httpStatus)
+        let responseStatus = reason.map { HTTPResponseStatus(statusCode: status, reasonPhrase: $0) } ?? httpStatus
+        var responseHead = HTTPResponseHead(version: .http1_1, status: responseStatus)
         responseHead.headers.add(name: "Connection", value: "close")
         context.write(NIOAny(HTTPServerResponsePart.head(responseHead)), promise: nil)
         context.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { _ in
@@ -967,7 +969,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             request: requestData,
             response: HTTPResponseData(
                 statusCode: status,
-                statusMessage: httpStatus.reasonPhrase,
+                statusMessage: reason ?? httpStatus.reasonPhrase,
                 headers: []
             ),
             state: status == 403 ? .blocked : .failed
