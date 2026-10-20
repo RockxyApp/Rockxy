@@ -366,6 +366,8 @@ struct SensitiveDataRedactor {
         redacted.serverHTTPVersion = transaction.serverHTTPVersion
         redacted.babylonCaptureMetadata = transaction.babylonCaptureMetadata
         redacted.babylonGRPCCallType = transaction.babylonGRPCCallType
+        // Opaque runtime identifiers the app chose; they link the row to its trace, not to a user.
+        redacted.babylonCorrelation = transaction.babylonCorrelation
         // The local socket address identifies the capturing machine on its network.
         redacted.connectionLog = transaction.connectionLog.map {
             var log = $0

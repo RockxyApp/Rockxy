@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import os
 
@@ -61,6 +62,83 @@ extension MainContentCoordinator {
         var filter = FilterCriteria.empty
         filter.sidebarApp = identity.displayName
         _ = workspaceStore.createWorkspace(title: identity.displayName, filter: filter)
+    }
+}
+
+// MARK: - Babylon trace navigation
+
+extension MainContentCoordinator {
+    /// Every captured request the app made in a runtime trace, or in one step of it.
+    func babylonRequestCount(
+        sourceClientID: String? = nil,
+        sessionID: String? = nil,
+        traceID: String,
+        stepID: String? = nil
+    )
+        -> Int
+    {
+        transactions.count { transaction in
+            guard let correlation = transaction.babylonCorrelation,
+                  sourceClientID == nil || correlation.sourceClientID == sourceClientID,
+                  correlation.traceID == traceID,
+                  sessionID == nil || correlation.sessionID == sessionID else
+            {
+                return false
+            }
+            return stepID == nil || correlation.stepID == stepID
+        }
+    }
+
+    /// Brings the traffic list forward filtered to one runtime trace (and step), using the same
+    /// `trace:` and `step:` tokens a user can type, so the filter stays visible and editable.
+    func showBabylonTraceRequests(
+        sourceClientID: String? = nil,
+        sessionID: String? = nil,
+        traceID: String,
+        stepID: String? = nil
+    ) {
+        let window = NSApp.windows.first { $0.identifier?.rawValue.hasPrefix("main") == true && $0.canBecomeKey }
+            ?? NSApp.mainWindow
+            ?? NSApp.windows.first { $0.canBecomeKey && $0.isVisible }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+
+        var criteria = FilterCriteria.empty
+        criteria.searchText = Self.babylonTraceQuery(
+            sourceClientID: sourceClientID,
+            sessionID: sessionID,
+            traceID: traceID,
+            stepID: stepID
+        )
+        filterCriteria = criteria
+        sidebarSelection = nil
+        activeMainTab = .traffic
+        recomputeFilteredTransactions()
+    }
+
+    nonisolated static func babylonTraceQuery(
+        sourceClientID: String? = nil,
+        sessionID: String?,
+        traceID: String,
+        stepID: String?
+    )
+        -> String
+    {
+        var tokens: [String] = []
+        if let sourceClientID {
+            let escapedClientID = sourceClientID
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            tokens.append("source:\"\(escapedClientID)\"")
+        }
+        if let sessionID {
+            tokens.append("session:\(sessionID)")
+        }
+        tokens.append("trace:\(traceID)")
+        if let stepID {
+            tokens.append("step:\(stepID)")
+        }
+        return tokens.joined(separator: " ")
     }
 }
 

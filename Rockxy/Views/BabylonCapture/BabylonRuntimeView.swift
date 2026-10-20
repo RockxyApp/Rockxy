@@ -12,6 +12,114 @@ private struct BabylonRuntimeSourceOption: Identifiable, Equatable {
     }
 }
 
+// MARK: - BabylonRuntimeSessionOption
+
+private struct BabylonRuntimeSessionOption: Identifiable, Equatable {
+    let sessionID: String
+
+    var id: String {
+        sessionID
+    }
+}
+
+// MARK: - BabylonRuntimeTraceGroup
+
+private struct BabylonRuntimeTraceGroup: Identifiable {
+    // MARK: Lifecycle
+
+    init(sourceClientID: String, sessionID: String, traceID: String, events: [BabylonRuntimeEvent]) {
+        self.sourceClientID = sourceClientID
+        self.sessionID = sessionID
+        self.traceID = traceID
+        self.events = events
+        steps = BabylonRuntimeStepHierarchy.build(from: events)
+    }
+
+    // MARK: Internal
+
+    let sourceClientID: String
+    let sessionID: String
+    let traceID: String
+    let events: [BabylonRuntimeEvent]
+    let steps: [BabylonRuntimeStepNode]
+
+    var id: String {
+        "\(sourceClientID.utf8.count):\(sourceClientID)\(sessionID.utf8.count):\(sessionID)\(traceID)"
+    }
+
+    var traceEvents: [BabylonRuntimeEvent] {
+        events.filter { $0.stepID == nil }.sorted(by: Self.chronologicalOrder)
+    }
+
+    var totalEventsCount: Int {
+        events.count
+    }
+
+    var totalStepCount: Int {
+        steps.reduce(0) { $0 + $1.descendantCount }
+    }
+
+    static func chronologicalOrder(_ lhs: BabylonRuntimeEvent, _ rhs: BabylonRuntimeEvent) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt < rhs.createdAt
+        }
+        return lhs.packageID < rhs.packageID
+    }
+}
+
+// MARK: - BabylonRuntimeTraceGroupKey
+
+private struct BabylonRuntimeTraceGroupKey: Hashable {
+    let sourceClientID: String
+    let sessionID: String
+    let traceID: String
+}
+
+// MARK: - BabylonRuntimeStepTimeline
+
+private struct BabylonRuntimeStepTimeline: View {
+    let step: BabylonRuntimeStepNode
+    let depth: Int
+    let secondaryFont: Font
+    let onSelect: (BabylonRuntimeEvent) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Label(step.stepID, systemImage: "arrow.turn.down.right")
+                .font(secondaryFont)
+                .lineLimit(1)
+            ForEach(step.events) { event in
+                Button {
+                    onSelect(event)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(event.createdAt, format: .dateTime.hour().minute().second())
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text(event.kind.displayTitle)
+                            .font(secondaryFont)
+                            .lineLimit(1)
+                    }
+                }
+                .buttonStyle(.link)
+                .help("\(event.createdAt.formatted()) · \(event.kind.displayTitle) · \(event.name)")
+                .accessibilityIdentifier("babylonRuntime.event.\(event.packageID)")
+                .padding(.leading, 12)
+            }
+            ForEach(step.children) { child in
+                BabylonRuntimeStepTimeline(
+                    step: child,
+                    depth: depth + 1,
+                    secondaryFont: secondaryFont,
+                    onSelect: onSelect
+                )
+            }
+        }
+        .padding(.leading, CGFloat(depth + 1) * 12)
+        .accessibilityIdentifier("babylonRuntime.step.\(step.stepID)")
+    }
+}
+
 // MARK: - BabylonRuntimeView
 
 /// Dense native event workspace for Babylon runtime traces: a selectable Table of
@@ -19,6 +127,8 @@ private struct BabylonRuntimeSourceOption: Identifiable, Equatable {
 /// Cmd-F search, a compact readiness banner, and a global in-memory clear.
 struct BabylonRuntimeView: View {
     // MARK: Internal
+
+    let coordinator: MainContentCoordinator
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -29,11 +139,15 @@ struct BabylonRuntimeView: View {
             filterBar
             Divider()
             HSplitView {
-                tableContent
-                    .frame(
-                        minWidth: max(620, toolMetrics.bodyFontSize * 22),
-                        minHeight: toolMetrics.tableRowHeight * 6
-                    )
+                VStack(spacing: 0) {
+                    traceHierarchy
+                    Divider()
+                    tableContent
+                }
+                .frame(
+                    minWidth: max(620, toolMetrics.bodyFontSize * 22),
+                    minHeight: toolMetrics.tableRowHeight * 6
+                )
                 detailInspector
                     .frame(
                         minWidth: max(280, toolMetrics.bodyFontSize * 10),
@@ -76,6 +190,22 @@ struct BabylonRuntimeView: View {
         .onChange(of: availableSourceClientIDs) { _, ids in
             reconcileSourceFilter(with: ids)
         }
+        .onChange(of: availableSessionIDs) { _, ids in
+            reconcileSessionFilter(with: ids)
+        }
+        .onChange(of: availableStepIDs) { _, ids in
+            reconcileStepFilter(with: ids)
+        }
+        .onChange(of: availableTraceIDs) { _, ids in
+            reconcileTraceFilter(with: ids)
+        }
+        .onChange(of: retainedEventIDs) { _, _ in
+            selectLateFocusedEventIfNeeded()
+        }
+        .onAppear(perform: applyPendingFocus)
+        .onChange(of: navigation.pendingFocus) { _, _ in
+            applyPendingFocus()
+        }
     }
 
     // MARK: Private
@@ -86,6 +216,10 @@ struct BabylonRuntimeView: View {
     @State private var selection: BabylonRuntimeEvent.ID?
     @State private var selectedKind: BabylonRuntimePackageDTO.Kind?
     @State private var selectedSourceClientID: String?
+    @State private var selectedSessionID: String?
+    @State private var selectedStepID: String?
+    @State private var selectedTraceID: String?
+    @State private var navigation = BabylonRuntimeNavigation.shared
     @State private var searchText = ""
     @State private var showsClearConfirmation = false
     @FocusState private var searchIsFocused: Bool
@@ -100,6 +234,9 @@ struct BabylonRuntimeView: View {
         BabylonRuntimeEventFilter(
             kind: selectedKind,
             sourceClientID: selectedSourceClientID,
+            sessionID: selectedSessionID,
+            stepID: selectedStepID,
+            traceID: selectedTraceID,
             searchText: searchText
         )
     }
@@ -113,11 +250,12 @@ struct BabylonRuntimeView: View {
         filteredEvents.map(\.id)
     }
 
+    private var retainedEventIDs: [BabylonRuntimeEvent.ID] {
+        store.events.map(\.id)
+    }
+
     private var selectedEvent: BabylonRuntimeEvent? {
-        guard let selection else {
-            return nil
-        }
-        return store.events.first { $0.id == selection }
+        BabylonRuntimeNavigation.selectedVisibleEvent(for: selection, in: filteredEvents)
     }
 
     private var availableSources: [BabylonRuntimeSourceOption] {
@@ -142,6 +280,66 @@ struct BabylonRuntimeView: View {
 
     private var availableSourceClientIDs: [String] {
         availableSources.map(\.clientID)
+    }
+
+    private var availableSessions: [BabylonRuntimeSessionOption] {
+        let sourceEvents = store.events.filter {
+            selectedSourceClientID == nil || $0.source.clientID == selectedSourceClientID
+        }
+        return Array(Set(sourceEvents.map(\.sessionID))).sorted().map(BabylonRuntimeSessionOption.init(sessionID:))
+    }
+
+    private var availableSessionIDs: [String] {
+        availableSessions.map(\.sessionID)
+    }
+
+    private var availableSteps: [String] {
+        let sourceEvents = store.events.filter { event in
+            (selectedSourceClientID == nil || event.source.clientID == selectedSourceClientID)
+                && (selectedSessionID == nil || event.sessionID == selectedSessionID)
+                && (selectedTraceID == nil || event.traceID == selectedTraceID)
+        }
+        return Array(Set(sourceEvents.compactMap(\.stepID))).sorted()
+    }
+
+    private var availableStepIDs: [String] {
+        availableSteps
+    }
+
+    private var availableTraceIDs: [String] {
+        let matchingEvents = store.events.filter { event in
+            (selectedSourceClientID == nil || event.source.clientID == selectedSourceClientID)
+                && (selectedSessionID == nil || event.sessionID == selectedSessionID)
+        }
+        return Array(Set(matchingEvents.compactMap(\.traceID))).sorted()
+    }
+
+    private var traceGroups: [BabylonRuntimeTraceGroup] {
+        let keyedEvents = store.events.compactMap { event -> (BabylonRuntimeTraceGroupKey, BabylonRuntimeEvent)? in
+            guard let traceID = event.traceID else {
+                return nil
+            }
+            return (
+                BabylonRuntimeTraceGroupKey(
+                    sourceClientID: event.source.clientID,
+                    sessionID: event.sessionID,
+                    traceID: traceID
+                ),
+                event
+            )
+        }
+        let grouped = Dictionary(grouping: keyedEvents, by: \.0)
+        return grouped.map { key, groupedEvents in
+            BabylonRuntimeTraceGroup(
+                sourceClientID: key.sourceClientID,
+                sessionID: key.sessionID,
+                traceID: key.traceID,
+                events: groupedEvents.map(\.1).sorted(by: BabylonRuntimeTraceGroup.chronologicalOrder)
+            )
+        }
+        .sorted {
+            ($0.events.first?.createdAt ?? .distantPast) > ($1.events.first?.createdAt ?? .distantPast)
+        }
     }
 
     private var availability: BabylonPairingAvailability {
@@ -228,6 +426,18 @@ struct BabylonRuntimeView: View {
         return base + String(localized: "  •  \(store.evictedEventCount) evicted", bundle: RockxyLocalization.bundle)
     }
 
+    private var hierarchyHeight: CGFloat {
+        guard let deepestTrace = traceGroups.max(by: { lhs, rhs in
+            lhs.totalEventsCount < rhs.totalEventsCount
+        }) else {
+            return 64
+        }
+        return min(
+            220,
+            max(64, CGFloat(deepestTrace.totalEventsCount) * 22 + CGFloat(deepestTrace.totalStepCount) * 20 + 38)
+        )
+    }
+
     // MARK: - Header
 
     private var header: some View {
@@ -312,10 +522,44 @@ struct BabylonRuntimeView: View {
             .frame(minHeight: toolMetrics.formControlHeight)
             .disabled(availableSources.isEmpty)
 
+            Picker(
+                String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                selection: $selectedSessionID
+            ) {
+                Text(String(localized: "All Sessions", bundle: RockxyLocalization.bundle)).tag(String?.none)
+                ForEach(availableSessions) { session in
+                    Text(session.sessionID).tag(String?.some(session.sessionID))
+                }
+            }
+            .labelsHidden()
+            .font(toolMetrics.font(monospaced: true))
+            .frame(width: 190)
+            .frame(minHeight: toolMetrics.formControlHeight)
+            .disabled(availableSessions.isEmpty)
+
+            Picker(String(localized: "Runtime Step", bundle: RockxyLocalization.bundle), selection: $selectedStepID) {
+                Text(String(localized: "All Steps", bundle: RockxyLocalization.bundle)).tag(String?.none)
+                ForEach(availableSteps, id: \.self) { stepID in
+                    Text(stepID).tag(String?.some(stepID))
+                }
+            }
+            .labelsHidden()
+            .font(toolMetrics.font(monospaced: true))
+            .frame(width: 180)
+            .frame(minHeight: toolMetrics.formControlHeight)
+            .disabled(availableSteps.isEmpty)
+
+            if let selectedTraceID {
+                traceFilterChip(selectedTraceID)
+            }
+
             if filter.isActive {
                 Button(String(localized: "Reset Filters", bundle: RockxyLocalization.bundle)) {
                     selectedKind = nil
                     selectedSourceClientID = nil
+                    selectedSessionID = nil
+                    selectedStepID = nil
+                    selectedTraceID = nil
                     searchText = ""
                 }
                 .controlSize(.small)
@@ -328,6 +572,56 @@ struct BabylonRuntimeView: View {
     }
 
     // MARK: - Table
+
+    @ViewBuilder private var traceHierarchy: some View {
+        if traceGroups.isEmpty {
+            EmptyView()
+        } else {
+            ScrollView(.horizontal) {
+                HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
+                    ForEach(traceGroups) { trace in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button {
+                                selectedSourceClientID = trace.sourceClientID
+                                selectedSessionID = trace.sessionID
+                                selectedStepID = nil
+                                selectedTraceID = trace.traceID
+                                selectedKind = nil
+                                searchText = ""
+                                if let first = trace.traceEvents.first ?? trace.events.first {
+                                    selection = first.id
+                                }
+                            } label: {
+                                Label(trace.traceID, systemImage: "point.3.connected.trianglepath.dotted")
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.link)
+                            .help("\(trace.sessionID) / \(trace.traceID)")
+                            ForEach(trace.traceEvents) { event in
+                                eventTimelineRow(event)
+                                    .padding(.leading, 8)
+                            }
+                            ForEach(trace.steps) { step in
+                                BabylonRuntimeStepTimeline(
+                                    step: step,
+                                    depth: 0,
+                                    secondaryFont: toolMetrics.secondaryFont(),
+                                    onSelect: selectRuntimeEvent
+                                )
+                            }
+                        }
+                        .padding(8)
+                        .frame(minWidth: 170, alignment: .leading)
+                        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .padding(.horizontal, toolMetrics.contentHorizontalPadding)
+                .padding(.vertical, toolMetrics.controlSpacing)
+            }
+            .frame(height: hierarchyHeight)
+            .accessibilityIdentifier("babylonRuntime.traceHierarchy")
+        }
+    }
 
     private var tableContent: some View {
         Table(filteredEvents, selection: $selection) {
@@ -497,6 +791,15 @@ struct BabylonRuntimeView: View {
                             )
                         }
 
+                        if let traceID = event.traceID {
+                            traceActions(
+                                sourceClientID: event.source.clientID,
+                                sessionID: event.sessionID,
+                                traceID: traceID,
+                                stepID: event.stepID
+                            )
+                        }
+
                         detailSection(String(localized: "Timing", bundle: RockxyLocalization.bundle)) {
                             detailRow(
                                 String(localized: "Received", bundle: RockxyLocalization.bundle),
@@ -541,6 +844,7 @@ struct BabylonRuntimeView: View {
                     .padding(.vertical, toolMetrics.formVerticalPadding)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .id(event.id)
             } else {
                 ContentUnavailableView(
                     String(localized: "No Event Selected", bundle: RockxyLocalization.bundle),
@@ -580,6 +884,24 @@ struct BabylonRuntimeView: View {
         .rockxyFunctionalBar()
     }
 
+    private func eventTimelineRow(_ event: BabylonRuntimeEvent) -> some View {
+        Button {
+            selectRuntimeEvent(event)
+        } label: {
+            HStack(spacing: 4) {
+                Text(event.createdAt, format: .dateTime.hour().minute().second())
+                    .font(toolMetrics.font(monospaced: true))
+                    .foregroundStyle(.secondary)
+                Text(event.kind.displayTitle)
+                    .font(toolMetrics.secondaryFont())
+                    .lineLimit(1)
+            }
+        }
+        .buttonStyle(.link)
+        .help("\(event.createdAt.formatted()) · \(event.kind.displayTitle) · \(event.name)")
+        .accessibilityIdentifier("babylonRuntime.event.\(event.packageID)")
+    }
+
     private func kindCell(for event: BabylonRuntimeEvent) -> some View {
         HStack(spacing: 6) {
             Image(systemName: event.kind.symbolName)
@@ -607,6 +929,105 @@ struct BabylonRuntimeView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(event.outcome.title)
+    }
+
+    /// The trace's requests in the traffic list, and this window narrowed to the same trace.
+    private func traceActions(
+        sourceClientID: String,
+        sessionID: String,
+        traceID: String,
+        stepID: String?
+    )
+        -> some View
+    {
+        let stepCount = stepID.map {
+            coordinator.babylonRequestCount(
+                sourceClientID: sourceClientID,
+                sessionID: sessionID,
+                traceID: traceID,
+                stepID: $0
+            )
+        }
+        let traceCount = coordinator.babylonRequestCount(
+            sourceClientID: sourceClientID,
+            sessionID: sessionID,
+            traceID: traceID
+        )
+        return detailSection(String(localized: "Related Traffic", bundle: RockxyLocalization.bundle)) {
+            if let stepID, let stepCount {
+                detailRow(
+                    String(localized: "In This Step", bundle: RockxyLocalization.bundle),
+                    requestCountText(stepCount)
+                )
+                Button(String(localized: "Show Step Requests", bundle: RockxyLocalization.bundle)) {
+                    showRequests(
+                        sourceClientID: sourceClientID,
+                        sessionID: sessionID,
+                        traceID: traceID,
+                        stepID: stepID
+                    )
+                }
+                .controlSize(.small)
+                .disabled(stepCount == 0)
+                .accessibilityIdentifier("babylonRuntime.showStepRequests")
+            }
+            detailRow(
+                String(localized: "In This Trace", bundle: RockxyLocalization.bundle),
+                requestCountText(traceCount)
+            )
+            HStack(spacing: toolMetrics.controlSpacing) {
+                Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
+                    showRequests(
+                        sourceClientID: sourceClientID,
+                        sessionID: sessionID,
+                        traceID: traceID,
+                        stepID: nil
+                    )
+                }
+                .disabled(traceCount == 0)
+                .accessibilityIdentifier("babylonRuntime.showTraceRequests")
+                if selectedTraceID != traceID {
+                    Button(String(localized: "Show Only This Trace", bundle: RockxyLocalization.bundle)) {
+                        selectedSessionID = sessionID
+                        selectedStepID = nil
+                        selectedSourceClientID = sourceClientID
+                        selectedTraceID = traceID
+                        selectedKind = nil
+                        searchText = ""
+                    }
+                    .accessibilityIdentifier("babylonRuntime.filterToTrace")
+                }
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func traceFilterChip(_ traceID: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "point.3.connected.trianglepath.dotted")
+                .accessibilityHidden(true)
+            Text(traceID)
+                .font(toolMetrics.font(monospaced: true))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 160)
+            Button {
+                selectedTraceID = nil
+                selectedStepID = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(String(localized: "Show All Traces", bundle: RockxyLocalization.bundle))
+            .accessibilityLabel(String(localized: "Show All Traces", bundle: RockxyLocalization.bundle))
+        }
+        .padding(.horizontal, 6)
+        .frame(minHeight: toolMetrics.formControlHeight)
+        .background(Color(nsColor: .controlBackgroundColor), in: Capsule())
+        .help(String(localized: "Showing one trace", bundle: RockxyLocalization.bundle))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(String(localized: "Trace \(traceID)", bundle: RockxyLocalization.bundle))
     }
 
     private func detailSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
@@ -668,6 +1089,58 @@ struct BabylonRuntimeView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    private func requestCountText(_ count: Int) -> String {
+        String(AttributedString(
+            localized: "^[\(count) request](inflect: true)",
+            bundle: RockxyLocalization.bundle,
+            locale: RockxyLocalization.locale
+        ).characters)
+    }
+
+    private func showRequests(
+        sourceClientID: String? = nil,
+        sessionID: String? = nil,
+        traceID: String,
+        stepID: String?
+    ) {
+        openWindow(id: "main")
+        coordinator.showBabylonTraceRequests(
+            sourceClientID: sourceClientID,
+            sessionID: sessionID,
+            traceID: traceID,
+            stepID: stepID
+        )
+    }
+
+    /// Applies a "show in Runtime Events" request from the traffic inspector: narrow to the trace,
+    /// clear filters that could hide it, and select the step (or the trace start).
+    private func applyPendingFocus() {
+        guard let focus = navigation.pendingFocus else {
+            return
+        }
+        selectedKind = nil
+        selectedSourceClientID = focus.sourceClientID
+        selectedSessionID = focus.sessionID
+        selectedStepID = focus.stepID
+        searchText = ""
+        selectedTraceID = focus.traceID
+        selection = BabylonRuntimeNavigation.eventID(for: focus, in: store.events)
+        if selection != nil {
+            navigation.clearPendingFocus()
+        }
+    }
+
+    private func selectLateFocusedEventIfNeeded() {
+        guard selection == nil,
+              let focus = navigation.pendingFocus,
+              let eventID = BabylonRuntimeNavigation.eventID(for: focus, in: store.events) else
+        {
+            return
+        }
+        selection = eventID
+        navigation.clearPendingFocus()
+    }
+
     // MARK: - Helpers
 
     private func durationText(for event: BabylonRuntimeEvent) -> String {
@@ -693,10 +1166,11 @@ struct BabylonRuntimeView: View {
     }
 
     private func reconcileSelection(with ids: [BabylonRuntimeEvent.ID]) {
-        guard let selection, !ids.contains(selection) else {
+        let reconciled = BabylonRuntimeNavigation.reconciledSelection(selection, visibleIDs: ids)
+        guard reconciled != selection else {
             return
         }
-        self.selection = nil
+        selection = reconciled
     }
 
     private func reconcileSourceFilter(with ids: [String]) {
@@ -706,9 +1180,46 @@ struct BabylonRuntimeView: View {
         self.selectedSourceClientID = nil
     }
 
+    private func reconcileSessionFilter(with ids: [String]) {
+        guard let selectedSessionID, !ids.contains(selectedSessionID) else {
+            return
+        }
+        self.selectedSessionID = nil
+    }
+
+    private func reconcileStepFilter(with ids: [String]) {
+        guard let selectedStepID, !ids.contains(selectedStepID) else {
+            return
+        }
+        self.selectedStepID = nil
+    }
+
+    private func reconcileTraceFilter(with ids: [String]) {
+        guard let selectedTraceID, !ids.contains(selectedTraceID) else {
+            return
+        }
+        self.selectedTraceID = nil
+    }
+
     private func clearEvents() {
         selection = nil
         selectedSourceClientID = nil
+        selectedSessionID = nil
+        selectedStepID = nil
+        selectedTraceID = nil
+        selectedKind = nil
+        searchText = ""
+        navigation.clearPendingFocus()
         receiver.clearRuntimeEvents()
+    }
+
+    private func selectRuntimeEvent(_ event: BabylonRuntimeEvent) {
+        selectedKind = nil
+        selectedSourceClientID = event.source.clientID
+        selectedSessionID = event.sessionID
+        selectedStepID = event.stepID
+        selectedTraceID = event.traceID
+        searchText = ""
+        selection = event.id
     }
 }

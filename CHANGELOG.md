@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Babylon requests keep the runtime session, trace, and step they were made in, also in saved sessions. Details links to the matching runtime session, trace, and step; Runtime Events shows a chronological trace/step hierarchy with session and trace filters, and traffic search accepts `session:`, `trace:`, and `step:`.
 - Babylon captures gRPC calls as gRPC exchanges with their status and message, preserves the original size of omitted gRPC messages, and shows WebSocket ping, pong, and close frames with the close code, reason, origin, and abnormal termination state.
 - Babylon enforces the producer's per-transaction body budget across request, response, gRPC messages, and WebSocket frames.
 - The Web3 tab shows a **Payment (x402)** section for payment-gated requests: stage, whether a payment was sent, whether requirements were included, and which fields are sensitive. Payment hints are saved in Rockxy sessions, kept in redacted exports, and detected again on HAR import.

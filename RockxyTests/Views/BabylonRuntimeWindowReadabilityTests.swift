@@ -33,7 +33,7 @@ struct BabylonRuntimeWindowReadabilityTests {
         let sceneSource = scenesAfter[..<nextScene.lowerBound]
 
         #expect(sceneSource.contains("ToolWindowDisplayMetricsProvider"))
-        #expect(sceneSource.contains("BabylonRuntimeView()"))
+        #expect(sceneSource.contains("BabylonRuntimeView(coordinator: mainCoordinator)"))
         #expect(sceneSource.contains(".commandsRemoved()"))
         #expect(sceneSource.contains(".windowResizability(.contentSize)"))
         #expect(sceneSource.contains(".defaultPosition(.center)"))

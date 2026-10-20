@@ -205,6 +205,9 @@ struct ContextDetailsView: View {
                     ruleImpactSection(transaction)
                     overviewSection(transaction)
                     babylonCaptureSection(transaction)
+                    if let correlation = transaction.babylonCorrelation {
+                        runtimeTraceSection(correlation)
+                    }
                     payloadSection(transaction)
                     insightSection(transaction)
                     timingSection(transaction)
@@ -1237,5 +1240,62 @@ private struct ContextNotesEditor: View {
     private func saveNote() {
         coordinator.setNote(noteText, for: transaction)
         lastExplicitlySavedNote = MainContentCoordinator.normalizedNote(noteText)
+    }
+}
+
+extension ContextDetailsView {
+    // MARK: Babylon runtime correlation
+
+    /// The Babylon runtime trace and step the app made this request in, with a way back to the
+    /// step in Runtime Events and over to the trace's other requests.
+    private func runtimeTraceSection(_ correlation: BabylonCorrelation) -> some View {
+        ContextInspectorTable(title: String(localized: "Babylon Runtime", bundle: RockxyLocalization.bundle)) {
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Source Client", bundle: RockxyLocalization.bundle),
+                value: correlation.sourceClientID ?? "—",
+                monospaced: correlation.sourceClientID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Trace", bundle: RockxyLocalization.bundle),
+                value: correlation.traceID
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Step", bundle: RockxyLocalization.bundle),
+                value: correlation.stepID
+                    ?? String(localized: "Outside any step", bundle: RockxyLocalization.bundle),
+                monospaced: correlation.stepID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                value: correlation.sessionID
+            ))
+            Divider()
+            ContextInspectorFullRow {
+                HStack(spacing: 8) {
+                    Button(String(localized: "Show in Runtime Events", bundle: RockxyLocalization.bundle)) {
+                        BabylonRuntimeNavigation.shared.focus(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID,
+                            stepID: correlation.stepID
+                        )
+                        openWindow(id: "babylonRuntime")
+                    }
+                    .accessibilityIdentifier("contextDetails.showInRuntimeEvents")
+                    Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
+                        coordinator.showBabylonTraceRequests(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID
+                        )
+                    }
+                    .accessibilityIdentifier("contextDetails.showTraceRequests")
+                }
+                .controlSize(.small)
+            }
+        }
     }
 }

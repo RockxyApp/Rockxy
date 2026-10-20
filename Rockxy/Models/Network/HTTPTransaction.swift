@@ -109,6 +109,9 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// Why a raw tunnel was not decrypted, recorded at capture time. `nil` for decrypted traffic
     /// and for rows captured before this was recorded.
     var tunnelReason: TunnelReason?
+    /// The Babylon runtime session, trace, and step the app made this request in. `nil` for
+    /// proxied traffic and for Babylon captures sent without a trace.
+    var babylonCorrelation: BabylonCorrelation?
     var webSocketFrameVersion: Int = 0
     var matchedRuleID: UUID?
     var matchedRuleName: String?

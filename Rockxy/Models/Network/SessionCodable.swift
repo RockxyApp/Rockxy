@@ -86,6 +86,7 @@ struct CodableTransaction: Codable {
         self.tunnelReason = transaction.tunnelReason
         self.babylonCaptureMetadata = transaction.babylonCaptureMetadata
         self.babylonGRPCCallType = transaction.babylonGRPCCallType
+        self.babylonCorrelation = transaction.babylonCorrelation
     }
 
     init(from decoder: Decoder) throws {
@@ -130,6 +131,7 @@ struct CodableTransaction: Codable {
             forKey: .babylonCaptureMetadata
         )
         babylonGRPCCallType = try container.decodeIfPresent(String.self, forKey: .babylonGRPCCallType)
+        babylonCorrelation = try? container.decodeIfPresent(BabylonCorrelation.self, forKey: .babylonCorrelation)
     }
 
     // MARK: Internal
@@ -167,6 +169,7 @@ struct CodableTransaction: Codable {
         case tunnelReason
         case babylonCaptureMetadata
         case babylonGRPCCallType
+        case babylonCorrelation
     }
 
     let id: UUID
@@ -204,6 +207,7 @@ struct CodableTransaction: Codable {
     let tunnelReason: TunnelReason?
     let babylonCaptureMetadata: BabylonCaptureMetadata?
     let babylonGRPCCallType: String?
+    let babylonCorrelation: BabylonCorrelation?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -240,6 +244,7 @@ struct CodableTransaction: Codable {
         transaction.tunnelReason = tunnelReason
         transaction.babylonCaptureMetadata = babylonCaptureMetadata
         transaction.babylonGRPCCallType = babylonGRPCCallType
+        transaction.babylonCorrelation = babylonCorrelation
         return transaction
     }
 }
