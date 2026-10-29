@@ -880,6 +880,16 @@
         }
       }
     },
+    "File on this Mac": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的文件"
+          }
+        }
+      }
+    },
     "Filter Frames": {
       "localizations": {
         "zh-Hans": {

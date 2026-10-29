@@ -148,6 +148,29 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
+    func testTLSKeyLogLocationOmitsAccountPath() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
+        let identifier = try XCTUnwrap(ProcessInfo.processInfo.environment["ROCKXY_QA_BUNDLE_ID"])
+        let fixture = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Desktop/fixture-tls-keys.log")
+        app.launchArguments += [
+            "-\(identifier).tlsKeyLogEnabled", "NO",
+            "-\(identifier).tlsKeyLogPath", fixture.path
+        ]
+        app.launch()
+        app.menuBars.menuBarItems["Tools"].click()
+        let item = app.menuItems.matching(NSPredicate(format: "label BEGINSWITH %@", "TLS Key Log")).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.click()
+        let location = app.staticTexts["tlsKeyLog.location"].firstMatch
+        XCTAssertTrue(location.waitForExistence(timeout: 5))
+        XCTAssertTrue(location.label.contains("fixture-tls-keys.log"))
+        XCTAssertFalse(location.label.contains("/Users/"))
+        XCTAssertFalse(location.label.contains(FileManager.default.homeDirectoryForCurrentUser.path))
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         let app = try isolatedQAApplication()

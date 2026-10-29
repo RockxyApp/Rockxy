@@ -56,6 +56,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Show TLS key log locations relative to this Mac without exposing the account path in the default label, tooltip, or write-error message.
+
 - Coalesce adjacent live-stream completion batches on the UI executor so a Stop burst refreshes history-derived state once per display interval.
 
 - Clearing one Project keeps other Projects’ open streams and new-session streams receiving their final state; reject stale attribution and completion callbacks from another Project or capture session.
