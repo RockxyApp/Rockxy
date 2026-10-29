@@ -12,8 +12,9 @@ final class RockxyUITestsLaunchTests: XCTestCase {
     }
 
     @MainActor
-    func testLaunch() {
-        let app = XCUIApplication()
+    func testLaunch() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
 
         // Insert steps here to perform after app launch but before taking a screenshot,

@@ -17,17 +17,20 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testExample() {
+    func testExample() throws {
         // UI tests must launch the application that they test.
-        let app = XCUIApplication()
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 10))
     }
 
     @MainActor
-    func testQuickToolMenusOpenAcrossEntireField() {
-        let app = XCUIApplication()
+    func testQuickToolMenusOpenAcrossEntireField() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
 
         let customizeButton = app.buttons["More"]
@@ -37,7 +40,7 @@ final class RockxyUITests: XCTestCase {
         let popover = app.popovers.firstMatch
         XCTAssertTrue(popover.waitForExistence(timeout: 2))
 
-        for slot in 1...4 {
+        for slot in 1 ... 4 {
             let field = popover.menuButtons
                 .matching(identifier: "footerQuickTools.slot\(slot)")
                 .firstMatch
@@ -60,8 +63,9 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsSidebarToggleStaysInLeadingTitlebar() {
-        let app = XCUIApplication()
+    func testSettingsSidebarToggleStaysInLeadingTitlebar() throws {
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         app.launch()
         app.typeKey(",", modifierFlags: .command)
 
@@ -144,10 +148,13 @@ final class RockxyUITests: XCTestCase {
     }
 
     @MainActor
-    func testLaunchPerformance() {
+    func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
+        let app = try isolatedQAApplication()
+        defer { app.terminate() }
         measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
+            app.launch()
+            app.terminate()
         }
     }
 }
