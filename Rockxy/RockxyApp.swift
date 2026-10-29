@@ -1077,13 +1077,13 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Start Proxy", bundle: RockxyLocalization.bundle)) {
                 proxyActions.startProxy()
             }
-            .disabled(proxyActions.isProxyRunning)
+            .disabled(!proxyActions.canStartProxy)
 
             Button(String(localized: "Stop Proxy", bundle: RockxyLocalization.bundle)) {
                 proxyActions.stopProxy()
             }
             .keyboardShortcut(".", modifiers: [.command])
-            .disabled(!proxyActions.isProxyRunning)
+            .disabled(!proxyActions.canStopProxy)
 
             Button(
                 !proxyActions.isRecording

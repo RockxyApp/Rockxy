@@ -349,10 +349,12 @@ struct ProxyStatusPopover: View {
                     label: String(localized: "System routing", bundle: RockxyLocalization.bundle),
                     item: presentation.systemRouting
                 )
+                .accessibilityIdentifier("capture.systemRouting")
                 valueRow(
                     label: String(localized: "Capture path", bundle: RockxyLocalization.bundle),
                     item: presentation.capturePath
                 )
+                .accessibilityIdentifier("capture.path")
             }
 
             Divider()

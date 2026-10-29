@@ -52,6 +52,7 @@ struct ProxyStatusIndicator: View {
             .help(statusHelpText)
             .accessibilityLabel(statusText)
             .accessibilityValue(listenerStatusText)
+            .accessibilityIdentifier("capture.status")
 
             if let updateStatusSummary {
                 Divider()

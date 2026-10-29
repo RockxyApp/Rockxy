@@ -5,6 +5,27 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CoordinatorStartupTests {
+    @Test("Proxy menu actions remain disabled until start and stop complete")
+    func commandActionsRespectLifecycle() {
+        let coordinator = MainContentCoordinator()
+        let actions = MainContentCommandActions(coordinator: coordinator)
+        #expect(actions.canStartProxy)
+        #expect(!actions.canStopProxy)
+        coordinator.isProxyStarting = true
+        #expect(!actions.canStartProxy)
+        #expect(!actions.canStopProxy)
+        coordinator.isProxyStarting = false
+        coordinator.isProxyRunning = true
+        #expect(!actions.canStartProxy)
+        #expect(actions.canStopProxy)
+        coordinator.isProxyStopping = true
+        #expect(!actions.canStopProxy)
+        coordinator.isProxyRunning = false
+        #expect(!actions.canStartProxy)
+        coordinator.isProxyStopping = false
+        #expect(actions.canStartProxy)
+    }
+
     @Test("ensureRulesLoaded sets rulesLoaded to true")
     func ensureRulesLoadedSetsFlag() async {
         await RuleTestLock.shared.acquire()
