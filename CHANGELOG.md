@@ -56,6 +56,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Clearing one Project keeps other Projects’ open streams and new-session streams receiving their final state; reject stale attribution and completion callbacks from another Project or capture session.
+
+- Restart waits for actual capture shutdown completion instead of abandoning slow proxy restores after 15 seconds, and rechecks that starting another listener is safe.
+
+- Keep repeated live-stream deliveries idempotent with bounded identity tracking, including after large session clears; preserve failed WebSocket/SSE states instead of marking them successful.
+- Refresh Babylon-only live rows when they finish, including while recording is paused; share the same completion delivery callbacks with local proxy capture.
+- Avoid per-WebSocket history scans within a batch and temporary full-history match arrays during log correlation.
+
 - Run system proxy setup, restoration, and ownership checks away from the UI executor, including under Swift’s caller-isolated async mode, so synchronous system commands do not freeze the app during Start or Stop.
 
 - Batch WebSocket and streaming-response completion refreshes so stopping a busy capture does not schedule a full-history UI update for every closing connection. Add aggregate Stop phase timings for diagnosis.

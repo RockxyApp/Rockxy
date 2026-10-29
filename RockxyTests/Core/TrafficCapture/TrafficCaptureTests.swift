@@ -173,9 +173,10 @@ struct TrafficSessionManagerTests {
         #expect(updates.value == [[transaction.id]])
 
         // A re-delivery after the update path has retired the connection appends nothing new
-        // and updates again, so a duplicate close can never create a second row.
+        // so a duplicate close can never create a second row or another refresh.
         await manager.addTransaction(transaction)
-        #expect(await manager.flushPendingUpdates().map(\.id) == [transaction.id])
+        #expect(await manager.flushPendingUpdates().isEmpty)
+        #expect(updates.value == [[transaction.id]])
     }
 
     @Test("Clear Session drops the close delivery of a WebSocket it already dismissed")
@@ -270,7 +271,9 @@ struct TrafficSessionManagerTests {
         await manager.addTransaction(stream)
 
         #expect(await manager.flushPendingUpdates().map(\.id) == [stream.id])
-        #expect(updates.value == [[stream.id]])
+        // The first accepted delivery already contained the final state; the late open
+        // needs neither a second row nor a redundant completion refresh.
+        #expect(updates.value.isEmpty)
     }
 
     @Test("Paused recording still finishes a live row but adds no new rows")

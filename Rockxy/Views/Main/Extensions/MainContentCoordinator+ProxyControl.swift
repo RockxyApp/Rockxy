@@ -427,23 +427,22 @@ extension MainContentCoordinator {
         guard isProxyRunning, !isProxyStopping, !isProxyStarting else {
             return
         }
-        stopProxy()
-        Task { @MainActor in
-            let deadline = ContinuousClock.now.advanced(by: .seconds(15))
-            while isProxyStopping || isProxyRunning {
-                guard ContinuousClock.now < deadline else {
-                    Self.logger.error("Restart aborted: the proxy did not stop in time")
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            startProxy()
+        guard let stopTask = stopProxy() else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            await CaptureRestartSequencer.restart(
+                after: { await stopTask.value },
+                canStart: { self?.canStartProxy == true },
+                start: { self?.startProxy() }
+            )
         }
     }
 
-    func stopProxy() {
+    @discardableResult
+    func stopProxy() -> Task<Void, Never>? {
         guard isProxyRunning, !isProxyStopping else {
-            return
+            return nil
         }
         isProxyStopping = true
         captureHealthTask?.cancel()
@@ -459,7 +458,7 @@ extension MainContentCoordinator {
         let probeTracker = captureProbeTracker
         let stopRequestedAt = ContinuousClock.now
 
-        Task {
+        return Task {
             Self.logger
                 .info(
                     "Capture stop dispatched after \(String(describing: stopRequestedAt.duration(to: .now)), privacy: .public)"
@@ -836,7 +835,7 @@ extension MainContentCoordinator {
         // Advance the actor-side generation first so any traffic arriving while
         // the main actor is suspended joins the new session instead of being
         // stamped with an old generation.
-        let rollover = await sessionManager.beginNewSessionPreservingPending()
+        let rollover = await sessionManager.beginNewSessionPreservingPending(clearingProjectInto: activeCaptureContext)
         let resolvedGeneration = rollover.generation
 
         // Validate that this clear is still the authoritative in-flight clear
@@ -970,6 +969,17 @@ extension MainContentCoordinator {
             }
         )
 
+        await configureSessionDeliveryCallbacks()
+        let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
+        liveHistoryLimit = max(1, effectiveBufferSize)
+        await sessionManager.setMaxBufferSize(effectiveBufferSize)
+        await sessionManager.setProxyPort(resolvedPort)
+        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
+    }
+
+    /// Proxy and Babylon intake must install the same delivery paths, including terminal
+    /// updates for rows opened before Pause or before the local proxy was started.
+    func configureSessionDeliveryCallbacks() async {
         await sessionManager.setOnBatchReady { [weak self] batch, generation in
             guard let self else {
                 return
@@ -994,11 +1004,6 @@ extension MainContentCoordinator {
                 self.handleLiveTransactionUpdate(updatedTransactions)
             }
         }
-        let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
-        liveHistoryLimit = max(1, effectiveBufferSize)
-        await sessionManager.setMaxBufferSize(effectiveBufferSize)
-        await sessionManager.setProxyPort(resolvedPort)
-        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
     // MARK: - Transaction Processing
@@ -1056,32 +1061,37 @@ extension MainContentCoordinator {
             var history = transactionsByProjectID[projectID] ?? []
             var sequence = nextSequenceNumberByProjectID[projectID]
                 ?? ((history.map(\.sequenceNumber).max() ?? -1) + 1)
-            // A WebSocket session is delivered when it opens (so the row and frames are
-            // visible live) and again when it closes with its final state. The second
-            // delivery updates the row that is already in history instead of appending
-            // a duplicate.
+            // Index only live-row batches; ordinary HTTP intake keeps its append fast path.
+            // One lookup pass replaces a history scan for every WebSocket in the batch.
+            var liveHistoryIDs: Set<UUID> = []
+            if routedBatch.contains(where: { $0.deliversLiveRow || $0.webSocketConnection != nil }) {
+                liveHistoryIDs = Set(history.map(\.id))
+            }
             var projectBatch: [HTTPTransaction] = []
             var updatedTransactions: [HTTPTransaction] = []
             for transaction in routedBatch {
-                if transaction.webSocketConnection != nil,
-                   history.contains(where: { $0.id == transaction.id })
-                {
-                    // The lifecycle only re-delivers a session when it has closed.
-                    transaction.state = .completed
+                let isLiveDelivery = transaction.deliversLiveRow || transaction.webSocketConnection != nil
+                if isLiveDelivery, liveHistoryIDs.contains(transaction.id) {
+                    // Preserve the producer's failed/blocked/completed state. A duplicate open
+                    // must not finish the stream, and a failed close must not become success.
                     updatedTransactions.append(transaction)
                     continue
                 }
                 transaction.sequenceNumber = sequence
                 sequence += 1
+                if isLiveDelivery {
+                    liveHistoryIDs.insert(transaction.id)
+                }
                 history.append(transaction)
                 projectBatch.append(transaction)
             }
             nextSequenceNumberByProjectID[projectID] = sequence
-            if !updatedTransactions.isEmpty, projectID == projectStore.activeProjectID {
-                refreshRowsAfterMutation()
-            }
             guard !projectBatch.isEmpty else {
                 transactionsByProjectID[projectID] = history
+                if !updatedTransactions.isEmpty, projectID == projectStore.activeProjectID {
+                    transactions = history
+                    handleLiveTransactionUpdate(updatedTransactions)
+                }
                 continue
             }
 
@@ -1136,12 +1146,14 @@ extension MainContentCoordinator {
             followLatestVisibleTransaction(from: projectBatch)
             selectPendingReplayTransaction(from: projectBatch)
             headerColumnStore.updateDiscoveredHeaders(fromBatch: projectBatch)
+            if !updatedTransactions.isEmpty {
+                handleLiveTransactionUpdate(updatedTransactions)
+            }
         }
     }
 
     func handleClientAppEnrichment(_ enrichedTransactions: [HTTPTransaction]) {
-        let activeIDs = Set(transactions.map(\.id))
-        let enrichedTransactions = enrichedTransactions.filter { activeIDs.contains($0.id) }
+        let enrichedTransactions = updatesForActiveCaptureHistory(enrichedTransactions)
         guard !enrichedTransactions.isEmpty else {
             return
         }
@@ -1169,8 +1181,7 @@ extension MainContentCoordinator {
     /// or duration changed after they were already delivered as live rows. The transaction
     /// objects are shared, so only the derived row snapshots and state-dependent views need work.
     func handleLiveTransactionUpdate(_ updatedTransactions: [HTTPTransaction]) {
-        let activeIDs = Set(transactions.map(\.id))
-        let updatedTransactions = updatedTransactions.filter { activeIDs.contains($0.id) }
+        let updatedTransactions = updatesForActiveCaptureHistory(updatedTransactions)
         guard !updatedTransactions.isEmpty else {
             return
         }
@@ -1187,6 +1198,25 @@ extension MainContentCoordinator {
             }
         }
         recomputeErrorCount()
+    }
+
+    /// Reject stale ownership before scanning history. Temporary membership storage scales
+    /// with the incoming batch, rather than the entire retained capture on every refresh.
+    private func updatesForActiveCaptureHistory(_ updates: [HTTPTransaction]) -> [HTTPTransaction] {
+        let context = activeCaptureContext
+        let candidates = updates.filter { $0.captureContext == nil || $0.captureContext == context }
+        var missing = Set(candidates.map(\.id))
+        guard !missing.isEmpty else {
+            return []
+        }
+        var present: Set<UUID> = []
+        for transaction in transactions where missing.remove(transaction.id) != nil {
+            present.insert(transaction.id)
+            if missing.isEmpty {
+                break
+            }
+        }
+        return candidates.filter { present.contains($0.id) }
     }
 
     /// Rewrites the `RequestListRow` snapshots of already-visible rows without a full derive.

@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+// MARK: - TrafficSessionManager
+
 /// Batches incoming HTTP transactions from the proxy engine before delivering them to the UI layer.
 /// Transactions are flushed either when the batch reaches 50 items or every 100ms, whichever comes
 /// first. This prevents per-request UI updates that would bottleneck SwiftUI at high traffic volumes.
@@ -39,7 +41,9 @@ actor TrafficSessionManager {
     }
 
     func setMaxBufferSize(_ size: Int) {
-        maxBufferSize = size
+        maxBufferSize = max(1, size)
+        completedLiveTransactionIDs.setCapacity(maxBufferSize)
+        dismissedLiveTransactionIDs.setCapacity(maxBufferSize)
     }
 
     func setProxyPort(_ port: Int) {
@@ -59,11 +63,23 @@ actor TrafficSessionManager {
         // order. Whichever delivery comes first adds the row; the other one is an in-place
         // update. A delivery for a row dismissed by Clear Session is dropped so the finished
         // connection cannot resurface as a new row.
-        if !dismissedLiveTransactionIDs.isEmpty, dismissedLiveTransactionIDs.remove(transaction.id) != nil {
+        if dismissedLiveTransactionIDs.contains(transaction.id)
+            || completedLiveTransactionIDs.contains(transaction.id)
+        {
             return
         }
-        if liveTransactionIDs.remove(transaction.id) != nil {
-            pendingLiveUpdates.append(transaction)
+        if liveTransactionIDs.contains(transaction.id) {
+            if transaction.state != .active, transaction.state != .pending {
+                liveTransactionIDs.remove(transaction.id)
+                liveCaptureContexts.removeValue(forKey: transaction.id)
+                completedLiveTransactionIDs.insert(transaction.id)
+            }
+            if let index = pendingLiveUpdateIndices[transaction.id] {
+                pendingLiveUpdates[index] = transaction
+            } else {
+                pendingLiveUpdateIndices[transaction.id] = pendingLiveUpdates.count
+                pendingLiveUpdates.append(transaction)
+            }
             if pendingLiveUpdates.count >= batchSize {
                 flushAndDeliver()
             }
@@ -73,7 +89,14 @@ actor TrafficSessionManager {
             return
         }
         if transaction.deliversLiveRow {
-            liveTransactionIDs.insert(transaction.id)
+            if transaction.state == .active || transaction.state == .pending {
+                liveTransactionIDs.insert(transaction.id)
+                liveCaptureContexts[transaction.id] = transaction.captureContext
+            } else {
+                // The close can overtake the open, or be the only accepted delivery
+                // after Pause. Publish its final row once without retaining an open ID.
+                completedLiveTransactionIDs.insert(transaction.id)
+            }
         }
         pendingUpdates.append(transaction)
 
@@ -117,6 +140,7 @@ actor TrafficSessionManager {
     func resetBufferState() {
         pendingUpdates.removeAll()
         pendingLiveUpdates.removeAll()
+        pendingLiveUpdateIndices.removeAll()
         dismissLiveTransactions()
         totalBuffered = 0
         generation &+= 1
@@ -136,10 +160,23 @@ actor TrafficSessionManager {
     /// this to retain only explicitly routed transactions owned by other Projects;
     /// unowned and active-Project pending work is still discarded.
     func beginNewSessionPreservingPending() async -> (generation: UInt, pending: [HTTPTransaction]) {
+        await beginNewSessionPreservingPending(clearingProjectInto: nil)
+    }
+
+    /// Retains streams belonging to other Projects and requests already stamped with the
+    /// target Project's new context while its clear crosses the actor boundary.
+    func beginNewSessionPreservingPending(
+        clearingProjectInto nextContext: TrafficCaptureContext?
+    )
+        async -> (generation: UInt, pending: [HTTPTransaction])
+    {
         let pending = pendingUpdates
         pendingUpdates.removeAll()
-        pendingLiveUpdates.removeAll()
-        dismissLiveTransactions()
+        pendingLiveUpdates.removeAll { !Self.survivesClear($0.captureContext, into: nextContext) }
+        pendingLiveUpdateIndices = Dictionary(uniqueKeysWithValues: pendingLiveUpdates.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        dismissLiveTransactions(clearingProjectInto: nextContext)
         totalBuffered = 0
         generation &+= 1
         if let onBeginNewSession {
@@ -169,10 +206,15 @@ actor TrafficSessionManager {
     /// Closing many streams during Stop must not enqueue one full-history UI refresh per row.
     /// Bound completion delivery by the same batch size and timer as new rows.
     private var pendingLiveUpdates: [HTTPTransaction] = []
+    private var pendingLiveUpdateIndices: [UUID: Int] = [:]
     /// Live (still open) connections already delivered as rows, keyed for update routing.
     private var liveTransactionIDs: Set<UUID> = []
+    private var liveCaptureContexts: [UUID: TrafficCaptureContext] = [:]
     /// Live connections whose rows were cleared; their close delivery must not resurface them.
-    private var dismissedLiveTransactionIDs: Set<UUID> = []
+    private var dismissedLiveTransactionIDs = RecentLiveTransactionIDs(capacity: 50_000)
+    /// Remember finalized live identities so duplicate terminal deliveries stay idempotent.
+    /// This is bounded by the configured history cap, rather than growing across a long session.
+    private var completedLiveTransactionIDs = RecentLiveTransactionIDs(capacity: 50_000)
     private let batchSize = 50
     private let batchInterval: TimeInterval = 0.1
     private var maxBufferSize: Int = 50_000
@@ -180,6 +222,18 @@ actor TrafficSessionManager {
     private var generation: UInt = 0
     private var proxyPort: Int = 9_090
     private var batchTimerTask: Task<Void, Never>?
+
+    private static func survivesClear(
+        _ context: TrafficCaptureContext?,
+        into nextContext: TrafficCaptureContext?
+    )
+        -> Bool
+    {
+        guard let nextContext, let context else {
+            return false
+        }
+        return context.projectID != nextContext.projectID || context == nextContext
+    }
 
     // MARK: - Flush and Deliver
 
@@ -209,15 +263,17 @@ actor TrafficSessionManager {
                 proxyPort: port,
                 requiring: unresolvedSourcePorts
             )
-            var enrichedTransactions: [HTTPTransaction] = []
-            for transaction in batch where transaction.clientApp == nil {
-                if let srcPort = transaction.sourcePort, let app = portMap[srcPort] {
-                    transaction.clientApp = app
-                    enrichedTransactions.append(transaction)
+            await MainActor.run {
+                var enrichedTransactions: [HTTPTransaction] = []
+                for transaction in batch where transaction.clientApp == nil {
+                    if let srcPort = transaction.sourcePort, let app = portMap[srcPort] {
+                        transaction.clientApp = app
+                        enrichedTransactions.append(transaction)
+                    }
                 }
-            }
-            if !enrichedTransactions.isEmpty {
-                enrichCallback?(enrichedTransactions)
+                if !enrichedTransactions.isEmpty {
+                    enrichCallback?(enrichedTransactions)
+                }
             }
         }
     }
@@ -228,14 +284,18 @@ actor TrafficSessionManager {
         }
         let updates = pendingLiveUpdates
         pendingLiveUpdates.removeAll(keepingCapacity: true)
+        pendingLiveUpdateIndices.removeAll(keepingCapacity: true)
         onLiveTransactionUpdated?(updates)
     }
 
-    private func dismissLiveTransactions() {
-        dismissedLiveTransactionIDs.formUnion(liveTransactionIDs)
-        liveTransactionIDs.removeAll()
-        if dismissedLiveTransactionIDs.count > 4_096 {
-            dismissedLiveTransactionIDs.removeAll()
+    private func dismissLiveTransactions(clearingProjectInto nextContext: TrafficCaptureContext? = nil) {
+        let dismissed = liveTransactionIDs.filter {
+            !Self.survivesClear(liveCaptureContexts[$0], into: nextContext)
+        }
+        for id in dismissed {
+            dismissedLiveTransactionIDs.insert(id)
+            liveTransactionIDs.remove(id)
+            liveCaptureContexts.removeValue(forKey: id)
         }
     }
 
@@ -259,5 +319,59 @@ actor TrafficSessionManager {
         }
 
         totalBuffered = maxBufferSize
+    }
+}
+
+// MARK: - RecentLiveTransactionIDs
+
+/// A bounded identity window with amortized constant-time insertion and retirement.
+/// Keep tombstones across Clear so repeated old completions cannot resurrect discarded rows.
+struct RecentLiveTransactionIDs {
+    // MARK: Lifecycle
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    // MARK: Internal
+
+    var count: Int {
+        identities.count
+    }
+
+    func contains(_ id: UUID) -> Bool {
+        identities.contains(id)
+    }
+
+    mutating func insert(_ id: UUID) {
+        guard identities.insert(id).inserted else {
+            return
+        }
+        order.append(id)
+        trim()
+    }
+
+    mutating func setCapacity(_ capacity: Int) {
+        self.capacity = max(1, capacity)
+        trim()
+    }
+
+    // MARK: Private
+
+    private var capacity: Int
+    private var identities: Set<UUID> = []
+    private var order: [UUID] = []
+    private var head = 0
+
+    private mutating func trim() {
+        while identities.count > capacity {
+            identities.remove(order[head])
+            head += 1
+        }
+        // Compact in chunks so a full window never shifts an array for each completion.
+        if head >= max(1_024, order.count / 2) {
+            order.removeFirst(head)
+            head = 0
+        }
     }
 }

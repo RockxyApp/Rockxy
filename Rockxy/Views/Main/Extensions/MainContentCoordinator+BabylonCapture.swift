@@ -3,25 +3,11 @@ import Foundation
 import os
 
 extension MainContentCoordinator {
-    func configureBabylonCaptureIntake() {
+    @discardableResult
+    func configureBabylonCaptureIntake() -> Task<Void, Never> {
         let manager = sessionManager
-        Task {
-            await manager.setOnBatchReady { [weak self] batch, generation in
-                guard let self else {
-                    return
-                }
-                Task { @MainActor in
-                    self.processBatch(batch, generation: generation)
-                }
-            }
-            await manager.setOnClientAppEnriched { [weak self] enrichedTransactions in
-                guard let self else {
-                    return
-                }
-                Task { @MainActor in
-                    self.handleClientAppEnrichment(enrichedTransactions)
-                }
-            }
+        return Task {
+            await configureSessionDeliveryCallbacks()
             let settings = AppSettingsStorage.load()
             let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
             liveHistoryLimit = max(1, effectiveBufferSize)
@@ -35,7 +21,7 @@ extension MainContentCoordinator {
     /// only refreshes a row that is still live, so it can never add the same row a second time when
     /// it overtakes the first delivery; that first delivery then adds the already-finished row.
     func receiveBabylonTransaction(_ transaction: HTTPTransaction, isUpdate: Bool = false) async {
-        guard captureRecordingGate.allowsCapture() else {
+        guard isUpdate || captureRecordingGate.allowsCapture() else {
             return
         }
         guard await ensureProjectCatalogReadyForDataIntake() else {
@@ -43,7 +29,10 @@ extension MainContentCoordinator {
             return
         }
         transaction.assignCaptureContextIfMissing(activeCaptureContext)
-        await sessionManager.addTransaction(transaction, acceptsNewRows: !isUpdate)
+        await sessionManager.addTransaction(
+            transaction,
+            acceptsNewRows: !isUpdate && captureRecordingGate.allowsCapture()
+        )
     }
 
     func registerBabylonCapture(identity: BabylonCaptureIdentity) async {

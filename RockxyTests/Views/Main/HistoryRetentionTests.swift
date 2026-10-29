@@ -58,6 +58,29 @@ struct HistoryRetentionTests {
         #expect(coordinator.filteredRows.first?.clientApp == "Safari")
     }
 
+    @Test("Stale ownership cannot refresh a matching UUID", arguments: [0, 1, 2])
+    @MainActor
+    func staleOwnershipCannotRefreshMatchingRow(kind: Int) {
+        let coordinator = MainContentCoordinator()
+        let row = TestFixtures.makeTransaction(state: .active)
+        coordinator.processActiveProjectTestBatch([row])
+        let active = coordinator.activeCaptureContext
+        let stale = TrafficCaptureContext(
+            projectID: kind == 0 ? UUID() : active.projectID,
+            sessionID: kind == 1 ? UUID() : active.sessionID,
+            generation: kind == 2 ? active.generation &+ 1 : active.generation
+        )
+        // Simulate an imported identity collision with a delayed callback from another context.
+        let update = HTTPTransaction(id: row.id, request: row.request, state: .failed)
+        update.assignCaptureContextIfMissing(stale)
+        update.clientApp = "Foreign app"
+        coordinator.handleLiveTransactionUpdate([update])
+        coordinator.handleClientAppEnrichment([update])
+        #expect(coordinator.filteredRows.first?.state == .active)
+        #expect(coordinator.filteredRows.first?.clientApp == nil)
+        #expect(!coordinator.appNodes.contains { $0.name == "Foreign app" })
+    }
+
     @Test("A WebSocket session re-delivered on close updates its row instead of duplicating it")
     @MainActor
     func webSocketRedeliveryUpdatesExistingRow() {
@@ -75,11 +98,34 @@ struct HistoryRetentionTests {
         #expect(coordinator.transactions.count == 1)
         #expect(coordinator.transactions.first?.state == .active)
 
-        // Delivered again when the socket closes: the same row becomes completed.
+        // The producer finalizes the model before delivering the close event.
+        session.state = .completed
         coordinator.processActiveProjectTestBatch([session])
         #expect(coordinator.transactions.count == 1)
         #expect(coordinator.transactions.first?.id == session.id)
         #expect(coordinator.transactions.first?.state == .completed)
+    }
+
+    @Test("Live redelivery preserves failures and never duplicates SSE rows")
+    @MainActor
+    func liveRedeliveryPreservesTerminalTruth() {
+        let coordinator = MainContentCoordinator()
+        let socketRequest = TestFixtures.makeRequest(url: "ws://test.invalid/socket")
+        let socket = HTTPTransaction(
+            request: socketRequest, state: .active,
+            webSocketConnection: WebSocketConnection(upgradeRequest: socketRequest)
+        )
+        let stream = TestFixtures.makeTransaction(state: .active)
+        coordinator.processActiveProjectTestBatch([socket, stream])
+        coordinator.processActiveProjectTestBatch([socket, stream])
+        #expect(coordinator.transactions.count == 2)
+        #expect(coordinator.transactions.allSatisfy { $0.state == .active })
+        socket.state = .failed
+        stream.state = .failed
+        coordinator.processActiveProjectTestBatch([socket, stream, socket, stream])
+        #expect(coordinator.transactions.count == 2)
+        #expect(coordinator.filteredRows.count == 2)
+        #expect(coordinator.filteredRows.allSatisfy { $0.state == .failed })
     }
 
     @Test("Bulk client attribution moves every observed host count")
