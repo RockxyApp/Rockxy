@@ -83,6 +83,54 @@ struct ProxyOperationGateTests {
 // MARK: - ProxyAsyncOperationGateTests
 
 struct ProxyAsyncOperationGateTests {
+    // MARK: Internal
+
+    @Test("Proxy lifecycle work invoked from MainActor executes off the UI thread")
+    @MainActor
+    func backgroundLifecycleDoesNotInheritMainActor() async throws {
+        let gate = ProxyAsyncOperationGate()
+        let ranOnMainThread = try await gate.withBackgroundOperation {
+            Self.isExecutingOnMainThread()
+        }
+        #expect(!ranOnMainThread)
+    }
+
+    @Test("Background lifecycle errors release the same serialization gate")
+    func backgroundLifecycleErrorsReleaseGate() async throws {
+        let gate = ProxyAsyncOperationGate()
+        await #expect(throws: (any Error).self) {
+            try await gate.withBackgroundOperation { throw TestFailure() }
+        }
+        #expect(try await gate.withBackgroundOperation { true })
+    }
+
+    @Test("Moving lifecycle work off MainActor preserves complete operation ordering")
+    func backgroundLifecycleOperationsDoNotInterleave() async throws {
+        let gate = ProxyAsyncOperationGate()
+        let events = AsyncEventLog()
+        let firstEntered = AsyncLatch()
+        let releaseFirst = AsyncLatch()
+        let secondRequested = AsyncLatch()
+        let first = Task {
+            try await gate.withBackgroundOperation {
+                await events.append("first:start")
+                await firstEntered.signal()
+                await releaseFirst.wait()
+                await events.append("first:end")
+            }
+        }
+        await firstEntered.wait()
+        let second = Task {
+            await secondRequested.signal()
+            try await gate.withBackgroundOperation { await events.append("second:start") }
+        }
+        await secondRequested.wait()
+        await releaseFirst.signal()
+        try await first.value
+        try await second.value
+        #expect(await events.entries == ["first:start", "first:end", "second:start"])
+    }
+
     @Test("Suspending lifecycle operations cannot overlap")
     func lifecycleOperationsDoNotInterleave() async {
         let gate = ProxyAsyncOperationGate()
@@ -124,6 +172,12 @@ struct ProxyAsyncOperationGateTests {
         }
 
         #expect(await gate.withOperation { true })
+    }
+
+    // MARK: Private
+
+    private static func isExecutingOnMainThread() -> Bool {
+        Thread.isMainThread
     }
 }
 
@@ -321,7 +375,7 @@ private final class EventLog: @unchecked Sendable {
     private var recorded: [String] = []
 }
 
-// MARK: - Async Test Support
+// MARK: - AsyncEventLog
 
 private actor AsyncEventLog {
     private(set) var entries: [String] = []
@@ -331,9 +385,10 @@ private actor AsyncEventLog {
     }
 }
 
+// MARK: - AsyncLatch
+
 private actor AsyncLatch {
-    private var isSignaled = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    // MARK: Internal
 
     func wait() async {
         guard !isSignaled else {
@@ -348,6 +403,11 @@ private actor AsyncLatch {
         waiters.removeAll()
         pending.forEach { $0.resume() }
     }
+
+    // MARK: Private
+
+    private var isSignaled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 }
 
 // MARK: - TestFailure

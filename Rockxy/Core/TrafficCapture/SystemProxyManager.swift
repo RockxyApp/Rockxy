@@ -469,6 +469,24 @@ final class SystemProxyManager: @unchecked Sendable {
             && !hasGlobalBypass
     }
 
+    /// Only an installed helper can hold a proxy override worth restoring; without one the XPC
+    /// status probe can only time out.
+    nonisolated static func shouldProbeHelperForOverride(helperStatus: HelperManager.HelperStatus) -> Bool {
+        helperStatus != .notInstalled
+    }
+
+    nonisolated static func confirmHelperRestoreAfterTimeout(
+        probe: @escaping @Sendable () async -> Bool
+    )
+        async -> Bool
+    {
+        await ProxyActivationConfirmation.confirm(
+            maxAttempts: 4,
+            delay: .milliseconds(300),
+            probe: probe
+        )
+    }
+
     /// Starts one process-wide observer for the live macOS proxy dictionary. Unlike
     /// `.systemProxyDidChange`, this also detects changes made by System Settings,
     /// VPN software, or another debugging proxy while Rockxy's listener is running.
@@ -479,7 +497,7 @@ final class SystemProxyManager: @unchecked Sendable {
     // MARK: - Public API
 
     func enableSystemProxy(port: Int) async throws {
-        try await Self.lifecycleGate.withOperation { [self] in
+        try await Self.lifecycleGate.withBackgroundOperation { [self] in
             try await enableSystemProxyLocked(port: port)
         }
     }
@@ -489,7 +507,7 @@ final class SystemProxyManager: @unchecked Sendable {
     /// they are; the caller asks the user whether to put the previous settings back.
     @discardableResult
     func disableSystemProxy() async throws -> SystemProxyRestoreReport {
-        try await Self.lifecycleGate.withOperation { [self] in
+        try await Self.lifecycleGate.withBackgroundOperation { [self] in
             try await disableSystemProxyLocked()
         }
     }
@@ -554,7 +572,9 @@ final class SystemProxyManager: @unchecked Sendable {
             try await HelperConnection.shared.setBypassDomains(domains)
             Self.logger.info("Applied \(domains.count) bypass domain(s) via helper")
         } else {
-            try applyBypassDomainsViaNetworkSetup(domains, queuedGeneration: queuedGeneration)
+            try await Task.detached(priority: .userInitiated) { [self] in
+                try applyBypassDomainsViaNetworkSetup(domains, queuedGeneration: queuedGeneration)
+            }.value
         }
     }
 
@@ -612,45 +632,9 @@ final class SystemProxyManager: @unchecked Sendable {
     /// Determines who currently owns the system proxy override by checking
     /// on-disk backup (direct mode) and helper status.
     func effectiveOverrideOwner() async -> ProxyOverrideOwner {
-        // In-memory ownership is only a hint. The proxy can be changed outside
-        // Rockxy, or a helper watchdog can restore it after an app restart.
-        // Always reconcile against live state before exposing an active override.
-        lock.lock()
-        let wasEnabled = isEnabled
-        let wasUsingHelper = usingHelper
-        lock.unlock()
-
-        if let backup = loadDirectBackup(), directBackupBelongsToCurrentProcess(backup) {
-            let backedUpServices = backup.services.map(\.service)
-            if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices),
-               effectiveSystemProxyMatchesRockxy(port: backup.rockxyPort)
-            {
-                return .direct(backup: backup)
-            }
-        }
-
-        // Without an installed helper there is no XPC service to answer, and the status probe
-        // would only return after its 10 s timeout — which is what made quitting and readiness
-        // checks stall on machines that never installed the helper.
-        if await Self.shouldProbeHelperForOverride(helperStatus: HelperManager.shared.status),
-           let helperStatus = try? await HelperConnection.shared.getProxyStatus(),
-           helperStatus.isOverridden,
-           effectiveSystemProxyMatchesRockxy(port: helperStatus.port)
-        {
-            return .helper(port: helperStatus.port)
-        }
-
-        if wasEnabled || wasUsingHelper {
-            clearInMemoryOverrideState(preserveOverrideMethod: true)
-        }
-
-        return .none
-    }
-
-    /// Only an installed helper can hold a proxy override worth restoring; without one the XPC
-    /// status probe can only time out.
-    nonisolated static func shouldProbeHelperForOverride(helperStatus: HelperManager.HelperStatus) -> Bool {
-        helperStatus != .notInstalled
+        await Task.detached(priority: .userInitiated) { [self] in
+            await effectiveOverrideOwnerOnWorker()
+        }.value
     }
 
     /// Checks the routed service when it can be identified. If route-to-service mapping is
@@ -764,6 +748,42 @@ final class SystemProxyManager: @unchecked Sendable {
     /// replaces is removed.
     private static func uniqueDirectWatchdogLabel() -> String {
         "\(directWatchdogLabel).\(UUID().uuidString)"
+    }
+
+    private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
+        // In-memory ownership is only a hint. The proxy can be changed outside
+        // Rockxy, or a helper watchdog can restore it after an app restart.
+        // Always reconcile against live state before exposing an active override.
+        lock.lock()
+        let wasEnabled = isEnabled
+        let wasUsingHelper = usingHelper
+        lock.unlock()
+
+        if let backup = loadDirectBackup(), directBackupBelongsToCurrentProcess(backup) {
+            let backedUpServices = backup.services.map(\.service)
+            if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices),
+               effectiveSystemProxyMatchesRockxy(port: backup.rockxyPort)
+            {
+                return .direct(backup: backup)
+            }
+        }
+
+        // Without an installed helper there is no XPC service to answer, and the status probe
+        // would only return after its 10 s timeout — which is what made quitting and readiness
+        // checks stall on machines that never installed the helper.
+        if await Self.shouldProbeHelperForOverride(helperStatus: HelperManager.shared.status),
+           let helperStatus = try? await HelperConnection.shared.getProxyStatus(),
+           helperStatus.isOverridden,
+           effectiveSystemProxyMatchesRockxy(port: helperStatus.port)
+        {
+            return .helper(port: helperStatus.port)
+        }
+
+        if wasEnabled || wasUsingHelper {
+            clearInMemoryOverrideState(preserveOverrideMethod: true)
+        }
+
+        return .none
     }
 
     private func enableSystemProxyLocked(port: Int) async throws {
@@ -1544,16 +1564,6 @@ final class SystemProxyManager: @unchecked Sendable {
         return await Self.confirmHelperRestoreAfterTimeout { [self] in
             await helperRestoreStateMatchesCurrentSnapshot()
         }
-    }
-
-    nonisolated static func confirmHelperRestoreAfterTimeout(
-        probe: @escaping @Sendable () async -> Bool
-    ) async -> Bool {
-        await ProxyActivationConfirmation.confirm(
-            maxAttempts: 4,
-            delay: .milliseconds(300),
-            probe: probe
-        )
     }
 
     private func helperRestoreStateMatchesCurrentSnapshot() async -> Bool {

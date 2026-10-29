@@ -56,6 +56,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Run system proxy setup, restoration, and ownership checks away from the UI executor, including under Swift’s caller-isolated async mode, so synchronous system commands do not freeze the app during Start or Stop.
+
+- Batch WebSocket and streaming-response completion refreshes so stopping a busy capture does not schedule a full-history UI update for every closing connection. Add aggregate Stop phase timings for diagnosis.
+- Prevent full log buffers from generating an eviction log for every captured entry, which could keep self-captured OSLog streams busy even after other activity subsided.
+
 - Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
 - Babylon gRPC calls with absolute endpoint URLs are now accepted by the gRPC inspector; conflicting authorities are rejected.
 - Babylon WebSocket rows stay live until the app reports them closed, and rows an app left open are marked failed when it disconnects.

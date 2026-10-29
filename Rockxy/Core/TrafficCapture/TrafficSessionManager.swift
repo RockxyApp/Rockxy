@@ -63,7 +63,10 @@ actor TrafficSessionManager {
             return
         }
         if liveTransactionIDs.remove(transaction.id) != nil {
-            onLiveTransactionUpdated?([transaction])
+            pendingLiveUpdates.append(transaction)
+            if pendingLiveUpdates.count >= batchSize {
+                flushAndDeliver()
+            }
             return
         }
         guard acceptsNewRows else {
@@ -80,6 +83,7 @@ actor TrafficSessionManager {
     }
 
     func flushPendingUpdates() -> [HTTPTransaction] {
+        defer { flushLiveUpdates() }
         let updates = pendingUpdates
         pendingUpdates.removeAll()
         return updates
@@ -112,6 +116,7 @@ actor TrafficSessionManager {
     /// local state cleared (e.g. tests) and does not rely on the rollover callback.
     func resetBufferState() {
         pendingUpdates.removeAll()
+        pendingLiveUpdates.removeAll()
         dismissLiveTransactions()
         totalBuffered = 0
         generation &+= 1
@@ -133,6 +138,7 @@ actor TrafficSessionManager {
     func beginNewSessionPreservingPending() async -> (generation: UInt, pending: [HTTPTransaction]) {
         let pending = pendingUpdates
         pendingUpdates.removeAll()
+        pendingLiveUpdates.removeAll()
         dismissLiveTransactions()
         totalBuffered = 0
         generation &+= 1
@@ -160,6 +166,9 @@ actor TrafficSessionManager {
     )
 
     private var pendingUpdates: [HTTPTransaction] = []
+    /// Closing many streams during Stop must not enqueue one full-history UI refresh per row.
+    /// Bound completion delivery by the same batch size and timer as new rows.
+    private var pendingLiveUpdates: [HTTPTransaction] = []
     /// Live (still open) connections already delivered as rows, keyed for update routing.
     private var liveTransactionIDs: Set<UUID> = []
     /// Live connections whose rows were cleared; their close delivery must not resurface them.
@@ -175,6 +184,8 @@ actor TrafficSessionManager {
     // MARK: - Flush and Deliver
 
     private func flushAndDeliver() {
+        // Publish new rows first when a short stream opens and closes inside one interval.
+        defer { flushLiveUpdates() }
         guard !pendingUpdates.isEmpty else {
             return
         }
@@ -209,6 +220,15 @@ actor TrafficSessionManager {
                 enrichCallback?(enrichedTransactions)
             }
         }
+    }
+
+    private func flushLiveUpdates() {
+        guard !pendingLiveUpdates.isEmpty else {
+            return
+        }
+        let updates = pendingLiveUpdates
+        pendingLiveUpdates.removeAll(keepingCapacity: true)
+        onLiveTransactionUpdated?(updates)
     }
 
     private func dismissLiveTransactions() {

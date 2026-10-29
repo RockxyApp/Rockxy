@@ -457,11 +457,21 @@ extension MainContentCoordinator {
         let serverToStop = proxyServer
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker
+        let stopRequestedAt = ContinuousClock.now
 
         Task {
+            Self.logger
+                .info(
+                    "Capture stop dispatched after \(String(describing: stopRequestedAt.duration(to: .now)), privacy: .public)"
+                )
             defer {
                 isProxyStopping = false
+                Self.logger
+                    .info(
+                        "Capture stop task ended after \(String(describing: stopRequestedAt.duration(to: .now)), privacy: .public)"
+                    )
             }
+            let restoreStartedAt = ContinuousClock.now
             let restoreReport: SystemProxyRestoreReport
             do {
                 restoreReport = try await SystemProxyManager.shared.disableSystemProxy()
@@ -476,6 +486,10 @@ extension MainContentCoordinator {
                 return
             }
 
+            Self.logger
+                .info(
+                    "Capture stop routing restore took \(String(describing: restoreStartedAt.duration(to: .now)), privacy: .public)"
+                )
             isProxyRunning = false
             if let evictionObserver {
                 NotificationCenter.default.removeObserver(evictionObserver)
@@ -506,7 +520,12 @@ extension MainContentCoordinator {
             // resolution can never forward the original request to the origin. Resolving
             // before the stop would complete promises while channels were still active
             // and initiate exactly that origin work.
+            let drainStartedAt = ContinuousClock.now
             await serverToStop.stop()
+            Self.logger
+                .info(
+                    "Capture stop connection drain took \(String(describing: drainStartedAt.duration(to: .now)), privacy: .public)"
+                )
             breakpointManager.resolveAll(decision: .cancel)
             stopLogCapture()
             stopBandwidthTimer()
@@ -1179,7 +1198,8 @@ extension MainContentCoordinator {
         for (id, transaction) in transactionsByID {
             guard let entry = workspace.trafficSelectionIndex[id],
                   workspace.filteredRows.indices.contains(entry.rowIndex),
-                  workspace.filteredRows[entry.rowIndex].id == id else {
+                  workspace.filteredRows[entry.rowIndex].id == id else
+            {
                 continue
             }
             workspace.filteredRows[entry.rowIndex] = RequestListRow(
