@@ -185,6 +185,7 @@ final class MainContentCoordinator {
         projectTabAutosaveTask?.cancel()
         projectHydrationTask?.cancel()
         captureHealthTask?.cancel()
+        liveRowRefreshTask?.cancel()
         proxyStartTask?.cancel()
         proxyConfigurationRefreshTask?.cancel()
         httpsInterceptionRetryTask?.cancel()
@@ -293,6 +294,9 @@ final class MainContentCoordinator {
     var proxyError: String?
     var isSystemProxyConfigured = false
     @ObservationIgnored var captureHealthTask: Task<Void, Never>?
+    /// Merge adjacent session-actor completion batches before refreshing derived UI state.
+    @ObservationIgnored var pendingLiveRowUpdates: [UUID: HTTPTransaction] = [:]
+    @ObservationIgnored var liveRowRefreshTask: Task<Void, Never>?
     @ObservationIgnored var proxyStartTask: Task<Void, Never>?
     @ObservationIgnored var proxyConfigurationRefreshTask: Task<Void, Never>?
     @ObservationIgnored var httpsInterceptionRetryTask: Task<Void, Never>?

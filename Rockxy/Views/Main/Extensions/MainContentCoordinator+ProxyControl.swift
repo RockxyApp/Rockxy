@@ -1001,7 +1001,7 @@ extension MainContentCoordinator {
                 return
             }
             Task { @MainActor in
-                self.handleLiveTransactionUpdate(updatedTransactions)
+                self.enqueueLiveTransactionUpdates(updatedTransactions)
             }
         }
     }
@@ -1175,6 +1175,35 @@ extension MainContentCoordinator {
             }
         }
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+    }
+
+    /// Stop can finish thousands of streams in one burst. The session actor limits each
+    /// message to 50 rows, but rebuilding derived state per message still repeats history
+    /// scans. Merge messages for one display interval and refresh each identity once.
+    func enqueueLiveTransactionUpdates(_ updates: [HTTPTransaction]) {
+        let context = activeCaptureContext
+        for update in updates where update.captureContext == nil || update.captureContext == context {
+            pendingLiveRowUpdates[update.id] = update
+        }
+        guard !pendingLiveRowUpdates.isEmpty, liveRowRefreshTask == nil else {
+            return
+        }
+        liveRowRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else {
+                return
+            }
+            self?.flushQueuedLiveTransactionUpdates()
+        }
+    }
+
+    func flushQueuedLiveTransactionUpdates() {
+        liveRowRefreshTask?.cancel()
+        liveRowRefreshTask = nil
+        let updates = Array(pendingLiveRowUpdates.values)
+        pendingLiveRowUpdates.removeAll(keepingCapacity: true)
+        // Ownership and history membership are rechecked after the scheduling suspension.
+        handleLiveTransactionUpdate(updates)
     }
 
     /// Refreshes rows for long-lived transactions (WebSocket connections) whose state, response,
