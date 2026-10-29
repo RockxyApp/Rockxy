@@ -13,6 +13,7 @@ enum AppSettingsStorage {
             settings.proxyPort = defaults.integer(forKey: proxyPortKey)
         }
         settings.autoStartProxy = defaults.bool(forKey: autoStartKey)
+        settings.automaticallySetSystemProxy = AutomaticSystemProxyRouting.isEnabled(in: defaults)
         settings.recordOnLaunch = defaults.object(forKey: recordOnLaunchKey) != nil
             ? defaults.bool(forKey: recordOnLaunchKey) : true
         settings.onlyListenOnLocalhost = defaults.object(forKey: onlyListenOnLocalhostKey) != nil
@@ -96,6 +97,7 @@ enum AppSettingsStorage {
         let defaults = UserDefaults.standard
         defaults.set(settings.proxyPort, forKey: proxyPortKey)
         defaults.set(settings.autoStartProxy, forKey: autoStartKey)
+        defaults.set(settings.automaticallySetSystemProxy, forKey: AutomaticSystemProxyRouting.defaultsKey)
         defaults.set(settings.recordOnLaunch, forKey: recordOnLaunchKey)
         defaults.set(settings.onlyListenOnLocalhost, forKey: onlyListenOnLocalhostKey)
         defaults.set(settings.listenIPv6, forKey: listenIPv6Key)

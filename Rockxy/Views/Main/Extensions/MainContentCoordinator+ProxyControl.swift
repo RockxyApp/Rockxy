@@ -276,22 +276,34 @@ extension MainContentCoordinator {
                 await applyReverseProxies()
 
                 readiness.startObserving()
-                readiness.setSystemRoutingExpected(true)
-
-                Self.logger.info("Configuring system proxy...")
+                readiness.clearProxyEnableFailure()
+                readiness.setSystemRoutingExpected(
+                    settings.automaticallySetSystemProxy && AutomaticSystemProxyRouting.isEnabled()
+                )
                 do {
-                    try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
-                    isSystemProxyConfigured = true
-                    isProxyOverridden = true
-                    readiness.setSystemRoutingReady(true)
-                    Self.logger.info("System proxy enabled on port \(resolvedPort)")
+                    let didEnable = try await AutomaticSystemProxyRouting.enableForCapture(
+                        enabledAtStart: settings.automaticallySetSystemProxy
+                    ) {
+                        try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
+                    }
+                    if didEnable {
+                        isSystemProxyConfigured = true
+                        isProxyOverridden = true
+                        readiness.setSystemRoutingReady(true)
+                        Self.logger.info("System proxy enabled on port \(resolvedPort)")
+                    } else {
+                        readiness.setSystemRoutingExpected(false)
+                        // Observe any existing Rockxy override without changing the Mac's routing.
+                        _ = await reconcileProxyOverrideStatus()
+                        Self.logger.info("Listener started with manually configured client routing")
+                    }
                 } catch {
                     isSystemProxyConfigured = false
                     isProxyOverridden = false
                     readiness.setSystemRoutingReady(false)
                     readiness.setProxyEnableFailed(message: error.localizedDescription)
                     Self.logger.warning(
-                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(resolvedPort)"
+                        "System proxy not configured: \(error.localizedDescription). Proxy listener remains available"
                     )
                 }
 

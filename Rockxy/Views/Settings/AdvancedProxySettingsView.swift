@@ -135,14 +135,16 @@ struct AdvancedProxySettingsView: View {
         guard coordinator.isProxyRunning else {
             return "circle.slash"
         }
-        return coordinator.isSystemProxyConfigured ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+        return coordinator.isSystemProxyConfigured ? "checkmark.circle.fill"
+            : (coordinator.readiness.systemRoutingExpected ? "exclamationmark.triangle.fill" : "circle.slash")
     }
 
     private var routingColor: Color {
         guard coordinator.isProxyRunning else {
             return .secondary
         }
-        return coordinator.isSystemProxyConfigured ? .green : .orange
+        return coordinator.isSystemProxyConfigured ? .green
+            : (coordinator.readiness.systemRoutingExpected ? .orange : .secondary)
     }
 
     private var routingTitle: String {
@@ -364,6 +366,8 @@ struct AdvancedProxySettingsView: View {
         VStack(alignment: .leading, spacing: toolMetrics.controlSpacing) {
             Text(String(localized: "System Routing", bundle: RockxyLocalization.bundle))
                 .font(toolMetrics.tableHeaderFont())
+
+            AutomaticSystemProxyRoutingControl()
 
             HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
                 Image(systemName: routingIcon)

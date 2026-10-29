@@ -50975,6 +50975,50 @@
           }
         }
       }
+    },
+    "Automatically set macOS system proxy when capture starts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始捕获时自动设置 macOS 系统代理"
+          }
+        }
+      }
+    },
+    "macOS proxy off": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 代理已关闭"
+          }
+        }
+      }
+    },
+    "Optional for manually configured apps and devices. Enable only to route this Mac's proxy-aware traffic through Rockxy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对于手动配置的应用和设备，此项可选。仅当需要将此 Mac 上支持代理的流量路由至 Rockxy 时启用。"
+          }
+        }
+      }
+    },
+    "When off, capture does not take over this Mac's proxy settings. Manually configured apps and devices can still connect. Stop and Restart still restore any proxy override that Rockxy enabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，捕获不会接管此 Mac 的代理设置。手动配置的应用和设备仍可连接。停止和重新启动时，仍会恢复 Rockxy 先前更改的代理设置。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

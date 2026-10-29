@@ -57,7 +57,8 @@ struct CaptureStatusPresentation: Equatable {
         systemRouting = Self.systemRoutingItem(
             displayState: displayState,
             helperReadiness: helperReadiness,
-            isConfigured: isSystemProxyConfigured
+            isConfigured: isSystemProxyConfigured,
+            isExpected: isSystemRoutingExpected
         )
         capturePath = Self.capturePathItem(displayState: displayState, captureHealth: captureHealth)
     }
@@ -233,7 +234,8 @@ struct CaptureStatusPresentation: Equatable {
     private static func systemRoutingItem(
         displayState: ProxyDisplayState,
         helperReadiness: HelperManager.HelperStatus,
-        isConfigured: Bool
+        isConfigured: Bool,
+        isExpected: Bool
     )
         -> CaptureReadinessItem
     {
@@ -242,6 +244,13 @@ struct CaptureStatusPresentation: Equatable {
                 value: String(localized: "Routing active", bundle: RockxyLocalization.bundle),
                 systemImage: "checkmark.circle.fill",
                 level: .ready
+            )
+        }
+        if !isExpected {
+            return CaptureReadinessItem(
+                value: String(localized: "macOS proxy off", bundle: RockxyLocalization.bundle),
+                systemImage: "circle.slash",
+                level: .neutral
             )
         }
         if displayState == .stopping {
@@ -380,7 +389,8 @@ struct ProxyStatusPopover: View {
             certReadiness: readiness.certReadiness,
             helperReadiness: readiness.helperReadiness,
             isSystemProxyConfigured: isSystemProxyConfigured,
-            isSystemRoutingExpected: readiness.systemRoutingExpected,
+            isSystemRoutingExpected: displayState == .stopped
+                ? AppSettingsManager.shared.settings.automaticallySetSystemProxy : readiness.systemRoutingExpected,
             captureHealth: readiness.captureHealth
         )
     }

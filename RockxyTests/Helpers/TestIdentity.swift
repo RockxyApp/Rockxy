@@ -20,6 +20,7 @@ enum TestIdentity {
         "proxyPort",
         "autoStart",
         "recordOnLaunch",
+        "automaticallySetSystemProxy",
         "onlyListenOnLocalhost",
         "listenIPv6",
         "autoSelectPort",

@@ -97,6 +97,7 @@ struct CoordinatorStartupTests {
         let coordinator = MainContentCoordinator()
         var settings = AppSettings()
         settings.recordOnLaunch = true
+        settings.automaticallySetSystemProxy = false
         var startCount = 0
 
         let didStart = coordinator.startProxyOnLaunchIfNeeded(settings: settings) {
