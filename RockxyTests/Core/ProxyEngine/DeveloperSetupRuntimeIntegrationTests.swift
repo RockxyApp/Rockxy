@@ -29,6 +29,8 @@ struct DeveloperSetupRuntimeIntegrationTests {
                 proxy_handler = urllib.request.ProxyHandler({
                     "http": "http://127.0.0.1:\(proxyPort)",
                 })
+                # This explicit probe must not inherit the machine's loopback bypass rules.
+                urllib.request.proxy_bypass = lambda _: False
                 opener = urllib.request.build_opener(proxy_handler)
                 with opener.open("http://127.0.0.1:\(upstreamPort)/developer-setup/python", timeout=10) as response:
                     print(response.status)
@@ -168,10 +170,17 @@ struct DeveloperSetupRuntimeIntegrationTests {
                 }
                 """.write(to: sourceURL, atomically: true, encoding: .utf8)
 
-                return ProcessInvocation(
+                let binaryURL = workingDirectory.appendingPathComponent("probe-go")
+                // Cold Go standard-library compilation has a separate budget from network I/O.
+                let compileResult = try await runProcess(
                     executableURL: go,
-                    arguments: ["run", sourceURL.path]
+                    arguments: ["build", "-p", "2", "-o", binaryURL.path, sourceURL.path],
+                    workingDirectory: workingDirectory,
+                    timeout: .seconds(300)
                 )
+                try #require(compileResult.terminationStatus == 0, "go build failed: \(compileResult.stderr)")
+
+                return ProcessInvocation(executableURL: binaryURL, arguments: [])
             }
         )
     }
@@ -863,86 +872,17 @@ struct DeveloperSetupRuntimeIntegrationTests {
     )
         async throws -> ProcessResult
     {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-        process.currentDirectoryURL = workingDirectory
-        if let environment {
-            process.environment = environment
+        do {
+            let result = try await RuntimeProbeProcessRunner.run(
+                executableURL: executableURL, arguments: arguments,
+                workingDirectory: workingDirectory, environment: environment, timeout: timeout
+            )
+            return ProcessResult(
+                terminationStatus: result.terminationStatus, stdout: result.stdout, stderr: result.stderr
+            )
+        } catch RuntimeProbeProcessError.timedOut {
+            throw RuntimeProbeError.processTimedOut(executableURL.lastPathComponent)
         }
-        try process.run()
-
-        let stdoutReader = Task {
-            var data = Data()
-            for try await byte in stdoutPipe.fileHandleForReading.bytes {
-                data.append(byte)
-            }
-            return data
-        }
-
-        let stderrReader = Task {
-            var data = Data()
-            for try await byte in stderrPipe.fileHandleForReading.bytes {
-                data.append(byte)
-            }
-            return data
-        }
-
-        let budget = TimeoutBudget(timeout: timeout)
-        func terminateProcessForCancellation() {
-            defer {
-                stdoutReader.cancel()
-                stderrReader.cancel()
-            }
-
-            if process.isRunning {
-                process.terminate()
-                let gracePeriodDeadline = Date().addingTimeInterval(1.0)
-                while process.isRunning, Date() < gracePeriodDeadline {
-                    Thread.sleep(forTimeInterval: 0.05)
-                }
-                if process.isRunning {
-                    let processIdentifier = process.processIdentifier
-                    if processIdentifier > 0, process.isRunning {
-                        Darwin.kill(processIdentifier, SIGKILL)
-                    }
-                }
-                process.waitUntilExit()
-            }
-        }
-
-        while process.isRunning {
-            guard !budget.hasExpired else {
-                terminateProcessForCancellation()
-                throw RuntimeProbeError.processTimedOut(executableURL.lastPathComponent)
-            }
-
-            if Task.isCancelled {
-                terminateProcessForCancellation()
-                throw CancellationError()
-            }
-
-            do {
-                try await budget.sleep(step: .milliseconds(100))
-            } catch is CancellationError {
-                terminateProcessForCancellation()
-                throw CancellationError()
-            }
-        }
-
-        let stdoutData = await (try? stdoutReader.value) ?? Data()
-        let stderrData = await (try? stderrReader.value) ?? Data()
-        let stdout = String(bytes: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(bytes: stderrData, encoding: .utf8) ?? ""
-        return ProcessResult(
-            terminationStatus: process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr
-        )
     }
 }
 
