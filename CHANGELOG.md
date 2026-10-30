@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The GraphQL tab lists errors a server returned in the response body's `errors` array — message, error code, and path — so a failed operation that still answered HTTP 200 is visible without reading raw JSON; anonymous operations are labeled as such.
 - Added shared Babylon v1 protocol fixtures and a macOS CI gate that checks SDK/receiver compatibility, real TCP framing, replay acknowledgements, reconnects, and malformed-peer isolation.
 - Babylon captures now retain bounded producer, source, correlation, error, and URLSession timing metadata through sessions and HAR, with compatibility warnings for schema and capability mismatches.
+- Preserve captured Babylon errors even without a numeric code, and mark omitted or partial bodies in native, AI, and custom preview inspectors without describing uncaptured bytes as an absent original body. Session export/import regressions cover source, capabilities, timing, omission, errors, and older sessions.
 - Babylon body omissions now show request or response reason and byte counts, and retain truncation state when exported to HAR or saved sessions.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
@@ -72,6 +73,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 - Batch WebSocket and streaming-response completion refreshes so stopping a busy capture does not schedule a full-history UI update for every closing connection. Add aggregate Stop phase timings for diagnosis.
 - Prevent full log buffers from generating an eviction log for every captured entry, which could keep self-captured OSLog streams busy even after other activity subsided.
+
+- Keep retained partial request and response body bytes when reopening a session, while preserving truncation and omission metadata; inline-storage omissions retain their known byte sizes after reopening.
 
 - Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
 - Babylon gRPC calls with absolute endpoint URLs are now accepted by the gRPC inspector; conflicting authorities are rejected.

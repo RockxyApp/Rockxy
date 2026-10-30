@@ -1,6 +1,6 @@
 import AppKit
-import SwiftUI
 @testable import Rockxy
+import SwiftUI
 import Testing
 
 // MARK: - UseCaseViewSnapshotTests
@@ -12,6 +12,31 @@ import Testing
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["ROCKXY_RENDER_SNAPSHOTS"] != nil))
 struct UseCaseViewSnapshotTests {
     // MARK: Internal
+
+    @Test("Omitted body is unavailable rather than absent from the original message")
+    func omittedCaptureBody() async throws {
+        try await render(
+            CapturedBodyStatusContainer(isBodyIncomplete: true) {
+                CapturedBodyUnavailableView()
+            },
+            name: "babylon-omitted-body",
+            size: CGSize(width: 560, height: 280)
+        )
+    }
+
+    @Test("Partial captured body remains explicitly marked while its bytes are inspectable")
+    func partialCaptureBody() async throws {
+        try await render(
+            CapturedBodyStatusContainer(isBodyIncomplete: true) {
+                Text(verbatim: "{\"result\":\"partial")
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding()
+            },
+            name: "babylon-partial-body",
+            size: CGSize(width: 560, height: 280)
+        )
+    }
 
     @Test("Multipart inspector")
     func multipart() async throws {
@@ -30,7 +55,11 @@ struct UseCaseViewSnapshotTests {
             headers: [HTTPHeader(name: "Content-Type", value: "multipart/form-data; boundary=B")],
             body: body
         )
-        try await render(MultipartInspectorView(transaction: transaction), name: "multipart", size: CGSize(width: 640, height: 420))
+        try await render(
+            MultipartInspectorView(transaction: transaction),
+            name: "multipart",
+            size: CGSize(width: 640, height: 420)
+        )
     }
 
     @Test("Server-sent events inspector")
@@ -40,9 +69,16 @@ struct UseCaseViewSnapshotTests {
             statusCode: 200,
             statusMessage: "OK",
             headers: [HTTPHeader(name: "Content-Type", value: "text/event-stream")],
-            body: Data("event: delta\ndata: {\"text\":\"Hel\"}\n\nevent: delta\ndata: {\"text\":\"lo\"}\n\ndata: [DONE]\n\n".utf8)
+            body: Data(
+                "event: delta\ndata: {\"text\":\"Hel\"}\n\nevent: delta\ndata: {\"text\":\"lo\"}\n\ndata: [DONE]\n\n"
+                    .utf8
+            )
         )
-        try await render(ServerSentEventsInspectorView(transaction: transaction), name: "sse", size: CGSize(width: 640, height: 420))
+        try await render(
+            ServerSentEventsInspectorView(transaction: transaction),
+            name: "sse",
+            size: CGSize(width: 640, height: 420)
+        )
     }
 
     @Test("JSON body filtered with jq")
@@ -52,7 +88,11 @@ struct UseCaseViewSnapshotTests {
         {"id":3,"likes":17,"user":{"name":"cy"}}],"page":1}
         """#.utf8)
         try await render(
-            JSONTreeView(data: body, filterMode: .jq, query: ".posts[] | select(.likes > 10) | {name: .user.name, likes}"),
+            JSONTreeView(
+                data: body,
+                filterMode: .jq,
+                query: ".posts[] | select(.likes > 10) | {name: .user.name, likes}"
+            ),
             name: "jq-filter",
             size: CGSize(width: 560, height: 360)
         )
@@ -79,7 +119,11 @@ struct UseCaseViewSnapshotTests {
 
     @Test("SOCKS5 listener settings")
     func socksSettings() async throws {
-        try await render(SOCKSListenerSettingsSection().padding(), name: "socks-settings", size: CGSize(width: 560, height: 200))
+        try await render(
+            SOCKSListenerSettingsSection().padding(),
+            name: "socks-settings",
+            size: CGSize(width: 560, height: 200)
+        )
     }
 
     @Test("Access Control settings")
@@ -130,17 +174,33 @@ struct UseCaseViewSnapshotTests {
         transaction.webSocketConnection = WebSocketConnection(
             upgradeRequest: transaction.request,
             frames: [
-                WebSocketFrameData(direction: .sent, opcode: .text, payload: Data(#"{"type":"join","room":"lobby"}"#.utf8)),
-                WebSocketFrameData(direction: .received, opcode: .text, payload: Data(#"{"type":"message","text":"hi"}"#.utf8)),
+                WebSocketFrameData(
+                    direction: .sent,
+                    opcode: .text,
+                    payload: Data(#"{"type":"join","room":"lobby"}"#.utf8)
+                ),
+                WebSocketFrameData(
+                    direction: .received,
+                    opcode: .text,
+                    payload: Data(#"{"type":"message","text":"hi"}"#.utf8)
+                ),
             ]
         )
-        try await render(WebSocketInspectorView(transaction: transaction), name: "websocket", size: CGSize(width: 720, height: 520))
+        try await render(
+            WebSocketInspectorView(transaction: transaction),
+            name: "websocket",
+            size: CGSize(width: 720, height: 520)
+        )
     }
 
     @Test("Status bar with active tools")
     func statusBar() async throws {
         let rules = [
-            ProxyRule(name: "Mock", matchCondition: RuleMatchCondition(urlPattern: ".*"), action: .mapLocal(filePath: "/tmp/a.json")),
+            ProxyRule(
+                name: "Mock",
+                matchCondition: RuleMatchCondition(urlPattern: ".*"),
+                action: .mapLocal(filePath: "/tmp/a.json")
+            ),
             ProxyRule(
                 name: "Offline",
                 matchCondition: RuleMatchCondition(urlPattern: ".*"),
@@ -216,7 +276,11 @@ struct UseCaseViewSnapshotTests {
             )
         )
         secure.connectionLog = log
-        try await render(ConnectionLogInspectorView(transaction: secure), name: "connection-log", size: CGSize(width: 640, height: 620))
+        try await render(
+            ConnectionLogInspectorView(transaction: secure),
+            name: "connection-log",
+            size: CGSize(width: 640, height: 620)
+        )
 
         let refused = TestFixtures.makeTransaction(url: "http://127.0.0.1:9/refused")
         var failed = ConnectionLog(host: "127.0.0.1", port: 9)
@@ -227,13 +291,25 @@ struct UseCaseViewSnapshotTests {
         )
         refused.response = HTTPResponseData(statusCode: 502, statusMessage: "Bad Gateway", headers: [])
         refused.connectionLog = failed
-        try await render(ConnectionLogInspectorView(transaction: refused), name: "connection-log-refused", size: CGSize(width: 640, height: 260))
+        try await render(
+            ConnectionLogInspectorView(transaction: refused),
+            name: "connection-log-refused",
+            size: CGSize(width: 640, height: 260)
+        )
     }
 
     @Test("Rule editors with the URL tester")
     func ruleEditorsWithTester() async throws {
-        try await render(MapRemoteEditorWindowView(), name: "map-remote-editor", size: CGSize(width: 1_000, height: 1_150))
-        try await render(BreakpointRuleEditorWindowView(), name: "breakpoint-editor", size: CGSize(width: 900, height: 700))
+        try await render(
+            MapRemoteEditorWindowView(),
+            name: "map-remote-editor",
+            size: CGSize(width: 1_000, height: 1_150)
+        )
+        try await render(
+            BreakpointRuleEditorWindowView(),
+            name: "breakpoint-editor",
+            size: CGSize(width: 900, height: 700)
+        )
     }
 
     @Test("Block List with a folder")

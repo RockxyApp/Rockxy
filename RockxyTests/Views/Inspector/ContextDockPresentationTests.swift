@@ -595,6 +595,16 @@ struct ContextDockInvestigationReportTests {
         #expect(details.contains(#"title: String(localized: "Timing", bundle: RockxyLocalization.bundle)"#))
         #expect(details.contains(#"title: String(localized: "Related Requests", bundle: RockxyLocalization.bundle)"#))
 
+        // Babylon omission details distinguish incomplete bodies and preserve available byte counts.
+        #expect(details.contains("if transaction.request.isBodyIncomplete"))
+        #expect(details.contains("if transaction.response?.isBodyIncomplete == true"))
+        #expect(details.contains(#"String(localized: "Body omission reason", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains(#"String(localized: "Observed bytes", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains(#"String(localized: "Original bytes", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains("metadata.reason"))
+        #expect(details.contains("SizeFormatter.format(bytes: metadata.observedBytes)"))
+        #expect(details.contains("SizeFormatter.format(bytes: originalBytes)"))
+
         // Rule Impact keeps truthful rows plus an in-table Open Rule action row.
         #expect(details.contains(#"label: String(localized: "Rule", bundle: RockxyLocalization.bundle)"#))
         #expect(details.contains(#"label: String(localized: "Action", bundle: RockxyLocalization.bundle)"#))

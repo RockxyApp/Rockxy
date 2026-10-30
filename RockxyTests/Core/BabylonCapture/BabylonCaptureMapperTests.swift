@@ -67,7 +67,7 @@ struct BabylonCaptureMapperTests {
         #expect(decoded.response?.bodyOmission == .init(reason: "policy", observedBytes: 0, originalBytes: 12))
     }
 
-    @Test("Babylon source, correlation, capabilities, and error survive session coding")
+    @Test("Babylon source, correlation, capabilities, and error survive session export and import")
     func persistsBabylonCaptureMetadata() throws {
         let correlation = BabylonTrafficPackageDTO.CorrelationContext(
             sessionID: "runtime-session",
@@ -104,7 +104,13 @@ struct BabylonCaptureMapperTests {
                 ),
             ]
         )
-        let package = makePackage(correlation: correlation, error: error, urlSessionTiming: timing)
+        var package = makePackage(
+            requestBody: BabylonCaptureMapper.omittedBodyMarker,
+            responseBody: BabylonCaptureMapper.omittedBodyMarker,
+            correlation: correlation, error: error, urlSessionTiming: timing
+        )
+        package.requestBodyOmission = .init(reason: "sizeLimit", observedBytes: 20, originalBytes: 80)
+        package.responseBodyOmission = .init(reason: "policy", observedBytes: 0, originalBytes: 12)
         let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
         transaction.babylonGRPCCallType = "bidirectionalStreaming"
         let capabilities = BabylonConnectionPackageDTO.Capabilities(
@@ -117,7 +123,7 @@ struct BabylonCaptureMapperTests {
             maximumWebSocketFrameBytes: 10_000,
             maximumCaptureMemoryBytes: 500_000
         )
-        transaction.babylonCaptureMetadata = BabylonCaptureMetadata(
+        let expectedCaptureMetadata = BabylonCaptureMetadata(
             identity: identity,
             capabilities: capabilities,
             correlation: package.correlationContext,
@@ -125,11 +131,19 @@ struct BabylonCaptureMapperTests {
             error: package.error,
             compatibilityDiagnostics: ["Update Rockxy"]
         )
+        transaction.babylonCaptureMetadata = expectedCaptureMetadata
 
-        let encoded = try JSONEncoder().encode(CodableTransaction(from: transaction))
-        let decoded = try JSONDecoder().decode(CodableTransaction.self, from: encoded).toLiveModel()
+        let encodedSession = try SessionSerializer.serialize(
+            transactions: [transaction],
+            metadata: SessionSerializer.makeMetadata(transactionCount: 1)
+        )
+        let session = try SessionSerializer.deserialize(from: encodedSession)
+        let decoded = try #require(session.transactions.first).toLiveModel()
+        #expect(decoded.babylonCaptureMetadata == expectedCaptureMetadata)
         #expect(decoded.babylonCaptureMetadata?.clientID == "client")
+        #expect(decoded.babylonCaptureMetadata?.packageName == "Example")
         #expect(decoded.babylonCaptureMetadata?.bundleIdentifier == "com.example.app")
+        #expect(decoded.babylonCaptureMetadata?.deviceName == "iPhone")
         #expect(decoded.babylonCaptureMetadata?.deviceModel == "iPhone 17")
         #expect(decoded.babylonCaptureMetadata?.transportSessionID == "session")
         #expect(decoded.babylonCaptureMetadata?.runtimeSessionID == "runtime-session")
@@ -141,10 +155,24 @@ struct BabylonCaptureMapperTests {
         #expect(decoded.babylonCaptureMetadata?.urlSessionTiming?.transactions.first?.secureConnectDuration == nil)
         #expect(decoded.babylonCaptureMetadata?.urlSessionTiming?.transactions.first?.networkProtocolName == "h2")
         #expect(decoded.babylonCaptureMetadata?.sdkVersion == "1.2.3")
+        #expect(decoded.babylonCaptureMetadata?.platform == "iOS")
+        #expect(decoded.babylonCaptureMetadata?.payloadSchemaVersions == ["traffic": 1])
+        #expect(decoded.babylonCaptureMetadata?.supportedMessageTypes == ["connection", "traffic"])
+        #expect(decoded.babylonCaptureMetadata?.supportedTrafficTypes == ["http"])
+        #expect(decoded.babylonCaptureMetadata?.maximumBodyBytes == 50_000)
+        #expect(decoded.babylonCaptureMetadata?.maximumWebSocketFrameBytes == 10_000)
+        #expect(decoded.babylonCaptureMetadata?.maximumCaptureMemoryBytes == 500_000)
+        #expect(decoded.babylonCaptureMetadata?.compatibilityDiagnostics == ["Update Rockxy"])
         #expect(decoded.babylonCaptureMetadata?.errorDomain == "NSURLErrorDomain")
         #expect(decoded.babylonCaptureMetadata?.errorCode == -1_001)
         #expect(decoded.babylonCaptureMetadata?.failurePhase == "response")
         #expect(decoded.babylonCaptureMetadata?.errorMessage == "timed out")
+        #expect(decoded.request.body == nil)
+        #expect(decoded.request.bodyTruncated)
+        #expect(decoded.request.bodyOmission == .init(reason: "sizeLimit", observedBytes: 20, originalBytes: 80))
+        #expect(decoded.response?.body == nil)
+        #expect(decoded.response?.bodyTruncated == true)
+        #expect(decoded.response?.bodyOmission == .init(reason: "policy", observedBytes: 0, originalBytes: 12))
         #expect(decoded.babylonGRPCCallType == "bidirectionalStreaming")
         #expect(transaction.connectionLog?.failure?.message.contains("NSURLErrorDomain; response") == true)
 
@@ -163,11 +191,50 @@ struct BabylonCaptureMapperTests {
         #expect(boundedMetadata.compatibilityDiagnostics.count == 16)
         #expect(boundedMetadata.compatibilityDiagnostics.allSatisfy { $0.count == 512 })
 
-        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        legacy.removeValue(forKey: "babylonCaptureMetadata")
+        var legacy = try #require(JSONSerialization.jsonObject(with: encodedSession) as? [String: Any])
+        var legacyTransactions = try #require(legacy["transactions"] as? [[String: Any]])
+        legacyTransactions[0].removeValue(forKey: "babylonCaptureMetadata")
+        var legacyRequest = try #require(legacyTransactions[0]["request"] as? [String: Any])
+        legacyRequest.removeValue(forKey: "bodyOmission")
+        legacyTransactions[0]["request"] = legacyRequest
+        var legacyResponse = try #require(legacyTransactions[0]["response"] as? [String: Any])
+        legacyResponse.removeValue(forKey: "bodyOmission")
+        legacyTransactions[0]["response"] = legacyResponse
+        legacy["transactions"] = legacyTransactions
         let legacyData = try JSONSerialization.data(withJSONObject: legacy)
-        #expect(try JSONDecoder().decode(CodableTransaction.self, from: legacyData).toLiveModel()
-            .babylonCaptureMetadata == nil)
+        let legacySession = try SessionSerializer.deserialize(from: legacyData)
+        let legacyTransaction = try #require(legacySession.transactions.first).toLiveModel()
+        #expect(legacyTransaction.babylonCaptureMetadata == nil)
+        #expect(legacyTransaction.request.bodyOmission == nil)
+        #expect(legacyTransaction.response != nil)
+        #expect(legacyTransaction.response?.bodyOmission == nil)
+    }
+
+    @Test("Babylon incomplete bodies retain actual prefixes through native session export and import")
+    func partialBabylonBodiesSurviveSession() throws {
+        let requestBody = Data("partial request".utf8)
+        let responseBody = Data("partial response".utf8)
+        var package = makePackage(requestBody: requestBody, responseBody: responseBody)
+        package.requestBodyOmission = .init(
+            reason: "sizeLimit", observedBytes: requestBody.count, originalBytes: requestBody.count + 10
+        )
+        package.responseBodyOmission = .init(
+            reason: "sizeLimit", observedBytes: responseBody.count, originalBytes: responseBody.count + 10
+        )
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        #expect(transaction.request.body == requestBody)
+        #expect(transaction.response?.body == responseBody)
+        let data = try SessionSerializer.serialize(
+            transactions: [transaction], metadata: SessionSerializer.makeMetadata(transactionCount: 1)
+        )
+        let session = try SessionSerializer.deserialize(from: data)
+        let restored = try #require(session.transactions.first).toLiveModel()
+        #expect(restored.request.body == requestBody)
+        #expect(restored.response?.body == responseBody)
+        #expect(restored.request.isBodyIncomplete)
+        #expect(restored.response?.isBodyIncomplete == true)
+        #expect(restored.request.bodyOmission == transaction.request.bodyOmission)
+        #expect(restored.response?.bodyOmission == transaction.response?.bodyOmission)
     }
 
     @Test("Producer schema and traffic mismatches yield actionable diagnostics")

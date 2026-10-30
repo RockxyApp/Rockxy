@@ -755,6 +755,82 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(BabylonRuntimeEventStore.shared.events.contains { $0.packageID == runtimePackageID })
     }
 
+    @Test("Compatibility diagnostics publish before traffic is accepted")
+    func compatibilityDiagnosticsPublishBeforeTraffic() async throws {
+        let token = String(repeating: "c", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let catalog = ProjectCatalog.makeDefault(now: Date(timeIntervalSince1970: 1_725_000_000))
+        let repository = TCPFixtureProjectRepository(catalog: catalog)
+        let coordinator = MainContentCoordinator(projectCatalogRepository: repository)
+        coordinator.configureBabylonCaptureIntake()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        BabylonRuntimeEventStore.shared.clear()
+        receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let connectionURL = Self.fixtureURL("connection.json")
+        let connectionObject = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: connectionURL)) as? [String: Any]
+        )
+        var mutableConnection = connectionObject
+        var capabilities = try #require(mutableConnection["capabilities"] as? [String: Any])
+        capabilities["sdkVersion"] = "2.0.0"
+        var schemas = try #require(capabilities["payloadSchemaVersions"] as? [String: Int])
+        schemas["traffic"] = 2
+        schemas["futureOptional"] = 1
+        capabilities["payloadSchemaVersions"] = schemas
+        capabilities["supportedMessageTypes"] = ["connection", "traffic", "futureOptional"]
+        capabilities["supportedTrafficTypes"] = ["http", "webtransport"]
+        mutableConnection["capabilities"] = capabilities
+        let connection = try JSONSerialization.data(withJSONObject: mutableConnection, options: [.sortedKeys])
+        let traffic = try Data(contentsOf: Self.fixtureURL("traffic-success.json"))
+        let sessionID = "compatibility-diagnostic-session"
+        let clientID = "com.example.fixture"
+        let connectionFrame = try Self.encoded(
+            type: .connection, content: connection, messageID: "compatibility-connection", sequence: 1,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        let client = try await Self.connect(port: port)
+        defer { client.cancel() }
+        let ackReader = BabylonAckReader(token: token)
+        try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "compatibility-connection")
+
+        var diagnostic: BabylonRuntimeEvent?
+        for _ in 0 ..< 100 {
+            diagnostic = BabylonRuntimeEventStore.shared.events.first {
+                $0.name == "Babylon compatibility" && $0.source.clientID == clientID
+            }
+            if diagnostic != nil {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let publishedDiagnostic = try #require(diagnostic)
+        #expect(publishedDiagnostic.kind == .error)
+        #expect(publishedDiagnostic.errorMessage?.contains("SDK major version") == true)
+
+        let trafficFrame = try Self.encoded(
+            type: .traffic, content: traffic, messageID: "compatibility-traffic", sequence: 2,
+            sessionID: sessionID, clientID: clientID, token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(trafficFrame), on: client)
+        #expect(try await ackReader.next(on: client) == "compatibility-traffic")
+        try await Self.waitForTransactions(coordinator, expected: 1)
+        #expect(coordinator.transactions.contains { $0.request.url.absoluteString == "https://example.test/success" })
+    }
+
     // MARK: Private
 
     private static func fixtureURL(_ name: String) -> URL {

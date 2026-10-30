@@ -356,7 +356,7 @@ struct ContextDetailsView: View {
                 Divider()
                 bodyOmissionNotice(
                     title: String(
-                        localized: "Request body was truncated during capture",
+                        localized: "Request body was omitted or truncated during capture",
                         bundle: RockxyLocalization.bundle
                     ),
                     metadata: transaction.request.bodyOmission
@@ -366,7 +366,7 @@ struct ContextDetailsView: View {
                 Divider()
                 bodyOmissionNotice(
                     title: String(
-                        localized: "Response body was truncated during capture",
+                        localized: "Response body was omitted or truncated during capture",
                         bundle: RockxyLocalization.bundle
                     ),
                     metadata: transaction.response?.bodyOmission
@@ -706,16 +706,8 @@ struct ContextDetailsView: View {
         if let timing = metadata.urlSessionTiming {
             appendURLSessionTiming(timing, to: &fields)
         }
-        if let code = metadata.errorCode {
-            let error = [metadata.errorDomain, "\(code)", metadata.failurePhase, metadata.errorMessage]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-            fields.append(ContextTableField(
-                label: String(localized: "Captured Error", bundle: RockxyLocalization.bundle),
-                value: error,
-                monospaced: false,
-                color: .red
-            ))
+        if let error = BabylonCaptureErrorPresentation.field(from: metadata) {
+            fields.append(error)
         }
         if !metadata.compatibilityDiagnostics.isEmpty {
             fields.append(ContextTableField(
@@ -995,7 +987,7 @@ struct ContextDetailsView: View {
                 id: "request-truncated",
                 title: String(localized: "Request body is incomplete", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "The captured request body was omitted or truncated.",
+                    localized: "The captured body was omitted or truncated.",
                     bundle: RockxyLocalization.bundle
                 ),
                 systemImage: "scissors",
@@ -1007,7 +999,7 @@ struct ContextDetailsView: View {
                 id: "truncated",
                 title: String(localized: "Response body is incomplete", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "The captured response exceeded the configured buffer limit.",
+                    localized: "The captured body was omitted or truncated.",
                     bundle: RockxyLocalization.bundle
                 ),
                 systemImage: "scissors",

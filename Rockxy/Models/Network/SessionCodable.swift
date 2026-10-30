@@ -17,11 +17,36 @@ private enum BodyEncoding {
         return (data.base64EncodedString(), false, nil)
     }
 
-    static func decode(base64: String?, truncated: Bool) -> Data? {
-        guard !truncated, let base64 else {
+    static func decode(base64: String?) -> Data? {
+        // Truncation describes completeness, not whether retained bytes are usable.
+        // The encoder represents storage omissions by leaving bodyBase64 absent.
+        guard let base64 else {
             return nil
         }
         return Data(base64Encoded: base64)
+    }
+
+    static func restoredOmission(
+        captured: BodyOmissionMetadata?,
+        base64: String?,
+        truncated: Bool,
+        originalSize: Int?
+    )
+        -> BodyOmissionMetadata?
+    {
+        if let captured {
+            return captured
+        }
+        // Older sessions recorded the inline omission's size outside capture metadata.
+        // Recover only valid storage omissions; never invent or overwrite capture evidence.
+        guard truncated, base64 == nil, let originalSize,
+              originalSize > maxInlineSize, originalSize <= 1_000_000_000 else
+        {
+            return nil
+        }
+        return BodyOmissionMetadata(
+            reason: "sessionStorageLimit", observedBytes: originalSize, originalBytes: originalSize
+        )
     }
 }
 
@@ -285,9 +310,12 @@ struct CodableRequest: Codable {
             url: URL(string: url) ?? URL(string: "about:blank")!,
             httpVersion: httpVersion,
             headers: headers.map { $0.toLiveModel() },
-            body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            body: BodyEncoding.decode(base64: bodyBase64),
             bodyTruncated: bodyTruncated,
-            bodyOmission: bodyOmission,
+            bodyOmission: BodyEncoding.restoredOmission(
+                captured: bodyOmission, base64: bodyBase64,
+                truncated: bodyTruncated, originalSize: originalBodySize
+            ),
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
     }
@@ -329,9 +357,12 @@ struct CodableResponse: Codable {
             statusCode: statusCode,
             statusMessage: statusMessage,
             headers: headers.map { $0.toLiveModel() },
-            body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            body: BodyEncoding.decode(base64: bodyBase64),
             bodyTruncated: bodyTruncated,
-            bodyOmission: bodyOmission,
+            bodyOmission: BodyEncoding.restoredOmission(
+                captured: bodyOmission, base64: bodyBase64,
+                truncated: bodyTruncated, originalSize: originalBodySize
+            ),
             trailers: trailers?.map { $0.toLiveModel() },
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )

@@ -51029,6 +51029,46 @@
           }
         }
       }
+    },
+    "Body Not Captured": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未捕获正文"
+          }
+        }
+      }
+    },
+    "Response body was omitted or truncated during capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应正文在捕获时被省略或截断"
+          }
+        }
+      }
+    },
+    "Request body was omitted or truncated during capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求正文在捕获时被省略或截断"
+          }
+        }
+      }
+    },
+    "The captured body was omitted or truncated.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获的正文已被省略或截断。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

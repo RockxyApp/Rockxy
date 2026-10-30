@@ -84,8 +84,6 @@ final class NavigableRequestTableView: NSTableView {
 /// with acceptable scroll performance — NSTableView provides native virtual scrolling,
 /// cell reuse, and column sorting out of the box.
 struct RequestTableView: NSViewRepresentable {
-    // MARK: Internal
-
     let workspaceID: UUID
     let rows: [RequestListRow]
     let refreshToken: Int
@@ -327,6 +325,7 @@ struct RequestTableView: NSViewRepresentable {
         tableView.sizeLastColumnToFit()
         context.coordinator.tableView = tableView
         context.coordinator.observeUserScrolling(in: scrollView)
+        context.coordinator.environmentDisplayMetrics = context.environment.appUIDisplayMetrics
         context.coordinator.applyDisplayMetrics(to: tableView)
 
         return scrollView
@@ -344,6 +343,7 @@ struct RequestTableView: NSViewRepresentable {
         let workspaceChanged = oldWorkspaceID != workspaceID
 
         coordinator.parent = self
+        coordinator.environmentDisplayMetrics = context.environment.appUIDisplayMetrics
         (tableView as? NavigableRequestTableView)?.onActivate = onActivate
         coordinator.rows = rows
         coordinator.mainCoordinator = mainCoordinator
@@ -439,12 +439,6 @@ struct RequestTableView: NSViewRepresentable {
     }
 
     // MARK: Private
-
-    @Environment(\.appUIDisplayMetrics) private var displayMetrics
-
-    private var effectiveDisplayMetrics: AppUIDisplayMetrics {
-        displayMetricsOverride ?? displayMetrics
-    }
 }
 
 // MARK: - ColumnSpec
@@ -584,6 +578,7 @@ extension RequestTableView {
 
         var parent: RequestTableView
         var rows: [RequestListRow]
+        var environmentDisplayMetrics = AppUIDisplayMetrics()
         var mainCoordinator: MainContentCoordinator?
         weak var tableView: NSTableView?
         var hasAutoSizedColumns = false
@@ -600,6 +595,10 @@ extension RequestTableView {
         /// Guard flag to prevent feedback loops when syncing sort descriptors from
         /// coordinator state back into NSTableView.
         private(set) var isUpdatingSortDescriptors = false
+
+        var displayMetrics: AppUIDisplayMetrics {
+            parent.displayMetricsOverride ?? environmentDisplayMetrics
+        }
 
         /// URL text led by a small marker for exchanges a rule or script changed.
         static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
@@ -687,7 +686,7 @@ extension RequestTableView {
 
         @discardableResult
         func applyDisplayMetrics(to tableView: NSTableView) -> DisplayMetricsChange? {
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             let tableMetrics = RequestTableAppliedMetrics(metrics: metrics)
             guard lastAppliedRequestTableMetrics != tableMetrics else {
                 lastAppliedDisplayMetrics = metrics
@@ -717,7 +716,7 @@ extension RequestTableView {
         }
 
         func applyHeaderMetrics(to tableView: NSTableView) {
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             for column in tableView.tableColumns {
                 column.headerCell.font = .systemFont(ofSize: metrics.secondaryFontSize, weight: .medium)
             }
@@ -946,7 +945,7 @@ extension RequestTableView {
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             let start = max(0, visibleRange.location)
             let end = min(rows.count, visibleRange.location + visibleRange.length)
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
 
             for rowIdx in start ..< end {
                 let rowData = rows[rowIdx]
@@ -2459,7 +2458,7 @@ extension RequestTableView {
             -> NSView
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_status")
-            let dotSize = parent.effectiveDisplayMetrics.tableStatusDotSize
+            let dotSize = displayMetrics.tableStatusDotSize
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView {
                 configureStatusDotCell(existing, row: row, dotSize: dotSize)
@@ -2478,7 +2477,7 @@ extension RequestTableView {
             -> NSView
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_ssl")
-            let iconSize = parent.effectiveDisplayMetrics.tableSSLIconSize
+            let iconSize = displayMetrics.tableSSLIconSize
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView {
                 configureSSLImageView(existing.imageView, row: row)
@@ -2502,13 +2501,22 @@ extension RequestTableView {
             cell.imageView.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
             cell.imageView.contentTintColor = statusDotColor(for: row)
             cell.toolTip = row.source?.babylonCaptureMetadata.flatMap { metadata in
-                guard let code = metadata.errorCode else {
+                guard metadata.errorCode != nil || metadata.errorDomain != nil || metadata.errorMessage != nil
+                    || metadata.failurePhase != nil else
+                {
                     return nil
                 }
-                let prefix = [metadata.errorDomain, String(code), metadata.failurePhase]
+                let prefix = [
+                    metadata.errorDomain,
+                    metadata.errorCode.map(String.init),
+                    metadata.failurePhase,
+                ]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+                return [prefix, metadata.errorMessage]
                     .compactMap { $0 }
-                    .joined(separator: " · ")
-                return [prefix, metadata.errorMessage].compactMap { $0 }.joined(separator: ": ")
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ": ")
             }
             cell.updateIconSize(dotSize)
         }
@@ -2597,14 +2605,14 @@ extension RequestTableView {
                 ])
             }
 
-            label.font = parent.effectiveDisplayMetrics.appKitFont(weight: .bold)
+            label.font = displayMetrics.appKitFont(weight: .bold)
             label.stringValue = errorStatusBadgeTitle(for: row) ?? row.displayStatus
             label.layer?.backgroundColor = NSColor.systemRed.cgColor
             return container
         }
 
         private func configureSSLImageView(_ imageView: NSImageView, row: RequestListRow) {
-            let iconSize = parent.effectiveDisplayMetrics.tableSSLIconSize
+            let iconSize = displayMetrics.tableSSLIconSize
             let symbolName: String
             let tintColor: NSColor
 
@@ -2627,7 +2635,7 @@ extension RequestTableView {
         }
 
         private func appIcon(for appName: String) -> NSImage? {
-            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
+            let iconSize = displayMetrics.tableClientIconSize
             let cacheKey = AppIconCacheKey(appName: appName, iconSize: Int(iconSize.rounded()))
             if let cached = Self.resizedAppIconCache[cacheKey] {
                 return cached
@@ -2690,9 +2698,9 @@ extension RequestTableView {
         )
             -> NSView
         {
-            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
+            let iconSize = displayMetrics.tableClientIconSize
             let gap: CGFloat = 4
-            let rowHeight = parent.effectiveDisplayMetrics.tableRowHeight
+            let rowHeight = displayMetrics.tableRowHeight
             let iconY = (rowHeight - iconSize) / 2
 
             // Reuse existing cell: subviews order is [imageView, fallbackView, nameLabel]
@@ -2713,7 +2721,7 @@ extension RequestTableView {
                     updateClientNameConstraints(nameLabel, in: existing, iconSize: iconSize, gap: gap)
                 }
                 nameLabel?.stringValue = clientDisplayName(for: appName)
-                nameLabel?.font = parent.effectiveDisplayMetrics.appKitFont()
+                nameLabel?.font = displayMetrics.appKitFont()
                 nameLabel?.textColor = appName.isEmpty ? .tertiaryLabelColor : .secondaryLabelColor
                 nameLabel?.toolTip = appName.isEmpty ? nil : appName
                 if let icon = appIcon(for: appName) {
@@ -2754,7 +2762,7 @@ extension RequestTableView {
 
             // Subview 2: app name label
             let nameLabel = NSTextField(labelWithString: "")
-            nameLabel.font = parent.effectiveDisplayMetrics.appKitFont()
+            nameLabel.font = displayMetrics.appKitFont()
             nameLabel.textColor = .secondaryLabelColor
             nameLabel.lineBreakMode = .byTruncatingTail
             nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2837,7 +2845,7 @@ extension RequestTableView {
                 textCell.usesSingleLineMode = true
                 textCell.truncatesLastVisibleLine = true
             }
-            field.font = parent.effectiveDisplayMetrics.appKitFont()
+            field.font = displayMetrics.appKitFont()
             field.textColor = .labelColor
             field.isBordered = false
             field.drawsBackground = false
@@ -2870,7 +2878,7 @@ extension RequestTableView {
                 }
             }
 
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             cell.stringValue = ""
             cell.textColor = .labelColor
             cell.alignment = .left

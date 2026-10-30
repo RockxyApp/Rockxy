@@ -362,11 +362,13 @@ struct ResponseInspectorView: View {
             } else if let previewTab = selectedPreviewTab,
                       previewTabStore.responseTabs.contains(where: { $0.id == previewTab.id })
             {
-                PreviewTabContentView(
-                    tab: previewTab,
-                    transaction: transaction,
-                    beautify: previewTabStore.autoBeautify
-                )
+                CapturedBodyStatusContainer(isBodyIncomplete: transaction.response?.isBodyIncomplete == true) {
+                    PreviewTabContentView(
+                        tab: previewTab,
+                        transaction: transaction,
+                        beautify: previewTabStore.autoBeautify
+                    )
+                }
             } else {
                 nativeTabContent
             }
@@ -381,7 +383,9 @@ struct ResponseInspectorView: View {
             switch selectedTab {
             case .ai:
                 if hasAIInspection {
-                    AIInspectorView(transaction: transaction)
+                    CapturedBodyStatusContainer(isBodyIncomplete: response.isBodyIncomplete) {
+                        AIInspectorView(transaction: transaction)
+                    }
                 } else {
                     InspectorEmptyStateView(
                         String(localized: "No AI Metadata", bundle: RockxyLocalization.bundle),
@@ -398,29 +402,39 @@ struct ResponseInspectorView: View {
                 responseBodyView(response: response)
             case .events:
                 if ServerSentEventsInspectorView.isApplicable(to: transaction) {
-                    ServerSentEventsInspectorView(transaction: transaction)
+                    CapturedBodyStatusContainer(
+                        isBodyIncomplete: response.isBodyIncomplete
+                    ) {
+                        ServerSentEventsInspectorView(transaction: transaction)
+                    }
                 } else {
                     responseBodyView(response: response)
                 }
             case .protobuf:
                 if ProtobufBodyInspection.isApplicable(to: transaction, direction: .response) {
-                    ProtobufPayloadInspectorView(
-                        payload: ProtobufBodyInspection.payload(of: transaction, direction: .response),
-                        context: ProtobufBodyInspection.context(of: transaction, direction: .response),
-                        payloadID: "\(transaction.id.uuidString)-response"
-                    )
+                    CapturedBodyStatusContainer(isBodyIncomplete: response.isBodyIncomplete) {
+                        ProtobufPayloadInspectorView(
+                            payload: ProtobufBodyInspection.payload(of: transaction, direction: .response),
+                            context: ProtobufBodyInspection.context(of: transaction, direction: .response),
+                            payloadID: "\(transaction.id.uuidString)-response"
+                        )
+                    }
                 } else {
                     responseBodyView(response: response)
                 }
             case .script:
                 if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .response) {
-                    ScriptPreviewInspectorView(transaction: transaction, panel: .response)
+                    CapturedBodyStatusContainer(isBodyIncomplete: response.isBodyIncomplete) {
+                        ScriptPreviewInspectorView(transaction: transaction, panel: .response)
+                    }
                 } else {
                     responseBodyView(response: response)
                 }
             case .multipart:
                 if MultipartInspectorView.isApplicable(to: transaction, direction: .response) {
-                    MultipartInspectorView(transaction: transaction, direction: .response)
+                    CapturedBodyStatusContainer(isBodyIncomplete: response.isBodyIncomplete) {
+                        MultipartInspectorView(transaction: transaction, direction: .response)
+                    }
                 } else {
                     responseBodyView(response: response)
                 }
@@ -486,36 +500,40 @@ struct ResponseInspectorView: View {
     @ViewBuilder
     private func responseBodyView(response: HTTPResponseData) -> some View {
         let snapshot = InspectorResponseSnapshot(response: response)
-        if bodyDisplayMode == .raw {
-            responseRawView()
-        } else if let body = responseBody(for: bodyDisplayMode, snapshot: snapshot), !body.isEmpty {
-            switch bodyDisplayMode {
-            case .tree:
-                JSONTreeView(data: body)
-                    .id(transaction.id)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .json:
-                responseCodeEditor(for: body)
-            case .raw:
+        CapturedBodyStatusContainer(isBodyIncomplete: snapshot.isBodyIncomplete) {
+            if bodyDisplayMode == .raw {
                 responseRawView()
-            case .hex:
-                AsyncHexDumpView(
-                    data: body,
-                    renderID: "\(transaction.id.uuidString)-response-hex-\(body.count)"
+            } else if let body = responseBody(for: bodyDisplayMode, snapshot: snapshot), !body.isEmpty {
+                switch bodyDisplayMode {
+                case .tree:
+                    JSONTreeView(data: body)
+                        .id(transaction.id)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                case .json:
+                    responseCodeEditor(for: body)
+                case .raw:
+                    responseRawView()
+                case .hex:
+                    AsyncHexDumpView(
+                        data: body,
+                        renderID: "\(transaction.id.uuidString)-response-hex-\(body.count)"
+                    )
+                }
+            } else if snapshot.isBodyIncomplete {
+                CapturedBodyUnavailableView()
+            } else if response.body != nil {
+                InspectorEmptyStateView(
+                    String(localized: "Empty Body", bundle: RockxyLocalization.bundle),
+                    systemImage: "doc",
+                    description: String(localized: "The response body is empty.", bundle: RockxyLocalization.bundle)
+                )
+            } else {
+                InspectorEmptyStateView(
+                    String(localized: "No Body", bundle: RockxyLocalization.bundle),
+                    systemImage: "doc",
+                    description: String(localized: "This response has no body", bundle: RockxyLocalization.bundle)
                 )
             }
-        } else if response.body != nil {
-            InspectorEmptyStateView(
-                String(localized: "Empty Body", bundle: RockxyLocalization.bundle),
-                systemImage: "doc",
-                description: String(localized: "The response body is empty.", bundle: RockxyLocalization.bundle)
-            )
-        } else {
-            InspectorEmptyStateView(
-                String(localized: "No Body", bundle: RockxyLocalization.bundle),
-                systemImage: "doc",
-                description: String(localized: "This response has no body", bundle: RockxyLocalization.bundle)
-            )
         }
     }
 
@@ -773,12 +791,7 @@ enum HTTPSInspectionPromptAction: Equatable {
 // MARK: - HTTPSInspectionAppScope
 
 struct HTTPSInspectionAppScope: Equatable {
-    let name: String
-    let knownHostCount: Int
-    let enabledHostCount: Int
-    var identity: ClientApplicationIdentity?
-    var isApplicationDecryptReady: Bool
-    var isApplicationTunnelActive: Bool
+    // MARK: Lifecycle
 
     init(
         name: String,
@@ -795,6 +808,15 @@ struct HTTPSInspectionAppScope: Equatable {
         self.isApplicationDecryptReady = isApplicationDecryptReady
         self.isApplicationTunnelActive = isApplicationTunnelActive
     }
+
+    // MARK: Internal
+
+    let name: String
+    let knownHostCount: Int
+    let enabledHostCount: Int
+    var identity: ClientApplicationIdentity?
+    var isApplicationDecryptReady: Bool
+    var isApplicationTunnelActive: Bool
 }
 
 // MARK: - HTTPSInspectionPromptModel
@@ -1059,11 +1081,23 @@ enum ProtocolTabKind: Hashable {
 /// External editors offered in the response body's Open With menu.
 struct ResponseBodyEditor: Identifiable, Equatable {
     static let candidates = [
-        ResponseBodyEditor(name: "Code", bundleIdentifier: "com.microsoft.VSCode", systemImage: "chevron.left.forwardslash.chevron.right"),
-        ResponseBodyEditor(name: "Cursor", bundleIdentifier: "com.todesktop.230313mzl4w4u92", systemImage: "cursorarrow"),
+        ResponseBodyEditor(
+            name: "Code",
+            bundleIdentifier: "com.microsoft.VSCode",
+            systemImage: "chevron.left.forwardslash.chevron.right"
+        ),
+        ResponseBodyEditor(
+            name: "Cursor",
+            bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+            systemImage: "cursorarrow"
+        ),
         ResponseBodyEditor(name: "TextEdit", bundleIdentifier: "com.apple.TextEdit", systemImage: "doc.text"),
         ResponseBodyEditor(name: "Xcode", bundleIdentifier: "com.apple.dt.Xcode", systemImage: "hammer"),
     ]
+
+    static var installed: [ResponseBodyEditor] {
+        installed(isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil })
+    }
 
     let name: String
     let bundleIdentifier: String
@@ -1071,10 +1105,6 @@ struct ResponseBodyEditor: Identifiable, Equatable {
 
     var id: String {
         bundleIdentifier
-    }
-
-    static var installed: [ResponseBodyEditor] {
-        installed(isInstalled: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) != nil })
     }
 
     static func installed(isInstalled: (String) -> Bool) -> [ResponseBodyEditor] {

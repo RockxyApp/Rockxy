@@ -117,11 +117,13 @@ struct RequestInspectorView: View {
             if let previewTab = selectedPreviewTab,
                previewTabStore.requestTabs.contains(where: { $0.id == previewTab.id })
             {
-                PreviewTabContentView(
-                    tab: previewTab,
-                    transaction: transaction,
-                    beautify: previewTabStore.autoBeautify
-                )
+                CapturedBodyStatusContainer(isBodyIncomplete: transaction.request.isBodyIncomplete) {
+                    PreviewTabContentView(
+                        tab: previewTab,
+                        transaction: transaction,
+                        beautify: previewTabStore.autoBeautify
+                    )
+                }
             } else {
                 nativeTabContent
             }
@@ -139,23 +141,29 @@ struct RequestInspectorView: View {
             requestBodyView
         case .multipart:
             if MultipartInspectorView.isApplicable(to: transaction) {
-                MultipartInspectorView(transaction: transaction)
+                CapturedBodyStatusContainer(isBodyIncomplete: transaction.request.isBodyIncomplete) {
+                    MultipartInspectorView(transaction: transaction)
+                }
             } else {
                 requestBodyView
             }
         case .script:
             if ScriptPreviewInspectorView.isApplicable(to: transaction, panel: .request) {
-                ScriptPreviewInspectorView(transaction: transaction, panel: .request)
+                CapturedBodyStatusContainer(isBodyIncomplete: transaction.request.isBodyIncomplete) {
+                    ScriptPreviewInspectorView(transaction: transaction, panel: .request)
+                }
             } else {
                 requestBodyView
             }
         case .protobuf:
             if ProtobufBodyInspection.isApplicable(to: transaction, direction: .request) {
-                ProtobufPayloadInspectorView(
-                    payload: ProtobufBodyInspection.payload(of: transaction, direction: .request),
-                    context: ProtobufBodyInspection.context(of: transaction, direction: .request),
-                    payloadID: "\(transaction.id.uuidString)-request"
-                )
+                CapturedBodyStatusContainer(isBodyIncomplete: transaction.request.isBodyIncomplete) {
+                    ProtobufPayloadInspectorView(
+                        payload: ProtobufBodyInspection.payload(of: transaction, direction: .request),
+                        context: ProtobufBodyInspection.context(of: transaction, direction: .request),
+                        payloadID: "\(transaction.id.uuidString)-request"
+                    )
+                }
             } else {
                 requestBodyView
             }
@@ -192,39 +200,45 @@ struct RequestInspectorView: View {
         }
     }
 
-    @ViewBuilder private var requestBodyView: some View {
-        if let body = transaction.request.body {
-            VStack(spacing: 0) {
-                AsyncInspectorTextEditor(
-                    renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
-                    highlightContext: highlightContext
-                ) {
-                    InspectorPayloadFormatter.requestBodyText(body)
+    private var requestBodyView: some View {
+        CapturedBodyStatusContainer(isBodyIncomplete: transaction.request.isBodyIncomplete) {
+            if let body = transaction.request.body, !body.isEmpty || !transaction.request.isBodyIncomplete {
+                VStack(spacing: 0) {
+                    AsyncInspectorTextEditor(
+                        renderID: "\(transaction.id.uuidString)-request-body-\(body.count)",
+                        highlightContext: highlightContext
+                    ) {
+                        InspectorPayloadFormatter.requestBodyText(body)
+                    }
+                    Divider()
+                    PayloadActionsBar(
+                        payload: body,
+                        fileStem: "\(transaction.id.uuidString)-request",
+                        fileExtension: PayloadActionsBar.fileExtension(for: transaction.request.contentType),
+                        suggestedName: "request-body"
+                    )
                 }
-                Divider()
-                PayloadActionsBar(
-                    payload: body,
-                    fileStem: "\(transaction.id.uuidString)-request",
-                    fileExtension: PayloadActionsBar.fileExtension(for: transaction.request.contentType),
-                    suggestedName: "request-body"
+            } else if transaction.request.isBodyIncomplete {
+                CapturedBodyUnavailableView()
+            } else {
+                InspectorEmptyStateView(
+                    String(localized: "No Body", bundle: RockxyLocalization.bundle),
+                    systemImage: "doc",
+                    description: String(localized: "This request has no body", bundle: RockxyLocalization.bundle)
                 )
             }
-        } else {
-            InspectorEmptyStateView(
-                String(localized: "No Body", bundle: RockxyLocalization.bundle),
-                systemImage: "doc",
-                description: String(localized: "This request has no body", bundle: RockxyLocalization.bundle)
-            )
         }
     }
 
     private var requestRawView: some View {
         let snapshot = InspectorTransactionSnapshot(transaction: transaction)
-        return AsyncInspectorTextEditor(
-            renderID: "\(snapshot.id.uuidString)-request-raw-\(snapshot.request.body?.count ?? 0)",
-            highlightContext: highlightContext
-        ) {
-            .text(InspectorPayloadFormatter.rawRequest(snapshot.request))
+        return CapturedBodyStatusContainer(isBodyIncomplete: snapshot.request.isBodyIncomplete) {
+            AsyncInspectorTextEditor(
+                renderID: "\(snapshot.id.uuidString)-request-raw-\(snapshot.request.body?.count ?? 0)",
+                highlightContext: highlightContext
+            ) {
+                .text(InspectorPayloadFormatter.rawRequest(snapshot.request))
+            }
         }
     }
 }
