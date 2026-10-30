@@ -897,7 +897,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				EXECUTABLE_NAME = "$(ROCKXY_EXECUTABLE_NAME)";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Rockxy/Info.plist;
+				INFOPLIST_FILE = "$(ROCKXY_APP_INFO_PLIST)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -931,7 +931,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				EXECUTABLE_NAME = "$(ROCKXY_EXECUTABLE_NAME)";
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Rockxy/Info.plist;
+				INFOPLIST_FILE = "$(ROCKXY_APP_INFO_PLIST)";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
