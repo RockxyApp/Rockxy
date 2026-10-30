@@ -60,7 +60,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         )
         let connectionFrame = try BabylonFrameAccumulator.frame(encodedConnection)
         let trafficFrame = try BabylonFrameAccumulator.frame(encodedTraffic)
-        let client = try await Self.connect(port: port)
+        let client = try await Self.connect(receiver: receiver)
         let ackReader = BabylonAckReader(token: token)
         try await Self.send(Data(connectionFrame.prefix(3)), on: client)
         try await Task.sleep(for: .milliseconds(20))
@@ -94,7 +94,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.retryListener()
         try await Task.sleep(for: .milliseconds(150))
         try await Self.waitUntilReady(receiver)
-        let listenerProbe = try await Self.connect(port: port)
+        let listenerProbe = try await Self.connect(receiver: receiver)
         listenerProbe.cancel()
         try await Self.waitForTransactions(coordinator, expected: 1)
         let captured = coordinator.transactions.filter {
@@ -102,7 +102,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         }
         #expect(captured.count == 1)
 
-        let reconnect = try await Self.connect(port: port)
+        let reconnect = try await Self.connect(receiver: receiver)
         defer { reconnect.cancel() }
         let reconnectAckReader = BabylonAckReader(token: token)
         try await Self.send(trafficFrame, on: reconnect)
@@ -119,6 +119,52 @@ struct BabylonCaptureTCPCompatibilityTests {
             $0.request.url.absoluteString == "https://example.test/success"
         }.count == 1)
         try await Self.stopAndWait(receiver)
+    }
+
+    @Test("TCP fixtures connect to the published fallback port")
+    func connectsToPublishedFallbackPort() async throws {
+        let holder = try await Self.boundListener()
+        defer { holder.cancel() }
+        let port = try #require(holder.port?.rawValue)
+        let token = String(repeating: "d", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: MainContentCoordinator(), pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+        #expect(receiver.listeningPort != port)
+        let client = try await Self.connect(receiver: receiver)
+        defer { client.cancel() }
+        let heartbeat = try Self.encoded(
+            type: .heartbeat, content: Data("{}".utf8), messageID: "fallback-heartbeat", sequence: 1,
+            sessionID: "fallback-session", clientID: "fallback-client", token: token
+        )
+        try await Self.send(BabylonFrameAccumulator.frame(heartbeat), on: client)
+        let reader = BabylonAckReader(token: token)
+        #expect(try await reader.next(on: client) == "fallback-heartbeat")
+        try await Self.stopAndWait(receiver)
+    }
+
+    @Test("TCP fixture connection fails promptly when its port closes")
+    func closedPortDoesNotWaitIndefinitely() async throws {
+        let holder = try await Self.boundListener()
+        let port = try #require(holder.port?.rawValue)
+        holder.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+        let clock = ContinuousClock()
+        let started = clock.now
+        do {
+            let client = try await Self.connect(port: port)
+            client.cancel()
+            Issue.record("Closed fixture port unexpectedly accepted a connection")
+        } catch {
+            #expect(clock.now - started < .seconds(6))
+        }
     }
 
     @Test("Incomplete maximum-size frame peer is isolated from a healthy client")
@@ -140,8 +186,8 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let slowPeer = try await Self.connect(port: port)
-        let healthyPeer = try await Self.connect(port: port)
+        let slowPeer = try await Self.connect(receiver: receiver)
+        let healthyPeer = try await Self.connect(receiver: receiver)
         defer {
             slowPeer.cancel()
             healthyPeer.cancel()
@@ -183,8 +229,8 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let firstPartialPeer = try await Self.connect(port: port)
-        let secondPartialPeer = try await Self.connect(port: port)
+        let firstPartialPeer = try await Self.connect(receiver: receiver)
+        let secondPartialPeer = try await Self.connect(receiver: receiver)
         defer {
             firstPartialPeer.cancel()
             secondPartialPeer.cancel()
@@ -205,7 +251,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         }
         try await Self.waitForConnectionCount(receiver, expected: 1)
 
-        let healthyPeer = try await Self.connect(port: port)
+        let healthyPeer = try await Self.connect(receiver: receiver)
         defer { healthyPeer.cancel() }
         let heartbeat = try Self.encoded(
             type: .heartbeat, content: Data("{}".utf8), messageID: "healthy-after-aggregate-limit", sequence: 1,
@@ -238,7 +284,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let client = try await Self.connect(port: port)
+        let client = try await Self.connect(receiver: receiver)
         defer { client.cancel() }
         let ackReader = BabylonAckReader(token: token)
         let sessionID = "websocket-pre-upgrade-session"
@@ -343,7 +389,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let connection = try await Self.connect(port: port)
+        let connection = try await Self.connect(receiver: receiver)
         defer { connection.cancel() }
         let ackReader = BabylonAckReader(token: token)
         let sessionID = "grpc-fixture-session"
@@ -395,7 +441,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let connection = try await Self.connect(port: port)
+        let connection = try await Self.connect(receiver: receiver)
         defer { connection.cancel() }
         let ackReader = BabylonAckReader(token: token)
         let sessionID = "grpc-call-types-session"
@@ -550,7 +596,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let firstClient = try await Self.connect(port: port)
+        let firstClient = try await Self.connect(receiver: receiver)
         let firstReader = BabylonAckReader(token: token)
         for (type, content, messageID, sequence) in [
             (BabylonCaptureMessageType.connection, connection, "restart-connection", UInt64(1)),
@@ -570,7 +616,7 @@ struct BabylonCaptureTCPCompatibilityTests {
 
         receiver.start(coordinator: coordinator, pairingStore: pairingStore)
         try await Self.waitUntilReady(receiver)
-        let replayClient = try await Self.connect(port: port)
+        let replayClient = try await Self.connect(receiver: receiver)
         defer {
             replayClient.cancel()
             receiver.stop()
@@ -618,11 +664,11 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let invalidPeer = try await Self.connect(port: port)
-        let validPeer = try await Self.connect(port: port)
+        let invalidPeer = try await Self.connect(receiver: receiver)
+        let validPeer = try await Self.connect(receiver: receiver)
         var loadPeers: [NWConnection] = []
         for _ in 0 ..< 6 {
-            try await loadPeers.append(Self.connect(port: port))
+            try await loadPeers.append(Self.connect(receiver: receiver))
         }
         defer {
             invalidPeer.cancel()
@@ -630,7 +676,7 @@ struct BabylonCaptureTCPCompatibilityTests {
             loadPeers.forEach { $0.cancel() }
         }
         try await Self.waitForConnectionCount(receiver, expected: 8)
-        let overflowPeer = try await Self.connect(port: port)
+        let overflowPeer = try await Self.connect(receiver: receiver)
         defer { overflowPeer.cancel() }
         try await Self.waitUntilRemoteClose(overflowPeer, label: "overflow peer")
 
@@ -670,7 +716,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let oldPeer = try await Self.connect(port: port)
+        let oldPeer = try await Self.connect(receiver: receiver)
         defer { oldPeer.cancel() }
         let oldAckReader = BabylonAckReader(token: token)
         let originalFrame = try Self.encoded(
@@ -685,7 +731,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(rotatedToken != token)
         try await Self.waitUntilRemoteClose(oldPeer, label: "peer with rotated credential")
 
-        let stalePeer = try await Self.connect(port: port)
+        let stalePeer = try await Self.connect(receiver: receiver)
         defer { stalePeer.cancel() }
         let staleFrame = try Self.encoded(
             type: .heartbeat, content: Data("{}".utf8), messageID: "stale-token-heartbeat", sequence: 1,
@@ -694,7 +740,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         try await Self.send(BabylonFrameAccumulator.frame(staleFrame), on: stalePeer)
         try await Self.waitUntilRemoteClose(stalePeer, label: "stale credential peer")
 
-        let rotatedPeer = try await Self.connect(port: port)
+        let rotatedPeer = try await Self.connect(receiver: receiver)
         defer { rotatedPeer.cancel() }
         let rotatedAckReader = BabylonAckReader(token: rotatedToken)
         let rotatedFrame = try Self.encoded(
@@ -730,7 +776,7 @@ struct BabylonCaptureTCPCompatibilityTests {
         receiver.setEnabled(true)
         try await Self.waitUntilReady(receiver)
 
-        let client = try await Self.connect(port: port)
+        let client = try await Self.connect(receiver: receiver)
         defer { client.cancel() }
         let ackReader = BabylonAckReader(token: token)
         let connectionFixture = try Data(contentsOf: Self.fixtureURL("connection.json"))
@@ -801,7 +847,7 @@ struct BabylonCaptureTCPCompatibilityTests {
             type: .connection, content: connection, messageID: "compatibility-connection", sequence: 1,
             sessionID: sessionID, clientID: clientID, token: token
         )
-        let client = try await Self.connect(port: port)
+        let client = try await Self.connect(receiver: receiver)
         defer { client.cancel() }
         let ackReader = BabylonAckReader(token: token)
         try await Self.send(BabylonFrameAccumulator.frame(connectionFrame), on: client)
@@ -1002,26 +1048,48 @@ struct BabylonCaptureTCPCompatibilityTests {
         )
     }
 
+    private static func connect(receiver: BabylonCaptureReceiver) async throws -> NWConnection {
+        try await connect(port: #require(receiver.listeningPort))
+    }
+
     private static func connect(port: UInt16) async throws -> NWConnection {
         let connection = try NWConnection(
             host: "127.0.0.1",
             port: #require(NWEndpoint.Port(rawValue: port)),
             using: .tcp
         )
-        let ready = AsyncStream<Void> { continuation in
+        let ready = AsyncThrowingStream<Void, Error> { continuation in
+            let timeout = DispatchWorkItem {
+                continuation.finish(throwing: BabylonTCPCompatibilityTestError.connectionNotReady(port: port))
+                connection.cancel()
+            }
+            continuation.onTermination = { _ in timeout.cancel() }
             connection.stateUpdateHandler = { state in
-                if case .ready = state {
+                switch state {
+                case .ready:
                     continuation.yield()
                     continuation.finish()
-                } else if case .failed = state {
-                    continuation.finish()
+                case let .failed(error),
+                     let .waiting(error):
+                    continuation.finish(throwing: error)
+                case .cancelled:
+                    continuation.finish(throwing: CancellationError())
+                default:
+                    break
                 }
             }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5), execute: timeout)
         }
         connection.start(queue: .global())
-        for await _ in ready {
-            return connection
+        do {
+            for try await _ in ready {
+                return connection
+            }
+        } catch {
+            connection.cancel()
+            throw error
         }
+        connection.cancel()
         throw BabylonCaptureProtocolError.invalidFrame
     }
 
@@ -1069,6 +1137,7 @@ struct BabylonCaptureTCPCompatibilityTests {
 // MARK: - BabylonTCPCompatibilityTestError
 
 private enum BabylonTCPCompatibilityTestError: Error, LocalizedError {
+    case connectionNotReady(port: UInt16)
     case connectionCount(expected: Int, actual: Int)
     case connectionStillOpen(label: String, state: NWConnection.State)
     case unexpectedData(label: String)
@@ -1077,6 +1146,8 @@ private enum BabylonTCPCompatibilityTestError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case let .connectionNotReady(port):
+            "Babylon TCP fixture did not connect to port \(port) within 5 seconds."
         case let .connectionCount(expected, actual):
             "Babylon receiver connection count was \(actual), expected \(expected)."
         case let .connectionStillOpen(label, state):

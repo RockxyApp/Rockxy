@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Babylon TCP compatibility checks follow the receiver’s published port after fallback or restart and fail promptly when a fixture cannot connect.
+
 - Show TLS key log locations relative to this Mac without exposing the account path in the default label, tooltip, or write-error message.
 
 - Coalesce adjacent live-stream completion batches on the UI executor so a Stop burst refreshes history-derived state once per display interval.
