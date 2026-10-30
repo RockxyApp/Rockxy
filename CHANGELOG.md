@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Decode empty compressed responses and every concatenated gzip member without losing body bytes; validate gzip and zlib checksums and retain the captured bytes when a compressed stream is corrupt, incomplete, or exceeds its output budget.
+
 - Decode large compressed response bodies below the 50 MiB output limit with bounded scratch memory, and enforce the limit before retaining decoded bytes. Hot-path readers also enforce their smaller decoded-body budgets.
 
 - Babylon TCP compatibility checks follow the receiver’s published port after fallback or restart and fail promptly when a fixture cannot connect.

@@ -1,6 +1,7 @@
 import Compression
 import Foundation
 import os
+import zlib
 
 /// Decompresses HTTP response bodies based on the `Content-Encoding` header.
 /// Supports gzip, deflate (zlib), and Brotli. Falls back to the raw data if
@@ -61,9 +62,9 @@ enum BodyDecoder {
     private static func decodeSingle(_ data: Data, encoding: String, maxOutputSize: Int) -> Data? {
         switch encoding {
         case "gzip":
-            decompressGzip(data, maxOutputSize: maxOutputSize)
+            inflate(data, windowBits: 31, concatenated: true, maxOutputSize: maxOutputSize)
         case "deflate":
-            decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
+            inflateDeflate(data, maxOutputSize: maxOutputSize)
         case "br":
             decompress(data, algorithm: COMPRESSION_BROTLI, maxOutputSize: maxOutputSize)
         default:
@@ -71,73 +72,78 @@ enum BodyDecoder {
         }
     }
 
-    private static func decompressGzip(_ data: Data, maxOutputSize: Int) -> Data? {
-        guard data.count >= 18 else {
-            logger.debug("Data too small for gzip (\(data.count) bytes), trying raw deflate")
-            return decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
-        }
-
-        let byte0 = data[data.startIndex]
-        let byte1 = data[data.startIndex + 1]
-
-        guard byte0 == 0x1F, byte1 == 0x8B else {
-            logger.debug("Missing gzip magic bytes, trying raw deflate")
-            return decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
-        }
-
-        let stripped = stripGzipHeaderAndTrailer(data)
-        return decompress(stripped, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
+    private static func inflateDeflate(_ data: Data, maxOutputSize: Int) -> Data? {
+        // HTTP deflate uses the zlib wrapper, but legacy servers also send raw deflate.
+        // A recognized wrapper must pass its checksum, rather than falling back to raw bytes.
+        let header = Array(data.prefix(2))
+        let hasZlibHeader = header.count == 2 && header[0] & 0x0F == 8 && header[0] >> 4 <= 7
+            && (Int(header[0]) * 256 + Int(header[1])) % 31 == 0
+        return inflate(data, windowBits: hasZlibHeader ? 15 : -15, maxOutputSize: maxOutputSize)
     }
 
-    private static func stripGzipHeaderAndTrailer(_ data: Data) -> Data {
-        var offset = 10 // Minimum gzip header size
-        let flags = data[data.startIndex + 3]
-
-        // FEXTRA (bit 2)
-        if flags & 0x04 != 0, offset + 2 <= data.count {
-            let extraLen = Int(data[data.startIndex + offset])
-                | (Int(data[data.startIndex + offset + 1]) << 8)
-            offset += 2 + extraLen
+    private static func inflate(
+        _ data: Data,
+        windowBits: Int32,
+        concatenated: Bool = false,
+        maxOutputSize: Int
+    )
+        -> Data?
+    {
+        guard !data.isEmpty, data.count <= Int(UInt32.max) else {
+            return nil
         }
-
-        // FNAME (bit 3) - null-terminated string
-        if flags & 0x08 != 0 {
-            while offset < data.count, data[data.startIndex + offset] != 0 {
-                offset += 1
+        // One scratch byte lets a valid empty stream complete even with a zero output budget.
+        let bufferSize = max(1, min(64 * 1_024, maxOutputSize))
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { destination.deallocate() }
+        return data.withUnsafeBytes { source -> Data? in
+            guard let base = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return nil
             }
-            offset += 1 // skip null terminator
-        }
-
-        // FCOMMENT (bit 4) - null-terminated string
-        if flags & 0x10 != 0 {
-            while offset < data.count, data[data.startIndex + offset] != 0 {
-                offset += 1
+            var stream = z_stream()
+            guard inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+                return nil
             }
-            offset += 1
+            defer { inflateEnd(&stream) }
+            stream.next_in = UnsafeMutablePointer(mutating: base)
+            stream.avail_in = UInt32(data.count)
+            var result = Data()
+            while true {
+                stream.next_out = destination
+                stream.avail_out = UInt32(bufferSize)
+                let inputBefore = stream.avail_in
+                let status = zlib.inflate(&stream, Z_NO_FLUSH)
+                let produced = bufferSize - Int(stream.avail_out)
+                guard produced <= maxOutputSize - result.count else {
+                    return nil
+                }
+                if produced > 0 {
+                    result.append(destination, count: produced)
+                }
+                if status == Z_STREAM_END {
+                    guard stream.avail_in > 0 else {
+                        return result
+                    }
+                    // RFC 1952 allows multiple members. Reset preserves unconsumed input;
+                    // every member must validate before any decoded body is published.
+                    guard concatenated, inflateReset(&stream) == Z_OK else {
+                        return nil
+                    }
+                } else {
+                    guard status == Z_OK, produced > 0 || stream.avail_in < inputBefore else {
+                        return nil
+                    }
+                }
+            }
         }
-
-        // FHCRC (bit 1) - 2-byte header CRC
-        if flags & 0x02 != 0 {
-            offset += 2
-        }
-
-        guard offset < data.count - 8 else {
-            logger.debug("Gzip header consumed too much data, returning empty payload")
-            return Data()
-        }
-
-        // Strip header and 8-byte trailer (CRC32 + ISIZE)
-        let start = data.startIndex + offset
-        let end = data.endIndex - 8
-        return data[start ..< end]
     }
 
     private static func decompress(_ data: Data, algorithm: compression_algorithm, maxOutputSize: Int) -> Data? {
-        guard !data.isEmpty, maxOutputSize > 0 else {
+        guard !data.isEmpty else {
             return nil
         }
 
-        let bufferSize = min(64 * 1_024, maxOutputSize)
+        let bufferSize = max(1, min(64 * 1_024, maxOutputSize))
         let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { destBuffer.deallocate() }
 
@@ -166,6 +172,7 @@ enum BodyDecoder {
             while true {
                 stream.dst_ptr = destBuffer
                 stream.dst_size = bufferSize
+                let inputBefore = stream.src_size
                 let status = compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
                 let produced = bufferSize - stream.dst_size
                 guard produced <= maxOutputSize - result.count else {
@@ -177,9 +184,12 @@ enum BodyDecoder {
                 }
                 switch status {
                 case COMPRESSION_STATUS_OK:
+                    guard produced > 0 || stream.src_size < inputBefore else {
+                        return nil
+                    }
                     continue
                 case COMPRESSION_STATUS_END:
-                    return result.isEmpty ? nil : result
+                    return stream.src_size == 0 ? result : nil
                 default:
                     logger.debug("Decompression failed for algorithm \(algorithm.rawValue)")
                     return nil
