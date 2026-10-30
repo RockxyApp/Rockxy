@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Updating saved credentials preserves the previous value and its access policy when Keychain rejects a replacement, including Babylon pairing tokens and upstream proxy or Assistant credentials.
+
 - Requests kept in Saved, Pinned, or Notes retain Babylon source, error, producer capabilities, runtime correlation, timing and body omission metadata when the Library reloads; older saved requests remain readable.
 
 - Babylon compressed payloads validate optional gzip header checksums and all concatenated members, retain the protocol output budget, and release encoder scratch storage after each frame.
