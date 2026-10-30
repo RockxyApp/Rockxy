@@ -53,13 +53,13 @@ enum BodyDecoder {
     private static func decodeSingle(_ data: Data, encoding: String) -> Data? {
         switch encoding {
         case "gzip":
-            return decompressGzip(data)
+            decompressGzip(data)
         case "deflate":
-            return decompress(data, algorithm: COMPRESSION_ZLIB)
+            decompress(data, algorithm: COMPRESSION_ZLIB)
         case "br":
-            return decompress(data, algorithm: COMPRESSION_BROTLI)
+            decompress(data, algorithm: COMPRESSION_BROTLI)
         default:
-            return nil
+            nil
         }
     }
 
@@ -129,56 +129,44 @@ enum BodyDecoder {
             return nil
         }
 
-        var stream = compression_stream(
-            dst_ptr: UnsafeMutablePointer<UInt8>.allocate(capacity: 0),
-            dst_size: 0,
-            src_ptr: UnsafeMutablePointer<UInt8>(mutating: [0]),
-            src_size: 0,
-            state: nil
-        )
-
-        let initStatus = compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, algorithm)
-        guard initStatus == COMPRESSION_STATUS_OK else {
-            logger.debug("Decompression stream init failed for algorithm \(algorithm.rawValue)")
-            return nil
-        }
-        defer { compression_stream_destroy(&stream) }
-
-        let bufferSize = max(data.count * 4, 1_024)
-        guard bufferSize <= maxDecompressedSize else {
-            logger.warning("Decompressed data exceeds \(maxDecompressedSize) byte limit")
-            return nil
-        }
-
-        var result = Data()
+        let bufferSize = 64 * 1_024
+        let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { destBuffer.deallocate() }
 
         return data.withUnsafeBytes { sourcePtr -> Data? in
             guard let baseAddress = sourcePtr.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
                 return nil
             }
 
+            var stream = compression_stream(
+                dst_ptr: destBuffer,
+                dst_size: bufferSize,
+                src_ptr: baseAddress,
+                src_size: data.count,
+                state: nil
+            )
+            let initStatus = compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, algorithm)
+            guard initStatus == COMPRESSION_STATUS_OK else {
+                logger.debug("Decompression stream init failed for algorithm \(algorithm.rawValue)")
+                return nil
+            }
+            defer { compression_stream_destroy(&stream) }
             stream.src_ptr = baseAddress
             stream.src_size = data.count
 
-            let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-            defer { destBuffer.deallocate() }
-
+            var result = Data()
             while true {
                 stream.dst_ptr = destBuffer
                 stream.dst_size = bufferSize
-
                 let status = compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
-
                 let produced = bufferSize - stream.dst_size
-                if produced > 0 {
-                    result.append(destBuffer, count: produced)
-                }
-
-                if result.count > maxDecompressedSize {
+                guard produced <= maxDecompressedSize - result.count else {
                     logger.warning("Decompressed data exceeds \(maxDecompressedSize) byte limit")
                     return nil
                 }
-
+                if produced > 0 {
+                    result.append(destBuffer, count: produced)
+                }
                 switch status {
                 case COMPRESSION_STATUS_OK:
                     continue

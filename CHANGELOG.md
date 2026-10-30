@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Decode large compressed response bodies below the 50 MiB output limit with bounded scratch memory, and enforce the limit before retaining decoded bytes.
+
 - Babylon TCP compatibility checks follow the receiver’s published port after fallback or restart and fail promptly when a fixture cannot connect.
 
 - Show TLS key log locations relative to this Mac without exposing the account path in the default label, tooltip, or write-error message.

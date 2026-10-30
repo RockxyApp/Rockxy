@@ -8,12 +8,13 @@ import Testing
 
 // MARK: - BodyDecoderTests
 
+@Suite(.serialized)
 struct BodyDecoderTests {
     // MARK: Internal
 
     @Test("Nil encoding returns original data")
     func nilEncodingPassthrough() {
-        let original = "Hello, World!".data(using: .utf8)!
+        let original = Data("Hello, World!".utf8)
         let result = BodyDecoder.decode(original, encoding: nil)
         #expect(result == original)
     }
@@ -47,14 +48,14 @@ struct BodyDecoderTests {
 
     @Test("Unknown encoding returns original data")
     func unknownEncodingPassthrough() {
-        let original = "Test data".data(using: .utf8)!
+        let original = Data("Test data".utf8)
         let result = BodyDecoder.decode(original, encoding: "unknown-encoding")
         #expect(result == original)
     }
 
     @Test("Empty encoding string returns original data")
     func emptyEncodingPassthrough() {
-        let original = "Identity test".data(using: .utf8)!
+        let original = Data("Identity test".utf8)
         let result = BodyDecoder.decode(original, encoding: "")
         #expect(result == original)
     }
@@ -104,6 +105,47 @@ struct BodyDecoderTests {
         #expect(result == garbage)
     }
 
+    @Test("Large incompressible deflate bodies below the output limit decode fully")
+    func largeIncompressibleBody() throws {
+        var original = Data(count: 13 * 1_024 * 1_024)
+        original.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
+            var state: UInt64 = 0x524F434B58592026
+            for index in bytes.indices {
+                state = state &* 2_862_933_555_777_941_757 &+ 3_037_000_493
+                bytes[index] = UInt8(truncatingIfNeeded: state >> 56)
+            }
+        }
+        let compressed = try #require(deflateCompress(original))
+        // This exceeds the old scratch-buffer guard while remaining below the real output limit.
+        #expect(compressed.count > 50 * 1_024 * 1_024 / 4)
+        let result = BodyDecoder.decodeReportingChange(compressed, encoding: "deflate")
+        #expect(result.didDecode)
+        #expect(result.data == original)
+    }
+
+    @Test(
+        "The decompressed output limit is inclusive and overflow preserves compressed bytes",
+        arguments: [50 * 1_024 * 1_024, 50 * 1_024 * 1_024 + 1]
+    )
+    func outputLimitBoundary(byteCount: Int) throws {
+        let original = Data(repeating: 0x41, count: byteCount)
+        let compressed = try #require(deflateCompress(original))
+        let result = BodyDecoder.decodeReportingChange(compressed, encoding: "deflate")
+        let withinLimit = byteCount == 50 * 1_024 * 1_024
+        #expect(result.didDecode == withinLimit)
+        #expect(result.data == (withinLimit ? original : compressed))
+    }
+
+    @Test("Brotli responses survive bounded streaming decompression")
+    func brotliDecompression() throws {
+        let compressed = try #require(Data(base64Encoded:
+            "Gz8AwEVveL07LsfPdaNWSonShSgCDUNhY2wOXa6gp7DpLSL5e7N+iBL6src01gNAAg=="))
+        let result = BodyDecoder.decodeReportingChange(compressed, encoding: "br")
+        #expect(result.didDecode)
+        #expect(String(data: result.data, encoding: .utf8) ==
+            "A Brotli fixture should survive bounded streaming decompression.")
+    }
+
     // MARK: Private
 
     private static func crc32(_ buffer: UnsafeRawBufferPointer) -> UInt32 {
@@ -124,7 +166,7 @@ struct BodyDecoderTests {
     // MARK: - Helpers
 
     private func deflateCompress(_ input: Data) -> Data? {
-        let capacity = input.count + 1_024
+        let capacity = input.count + input.count / 8 + 1_024
         let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
         defer { destBuffer.deallocate() }
         let compressedSize = input.withUnsafeBytes { srcPtr -> Int in
