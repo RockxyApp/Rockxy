@@ -56,7 +56,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     let id: UUID
     let timestamp: Date
-    /// Values of body columns, keyed by column, kept once the transaction has finished.
+    /// Values of body columns, keyed by column, invalidated whenever request or response evidence changes.
     @ObservationIgnored let customColumnValueCache = CustomColumnValueCache()
     var state: TransactionState
     /// Whether this transaction reaches the session twice — as an `.active` row when it opens

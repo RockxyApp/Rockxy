@@ -71,6 +71,60 @@ struct CustomColumnValueTests {
         #expect(HeaderColumnStore.resolveValue(for: "reqBody.$.user", transaction: request) == "bo")
     }
 
+    @Test("Live body columns cache unchanged evidence and invalidate on nested body mutations")
+    func liveBodyCache() {
+        let transaction = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/live")
+        transaction.state = .active
+        transaction.request.body = Data(#"{"id":1}"#.utf8)
+        #expect(CustomColumnValueResolver
+            .bodyValue(expression: ".id", response: false, transaction: transaction) == "1")
+        #expect(transaction.customColumnValueCache.value(for: "req:.id") == "1")
+        #expect(CustomColumnValueResolver.bodyValue(expression: ".id", response: true, transaction: transaction)
+            .isEmpty)
+        #expect(transaction.customColumnValueCache.value(for: "res:.id") == "")
+
+        transaction.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [],
+            body: Data(#"{"id":2}"#.utf8)
+        )
+        #expect(transaction.customColumnValueCache.value(for: "res:.id") == nil)
+        #expect(CustomColumnValueResolver.bodyValue(expression: ".id", response: true, transaction: transaction) == "2")
+        transaction.response?.body = Data(#"{"id":3}"#.utf8)
+        #expect(transaction.customColumnValueCache.value(for: "res:.id") == nil)
+        #expect(CustomColumnValueResolver.bodyValue(expression: ".id", response: true, transaction: transaction) == "3")
+        transaction.request.body = Data(#"{"id":4}"#.utf8)
+        #expect(transaction.customColumnValueCache.value(for: "req:.id") == nil)
+        #expect(CustomColumnValueResolver
+            .bodyValue(expression: ".id", response: false, transaction: transaction) == "4")
+        transaction.state = .completed
+        #expect(CustomColumnValueResolver.bodyValue(expression: ".id", response: true, transaction: transaction) == "3")
+    }
+
+    @Test("Body column previews preserve truncation and separators for multiple matches")
+    func boundedBodyPreview() throws {
+        for expression in ["$[*]", ".[]"] {
+            for values in [
+                [],
+                [""],
+                ["", ""],
+                ["a", "b"],
+                [String(repeating: "x", count: 100), "\u{301}" + String(repeating: "y", count: 1_000)],
+                [String(repeating: "x", count: 300)],
+                [String(repeating: "x", count: 299), ""],
+                Array(repeating: String(repeating: "👩🏽‍💻", count: 200), count: 50)
+            ] {
+                let data = try JSONEncoder().encode(values)
+                let joined = values.joined(separator: ", ")
+                let expected = joined.count > CustomColumnValueResolver.maxDisplayLength
+                    ? String(joined.prefix(CustomColumnValueResolver.maxDisplayLength)) + "…"
+                    : joined
+                #expect(CustomColumnValueResolver.evaluate(expression, on: data) == expected)
+            }
+        }
+    }
+
     @Test("Adding query and body columns validates the name and keeps expressions case-sensitive")
     func addColumns() {
         let store = HeaderColumnStore(defaults: IsolatedDefaultsSuite.make(prefix: "Rockxy.CustomColumnValueTests"))

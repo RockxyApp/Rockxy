@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Live body columns reuse JSON/jq results until captured evidence changes, and format only the matches needed for the cell preview.
+
 ### Added
 
 - A saved automatic macOS system proxy setting separates capture from system routing. Turn it off to start, restart, or launch capture for manually configured apps and devices without automatically replacing the Mac’s system proxy settings. The explicit system proxy control remains available.

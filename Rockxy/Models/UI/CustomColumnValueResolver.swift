@@ -18,7 +18,7 @@ enum CustomColumnValueResolver {
     }
 
     /// Evaluates `expression` against a transaction's JSON body. The result is cached on the
-    /// transaction once the body can no longer change.
+    /// transaction until its request or response evidence changes.
     static func bodyValue(expression: String, response: Bool, transaction: HTTPTransaction) -> String {
         let cacheKey = (response ? "res:" : "req:") + expression
         if let cached = transaction.customColumnValueCache.value(for: cacheKey) {
@@ -28,10 +28,7 @@ enum CustomColumnValueResolver {
             ? transaction.response.flatMap { $0.decodedBody(limit: maxBodySize) ?? $0.body }
             : transaction.request.body
         let value = body.map { evaluate(expression, on: $0) } ?? ""
-        let isFinal = transaction.state != .pending && transaction.state != .active
-        if isFinal {
-            transaction.customColumnValueCache.store(value, for: cacheKey)
-        }
+        transaction.customColumnValueCache.store(value, for: cacheKey)
         return value
     }
 
@@ -41,34 +38,49 @@ enum CustomColumnValueResolver {
         guard data.count <= maxBodySize, looksLikeJSON(data) else {
             return ""
         }
-        let values: [String]
         if expression.hasPrefix("$") {
             guard let document = try? JSONPathDocument(data: data),
                   let result = try? JSONPathEvaluator(document: document).evaluate(expression) else
             {
                 return ""
             }
-            values = result.matches.map(\.scalarDescription)
+            return displayValue(result.matches.lazy.map(\.scalarDescription))
         } else {
             guard let filter = try? JQFilter(expression),
                   let output = try? filter.run(JQValue.parse(data), limits: columnLimits) else
             {
                 return ""
             }
-            values = output.values.map { value in
+            return displayValue(output.values.lazy.map { value in
                 if case let .string(text) = value {
                     return text
                 }
                 return value.jsonText()
-            }
+            })
         }
-        let joined = values.joined(separator: ", ")
-        return joined.count > maxDisplayLength ? String(joined.prefix(maxDisplayLength)) + "…" : joined
     }
 
     // MARK: Private
 
     private static let columnLimits = JQLimits(maxSteps: 200_000, maxOutputs: 50, maxDepth: 128)
+
+    /// Stop formatting matches as soon as the cell is full. A wildcard can otherwise
+    /// serialize thousands of objects just to discard almost all of the joined text.
+    private static func displayValue(_ values: some Sequence<String>) -> String {
+        var result = ""
+        var isFirst = true
+        for value in values {
+            if !isFirst {
+                result += ", "
+            }
+            isFirst = false
+            result += value.prefix(maxDisplayLength + 1)
+            if result.count > maxDisplayLength {
+                return String(result.prefix(maxDisplayLength)) + "…"
+            }
+        }
+        return result
+    }
 
     private static func looksLikeJSON(_ data: Data) -> Bool {
         for byte in data.prefix(64) {
