@@ -43,43 +43,118 @@ struct DomainNode: Identifiable, Hashable {
 struct DomainGroupingIndex {
     // MARK: Internal
 
+    private(set) var supportsIncrementalRemoval = true
+
+    func contains(_ transaction: HTTPTransaction) -> Bool {
+        contributions[ObjectIdentifier(transaction)] != nil
+    }
+
     mutating func removeAll() {
         nodesByID.removeAll(keepingCapacity: true)
         childIDsByParentID.removeAll(keepingCapacity: true)
         rootIDs.removeAll(keepingCapacity: true)
+        parentIDs.removeAll(keepingCapacity: true)
+        methodCounts.removeAll(keepingCapacity: true)
+        sequenceCounts.removeAll(keepingCapacity: true)
+        contributions.removeAll(keepingCapacity: true)
+        supportsIncrementalRemoval = true
     }
 
     mutating func add(_ transaction: HTTPTransaction) {
-        let specs = DomainGrouping.nodeSpecs(for: transaction)
-        guard !specs.isEmpty else {
-            return
+        let objectID = ObjectIdentifier(transaction)
+        if contributions[objectID] != nil {
+            supportsIncrementalRemoval = false
         }
-
+        let specs = DomainGrouping.nodeSpecs(for: transaction)
+        let method = transaction.request.method
+        let sequence = transaction.sequenceNumber
+        let isError = DomainGrouping.isError(transaction)
+        var nodeIDs: [String] = []
         for spec in specs {
             var node = nodesByID[spec.id] ?? DomainNode(
-                id: spec.id,
-                domain: spec.title,
-                requestCount: 0,
-                children: [],
-                kind: spec.kind,
-                filterDomain: spec.filterDomain,
-                pathPrefix: spec.pathPrefix,
-                firstSeenSequence: transaction.sequenceNumber
+                id: spec.id, domain: spec.title, requestCount: 0, children: [],
+                kind: spec.kind, filterDomain: spec.filterDomain,
+                pathPrefix: spec.pathPrefix, firstSeenSequence: sequence
             )
             node.requestCount += 1
-            if DomainGrouping.isError(transaction) {
+            if isError {
                 node.errorCount += 1
             }
-            node.methods.insert(transaction.request.method)
-            node.firstSeenSequence = min(node.firstSeenSequence, transaction.sequenceNumber)
+            node.methods.insert(method)
+            node.firstSeenSequence = min(node.firstSeenSequence, sequence)
             nodesByID[spec.id] = node
-
-            if let parentID = spec.parentID {
-                childIDsByParentID[parentID, default: []].insert(spec.id)
+            methodCounts[spec.id, default: [:]][method, default: 0] += 1
+            sequenceCounts[spec.id, default: [:]][sequence, default: 0] += 1
+            nodeIDs.append(node.id)
+            if let parent = spec.parentID {
+                parentIDs[spec.id] = parent
+                childIDsByParentID[parent, default: []].insert(spec.id)
             } else {
                 rootIDs.insert(spec.id)
             }
         }
+        if contributions[objectID] == nil {
+            contributions[objectID] = Contribution(
+                url: transaction.request.url, nodeIDs: nodeIDs, method: method,
+                sequence: sequence, isError: isError
+            )
+        }
+    }
+
+    @discardableResult
+    mutating func remove(_ transactions: [HTTPTransaction]) -> Bool {
+        guard supportsIncrementalRemoval else {
+            return false
+        }
+        var dirtyOrdering: Set<String> = []
+        var changed = false
+        for transaction in transactions {
+            guard let contribution = contributions.removeValue(forKey: ObjectIdentifier(transaction)) else {
+                continue
+            }
+            subtract(contribution, dirtyOrdering: &dirtyOrdering)
+            changed = true
+        }
+        reconcileOrdering(dirtyOrdering)
+        return changed
+    }
+
+    @discardableResult
+    mutating func update(_ transactions: [HTTPTransaction]) -> Bool {
+        guard supportsIncrementalRemoval else {
+            return false
+        }
+        var dirtyOrdering: Set<String> = []
+        var changed = false
+        for transaction in transactions {
+            let id = ObjectIdentifier(transaction)
+            guard var old = contributions[id] else {
+                add(transaction)
+                changed = true
+                continue
+            }
+            let isError = DomainGrouping.isError(transaction)
+            if old.url == transaction.request.url, old.method == transaction.request.method,
+               old.sequence == transaction.sequenceNumber
+            {
+                if old.isError != isError {
+                    let delta = isError ? 1 : -1
+                    for nodeID in old.nodeIDs {
+                        nodesByID[nodeID]?.errorCount += delta
+                    }
+                    old.isError = isError
+                    contributions[id] = old
+                    changed = true
+                }
+                continue
+            }
+            contributions.removeValue(forKey: id)
+            subtract(old, dirtyOrdering: &dirtyOrdering)
+            add(transaction)
+            changed = true
+        }
+        reconcileOrdering(dirtyOrdering)
+        return changed
     }
 
     func makeTree(alphabetical: Bool = false) -> [DomainNode] {
@@ -88,9 +163,71 @@ struct DomainGroupingIndex {
 
     // MARK: Private
 
+    private struct Contribution {
+        let url: URL
+        let nodeIDs: [String]
+        let method: String
+        let sequence: Int
+        var isError: Bool
+    }
+
     private var nodesByID: [String: DomainNode] = [:]
     private var childIDsByParentID: [String: Set<String>] = [:]
     private var rootIDs: Set<String> = []
+    private var parentIDs: [String: String] = [:]
+    private var methodCounts: [String: [String: Int]] = [:]
+    private var sequenceCounts: [String: [Int: Int]] = [:]
+    private var contributions: [ObjectIdentifier: Contribution] = [:]
+
+    private mutating func subtract(_ contribution: Contribution, dirtyOrdering: inout Set<String>) {
+        for id in contribution.nodeIDs {
+            guard var node = nodesByID[id] else {
+                continue
+            }
+            node.requestCount -= 1
+            if contribution.isError {
+                node.errorCount -= 1
+            }
+            let methods = methodCounts[id]?[contribution.method] ?? 0
+            if methods <= 1 {
+                methodCounts[id]?.removeValue(forKey: contribution.method)
+                node.methods.remove(contribution.method)
+            } else {
+                methodCounts[id]?[contribution.method] = methods - 1
+            }
+            let sequences = sequenceCounts[id]?[contribution.sequence] ?? 0
+            if sequences <= 1 {
+                sequenceCounts[id]?.removeValue(forKey: contribution.sequence)
+                if node.firstSeenSequence == contribution.sequence {
+                    dirtyOrdering.insert(id)
+                }
+            } else {
+                sequenceCounts[id]?[contribution.sequence] = sequences - 1
+            }
+            if node.requestCount == 0 {
+                nodesByID.removeValue(forKey: id)
+                methodCounts.removeValue(forKey: id)
+                sequenceCounts.removeValue(forKey: id)
+                if let parent = parentIDs.removeValue(forKey: id) {
+                    childIDsByParentID[parent]?.remove(id)
+                    if childIDsByParentID[parent]?.isEmpty == true {
+                        childIDsByParentID.removeValue(forKey: parent)
+                    }
+                } else {
+                    rootIDs.remove(id)
+                }
+                childIDsByParentID.removeValue(forKey: id)
+            } else {
+                nodesByID[id] = node
+            }
+        }
+    }
+
+    private mutating func reconcileOrdering(_ nodeIDs: Set<String>) {
+        for id in nodeIDs where nodesByID[id] != nil {
+            nodesByID[id]?.firstSeenSequence = sequenceCounts[id]?.keys.min() ?? .max
+        }
+    }
 
     private func makeNode(id: String, alphabetical: Bool) -> DomainNode {
         guard var node = nodesByID[id] else {
@@ -136,50 +273,134 @@ struct DomainGroupingIndex {
 struct AppGroupingIndex {
     // MARK: Internal
 
+    private(set) var supportsIncrementalRemoval = true
+
+    var recordedTransactionCount: Int {
+        memberships.count
+    }
+
+    func contains(_ transaction: HTTPTransaction) -> Bool {
+        memberships[ObjectIdentifier(transaction)] != nil
+    }
+
+    func recordedHost(for transaction: HTTPTransaction) -> String? {
+        memberships[ObjectIdentifier(transaction)]?.host
+    }
+
     mutating func removeAll() {
         entries.removeAll(keepingCapacity: true)
         insertionOrder.removeAll(keepingCapacity: true)
+        memberships.removeAll(keepingCapacity: true)
+        supportsIncrementalRemoval = true
     }
 
     mutating func add(_ transaction: HTTPTransaction, appName: String? = nil) {
         let name = Self.normalizedAppName(appName ?? transaction.clientApp)
-        let key = Self.key(for: name)
         let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = ObjectIdentifier(transaction)
+        if memberships[id] != nil {
+            supportsIncrementalRemoval = false
+        }
+        let key = Self.key(for: name)
         if entries[key] == nil {
             entries[key] = Entry(name: name)
             insertionOrder.append(key)
         }
         entries[key]?.requestCount += 1
-        if entries[key]?.identity == nil, let identity = transaction.clientApplicationIdentity {
-            entries[key]?.identity = identity
+        if entries[key]?.identity == nil {
+            entries[key]?.identity = transaction.clientApplicationIdentity
         }
         if !host.isEmpty {
             entries[key]?.domainCounts[host, default: 0] += 1
+        }
+        if memberships[id] == nil {
+            memberships[id] = Membership(name: name, host: host, identity: transaction.clientApplicationIdentity)
         }
     }
 
     mutating func remove(_ transaction: HTTPTransaction, appName: String?) {
         let name = Self.normalizedAppName(appName)
-        let key = Self.key(for: name)
-        guard var entry = entries[key] else {
-            return
+        let id = ObjectIdentifier(transaction)
+        if supportsIncrementalRemoval {
+            guard let membership = memberships[id], membership.name == name else {
+                return
+            }
+            memberships.removeValue(forKey: id)
+            subtract(membership)
+        } else {
+            subtract(Membership(
+                name: name,
+                host: transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines),
+                identity: nil
+            ))
         }
-        entry.requestCount = max(0, entry.requestCount - 1)
+    }
 
-        let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !host.isEmpty, let count = entry.domainCounts[host] {
-            if count <= 1 {
-                entry.domainCounts.removeValue(forKey: host)
-            } else {
-                entry.domainCounts[host] = count - 1
+    @discardableResult
+    mutating func remove(_ transactions: [HTTPTransaction]) -> Bool {
+        guard supportsIncrementalRemoval else {
+            return false
+        }
+        var changed = false
+        for transaction in transactions {
+            if let membership = memberships.removeValue(forKey: ObjectIdentifier(transaction)) {
+                subtract(membership)
+                changed = true
             }
         }
+        return changed
+    }
 
-        if entry.requestCount == 0 {
-            entries.removeValue(forKey: key)
-            insertionOrder.removeAll { $0 == key }
-        } else {
-            entries[key] = entry
+    @discardableResult
+    mutating func upsert(_ transaction: HTTPTransaction, appName: String? = nil) -> Bool {
+        guard supportsIncrementalRemoval else {
+            return false
+        }
+        let name = Self.normalizedAppName(appName ?? transaction.clientApp)
+        let host = transaction.request.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let identity = transaction.clientApplicationIdentity
+        let id = ObjectIdentifier(transaction)
+        if var old = memberships[id] {
+            if old.name == name, old.host == host {
+                guard old.identity != identity else {
+                    return false
+                }
+                old.identity = identity
+                memberships[id] = old
+                if entries[Self.key(for: name)]?.identity == nil {
+                    entries[Self.key(for: name)]?.identity = identity
+                }
+                return true
+            }
+            memberships.removeValue(forKey: id)
+            subtract(old)
+        }
+        add(transaction, appName: name)
+        return true
+    }
+
+    mutating func reconcileRetainedOrder(_ history: [HTTPTransaction]) {
+        var order: [String] = []
+        var seen: Set<String> = []
+        var identities: [String: ClientApplicationIdentity] = [:]
+        for transaction in history {
+            guard let membership = memberships[ObjectIdentifier(transaction)] else {
+                continue
+            }
+            let key = Self.key(for: membership.name)
+            if seen.insert(key).inserted {
+                order.append(key)
+            }
+            if identities[key] == nil, let identity = membership.identity {
+                identities[key] = identity
+            }
+        }
+        for key in insertionOrder where !seen.contains(key) {
+            order.append(key)
+        }
+        insertionOrder = order
+        for key in entries.keys {
+            entries[key]?.identity = identities[key]
         }
     }
 
@@ -206,8 +427,15 @@ struct AppGroupingIndex {
         var identity: ClientApplicationIdentity?
     }
 
+    private struct Membership {
+        let name: String
+        let host: String
+        var identity: ClientApplicationIdentity?
+    }
+
     private var entries: [String: Entry] = [:]
     private var insertionOrder: [String] = []
+    private var memberships: [ObjectIdentifier: Membership] = [:]
 
     private static func key(for name: String) -> String {
         "name:\(name)"
@@ -216,6 +444,26 @@ struct AppGroupingIndex {
     private static func normalizedAppName(_ value: String?) -> String {
         let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return normalized.isEmpty ? String(localized: "Unknown", bundle: RockxyLocalization.bundle) : normalized
+    }
+
+    private mutating func subtract(_ membership: Membership) {
+        let key = Self.key(for: membership.name)
+        guard let count = entries[key]?.requestCount else {
+            return
+        }
+        if count <= 1 {
+            entries.removeValue(forKey: key)
+            insertionOrder.removeAll { $0 == key }
+            return
+        }
+        entries[key]?.requestCount = count - 1
+        if !membership.host.isEmpty, let domains = entries[key]?.domainCounts[membership.host] {
+            if domains <= 1 {
+                entries[key]?.domainCounts.removeValue(forKey: membership.host)
+            } else {
+                entries[key]?.domainCounts[membership.host] = domains - 1
+            }
+        }
     }
 }
 

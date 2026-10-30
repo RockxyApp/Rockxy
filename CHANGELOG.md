@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- At the live history limit, sidebar counts remove evicted requests incrementally and unchanged table rows reuse their snapshots. Late application attribution stays idempotent, live failures refresh domain error counts, and saved requests remain available to Assistant investigations after retention, Project restoration, or saved-list replacement.
+
 - Live body columns reuse JSON/jq results until captured evidence changes, and format only the matches needed for the cell preview. Previews also cap UTF-8 storage and retain complete Unicode clusters, including long combining sequences.
 - Header-column suggestions retain at most 1,024 names per direction and merge casing variants, keeping long captures from growing the suggestion cache indefinitely. Captured headers and manually added columns remain complete.
 - Full-history sidebar rebuilds reuse local grouping storage and resolve the fallback application label once per batch, reducing repeated observation and localization work at the capture history cap.

@@ -4,6 +4,48 @@ import Testing
 
 @MainActor
 struct CaptureBatchScalingTests {
+    @Test("Distinct routes remain consistent during sustained cap intake and Stop")
+    func diverseRoutesAtHistoryCap() {
+        let coordinator = MainContentCoordinator()
+        coordinator.liveHistoryLimit = 50_000
+        func make(_ index: Int, state: TransactionState) -> HTTPTransaction {
+            TestFixtures.makeTransaction(
+                url: "https://api\(index % 25).example\(index % 5).com/v1/route/\(index)",
+                state: state
+            )
+        }
+        coordinator.processActiveProjectTestBatch((0 ..< 50_000).map { make($0, state: .completed) })
+        let live = (50_000 ..< 51_000).map { make($0, state: .active) }
+        var stages: [CaptureRetentionProfiler.Stage: Duration] = [:]
+        CaptureRetentionProfiler.onMeasurement = { stage, duration in stages[stage, default: .zero] += duration }
+        defer { CaptureRetentionProfiler.onMeasurement = nil }
+        let clock = ContinuousClock()
+        let start = clock.now
+        for offset in stride(from: 0, to: live.count, by: 50) {
+            coordinator.processActiveProjectTestBatch(Array(live[offset ..< offset + 50]))
+        }
+        let appendDuration = start.duration(to: clock.now)
+        live.forEach { $0.state = .failed }
+        let closeStart = clock.now
+        for offset in stride(from: 0, to: live.count, by: 50) {
+            coordinator.enqueueLiveTransactionUpdates(Array(live[offset ..< offset + 50]))
+        }
+        coordinator.flushQueuedLiveTransactionUpdates()
+        let closeDuration = closeStart.duration(to: clock.now)
+        #expect(coordinator.transactions.count == 50_000)
+        #expect(coordinator.filteredRows.count == 50_000)
+        #expect(coordinator.filteredRows.count { $0.state == .failed } == 1_000)
+        #expect(coordinator.appNodes.reduce(0) { $0 + $1.requestCount } == 50_000)
+        #expect(coordinator.domainTree.reduce(0) { $0 + $1.requestCount } == 50_000)
+        #expect(coordinator.domainTree.reduce(0) { $0 + $1.errorCount } == 1_000)
+        print(
+            "CAPTURE_DIVERSE_CAP history=50000 batch=50 live=1000 uniquePaths=50000 hosts=25 roots=5 append=\(appendDuration) completion=\(closeDuration)"
+        )
+        for stage in stages.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            print("CAPTURE_DIVERSE_STAGE \(stage.rawValue)=\(stages[stage] ?? .zero)")
+        }
+    }
+
     @Test("Sustained actor-sized live batches preserve the newest rows at the history cap")
     func sustainedIntakeAtHistoryCap() {
         let coordinator = MainContentCoordinator()

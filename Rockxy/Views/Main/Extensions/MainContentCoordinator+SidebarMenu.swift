@@ -638,6 +638,7 @@ extension MainContentCoordinator {
 
     func rebuildObservedDomainsByApp() {
         var countsByApp: [String: [String: Int]] = [:]
+        var contributions: [ObjectIdentifier: (app: String, host: String, count: Int)] = [:]
         let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in transactions {
             let appName = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
@@ -646,8 +647,12 @@ extension MainContentCoordinator {
                 continue
             }
             countsByApp[appName, default: [:]][host, default: 0] += 1
+            let id = ObjectIdentifier(transaction)
+            let count = contributions[id]?.count ?? 0
+            contributions[id] = (appName, host, count + 1)
         }
 
+        observedDomainContributions = contributions
         observedDomainCountsByApp = countsByApp
         observedDomainsByApp = countsByApp.mapValues { Set($0.keys) }
     }
@@ -664,6 +669,12 @@ extension MainContentCoordinator {
             guard !host.isEmpty else {
                 continue
             }
+            let id = ObjectIdentifier(transaction)
+            if let old = observedDomainContributions[id], old.app != appName || old.host != host {
+                moveObservedDomainsFromUnknown(for: [transaction])
+            }
+            let count = observedDomainContributions[id]?.count ?? 0
+            observedDomainContributions[id] = (appName, host, count + 1)
             observedDomainCountsByApp[appName, default: [:]][host, default: 0] += 1
             changedApps.insert(appName)
         }
@@ -674,27 +685,35 @@ extension MainContentCoordinator {
         let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         var changedApps: Set<String> = []
         for transaction in transactions {
-            let destination = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
-            let host = normalizedObservedHost(transaction.request.host)
-            guard destination != unknown, !host.isEmpty else {
+            let id = ObjectIdentifier(transaction)
+            // An evicted row has no contribution. A repeated/late callback must not
+            // create a new count, including after a full rebuild already saw its app.
+            guard let old = observedDomainContributions[id] else {
                 continue
             }
-
-            if let count = observedDomainCountsByApp[unknown]?[host] {
-                if count <= 1 {
-                    observedDomainCountsByApp[unknown]?.removeValue(forKey: host)
-                } else {
-                    observedDomainCountsByApp[unknown]?[host] = count - 1
-                }
-                if observedDomainCountsByApp[unknown]?.isEmpty == true {
-                    observedDomainCountsByApp.removeValue(forKey: unknown)
-                }
+            let destination = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
+            let host = normalizedObservedHost(transaction.request.host)
+            guard old.app != destination || old.host != host else {
+                continue
             }
-            observedDomainCountsByApp[destination, default: [:]][host, default: 0] += 1
-            changedApps.insert(destination)
+            let remaining = (observedDomainCountsByApp[old.app]?[old.host] ?? 0) - old.count
+            if remaining <= 0 {
+                observedDomainCountsByApp[old.app]?.removeValue(forKey: old.host)
+            } else {
+                observedDomainCountsByApp[old.app]?[old.host] = remaining
+            }
+            if observedDomainCountsByApp[old.app]?.isEmpty == true {
+                observedDomainCountsByApp.removeValue(forKey: old.app)
+            }
+            if !host.isEmpty {
+                observedDomainCountsByApp[destination, default: [:]][host, default: 0] += old.count
+                observedDomainContributions[id] = (destination, host, old.count)
+            } else {
+                observedDomainContributions.removeValue(forKey: id)
+            }
+            changedApps.formUnion([old.app, destination])
         }
         if !changedApps.isEmpty {
-            changedApps.insert(unknown)
             publishObservedDomains(for: changedApps)
         }
     }

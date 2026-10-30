@@ -1097,6 +1097,7 @@ extension MainContentCoordinator {
 
             // Only live-captured rows count toward the cap; imported rows are never trimmed.
             var evictionCount = 0
+            var removedTransactions: [HTTPTransaction] = []
             if history.count > liveHistoryLimit {
                 let liveCount = history.count { !$0.isImported }
                 let overflow = liveCount - liveHistoryLimit
@@ -1110,6 +1111,7 @@ extension MainContentCoordinator {
                         count: min(liveCount, max(overflow, evictionHeadroom)),
                         includesImported: false
                     )
+                    removedTransactions = history.filter { evictedIDs.contains($0.id) }
                     history.removeAll { evictedIDs.contains($0.id) }
                     evictionCount = evictedIDs.count
                 }
@@ -1126,13 +1128,9 @@ extension MainContentCoordinator {
             if evictionCount > 0 {
                 CaptureRetentionProfiler.measure(.observedDomains) { rebuildObservedDomainsByApp() }
                 CaptureRetentionProfiler.measure(.assistantIndex) {
-                    debugAssistantTransactionsByHost.removeAll()
-                    debugAssistantIndexedTransactionIDs.removeAll()
-                    debugAssistantIndexedLiveCount = 0
-                    debugAssistantTrafficIndexGeneration &+= 1
-                    appendToDebugAssistantTrafficIndex(history)
+                    rebuildDebugAssistantTrafficIndex()
                 }
-                rebuildAllWorkspacesForCaptureReplacement()
+                retainAllWorkspaces(removing: removedTransactions, appending: projectBatch)
             } else {
                 updateAllWorkspaces(with: projectBatch)
                 appendToDebugAssistantTrafficIndex(projectBatch)
@@ -1222,6 +1220,7 @@ extension MainContentCoordinator {
             uniquingKeysWith: { _, latest in latest }
         )
         for workspace in workspaceStore.allWorkspaces {
+            refreshSidebarContributions(updatedTransactions, in: workspace)
             if workspaceUsesStateDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {
@@ -1304,26 +1303,7 @@ extension MainContentCoordinator {
         _ transactions: [HTTPTransaction],
         in workspace: WorkspaceState
     ) {
-        let unknownApp = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
-        for transaction in transactions {
-            let destinationApp = transaction.clientApp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !destinationApp.isEmpty else {
-                continue
-            }
-
-            switch workspace.filterCriteria.sidebarApp {
-            case nil:
-                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
-                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
-            case unknownApp:
-                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
-            case destinationApp:
-                // The row was omitted from this app-scoped index while attribution was unknown.
-                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
-            default:
-                break
-            }
-        }
+        refreshSidebarContributions(transactions, in: workspace)
     }
 
     private func workspaceUsesClientDependentOrderingOrFiltering(_ workspace: WorkspaceState) -> Bool {

@@ -72,6 +72,7 @@ struct RequestListRow: Identifiable {
             isWebSocket: isWebSocket,
             scheme: scheme
         )
+        listPresentationRevision = transaction.listPresentationRevision
     }
 
     // MARK: Internal
@@ -85,6 +86,7 @@ struct RequestListRow: Identifiable {
     let id: UUID
     /// The captured transaction, read lazily by query and body columns.
     weak var source: HTTPTransaction?
+    let listPresentationRevision: UInt64
     let timestamp: Date
     let method: String
     let scheme: String
@@ -177,11 +179,51 @@ struct RequestListRow: Identifiable {
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
+
+    func canReuseProjection(of transaction: HTTPTransaction) -> Bool {
+        guard source === transaction,
+              listPresentationRevision == transaction.listPresentationRevision else
+        {
+            return false
+        }
+        return !isWebSocket || webSocketFrameCount == (transaction.webSocketConnection?.frameCount ?? 0)
+    }
 }
 
 // MARK: - Sorting
 
 extension RequestListRow {
+    /// Resolve the six localized state labels once per sort, rather than on every comparison.
+    struct StatusSortOrder {
+        // MARK: Lifecycle
+
+        init() {
+            let labels = [
+                String(localized: "Pending", bundle: RockxyLocalization.bundle),
+                String(localized: "Active", bundle: RockxyLocalization.bundle),
+                String(localized: "Completed", bundle: RockxyLocalization.bundle),
+                String(localized: "Closed", bundle: RockxyLocalization.bundle),
+                String(localized: "Failed", bundle: RockxyLocalization.bundle),
+                String(localized: "Blocked", bundle: RockxyLocalization.bundle)
+            ]
+            comparisons = labels.map { lhs in labels.map { lhs.localizedCompare($0) } }
+        }
+
+        // MARK: Fileprivate
+
+        fileprivate let comparisons: [[ComparisonResult]]
+    }
+
+    private var statusSortIndex: Int {
+        switch state {
+        case .pending: 0
+        case .active: 1
+        case .completed: isWebSocket ? 3 : 2
+        case .failed: 4
+        case .blocked: 5
+        }
+    }
+
     /// Columns whose ordering can change when a live response or connection finishes.
     static func requiresResortAfterLiveUpdate(columnID: String) -> Bool {
         if ["state", "status", "code", "duration", "responseSize", "ai", "queryName"].contains(columnID) {
@@ -196,12 +238,19 @@ extension RequestListRow {
     static func compare(
         _ lhs: RequestListRow,
         _ rhs: RequestListRow,
-        using descriptors: [NSSortDescriptor]
+        using descriptors: [NSSortDescriptor],
+        statusOrder: StatusSortOrder? = nil
     )
         -> Bool
     {
         for descriptor in descriptors {
-            let result = compareField(lhs, rhs, key: descriptor.key ?? "", ascending: descriptor.ascending)
+            let result = compareField(
+                lhs,
+                rhs,
+                key: descriptor.key ?? "",
+                ascending: descriptor.ascending,
+                statusOrder: statusOrder
+            )
             if result != .orderedSame {
                 return result == .orderedAscending
             }
@@ -215,7 +264,8 @@ extension RequestListRow {
         _ lhs: RequestListRow,
         _ rhs: RequestListRow,
         key: String,
-        ascending: Bool
+        ascending: Bool,
+        statusOrder: StatusSortOrder?
     )
         -> ComparisonResult
     {
@@ -225,7 +275,8 @@ extension RequestListRow {
         case "method":
             lhs.method.compare(rhs.method)
         case "state":
-            lhs.displayStatus.localizedCompare(rhs.displayStatus)
+            statusOrder?.comparisons[lhs.statusSortIndex][rhs.statusSortIndex]
+                ?? lhs.displayStatus.localizedCompare(rhs.displayStatus)
         case "code":
             compareOptionalInt(lhs.statusCode, rhs.statusCode)
         case "time":

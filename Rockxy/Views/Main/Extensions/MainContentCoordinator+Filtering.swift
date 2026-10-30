@@ -15,31 +15,52 @@ extension MainContentCoordinator {
         deriveFilteredRows(for: activeWorkspace)
     }
 
-    func deriveFilteredRows(for workspace: WorkspaceState) {
+    func deriveFilteredRows(for workspace: WorkspaceState, reusingRetainedRows: Bool = false) {
+        let locale = RockxyLocalization.bundle.bundleURL.absoluteString + RockxyLocalization.locale.identifier
+        let canReuse = reusingRetainedRows && workspace.rowProjectionLocale == locale
+        let previousRows = canReuse ? workspace.filteredRows : []
+        let previousIndex = canReuse ? workspace.trafficSelectionIndex : [:]
         var rows = workspace.filteredTransactions.map { transaction in
-            RequestListRow(from: transaction, sslState: sslState(for: transaction))
+            if let entry = previousIndex[transaction.id], previousRows.indices.contains(entry.rowIndex) {
+                let row = previousRows[entry.rowIndex]
+                if row.canReuseProjection(of: transaction) {
+                    return row
+                }
+            }
+            return RequestListRow(from: transaction, sslState: sslState(for: transaction))
         }
+        workspace.rowProjectionLocale = locale
         if !workspace.activeSortDescriptors.isEmpty {
+            let statusOrder = workspace.activeSortDescriptors.contains { $0.key == "state" }
+                ? RequestListRow.StatusSortOrder() : nil
             rows.sort { lhs, rhs in
-                RequestListRow.compare(lhs, rhs, using: workspace.activeSortDescriptors)
+                RequestListRow.compare(lhs, rhs, using: workspace.activeSortDescriptors, statusOrder: statusOrder)
             }
         }
         workspace.filteredRows = rows
-        let transactionsByID = Dictionary(
-            workspace.filteredTransactions.map { ($0.id, $0) },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        workspace.trafficSelectionIndex = Dictionary(
-            rows.enumerated().compactMap { index, row in
-                transactionsByID[row.id].map {
-                    (row.id, TrafficSelectionIndexEntry(transaction: $0, rowIndex: index))
+        var selectionIndex: [UUID: TrafficSelectionIndexEntry] = [:]
+        selectionIndex.reserveCapacity(rows.count)
+        for (index, row) in rows.enumerated() {
+            if let transaction = row.source {
+                selectionIndex[row.id] = TrafficSelectionIndexEntry(transaction: transaction, rowIndex: index)
+            }
+        }
+        if selectionIndex.count != rows.count {
+            // Preserve the existing latest-source rule for duplicate UUIDs even if sorting
+            // moved a different object with that UUID to the final displayed position.
+            let transactionsByID = Dictionary(
+                workspace.filteredTransactions.map { ($0.id, $0) },
+                uniquingKeysWith: { _, latest in latest }
+            )
+            for (index, row) in rows.enumerated() {
+                if let transaction = transactionsByID[row.id] {
+                    selectionIndex[row.id] = TrafficSelectionIndexEntry(transaction: transaction, rowIndex: index)
                 }
-            },
-            uniquingKeysWith: { _, latest in latest }
-        )
-        let visibleIDs = Set(workspace.filteredTransactions.map(\.id))
-        workspace.selectedTransactionIDs.formIntersection(visibleIDs)
-        if let selected = workspace.selectedTransaction, !visibleIDs.contains(selected.id) {
+            }
+        }
+        workspace.trafficSelectionIndex = selectionIndex
+        workspace.selectedTransactionIDs = workspace.selectedTransactionIDs.filter { selectionIndex[$0] != nil }
+        if let selected = workspace.selectedTransaction, selectionIndex[selected.id] == nil {
             // The primary row was filtered out. Promote the top-most surviving selected row,
             // matching `selectTransactions(_:primaryID:)`, so the inspector never reads
             // "No Selection" beside a table and footer that still show a selected row.
@@ -72,6 +93,10 @@ extension MainContentCoordinator {
         // table can still prove its displayed prefix matches the grown row set.
         if workspace.appendChainOriginToken == nil {
             workspace.appendChainOriginToken = workspace.refreshToken
+        }
+        if workspace.filteredRows.isEmpty {
+            workspace.rowProjectionLocale = RockxyLocalization.bundle.bundleURL.absoluteString
+                + RockxyLocalization.locale.identifier
         }
         let firstAppendedIndex = workspace.filteredRows.count
         workspace.filteredRows.append(contentsOf: appendedRows)
@@ -378,7 +403,7 @@ extension MainContentCoordinator {
         }
     }
 
-    func recomputeFilteredTransactions(for workspace: WorkspaceState) {
+    func recomputeFilteredTransactions(for workspace: WorkspaceState, reusingRetainedRows: Bool = false) {
         workspace.lastDeriveWasAppendOnly = false
         let baseList: [HTTPTransaction] = switch workspace.filterCriteria.sidebarScope {
         case .saved:
@@ -397,7 +422,7 @@ extension MainContentCoordinator {
         )
         guard !workspace.filterCriteria.isEmpty || !activeRules.isEmpty || hasWorkspaceVisibilityRules(workspace) else {
             workspace.filteredTransactions = baseList.filter { !$0.isTLSFailure }
-            deriveFilteredRows(for: workspace)
+            deriveFilteredRows(for: workspace, reusingRetainedRows: reusingRetainedRows)
             return
         }
         let smartFilter = SmartTrafficFilter.parse(workspace.filterCriteria.searchText)
@@ -489,7 +514,7 @@ extension MainContentCoordinator {
             }
             return true
         }
-        deriveFilteredRows(for: workspace)
+        deriveFilteredRows(for: workspace, reusingRetainedRows: reusingRetainedRows)
     }
 
     private func hasWorkspaceVisibilityRules(_ workspace: WorkspaceState) -> Bool {

@@ -277,7 +277,6 @@ final class MainContentCoordinator {
     // MARK: - UI State — Traffic
 
     var transactions: [HTTPTransaction] = []
-    var persistedFavorites: [HTTPTransaction] = []
     var isProxyRunning = false
     var isProxyStarting = false
     var isProxyStopping = false
@@ -416,6 +415,9 @@ final class MainContentCoordinator {
     var ruleMutationTask: Task<Void, Never>?
 
     @ObservationIgnored var observedDomainCountsByApp: [String: [String: Int]] = [:]
+    /// Recorded attribution, independent of the mutable transaction's current client.
+    @ObservationIgnored var observedDomainContributions: [ObjectIdentifier: (app: String, host: String, count: Int)] =
+        [:]
 
     nonisolated(unsafe) var sslProxyingObserver: NSObjectProtocol?
 
@@ -423,6 +425,14 @@ final class MainContentCoordinator {
     /// editors update the model immediately but coalesce SQLite writes through these so a
     /// large transaction row is not rewritten on every keystroke. See `+Notes`.
     @ObservationIgnored var noteFlushTasks: [UUID: Task<Void, Never>] = [:]
+
+    var persistedFavorites: [HTTPTransaction] = [] {
+        didSet {
+            // A reload can replace membership or object instances without changing count.
+            debugAssistantIndexedFavoriteCount = -1
+            debugAssistantRelatedCache = nil
+        }
+    }
 
     var isRecording = true {
         didSet {

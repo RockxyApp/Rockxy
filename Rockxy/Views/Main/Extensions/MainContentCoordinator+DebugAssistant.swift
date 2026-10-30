@@ -1260,7 +1260,7 @@ extension MainContentCoordinator {
         rebuildDebugAssistantTrafficIndex()
     }
 
-    private func rebuildDebugAssistantTrafficIndex() {
+    func rebuildDebugAssistantTrafficIndex() {
         var valuesByHost: [String: [HTTPTransaction]] = [:]
         var seen: Set<UUID> = []
         for transaction in transactions + persistedFavorites where seen.insert(transaction.id).inserted {

@@ -479,11 +479,7 @@ extension MainContentCoordinator {
         resetTrafficMetrics()
         recordTrafficMetrics(for: transactions)
         rebuildObservedDomainsByApp()
-        debugAssistantTransactionsByHost.removeAll()
-        debugAssistantIndexedTransactionIDs.removeAll()
-        debugAssistantIndexedLiveCount = 0
-        debugAssistantTrafficIndexGeneration &+= 1
-        appendToDebugAssistantTrafficIndex(transactions)
+        rebuildDebugAssistantTrafficIndex()
         headerColumnStore.updateDiscoveredHeaders(from: transactions)
     }
 

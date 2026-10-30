@@ -54,9 +54,15 @@ extension MainContentCoordinator {
 
     func updateAllWorkspaces(with batch: [HTTPTransaction]) {
         for workspace in workspaceStore.allWorkspaces {
+            let initializesIndex = workspace.sidebarTransactionRevisions.isEmpty && transactions.count == batch.count
             for transaction in batch {
+                workspace.sidebarTransactionRevisions[ObjectIdentifier(transaction)] = transaction
+                    .listPresentationRevision
                 updateDomainGroupingIndex(for: transaction, in: workspace)
                 addToAppGroupingIndex(transaction, in: workspace)
+            }
+            if initializesIndex, workspace.sidebarTransactionRevisions.count == transactions.count {
+                workspace.sidebarIndexSignature = sidebarIndexSignature(for: workspace)
             }
             refreshDomainTree(for: workspace)
             refreshAppNodes(for: workspace)
@@ -116,9 +122,13 @@ extension MainContentCoordinator {
         swap(&apps, &workspace.appGroupingIndex)
         domains.removeAll()
         apps.removeAll()
+        let signature = sidebarIndexSignature(for: workspace)
+        var revisions: [ObjectIdentifier: UInt64] = [:]
+        revisions.reserveCapacity(transactions.count)
         let criteria = workspace.filterCriteria
         let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in transactions {
+            revisions[ObjectIdentifier(transaction)] = transaction.listPresentationRevision
             let host = transaction.request.host
             let matchesDomain = criteria.sidebarDomain.map {
                 DomainGrouping.host(host, matchesDomain: $0)
@@ -135,10 +145,137 @@ extension MainContentCoordinator {
         }
         workspace.domainGroupingIndex = domains
         workspace.appGroupingIndex = apps
+        workspace.sidebarIndexSignature = signature
+        workspace.sidebarTransactionRevisions = revisions
         refreshDomainTree(for: workspace)
         refreshAppNodes(for: workspace)
         pruneSidebarSelectionIfNeeded(in: workspace)
+        if signature != sidebarIndexSignature(for: workspace) {
+            rebuildSidebarIndexes(for: workspace)
+            return
+        }
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+    }
+
+    /// A different sidebar scope or language requires an authoritative rebuild.
+    private func sidebarIndexSignature(for workspace: WorkspaceState) -> [String?] {
+        [
+            workspace.filterCriteria.sidebarDomain,
+            workspace.filterCriteria.sidebarPathPrefix,
+            workspace.filterCriteria.sidebarApp,
+            RockxyLocalization.bundle.bundleURL.absoluteString,
+            RockxyLocalization.locale.identifier
+        ]
+    }
+
+    /// Removes stored contributions before reading mutable models, then reconciles only
+    /// rows whose projection changed. Duplicate object aliases use the full rebuild path.
+    func retainAllWorkspaces(removing removed: [HTTPTransaction], appending batch: [HTTPTransaction]) {
+        for workspace in workspaceStore.allWorkspaces {
+            CaptureRetentionProfiler.measure(.sidebarIndexes) {
+                let oldCount = transactions.count + removed.count - batch.count
+                guard workspace.sidebarIndexSignature == sidebarIndexSignature(for: workspace),
+                      workspace.sidebarTransactionRevisions.count == oldCount,
+                      workspace.domainGroupingIndex.supportsIncrementalRemoval,
+                      workspace.appGroupingIndex.supportsIncrementalRemoval else
+                {
+                    rebuildSidebarIndexes(for: workspace)
+                    return
+                }
+                var domains = DomainGroupingIndex()
+                var apps = AppGroupingIndex()
+                swap(&domains, &workspace.domainGroupingIndex)
+                swap(&apps, &workspace.appGroupingIndex)
+                domains.remove(removed)
+                apps.remove(removed)
+                var revisions = workspace.sidebarTransactionRevisions
+                for transaction in removed {
+                    revisions.removeValue(forKey: ObjectIdentifier(transaction))
+                }
+                let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+                for transaction in transactions {
+                    let id = ObjectIdentifier(transaction)
+                    guard revisions[id] != transaction.listPresentationRevision else {
+                        continue
+                    }
+                    reconcileSidebarContribution(
+                        transaction,
+                        domains: &domains,
+                        apps: &apps,
+                        workspace: workspace,
+                        unknown: unknown
+                    )
+                    revisions[id] = transaction.listPresentationRevision
+                }
+                apps.reconcileRetainedOrder(transactions)
+                workspace.domainGroupingIndex = domains
+                workspace.appGroupingIndex = apps
+                workspace.sidebarTransactionRevisions = revisions
+                refreshDomainTree(for: workspace)
+                refreshAppNodes(for: workspace)
+                pruneSidebarSelectionIfNeeded(in: workspace)
+                if workspace.sidebarIndexSignature != sidebarIndexSignature(for: workspace) {
+                    rebuildSidebarIndexes(for: workspace)
+                }
+            }
+            CaptureRetentionProfiler.measure(.filteredRows) {
+                recomputeFilteredTransactions(for: workspace, reusingRetainedRows: true)
+            }
+        }
+        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+    }
+
+    func refreshSidebarContributions(_ updates: [HTTPTransaction], in workspace: WorkspaceState) {
+        guard workspace.sidebarIndexSignature == sidebarIndexSignature(for: workspace),
+              workspace.domainGroupingIndex.supportsIncrementalRemoval,
+              workspace.appGroupingIndex.supportsIncrementalRemoval else
+        {
+            rebuildSidebarIndexes(for: workspace)
+            return
+        }
+        var domains = DomainGroupingIndex()
+        var apps = AppGroupingIndex()
+        swap(&domains, &workspace.domainGroupingIndex)
+        swap(&apps, &workspace.appGroupingIndex)
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+        for transaction in updates {
+            reconcileSidebarContribution(
+                transaction,
+                domains: &domains,
+                apps: &apps,
+                workspace: workspace,
+                unknown: unknown
+            )
+            workspace.sidebarTransactionRevisions[ObjectIdentifier(transaction)] = transaction.listPresentationRevision
+        }
+        apps.reconcileRetainedOrder(transactions)
+        workspace.domainGroupingIndex = domains
+        workspace.appGroupingIndex = apps
+        refreshDomainTree(for: workspace)
+        refreshAppNodes(for: workspace)
+    }
+
+    private func reconcileSidebarContribution(
+        _ transaction: HTTPTransaction, domains: inout DomainGroupingIndex,
+        apps: inout AppGroupingIndex, workspace: WorkspaceState, unknown: String
+    ) {
+        let criteria = workspace.filterCriteria
+        let host = transaction.request.host
+        let matchesDomain = criteria.sidebarDomain.map {
+            DomainGrouping.host(host, matchesDomain: $0)
+                && DomainGrouping.path(transaction.request.path, matchesPrefix: criteria.sidebarPathPrefix)
+        } ?? true
+        if !host.isEmpty, matchesDomain {
+            domains.update([transaction])
+        } else {
+            domains.remove([transaction])
+        }
+        let name = transaction.clientApp ?? unknown
+        if criteria.sidebarApp == nil || criteria.sidebarApp == name {
+            apps.upsert(transaction, appName: name)
+        } else {
+            apps.remove([transaction])
+        }
     }
 
     func pruneSidebarSelectionIfNeeded(in workspace: WorkspaceState) {

@@ -152,6 +152,9 @@ final class WorkspaceState: Identifiable {
     var totalDomainCount = 0
     var domainIndexMap: [String: Int] = [:]
     var domainGroupingIndex = DomainGroupingIndex()
+    @ObservationIgnored var sidebarIndexSignature: [String?]?
+    @ObservationIgnored var sidebarTransactionRevisions: [ObjectIdentifier: UInt64] = [:]
+    @ObservationIgnored var rowProjectionLocale: String?
     var appNodes: [AppInfo] = []
     var appNodeIndexMap: [String: Int] = [:]
     var appGroupingIndex = AppGroupingIndex()
@@ -210,6 +213,9 @@ final class WorkspaceState: Identifiable {
         totalDomainCount = 0
         domainIndexMap.removeAll()
         domainGroupingIndex.removeAll()
+        sidebarIndexSignature = nil
+        sidebarTransactionRevisions.removeAll()
+        rowProjectionLocale = nil
         appNodes.removeAll()
         appNodeIndexMap.removeAll()
         appGroupingIndex.removeAll()
