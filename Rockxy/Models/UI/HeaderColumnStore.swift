@@ -1,14 +1,16 @@
 import Foundation
 import os
 
+// MARK: - HeaderColumnStore
+
 // Persists and coordinates custom header column configuration for the traffic table.
 
 @MainActor @Observable
 final class HeaderColumnStore {
     // MARK: Lifecycle
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    init(defaults: UserDefaults? = nil) {
+        self.defaults = defaults ?? Self.defaultDefaults
         load()
     }
 
@@ -120,91 +122,61 @@ final class HeaderColumnStore {
     }
 
     func discoverHeaders(from transactions: [HTTPTransaction]) -> DiscoveredHeaders {
-        var requestHeadersByNormalizedName: [String: String] = [:]
-        var responseHeadersByNormalizedName: [String: String] = [:]
-
-        let sampleSize = min(transactions.count, 200)
-        for transaction in transactions.prefix(sampleSize) {
+        var requestNames = DiscoveredHeaderNames()
+        var responseNames = DiscoveredHeaderNames()
+        for transaction in transactions.prefix(200) {
             for header in transaction.request.headers {
-                let normalizedName = header.name.lowercased()
-                requestHeadersByNormalizedName[normalizedName] = min(
-                    requestHeadersByNormalizedName[normalizedName] ?? header.name,
-                    header.name
-                )
+                requestNames.insert(header.name)
             }
-            if let response = transaction.response {
-                for header in response.headers {
-                    let normalizedName = header.name.lowercased()
-                    responseHeadersByNormalizedName[normalizedName] = min(
-                        responseHeadersByNormalizedName[normalizedName] ?? header.name,
-                        header.name
-                    )
-                }
+            for header in transaction.response?.headers ?? [] {
+                responseNames.insert(header.name)
             }
         }
-
         let existingRequestNames = Set(requestColumns.map { $0.headerName.lowercased() })
         let existingResponseNames = Set(responseColumns.map { $0.headerName.lowercased() })
-
         return DiscoveredHeaders(
-            request: requestHeadersByNormalizedName
-                .filter { !existingRequestNames.contains($0.key) }
-                .map(\.value)
-                .sorted(),
-            response: responseHeadersByNormalizedName
-                .filter { !existingResponseNames.contains($0.key) }
-                .map(\.value)
-                .sorted()
+            request: requestNames.sortedNames.filter { !existingRequestNames.contains($0.lowercased()) },
+            response: responseNames.sortedNames.filter { !existingResponseNames.contains($0.lowercased()) }
         )
     }
 
     func updateDiscoveredHeaders(from transactions: [HTTPTransaction]) {
-        var requestHeaders: Set<String> = []
-        var responseHeaders: Set<String> = []
-
+        var requestNames = DiscoveredHeaderNames()
+        var responseNames = DiscoveredHeaderNames()
         for transaction in transactions {
             for header in transaction.request.headers {
-                requestHeaders.insert(header.name)
+                requestNames.insert(header.name)
             }
-            if let response = transaction.response {
-                for header in response.headers {
-                    responseHeaders.insert(header.name)
-                }
+            for header in transaction.response?.headers ?? [] {
+                responseNames.insert(header.name)
             }
         }
-
-        discoveredRequestHeaderSet = requestHeaders
-        discoveredResponseHeaderSet = responseHeaders
-        discoveredRequestHeaders = requestHeaders.sorted()
-        discoveredResponseHeaders = responseHeaders.sorted()
-        defaults.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
-        defaults.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+        discoveredRequestHeaderSet = requestNames
+        discoveredResponseHeaderSet = responseNames
+        persistDiscoveredHeaders()
     }
 
     /// Incremental header discovery from a batch of new transactions. O(batch_size) per call
-    /// with O(1) membership checks via internal sets. Replaces the old full-scan approach that
+    /// with O(1) membership checks via bounded indexes. Replaces the old full-scan approach that
     /// was biased toward the oldest 500 transactions.
     func updateDiscoveredHeaders(fromBatch batch: [HTTPTransaction]) {
         var changed = false
         for transaction in batch {
             for header in transaction.request.headers {
-                if discoveredRequestHeaderSet.insert(header.name).inserted {
+                if discoveredRequestHeaderSet.insert(header.name) {
                     changed = true
                 }
             }
             if let response = transaction.response {
                 for header in response.headers {
-                    if discoveredResponseHeaderSet.insert(header.name).inserted {
+                    if discoveredResponseHeaderSet.insert(header.name) {
                         changed = true
                     }
                 }
             }
         }
         if changed {
-            discoveredRequestHeaders = discoveredRequestHeaderSet.sorted()
-            discoveredResponseHeaders = discoveredResponseHeaderSet.sorted()
-            defaults.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
-            defaults.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+            persistDiscoveredHeaders()
         }
     }
 
@@ -237,19 +209,40 @@ final class HeaderColumnStore {
 
     // MARK: Private
 
+    /// Coordinator tests use the real app identity, but their suggestion and column
+    /// writes must never migrate or replace the user's persistent configuration.
+    private static let defaultDefaults: UserDefaults = {
+        guard RockxyIdentity.isRunningTests else {
+            return .standard
+        }
+        let name = "RockxyTests.HeaderColumns.\(ProcessInfo.processInfo.processIdentifier)"
+        guard let defaults = UserDefaults(suiteName: name) else {
+            preconditionFailure("Unable to create isolated header-column test defaults")
+        }
+        return defaults
+    }()
+
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "HeaderColumnStore")
     private static let storageKey = RockxyIdentity.current.defaultsKey("headerColumns")
     private static let discoveredReqKey = RockxyIdentity.current.defaultsKey("discoveredReqHeaders")
     private static let discoveredResKey = RockxyIdentity.current.defaultsKey("discoveredResHeaders")
     private static let hiddenColumnsKey = RockxyIdentity.current.defaultsKey("hiddenBuiltInColumns")
-    private static let visibleDefaultHiddenColumnsKey = RockxyIdentity.current.defaultsKey("visibleDefaultHiddenBuiltInColumns")
+    private static let visibleDefaultHiddenColumnsKey = RockxyIdentity.current
+        .defaultsKey("visibleDefaultHiddenBuiltInColumns")
     private static let defaultHiddenBuiltInColumns: Set<String> = ["version"]
 
     private let defaults: UserDefaults
 
-    // Internal dedup sets for O(1) membership checks during incremental discovery
-    private var discoveredRequestHeaderSet: Set<String> = []
-    private var discoveredResponseHeaderSet: Set<String> = []
+    // Bounded case-insensitive indexes for incremental discovery.
+    private var discoveredRequestHeaderSet = DiscoveredHeaderNames()
+    private var discoveredResponseHeaderSet = DiscoveredHeaderNames()
+
+    private func persistDiscoveredHeaders() {
+        discoveredRequestHeaders = discoveredRequestHeaderSet.sortedNames
+        discoveredResponseHeaders = discoveredResponseHeaderSet.sortedNames
+        defaults.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
+        defaults.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+    }
 
     private func saveHiddenColumns() {
         let array = Array(hiddenBuiltInColumns)
@@ -279,12 +272,18 @@ final class HeaderColumnStore {
             visibleDefaultHiddenBuiltInColumns = Set(visibleDefaultHidden)
         }
         if let reqHeaders = defaults.stringArray(forKey: Self.discoveredReqKey) {
-            discoveredRequestHeaders = reqHeaders
-            discoveredRequestHeaderSet = Set(reqHeaders)
+            discoveredRequestHeaderSet = DiscoveredHeaderNames(reqHeaders)
+            discoveredRequestHeaders = discoveredRequestHeaderSet.sortedNames
+            if discoveredRequestHeaders != reqHeaders {
+                defaults.set(discoveredRequestHeaders, forKey: Self.discoveredReqKey)
+            }
         }
         if let resHeaders = defaults.stringArray(forKey: Self.discoveredResKey) {
-            discoveredResponseHeaders = resHeaders
-            discoveredResponseHeaderSet = Set(resHeaders)
+            discoveredResponseHeaderSet = DiscoveredHeaderNames(resHeaders)
+            discoveredResponseHeaders = discoveredResponseHeaderSet.sortedNames
+            if discoveredResponseHeaders != resHeaders {
+                defaults.set(discoveredResponseHeaders, forKey: Self.discoveredResKey)
+            }
         }
         guard let data = defaults.data(forKey: Self.storageKey) else {
             return
@@ -296,4 +295,47 @@ final class HeaderColumnStore {
             Self.logger.error("Failed to load header columns: \(error.localizedDescription)")
         }
     }
+}
+
+// MARK: - DiscoveredHeaderNames
+
+/// Bounded suggestions only; captured headers and manually configured columns stay complete.
+struct DiscoveredHeaderNames {
+    // MARK: Lifecycle
+
+    init(_ names: [String] = []) {
+        for name in names {
+            insert(name)
+        }
+    }
+
+    // MARK: Internal
+
+    static let maximumCount = 1_024
+
+    var sortedNames: [String] {
+        namesByKey.values.sorted()
+    }
+
+    @discardableResult
+    mutating func insert(_ name: String) -> Bool {
+        let key = name.lowercased()
+        if let existing = namesByKey[key] {
+            let preferred = min(existing, name)
+            guard preferred != existing else {
+                return false
+            }
+            namesByKey[key] = preferred
+            return true
+        }
+        guard namesByKey.count < Self.maximumCount else {
+            return false
+        }
+        namesByKey[key] = name
+        return true
+    }
+
+    // MARK: Private
+
+    private var namesByKey: [String: String] = [:]
 }

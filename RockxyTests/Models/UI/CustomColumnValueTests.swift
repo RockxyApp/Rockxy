@@ -125,6 +125,29 @@ struct CustomColumnValueTests {
         }
     }
 
+    @Test("Body previews bound UTF-8 storage and never show partial Unicode clusters")
+    func byteBoundedBodyPreview() throws {
+        let hugeGrapheme = "e" + String(repeating: "\u{301}", count: 20_000)
+        let cluster = "e" + String(repeating: "\u{301}", count: 30)
+        for expression in ["$[*]", ".[]"] {
+            let exact = "e" + String(repeating: "\u{301}", count: 4_095) + "x"
+            #expect(exact.utf8.count == CustomColumnValueResolver.maxDisplayBytes)
+            let boundary = try JSONEncoder().encode([exact + "y"])
+            #expect(CustomColumnValueResolver.evaluate(expression, on: boundary) == exact + "…")
+            let huge = try JSONEncoder().encode([hugeGrapheme])
+            #expect(CustomColumnValueResolver.evaluate(expression, on: huge) == "…")
+            let data = try JSONEncoder().encode(["prefix", hugeGrapheme, "suffix"])
+            let result = CustomColumnValueResolver.evaluate(expression, on: data)
+            #expect(result == "prefix, …")
+            let groups = try JSONEncoder().encode([String(repeating: cluster, count: 300)])
+            let preview = CustomColumnValueResolver.evaluate(expression, on: groups)
+            #expect(preview.hasSuffix("…"))
+            #expect(preview.utf8.count <= CustomColumnValueResolver.maxDisplayBytes + "…".utf8.count)
+            #expect(preview.count < CustomColumnValueResolver.maxDisplayLength)
+            #expect(preview.dropLast().allSatisfy { String($0) == cluster })
+        }
+    }
+
     @Test("Adding query and body columns validates the name and keeps expressions case-sensitive")
     func addColumns() {
         let store = HeaderColumnStore(defaults: IsolatedDefaultsSuite.make(prefix: "Rockxy.CustomColumnValueTests"))

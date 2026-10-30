@@ -11,6 +11,9 @@ enum CustomColumnValueResolver {
     static let maxBodySize = 2 * 1_024 * 1_024
     /// Longest text shown in a cell.
     static let maxDisplayLength = 300
+    /// UTF-8 bytes retained by a cell before its truncation marker. A single grapheme
+    /// can contain arbitrarily many combining scalars despite the character cap.
+    static let maxDisplayBytes = 8_192
 
     static func queryValue(named name: String, in url: URL) -> String {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -74,12 +77,48 @@ enum CustomColumnValueResolver {
                 result += ", "
             }
             isFirst = false
-            result += value.prefix(maxDisplayLength + 1)
-            if result.count > maxDisplayLength {
-                return String(result.prefix(maxDisplayLength)) + "…"
+            let bounded = byteBoundedPrefix(value, limit: max(0, maxDisplayBytes - result.utf8.count))
+            result += bounded.text.prefix(maxDisplayLength + 1)
+            if bounded.isTruncated || result.utf8.count > maxDisplayBytes || result.count > maxDisplayLength {
+                let preview = result.utf8.count > maxDisplayBytes
+                    ? byteBoundedPrefix(result, limit: maxDisplayBytes).text
+                    : result
+                return String(preview.prefix(maxDisplayLength)) + "…"
             }
         }
         return result
+    }
+
+    /// Inspect only a bounded prefix plus one complete scalar of lookahead. If that
+    /// scalar extends the last grapheme beyond the byte budget, omit that grapheme
+    /// entirely rather than displaying a broken combining sequence or emoji cluster.
+    private static func byteBoundedPrefix(_ text: String, limit: Int) -> (text: String, isTruncated: Bool) {
+        let bytes = Array(text.utf8.prefix(limit + 4))
+        guard bytes.count > limit else {
+            return (text, false)
+        }
+        var end = limit
+        while end > 0, bytes[end] & 0xC0 == 0x80 {
+            end -= 1
+        }
+        let scalarLength = switch bytes[end] {
+        case ..<0x80: 1
+        case ..<0xE0: 2
+        case ..<0xF0: 3
+        default: 4
+        }
+        guard end + scalarLength <= bytes.count,
+              let prefix = String(bytes: bytes[..<end], encoding: .utf8),
+              let next = String(bytes: bytes[end ..< (end + scalarLength)], encoding: .utf8)?.unicodeScalars.first else
+        {
+            return ("", true)
+        }
+        var probe = prefix
+        probe.unicodeScalars.append(next)
+        if probe.count == prefix.count {
+            return (String(prefix.dropLast()), true)
+        }
+        return (prefix, true)
     }
 
     private static func looksLikeJSON(_ data: Data) -> Bool {

@@ -4,6 +4,33 @@ import Testing
 
 @MainActor
 struct CaptureBatchScalingTests {
+    @Test("Sustained actor-sized live batches preserve the newest rows at the history cap")
+    func sustainedIntakeAtHistoryCap() {
+        let coordinator = MainContentCoordinator()
+        coordinator.liveHistoryLimit = 50_000
+        coordinator.processActiveProjectTestBatch((0 ..< 50_000).map { _ in TestFixtures.makeTransaction() })
+        let live = (0 ..< 1_000).map { _ in TestFixtures.makeTransaction(state: .active) }
+        let clock = ContinuousClock()
+        let start = clock.now
+        for offset in stride(from: 0, to: live.count, by: 50) {
+            coordinator.processActiveProjectTestBatch(Array(live[offset ..< offset + 50]))
+        }
+        let appendDuration = start.duration(to: clock.now)
+        #expect(coordinator.transactions.count == 50_000)
+        let retained = Set(coordinator.transactions.map(\.id))
+        #expect(live.allSatisfy { retained.contains($0.id) })
+        live.forEach { $0.state = .failed }
+        let closeStart = clock.now
+        for offset in stride(from: 0, to: live.count, by: 50) {
+            coordinator.enqueueLiveTransactionUpdates(Array(live[offset ..< offset + 50]))
+        }
+        coordinator.flushQueuedLiveTransactionUpdates()
+        let closeDuration = closeStart.duration(to: clock.now)
+        #expect(coordinator.filteredRows.count == 50_000)
+        #expect(coordinator.filteredRows.count { $0.state == .failed } == 1_000)
+        print("CAPTURE_CAP_BATCH history=50000 batch=50 live=1000 append=\(appendDuration) completion=\(closeDuration)")
+    }
+
     @Test("A Stop burst refreshes large-history snapshots once across adjacent actor batches")
     func coalescesMainActorStopBurst() {
         let coordinator = MainContentCoordinator()
