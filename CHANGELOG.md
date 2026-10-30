@@ -57,6 +57,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Live rows stay sorted when streams finish, including State and custom response columns.
+- WebSocket inspection refreshes are batched during frame bursts while every accepted frame remains captured and relayed immediately.
+- Response completion and WebSocket capture avoid intermediate byte arrays; oversized WebSocket frames are rejected from capture before unmasking and copying.
+
 - Helper launchd metadata is generated for the configured app family on clean builds, so isolated builds cannot embed a production service identity.
 
 - Updating saved credentials preserves the previous value and its access policy when Keychain rejects a replacement, including Babylon pairing tokens and upstream proxy or Assistant credentials.

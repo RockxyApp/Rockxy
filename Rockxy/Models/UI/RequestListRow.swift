@@ -182,6 +182,17 @@ struct RequestListRow: Identifiable {
 // MARK: - Sorting
 
 extension RequestListRow {
+    /// Columns whose ordering can change when a live response or connection finishes.
+    static func requiresResortAfterLiveUpdate(columnID: String) -> Bool {
+        if ["state", "status", "code", "duration", "responseSize", "ai", "queryName"].contains(columnID) {
+            return true
+        }
+        guard let source = HeaderColumn.parse(columnID: columnID)?.source else {
+            return false
+        }
+        return source == .response || source == .responseBody
+    }
+
     static func compare(
         _ lhs: RequestListRow,
         _ rhs: RequestListRow,

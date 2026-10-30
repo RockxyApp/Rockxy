@@ -38,6 +38,19 @@ enum ProxyHandlerShared {
         case alreadyStreaming
     }
 
+    /// Own the readable bytes with one copy, without an intermediate byte array.
+    nonisolated static func capturedBodyData(_ buffer: ByteBuffer?) -> Data? {
+        guard let buffer, buffer.readableBytes > 0 else {
+            return nil
+        }
+        return buffer.withUnsafeReadableBytes { bytes -> Data? in
+            guard let address = bytes.baseAddress else {
+                return nil
+            }
+            return Data(bytes: address, count: bytes.count)
+        }
+    }
+
     /// Pure helper that codifies the truncation-branch decision in
     /// `UpstreamResponseHandler.channelRead(.body)`. Extracted so the behavior
     /// can be unit-tested without a full NIO channel test harness.

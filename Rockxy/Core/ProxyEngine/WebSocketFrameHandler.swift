@@ -174,12 +174,21 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         webSocketConnection: WebSocketConnection,
         parentTransaction: HTTPTransaction,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
-        lifecycle: WebSocketLifecycle? = nil
+        lifecycle: WebSocketLifecycle? = nil,
+        frameRefreshScheduler: @escaping WebSocketFrameRefreshCoalescer.Scheduler = { publication in
+            WebSocketFrameRefreshCoalescer.scheduleOnMainQueue(publication)
+        }
     ) {
         self.direction = direction
         self.peerChannel = peerChannel
         self.webSocketConnection = webSocketConnection
         self.parentTransaction = parentTransaction
+        frameRefreshCoalescer = WebSocketFrameRefreshCoalescer(
+            publish: { [weak parentTransaction] in
+                parentTransaction?.webSocketFrameVersion += 1
+            },
+            scheduler: frameRefreshScheduler
+        )
         self.lifecycle = lifecycle ?? WebSocketLifecycle(onTransactionComplete: onTransactionComplete)
     }
 
@@ -200,7 +209,13 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     nonisolated func errorCaught(context: ChannelHandlerContext, error: Error) {
         wsLogger.error("WebSocket error (\(self.direction.rawValue)): \(error.localizedDescription)")
         // A TLS peer that closes without close_notify is treated as a clean end everywhere else.
-        let isUncleanTLSShutdown = (error as? NIOSSLError).map { if case .uncleanShutdown = $0 { true } else { false } }
+        let isUncleanTLSShutdown = (error as? NIOSSLError).map {
+            if case .uncleanShutdown = $0 {
+                true
+            } else {
+                false
+            }
+        }
             ?? false
         if !isUncleanTLSShutdown {
             lifecycle.recordFailure()
@@ -221,6 +236,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     private let webSocketConnection: WebSocketConnection
     private let lifecycle: WebSocketLifecycle
     private let parentTransaction: HTTPTransaction
+    private let frameRefreshCoalescer: WebSocketFrameRefreshCoalescer
 
     /// Unmasks the frame payload (WebSocket client frames are always masked per RFC 6455)
     /// and records it in the shared connection model before forwarding.
@@ -228,12 +244,8 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         guard !webSocketConnection.isCaptureLimitReached else {
             return
         }
-        let opcode = mapOpcode(frame.opcode)
-        var dataBuffer = frame.unmaskedData
-        let payloadBytes = dataBuffer.readBytes(length: dataBuffer.readableBytes) ?? []
-        let payload = Data(payloadBytes)
-
-        guard payload.count <= ProxyLimits.maxWebSocketFrameSize else {
+        // Reject oversized capture before unmasking or allocating a body snapshot.
+        guard frame.data.readableBytes <= ProxyLimits.maxWebSocketFrameSize else {
             webSocketConnection.stopCaptureAtLimit()
             notifyTransactionUpdate()
             wsLogger.warning(
@@ -241,6 +253,8 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
             )
             return
         }
+        let opcode = mapOpcode(frame.opcode)
+        let payload = ProxyHandlerShared.capturedBodyData(frame.unmaskedData) ?? Data()
         let frameData = WebSocketFrameData(
             direction: direction,
             opcode: opcode,
@@ -264,10 +278,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     nonisolated private func notifyTransactionUpdate() {
-        let transaction = parentTransaction
-        Task { @MainActor in
-            transaction.webSocketFrameVersion += 1
-        }
+        frameRefreshCoalescer.requestRefresh()
     }
 
     nonisolated private func forwardFrame(

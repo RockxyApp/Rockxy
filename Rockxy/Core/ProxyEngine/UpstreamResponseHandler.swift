@@ -705,13 +705,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
 
         let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
-        let bodyData: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                                 let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let bodyData = ProxyHandlerShared.capturedBodyData(responseBody)
         let contentType = ContentTypeDetector.detect(headers: headers, body: bodyData)
         let originalResponse = HTTPResponseData(
             statusCode: Int(head.status.code),
@@ -780,13 +774,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         )
     ) {
         let responseHeaders = head.headers.map { EditableHeader(name: $0.name, value: $0.value) }
-        let bodyData: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                                 let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let bodyData = ProxyHandlerShared.capturedBodyData(responseBody)
         // Compressed origin bodies are decoded for the editor; the editable headers then
         // describe the plain body so an executed edit is relayed with consistent framing.
         let projection = BreakpointRequestData.editableResponseProjection(
@@ -986,13 +974,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
 
         let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
-        let body: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                             let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let body = ProxyHandlerShared.capturedBodyData(responseBody)
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
         var responseData = HTTPResponseData(
