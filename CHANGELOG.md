@@ -57,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Helper launchd metadata is generated for the configured app family on clean builds, so isolated builds cannot embed a production service identity.
+
 - Updating saved credentials preserves the previous value and its access policy when Keychain rejects a replacement, including Babylon pairing tokens and upstream proxy or Assistant credentials.
 
 - Requests kept in Saved, Pinned, or Notes retain Babylon source, error, producer capabilities, runtime correlation, timing and body omission metadata when the Library reloads; older saved requests remain readable.
