@@ -3,6 +3,8 @@ import Foundation
 import os
 import zlib
 
+// MARK: - BodyDecoder
+
 /// Decompresses HTTP response bodies based on the `Content-Encoding` header.
 /// Supports gzip, deflate (zlib), and Brotli. Falls back to the raw data if
 /// decompression fails or the encoding is unrecognized. Caps output at 50 MB
@@ -62,7 +64,7 @@ enum BodyDecoder {
     private static func decodeSingle(_ data: Data, encoding: String, maxOutputSize: Int) -> Data? {
         switch encoding {
         case "gzip":
-            inflate(data, windowBits: 31, concatenated: true, maxOutputSize: maxOutputSize)
+            BoundedZlibDecoder.decode(data, windowBits: 31, concatenated: true, maxOutputSize: maxOutputSize)
         case "deflate":
             inflateDeflate(data, maxOutputSize: maxOutputSize)
         case "br":
@@ -78,64 +80,7 @@ enum BodyDecoder {
         let header = Array(data.prefix(2))
         let hasZlibHeader = header.count == 2 && header[0] & 0x0F == 8 && header[0] >> 4 <= 7
             && (Int(header[0]) * 256 + Int(header[1])) % 31 == 0
-        return inflate(data, windowBits: hasZlibHeader ? 15 : -15, maxOutputSize: maxOutputSize)
-    }
-
-    private static func inflate(
-        _ data: Data,
-        windowBits: Int32,
-        concatenated: Bool = false,
-        maxOutputSize: Int
-    )
-        -> Data?
-    {
-        guard !data.isEmpty, data.count <= Int(UInt32.max) else {
-            return nil
-        }
-        // One scratch byte lets a valid empty stream complete even with a zero output budget.
-        let bufferSize = max(1, min(64 * 1_024, maxOutputSize))
-        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { destination.deallocate() }
-        return data.withUnsafeBytes { source -> Data? in
-            guard let base = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
-                return nil
-            }
-            var stream = z_stream()
-            guard inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
-                return nil
-            }
-            defer { inflateEnd(&stream) }
-            stream.next_in = UnsafeMutablePointer(mutating: base)
-            stream.avail_in = UInt32(data.count)
-            var result = Data()
-            while true {
-                stream.next_out = destination
-                stream.avail_out = UInt32(bufferSize)
-                let inputBefore = stream.avail_in
-                let status = zlib.inflate(&stream, Z_NO_FLUSH)
-                let produced = bufferSize - Int(stream.avail_out)
-                guard produced <= maxOutputSize - result.count else {
-                    return nil
-                }
-                if produced > 0 {
-                    result.append(destination, count: produced)
-                }
-                if status == Z_STREAM_END {
-                    guard stream.avail_in > 0 else {
-                        return result
-                    }
-                    // RFC 1952 allows multiple members. Reset preserves unconsumed input;
-                    // every member must validate before any decoded body is published.
-                    guard concatenated, inflateReset(&stream) == Z_OK else {
-                        return nil
-                    }
-                } else {
-                    guard status == Z_OK, produced > 0 || stream.avail_in < inputBefore else {
-                        return nil
-                    }
-                }
-            }
-        }
+        return BoundedZlibDecoder.decode(data, windowBits: hasZlibHeader ? 15 : -15, maxOutputSize: maxOutputSize)
     }
 
     private static func decompress(_ data: Data, algorithm: compression_algorithm, maxOutputSize: Int) -> Data? {
@@ -193,6 +138,69 @@ enum BodyDecoder {
                 default:
                     logger.debug("Decompression failed for algorithm \(algorithm.rawValue)")
                     return nil
+                }
+            }
+        }
+    }
+}
+
+// MARK: - BoundedZlibDecoder
+
+/// Streaming zlib decoder shared by HTTP bodies and encrypted Babylon payloads.
+/// The caller supplies its own protocol budget; HTTP applies its global cap before calling.
+enum BoundedZlibDecoder {
+    static func decode(
+        _ data: Data,
+        windowBits: Int32,
+        concatenated: Bool = false,
+        maxOutputSize: Int
+    )
+        -> Data?
+    {
+        guard !data.isEmpty, data.count <= Int(UInt32.max), maxOutputSize >= 0 else {
+            return nil
+        }
+        // One scratch byte lets a valid empty stream complete even with a zero output budget.
+        let bufferSize = max(1, min(64 * 1_024, maxOutputSize))
+        let destination = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { destination.deallocate() }
+        return data.withUnsafeBytes { source -> Data? in
+            guard let base = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+                return nil
+            }
+            var stream = z_stream()
+            guard inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size)) == Z_OK else {
+                return nil
+            }
+            defer { inflateEnd(&stream) }
+            stream.next_in = UnsafeMutablePointer(mutating: base)
+            stream.avail_in = UInt32(data.count)
+            var result = Data()
+            while true {
+                stream.next_out = destination
+                stream.avail_out = UInt32(bufferSize)
+                let inputBefore = stream.avail_in
+                let status = zlib.inflate(&stream, Z_NO_FLUSH)
+                let produced = bufferSize - Int(stream.avail_out)
+                guard produced <= maxOutputSize - result.count else {
+                    return nil
+                }
+                if produced > 0 {
+                    result.append(destination, count: produced)
+                }
+                if status == Z_STREAM_END {
+                    guard stream.avail_in > 0 else {
+                        return result
+                    }
+                    // RFC 1952 allows multiple members. Reset preserves unconsumed input;
+                    // every member must validate before any decoded body is published.
+                    guard concatenated, inflateReset(&stream) == Z_OK else {
+                        return nil
+                    }
+                } else {
+                    guard status == Z_OK, produced > 0 || stream.avail_in < inputBefore else {
+                        return nil
+                    }
                 }
             }
         }
