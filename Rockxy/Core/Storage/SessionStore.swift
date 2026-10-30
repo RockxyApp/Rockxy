@@ -43,6 +43,7 @@ actor SessionStore {
     // MARK: - Save Transaction
 
     func saveTransaction(_ transaction: HTTPTransaction) throws {
+        let captureEvidence = try SessionStoreCaptureEvidence.encode(transaction)
         let requestHeaders = encodeHeaders(transaction.request.headers)
         let (requestBody, requestBodyPath) = processBody(transaction.request.body, existingPath: nil)
 
@@ -105,7 +106,8 @@ actor SessionStore {
             Self.txIsStruckThrough <- (transaction.isStruckThrough ? 1 : 0),
             Self.txComment <- transaction.comment,
             Self.txHighlightColor <- transaction.highlightColor?.rawValue,
-            Self.txClientApp <- transaction.clientApp
+            Self.txClientApp <- transaction.clientApp,
+            Self.txCaptureEvidence <- captureEvidence
         )
 
         try db.run(insert)
@@ -317,6 +319,7 @@ actor SessionStore {
     private static let txComment = SQLite.Expression<String?>("comment")
     private static let txHighlightColor = SQLite.Expression<String?>("highlight_color")
     private static let txClientApp = SQLite.Expression<String?>("client_app")
+    private static let txCaptureEvidence = SQLite.Expression<Data?>("capture_evidence")
 
     // MARK: - Log Entries Table
 
@@ -516,6 +519,9 @@ actor SessionStore {
                 "ALTER TABLE websocket_frames ADD COLUMN close_origin TEXT",
                 "ALTER TABLE websocket_frames ADD COLUMN is_abnormal INTEGER NOT NULL DEFAULT 0",
             ]),
+            (7, [
+                "ALTER TABLE transactions ADD COLUMN capture_evidence BLOB",
+            ]),
         ]
 
         let pending = migrations.filter { $0.version > currentVersion }
@@ -709,6 +715,19 @@ actor SessionStore {
             return nil
         }
 
+        let captureEvidence: SessionStoreCaptureEvidence?
+        if let data = row[Self.txCaptureEvidence] {
+            guard let decoded = try? SessionStoreCaptureEvidence.decode(data) else {
+                // Retain the row on disk, but do not present partial bodies as complete
+                // when their saved capture evidence cannot be interpreted.
+                Self.logger.warning("Skipped a saved request with invalid capture evidence")
+                return nil
+            }
+            captureEvidence = decoded
+        } else {
+            captureEvidence = nil // Legacy rows remain readable without invented metadata.
+        }
+
         let requestHeaders = decodeHeaders(row[Self.txRequestHeaders])
         let requestBody = loadBody(inlineData: row[Self.txRequestBody], diskPath: row[Self.txRequestBodyPath])
         let requestContentType = row[Self.txRequestContentType].flatMap { ContentType(rawValue: $0) }
@@ -787,11 +806,12 @@ actor SessionStore {
         transaction.comment = row[Self.txComment]
         transaction.highlightColor = row[Self.txHighlightColor].flatMap { HighlightColor(rawValue: $0) }
         transaction.clientApp = row[Self.txClientApp]
+        captureEvidence?.apply(to: transaction)
 
         let wsFrames = try loadWebSocketFrameDatas(transactionId: id)
         if row[Self.txIsWebSocket] != 0 || !wsFrames.isEmpty {
             transaction.webSocketConnection = WebSocketConnection(
-                upgradeRequest: request,
+                upgradeRequest: transaction.request,
                 frames: wsFrames
             )
         }
@@ -1013,5 +1033,91 @@ actor SessionStore {
             return [:]
         }
         return dict
+    }
+}
+
+// MARK: - SessionStoreCaptureEvidence
+
+/// Metadata only: body bytes keep their existing inline/file storage and are never duplicated here.
+private struct SessionStoreCaptureEvidence: Codable {
+    // MARK: Internal
+
+    static let maximumBytes = 128 * 1_024
+
+    let formatVersion: Int
+    let metadata: BabylonCaptureMetadata?
+    let correlation: BabylonCorrelation?
+    let grpcCallType: String?
+    let measuredDuration: TimeInterval?
+    let requestBodyTruncated: Bool
+    let requestBodyOmission: BodyOmissionMetadata?
+    let responseBodyTruncated: Bool
+    let responseBodyOmission: BodyOmissionMetadata?
+
+    static func encode(_ transaction: HTTPTransaction) throws -> Data? {
+        guard boundedIdentifiers(grpc: transaction.babylonGRPCCallType, correlation: transaction.babylonCorrelation) else {
+            throw EvidenceError.invalid
+        }
+        let evidence = Self(
+            formatVersion: 1,
+            metadata: transaction.babylonCaptureMetadata,
+            correlation: transaction.babylonCorrelation,
+            grpcCallType: transaction.babylonGRPCCallType,
+            measuredDuration: transaction.measuredDuration,
+            requestBodyTruncated: transaction.request.bodyTruncated,
+            requestBodyOmission: transaction.request.bodyOmission,
+            responseBodyTruncated: transaction.response?.bodyTruncated ?? false,
+            responseBodyOmission: transaction.response?.bodyOmission
+        )
+        guard evidence.metadata != nil || evidence.correlation != nil || evidence.grpcCallType != nil
+            || evidence.measuredDuration != nil || evidence.requestBodyTruncated || evidence.responseBodyTruncated
+            || evidence.requestBodyOmission != nil || evidence.responseBodyOmission != nil else
+        {
+            return nil
+        }
+        let data = try JSONEncoder().encode(evidence)
+        guard data.count <= maximumBytes else {
+            throw EvidenceError.invalid
+        }
+        return data
+    }
+
+    static func decode(_ data: Data) throws -> Self {
+        guard data.count <= maximumBytes else {
+            throw EvidenceError.invalid
+        }
+        let evidence = try JSONDecoder().decode(Self.self, from: data)
+        guard evidence.formatVersion == 1,
+              boundedIdentifiers(grpc: evidence.grpcCallType, correlation: evidence.correlation) else
+        {
+            throw EvidenceError.invalid
+        }
+        return evidence
+    }
+
+    func apply(to transaction: HTTPTransaction) {
+        transaction.babylonCaptureMetadata = metadata
+        transaction.babylonCorrelation = correlation
+        transaction.babylonGRPCCallType = grpcCallType
+        transaction.measuredDuration = measuredDuration
+        transaction.request.bodyTruncated = requestBodyTruncated
+        transaction.request.bodyOmission = requestBodyOmission
+        transaction.response?.bodyTruncated = responseBodyTruncated
+        transaction.response?.bodyOmission = responseBodyOmission
+    }
+
+    // MARK: Private
+
+    private enum EvidenceError: Error { case invalid }
+
+    private static func boundedIdentifiers(grpc: String?, correlation: BabylonCorrelation?) -> Bool {
+        guard grpc.map({ $0.utf8.count <= 128 }) ?? true else {
+            return false
+        }
+        guard let correlation else {
+            return true
+        }
+        return [correlation.sourceClientID, correlation.sessionID, correlation.traceID, correlation.stepID]
+            .compactMap { $0 }.allSatisfy { $0.utf8.count <= BabylonCaptureProtocol.maximumClientIDSize }
     }
 }
