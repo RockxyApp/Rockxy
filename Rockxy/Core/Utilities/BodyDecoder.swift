@@ -9,8 +9,9 @@ import os
 enum BodyDecoder {
     // MARK: Internal
 
-    static func decode(_ data: Data, encoding: String?) -> Data {
-        decodeReportingChange(data, encoding: encoding).data
+    /// Optional caller budgets may lower the global cap, never raise it.
+    static func decode(_ data: Data, encoding: String?, maxOutputSize: Int? = nil) -> Data {
+        decodeReportingChange(data, encoding: encoding, maxOutputSize: maxOutputSize).data
     }
 
     /// Decodes `data` and reports whether every `Content-Encoding` stage was applied, i.e.
@@ -19,7 +20,13 @@ enum BodyDecoder {
     /// `Content-Encoding` header. An unknown encoding or a failed stage reports `false`;
     /// the bytes then follow the same best-effort fallback as `decode`, so callers that
     /// need the untouched payload should keep their original copy when the flag is `false`.
-    static func decodeReportingChange(_ data: Data, encoding: String?) -> (data: Data, didDecode: Bool) {
+    static func decodeReportingChange(
+        _ data: Data,
+        encoding: String?,
+        maxOutputSize: Int? = nil
+    )
+        -> (data: Data, didDecode: Bool)
+    {
         guard let encoding else {
             return (data, false)
         }
@@ -30,10 +37,11 @@ enum BodyDecoder {
         guard !encodings.isEmpty else {
             return (data, false)
         }
+        let outputLimit = min(max(0, maxOutputSize ?? maxDecompressedSize), maxDecompressedSize)
         var body = data
         var everyStageDecoded = true
         for encoding in encodings.reversed() {
-            guard let decoded = decodeSingle(body, encoding: encoding) else {
+            guard let decoded = decodeSingle(body, encoding: encoding, maxOutputSize: outputLimit) else {
                 everyStageDecoded = false
                 continue
             }
@@ -50,23 +58,23 @@ enum BodyDecoder {
 
     /// Returns `nil` when the encoding is unrecognized or decompression fails so the
     /// caller keeps the current bytes, matching the pre-existing fall-back behavior.
-    private static func decodeSingle(_ data: Data, encoding: String) -> Data? {
+    private static func decodeSingle(_ data: Data, encoding: String, maxOutputSize: Int) -> Data? {
         switch encoding {
         case "gzip":
-            decompressGzip(data)
+            decompressGzip(data, maxOutputSize: maxOutputSize)
         case "deflate":
-            decompress(data, algorithm: COMPRESSION_ZLIB)
+            decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
         case "br":
-            decompress(data, algorithm: COMPRESSION_BROTLI)
+            decompress(data, algorithm: COMPRESSION_BROTLI, maxOutputSize: maxOutputSize)
         default:
             nil
         }
     }
 
-    private static func decompressGzip(_ data: Data) -> Data? {
+    private static func decompressGzip(_ data: Data, maxOutputSize: Int) -> Data? {
         guard data.count >= 18 else {
             logger.debug("Data too small for gzip (\(data.count) bytes), trying raw deflate")
-            return decompress(data, algorithm: COMPRESSION_ZLIB)
+            return decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
         }
 
         let byte0 = data[data.startIndex]
@@ -74,11 +82,11 @@ enum BodyDecoder {
 
         guard byte0 == 0x1F, byte1 == 0x8B else {
             logger.debug("Missing gzip magic bytes, trying raw deflate")
-            return decompress(data, algorithm: COMPRESSION_ZLIB)
+            return decompress(data, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
         }
 
         let stripped = stripGzipHeaderAndTrailer(data)
-        return decompress(stripped, algorithm: COMPRESSION_ZLIB)
+        return decompress(stripped, algorithm: COMPRESSION_ZLIB, maxOutputSize: maxOutputSize)
     }
 
     private static func stripGzipHeaderAndTrailer(_ data: Data) -> Data {
@@ -124,12 +132,12 @@ enum BodyDecoder {
         return data[start ..< end]
     }
 
-    private static func decompress(_ data: Data, algorithm: compression_algorithm) -> Data? {
-        guard !data.isEmpty else {
+    private static func decompress(_ data: Data, algorithm: compression_algorithm, maxOutputSize: Int) -> Data? {
+        guard !data.isEmpty, maxOutputSize > 0 else {
             return nil
         }
 
-        let bufferSize = 64 * 1_024
+        let bufferSize = min(64 * 1_024, maxOutputSize)
         let destBuffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { destBuffer.deallocate() }
 
@@ -160,8 +168,8 @@ enum BodyDecoder {
                 stream.dst_size = bufferSize
                 let status = compression_stream_process(&stream, Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
                 let produced = bufferSize - stream.dst_size
-                guard produced <= maxDecompressedSize - result.count else {
-                    logger.warning("Decompressed data exceeds \(maxDecompressedSize) byte limit")
+                guard produced <= maxOutputSize - result.count else {
+                    logger.warning("Decompressed data exceeds \(maxOutputSize) byte limit")
                     return nil
                 }
                 if produced > 0 {

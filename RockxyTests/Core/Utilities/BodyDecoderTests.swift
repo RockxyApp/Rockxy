@@ -134,6 +134,15 @@ struct BodyDecoderTests {
         let withinLimit = byteCount == 50 * 1_024 * 1_024
         #expect(result.didDecode == withinLimit)
         #expect(result.data == (withinLimit ? original : compressed))
+        if !withinLimit {
+            let unboundedRequest = BodyDecoder.decodeReportingChange(
+                compressed,
+                encoding: "deflate",
+                maxOutputSize: Int.max
+            )
+            #expect(!unboundedRequest.didDecode)
+            #expect(unboundedRequest.data == compressed)
+        }
     }
 
     @Test("Brotli responses survive bounded streaming decompression")
@@ -144,6 +153,48 @@ struct BodyDecoderTests {
         #expect(result.didDecode)
         #expect(String(data: result.data, encoding: .utf8) ==
             "A Brotli fixture should survive bounded streaming decompression.")
+    }
+
+    @Test(
+        "Hot-path response readers enforce their decoded output budget",
+        arguments: [64, 4_095, 4_096, 0, -1, Int.max]
+    )
+    func responseReaderOutputBudget(limit: Int) throws {
+        let original = Data(repeating: 0x41, count: 4_096)
+        let compressed = try #require(deflateCompress(original))
+        #expect(compressed.count <= 64)
+        let response = HTTPResponseData(
+            statusCode: 200, statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Encoding", value: "deflate")], body: compressed
+        )
+        let withinLimit = limit >= original.count
+        #expect(response.decodedBody(limit: limit) == (withinLimit ? original : compressed))
+        let direct = BodyDecoder.decodeReportingChange(compressed, encoding: "deflate", maxOutputSize: limit)
+        #expect(direct.didDecode == withinLimit)
+        #expect(direct.data == (withinLimit ? original : compressed))
+    }
+
+    @Test(
+        "Caller output budgets apply to gzip, deflate and Brotli",
+        arguments: ["gzip", "deflate", "br"]
+    )
+    func encodingOutputBudget(encoding: String) throws {
+        let original = Data("A Brotli fixture should survive bounded streaming decompression.".utf8)
+        let compressed: Data = switch encoding {
+        case "br":
+            try #require(Data(base64Encoded:
+                "Gz8AwEVveL07LsfPdaNWSonShSgCDUNhY2wOXa6gp7DpLSL5e7N+iBL6src01gNAAg=="))
+        case "gzip":
+            try wrapInGzip(#require(deflateCompress(original)), originalData: original)
+        default:
+            try #require(deflateCompress(original))
+        }
+        let bounded = BodyDecoder.decodeReportingChange(compressed, encoding: encoding, maxOutputSize: 8)
+        #expect(!bounded.didDecode)
+        #expect(bounded.data == compressed)
+        let exact = BodyDecoder.decodeReportingChange(compressed, encoding: encoding, maxOutputSize: original.count)
+        #expect(exact.didDecode)
+        #expect(exact.data == original)
     }
 
     // MARK: Private
