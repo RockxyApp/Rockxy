@@ -10,6 +10,9 @@ struct CaptureBatchScalingTests {
         coordinator.liveHistoryLimit = 50_000
         coordinator.processActiveProjectTestBatch((0 ..< 50_000).map { _ in TestFixtures.makeTransaction() })
         let live = (0 ..< 1_000).map { _ in TestFixtures.makeTransaction(state: .active) }
+        var stages: [CaptureRetentionProfiler.Stage: Duration] = [:]
+        CaptureRetentionProfiler.onMeasurement = { stage, duration in stages[stage, default: .zero] += duration }
+        defer { CaptureRetentionProfiler.onMeasurement = nil }
         let clock = ContinuousClock()
         let start = clock.now
         for offset in stride(from: 0, to: live.count, by: 50) {
@@ -26,9 +29,14 @@ struct CaptureBatchScalingTests {
         }
         coordinator.flushQueuedLiveTransactionUpdates()
         let closeDuration = closeStart.duration(to: clock.now)
+        #expect(coordinator.appNodes.reduce(0) { $0 + $1.requestCount } == 50_000)
+        #expect(coordinator.domainTree.reduce(0) { $0 + $1.requestCount } == 50_000)
         #expect(coordinator.filteredRows.count == 50_000)
         #expect(coordinator.filteredRows.count { $0.state == .failed } == 1_000)
         print("CAPTURE_CAP_BATCH history=50000 batch=50 live=1000 append=\(appendDuration) completion=\(closeDuration)")
+        for stage in stages.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
+            print("CAPTURE_RETENTION_STAGE \(stage.rawValue)=\(stages[stage] ?? .zero)")
+        }
     }
 
     @Test("A Stop burst refreshes large-history snapshots once across adjacent actor batches")

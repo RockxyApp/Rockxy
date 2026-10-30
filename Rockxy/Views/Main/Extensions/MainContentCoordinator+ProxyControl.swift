@@ -1124,12 +1124,14 @@ extension MainContentCoordinator {
             transactions = history
             nextSequenceNumber = sequence
             if evictionCount > 0 {
-                rebuildObservedDomainsByApp()
-                debugAssistantTransactionsByHost.removeAll()
-                debugAssistantIndexedTransactionIDs.removeAll()
-                debugAssistantIndexedLiveCount = 0
-                debugAssistantTrafficIndexGeneration &+= 1
-                appendToDebugAssistantTrafficIndex(history)
+                CaptureRetentionProfiler.measure(.observedDomains) { rebuildObservedDomainsByApp() }
+                CaptureRetentionProfiler.measure(.assistantIndex) {
+                    debugAssistantTransactionsByHost.removeAll()
+                    debugAssistantIndexedTransactionIDs.removeAll()
+                    debugAssistantIndexedLiveCount = 0
+                    debugAssistantTrafficIndexGeneration &+= 1
+                    appendToDebugAssistantTrafficIndex(history)
+                }
                 rebuildAllWorkspacesForCaptureReplacement()
             } else {
                 updateAllWorkspaces(with: projectBatch)
@@ -1139,7 +1141,7 @@ extension MainContentCoordinator {
 
             recordTrafficMetrics(for: projectBatch)
             if evictionCount > 0 {
-                recomputeErrorCount()
+                CaptureRetentionProfiler.measure(.errorCount) { recomputeErrorCount() }
             } else {
                 errorCount += projectBatch.count { ($0.response?.statusCode ?? 0) >= 400 }
             }

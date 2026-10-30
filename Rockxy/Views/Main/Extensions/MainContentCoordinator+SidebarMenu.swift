@@ -638,9 +638,9 @@ extension MainContentCoordinator {
 
     func rebuildObservedDomainsByApp() {
         var countsByApp: [String: [String: Int]] = [:]
-
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in transactions {
-            let appName = normalizedObservedAppName(transaction.clientApp)
+            let appName = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
             let host = normalizedObservedHost(transaction.request.host)
             guard !appName.isEmpty, !host.isEmpty else {
                 continue
@@ -657,8 +657,9 @@ extension MainContentCoordinator {
             return
         }
         var changedApps: Set<String> = []
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in batch {
-            let appName = normalizedObservedAppName(transaction.clientApp)
+            let appName = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
             let host = normalizedObservedHost(transaction.request.host)
             guard !host.isEmpty else {
                 continue
@@ -670,10 +671,10 @@ extension MainContentCoordinator {
     }
 
     func moveObservedDomainsFromUnknown(for transactions: [HTTPTransaction]) {
-        let unknown = normalizedObservedAppName(nil)
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         var changedApps: Set<String> = []
         for transaction in transactions {
-            let destination = normalizedObservedAppName(transaction.clientApp)
+            let destination = normalizedObservedAppName(transaction.clientApp, unknownName: unknown)
             let host = normalizedObservedHost(transaction.request.host)
             guard destination != unknown, !host.isEmpty else {
                 continue
@@ -734,9 +735,9 @@ extension MainContentCoordinator {
         observedDomainsByApp = snapshot
     }
 
-    private func normalizedObservedAppName(_ value: String?) -> String {
+    private func normalizedObservedAppName(_ value: String?, unknownName: String) -> String {
         let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return normalized.isEmpty ? String(localized: "Unknown", bundle: RockxyLocalization.bundle) : normalized
+        return normalized.isEmpty ? unknownName : normalized
     }
 
     private func normalizedObservedHost(_ value: String) -> String {

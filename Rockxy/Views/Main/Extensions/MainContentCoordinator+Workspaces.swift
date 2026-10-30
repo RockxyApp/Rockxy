@@ -108,16 +108,33 @@ extension MainContentCoordinator {
     }
 
     func rebuildSidebarIndexes(for workspace: WorkspaceState) {
-        workspace.domainTree.removeAll()
-        workspace.domainIndexMap.removeAll()
-        workspace.domainGroupingIndex.removeAll()
-        workspace.appNodes.removeAll()
-        workspace.appNodeIndexMap.removeAll()
-        workspace.appGroupingIndex.removeAll()
+        // Reuse storage locally and publish the finished trees once. Mutating an
+        // observable workspace cache for every retained row amplifies full-history work.
+        var domains = DomainGroupingIndex()
+        var apps = AppGroupingIndex()
+        swap(&domains, &workspace.domainGroupingIndex)
+        swap(&apps, &workspace.appGroupingIndex)
+        domains.removeAll()
+        apps.removeAll()
+        let criteria = workspace.filterCriteria
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
         for transaction in transactions {
-            updateDomainGroupingIndex(for: transaction, in: workspace)
-            addToAppGroupingIndex(transaction, in: workspace)
+            let host = transaction.request.host
+            let matchesDomain = criteria.sidebarDomain.map {
+                DomainGrouping.host(host, matchesDomain: $0)
+                    && DomainGrouping.path(transaction.request.path, matchesPrefix: criteria.sidebarPathPrefix)
+            } ?? true
+            if !host.isEmpty, matchesDomain {
+                domains.add(transaction)
+            }
+            let appName = transaction.clientApp ?? unknown
+            if criteria.sidebarApp == nil || criteria.sidebarApp == appName {
+                let normalizedName = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+                apps.add(transaction, appName: normalizedName.isEmpty ? unknown : appName)
+            }
         }
+        workspace.domainGroupingIndex = domains
+        workspace.appGroupingIndex = apps
         refreshDomainTree(for: workspace)
         refreshAppNodes(for: workspace)
         pruneSidebarSelectionIfNeeded(in: workspace)
@@ -178,7 +195,7 @@ extension MainContentCoordinator {
         if let sidebarApp = workspace.filterCriteria.sidebarApp, appName != sidebarApp {
             return
         }
-        workspace.appGroupingIndex.add(transaction)
+        workspace.appGroupingIndex.add(transaction, appName: appName)
     }
 
     func refreshAppNodes(for workspace: WorkspaceState) {

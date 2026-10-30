@@ -412,8 +412,8 @@ extension MainContentCoordinator {
     /// active Project's runtime capture projection.
     func rebuildAllWorkspacesForCaptureReplacement() {
         for workspace in workspaceStore.allWorkspaces {
-            rebuildSidebarIndexes(for: workspace)
-            recomputeFilteredTransactions(for: workspace)
+            CaptureRetentionProfiler.measure(.sidebarIndexes) { rebuildSidebarIndexes(for: workspace) }
+            CaptureRetentionProfiler.measure(.filteredRows) { recomputeFilteredTransactions(for: workspace) }
         }
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
     }

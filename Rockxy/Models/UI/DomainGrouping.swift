@@ -283,7 +283,7 @@ enum DomainGrouping {
 
     static func normalizedHost(_ host: String) -> String {
         host.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            .trimmingCharacters(in: dotCharacters)
             .lowercased()
     }
 
@@ -313,6 +313,7 @@ enum DomainGrouping {
     // MARK: Private
 
     private static let maxPathDepth = 3
+    private static let dotCharacters = CharacterSet(charactersIn: ".")
 
     private static let multiPartPublicSuffixes: Set<String> = [
         "ac.uk", "co.jp", "co.kr", "co.nz", "co.uk", "co.za", "com.au", "com.br",
