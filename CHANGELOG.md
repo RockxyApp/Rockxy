@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Stopping capture no longer waits indefinitely for a wedged connection or a paused breakpoint to finish closing. Both shutdown waits now have a deadline and report what outlived it, so Stop stays responsive; a request paused at a breakpoint is still never forwarded to the origin after a stop.
+
 - Sidebar counts and errors refresh when existing domain or path nodes change, including live failures that keep the same tree IDs.
 
 - At the live history limit, sidebar counts remove evicted requests incrementally and unchanged table rows reuse their snapshots. Late application attribution stays idempotent, live failures refresh domain error counts, and saved requests remain available to Assistant investigations after retention, Project restoration, or saved-list replacement.

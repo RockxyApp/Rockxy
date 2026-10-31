@@ -91,6 +91,45 @@ struct BreakpointLifecycleTests {
         }
     }
 
+    /// A bridge that never completes used to suspend `stop()` forever, which the user
+    /// sees as a Stop button that never comes back. The wait is now bounded and reports
+    /// what outlived it.
+    @Test("A breakpoint bridge that never completes stops waiting at its deadline")
+    func bridgeDrainIsBounded() async {
+        let tracker = BreakpointBridgeTracker()
+        let lease = tracker.begin()
+        let startedAt = ContinuousClock.now
+        let outstanding = await tracker.waitUntilIdle(timeout: .milliseconds(200))
+        let elapsed = startedAt.duration(to: .now)
+
+        #expect(outstanding == 1)
+        #expect(elapsed < .seconds(5))
+
+        // The lease completing after its deadline must not resume the waiter a second
+        // time; a double resume of a CheckedContinuation traps.
+        lease.finish()
+        #expect(await tracker.waitUntilIdle(timeout: .milliseconds(200)) == 0)
+    }
+
+    /// The deadline is an upper bound, not a delay: a normal drain must return as soon
+    /// as the last bridge completes.
+    @Test("Breakpoint bridge drain returns as soon as the last bridge completes")
+    func bridgeDrainReturnsOnCompletion() async {
+        let tracker = BreakpointBridgeTracker()
+        let lease = tracker.begin()
+        Task {
+            try? await Task.sleep(for: .milliseconds(50))
+            lease.finish()
+        }
+
+        let startedAt = ContinuousClock.now
+        let outstanding = await tracker.waitUntilIdle(timeout: .seconds(30))
+        let elapsed = startedAt.duration(to: .now)
+
+        #expect(outstanding == 0)
+        #expect(elapsed < .seconds(10))
+    }
+
     // MARK: Private
 
     private func withLifecycleHarness(

@@ -42,13 +42,22 @@ extension Channel {
 final class ProxyChildChannelRegistry: @unchecked Sendable {
     // MARK: Internal
 
+    /// Upper bound on how long stop waits for in-flight client channels to close.
+    /// Closing accepted local sockets is a sub-millisecond operation, so reaching this
+    /// deadline means a channel is wedged rather than merely busy.
+    static let drainTimeout: Duration = .seconds(5)
+
     func prepareForStart() async {
         var staleChannelCount = 0
         while true {
             let staleChannels = beginShutdown()
             staleChannelCount += staleChannels.count
             await close(staleChannels)
-            await waitUntilEmpty()
+            // Deliberately unbounded: giving up here would have to force `isShuttingDown`
+            // back to false while stale channels are still registered, and `register`
+            // closes every new channel while that flag is set. Bounding start is a
+            // separate change from bounding stop.
+            _ = await waitUntilEmpty(timeout: nil)
             guard finishPreparingForStartIfEmpty() else {
                 continue
             }
@@ -74,10 +83,23 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         }
     }
 
-    func closeAllAndWait() async {
+    /// Closes every live client channel and waits for them to finish closing, but only
+    /// up to `timeout`. Stop is awaited inline before the UI settles, so an unbounded
+    /// wait here shows up as a stuck Stop button for as long as the slowest channel
+    /// takes. Proceeding early is safe: `close()` has already been initiated on every
+    /// channel, so each handler's `channel.isActive` gate is false and a channel that
+    /// outlives the deadline can no longer start origin work or write a response — it is
+    /// only still finishing its own close.
+    func closeAllAndWait(timeout: Duration = ProxyChildChannelRegistry.drainTimeout) async {
         let snapshot = beginShutdown()
         await close(snapshot)
-        await waitUntilEmpty()
+        let stillClosing = await waitUntilEmpty(timeout: timeout)
+        if !stillClosing.isEmpty {
+            proxyServerLogger
+                .warning(
+                    "Proxy stop proceeded with \(stillClosing.count) client channels still closing after \(String(describing: timeout))"
+                )
+        }
     }
 
     // MARK: Private
@@ -85,7 +107,7 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var channels: [ObjectIdentifier: Channel] = [:]
     private var isShuttingDown = false
-    private var emptyWaiters: [CheckedContinuation<Void, Never>] = []
+    private var emptyWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     private func beginShutdown() -> [Channel] {
         lock.lock()
@@ -120,7 +142,7 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         lock.lock()
         channels.removeValue(forKey: identifier)
         if channels.isEmpty {
-            waiters = emptyWaiters
+            waiters = Array(emptyWaiters.values)
             emptyWaiters.removeAll()
         } else {
             waiters = []
@@ -129,17 +151,48 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         waiters.forEach { $0.resume() }
     }
 
-    private func waitUntilEmpty() async {
-        await withCheckedContinuation { continuation in
+    /// Suspends until no channels remain, or until `timeout` elapses when one is given.
+    /// Returns the channels that were still closing when the wait ended, so the caller
+    /// can report a wedged drain. A `nil` timeout waits indefinitely.
+    private func waitUntilEmpty(timeout: Duration?) async -> [Channel] {
+        let waiterID = UUID()
+        var timeoutTask: Task<Void, Never>?
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             lock.lock()
             if channels.isEmpty {
                 lock.unlock()
                 continuation.resume()
-            } else {
-                emptyWaiters.append(continuation)
-                lock.unlock()
+                return
+            }
+            emptyWaiters[waiterID] = continuation
+            lock.unlock()
+            // Armed only after the waiter is registered, so the deadline can never fire
+            // against an id that `resumeEmptyWaiter` cannot find.
+            if let timeout {
+                timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    self?.resumeEmptyWaiter(waiterID)
+                }
             }
         }
+        timeoutTask?.cancel()
+        return registeredChannels()
+    }
+
+    /// Synchronous on purpose: `NSLock.lock()` is unavailable from an async context.
+    private func registeredChannels() -> [Channel] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(channels.values)
+    }
+
+    /// Resumes one waiter by id, if it has not already been resumed by `remove(_:)`.
+    /// Removing it under the lock is what makes the resume happen exactly once.
+    private func resumeEmptyWaiter(_ waiterID: UUID) {
+        lock.lock()
+        let continuation = emptyWaiters.removeValue(forKey: waiterID)
+        lock.unlock()
+        continuation?.resume()
     }
 }
 
@@ -178,6 +231,9 @@ final class BreakpointBridgeTracker: @unchecked Sendable {
         private var isFinished = false
     }
 
+    /// Upper bound on how long stop waits for breakpoint bridges to complete.
+    static let drainTimeout: Duration = .seconds(5)
+
     func begin() -> Lease {
         lock.lock()
         activeCount += 1
@@ -185,24 +241,49 @@ final class BreakpointBridgeTracker: @unchecked Sendable {
         return Lease(owner: self)
     }
 
-    func waitUntilIdle() async {
-        await withCheckedContinuation { continuation in
+    /// Waits for outstanding breakpoint bridges to complete, but only up to `timeout`.
+    /// Returns the number of bridges still outstanding when the wait ended.
+    ///
+    /// Proceeding early does not release a paused request to the origin: every client
+    /// channel has already been closed by the time stop reaches this point, so each
+    /// bridge's completion handler fails its `channel.isActive` gate and drops the
+    /// request instead of forwarding it.
+    @discardableResult
+    func waitUntilIdle(timeout: Duration? = BreakpointBridgeTracker.drainTimeout) async -> Int {
+        let waiterID = UUID()
+        var timeoutTask: Task<Void, Never>?
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             lock.lock()
             if activeCount == 0 {
                 lock.unlock()
                 continuation.resume()
-            } else {
-                idleWaiters.append(continuation)
-                lock.unlock()
+                return
+            }
+            idleWaiters[waiterID] = continuation
+            lock.unlock()
+            if let timeout {
+                timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    self?.resumeIdleWaiter(waiterID)
+                }
             }
         }
+        timeoutTask?.cancel()
+        return outstandingBridgeCount()
     }
 
     // MARK: Private
 
     private let lock = NSLock()
     private var activeCount = 0
-    private var idleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var idleWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+
+    /// Synchronous on purpose: `NSLock.lock()` is unavailable from an async context.
+    private func outstandingBridgeCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeCount
+    }
 
     private func finish() {
         let waiters: [CheckedContinuation<Void, Never>]
@@ -210,13 +291,22 @@ final class BreakpointBridgeTracker: @unchecked Sendable {
         precondition(activeCount > 0, "Breakpoint bridge tracker underflow")
         activeCount -= 1
         if activeCount == 0 {
-            waiters = idleWaiters
+            waiters = Array(idleWaiters.values)
             idleWaiters.removeAll()
         } else {
             waiters = []
         }
         lock.unlock()
         waiters.forEach { $0.resume() }
+    }
+
+    /// Resumes one waiter by id, if `finish()` has not already resumed it. Removing it
+    /// under the lock is what makes the resume happen exactly once.
+    private func resumeIdleWaiter(_ waiterID: UUID) {
+        lock.lock()
+        let continuation = idleWaiters.removeValue(forKey: waiterID)
+        lock.unlock()
+        continuation?.resume()
     }
 }
 
@@ -717,7 +807,11 @@ actor ProxyServer {
         }
 
         await childChannelRegistry.closeAllAndWait()
-        await breakpointBridgeTracker.waitUntilIdle()
+        let outstandingBridges = await breakpointBridgeTracker.waitUntilIdle()
+        if outstandingBridges > 0 {
+            Self.logger
+                .warning("Proxy stop proceeded with \(outstandingBridges) breakpoint bridges still outstanding")
+        }
         liveTunnelRegistry = nil
 
         if let group = eventLoopGroup {
