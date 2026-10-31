@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Sidebar counts and errors refresh when existing domain or path nodes change, including live failures that keep the same tree IDs.
+
 - At the live history limit, sidebar counts remove evicted requests incrementally and unchanged table rows reuse their snapshots. Late application attribution stays idempotent, live failures refresh domain error counts, and saved requests remain available to Assistant investigations after retention, Project restoration, or saved-list replacement.
 
 - Live body columns reuse JSON/jq results until captured evidence changes, and format only the matches needed for the cell preview. Previews also cap UTF-8 storage and retain complete Unicode clusters, including long combining sequences.

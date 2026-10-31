@@ -29,10 +29,6 @@ struct DomainNode: Identifiable, Hashable {
         filterDomain ?? domain
     }
 
-    static func == (lhs: DomainNode, rhs: DomainNode) -> Bool {
-        lhs.id == rhs.id
-    }
-
     func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }

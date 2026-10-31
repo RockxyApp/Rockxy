@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import os
 @testable import Rockxy
 import Testing
 
@@ -6,6 +8,30 @@ import Testing
 @Suite(.serialized)
 struct IncrementalCaptureRetentionTests {
     // MARK: Internal
+
+    @Test("Sidebar observation sees same-ID count, error, and descendant changes", arguments: [0, 1, 2])
+    func sidebarMetadataInvalidatesObservation(change: Int) {
+        let workspace = WorkspaceState()
+        let child = DomainNode(id: "child", domain: "/events", requestCount: 1, children: [], kind: .path)
+        let initial = DomainNode(id: "root", domain: "fixture.invalid", requestCount: 1, children: [child])
+        workspace.domainTree = [initial]
+        let flag = OSAllocatedUnfairLock(initialState: false)
+        withObservationTracking { _ = workspace.domainTree } onChange: {
+            flag.withLock { $0 = true }
+        }
+        var updated = initial
+        switch change {
+        case 0: updated.requestCount = 2
+        case 1: updated.errorCount = 1
+        default: updated.children[0].errorCount = 1
+        }
+        workspace.domainTree = [updated]
+        let observed = flag.withLock { $0 }
+        #expect(observed)
+        #expect(initial.id == updated.id)
+        #expect(initial != updated)
+        #expect(Set([initial]).contains(initial))
+    }
 
     @Test("Incremental retention matches authoritative trees after mutable metadata and eviction")
     func retentionMatchesRebuild() throws {
