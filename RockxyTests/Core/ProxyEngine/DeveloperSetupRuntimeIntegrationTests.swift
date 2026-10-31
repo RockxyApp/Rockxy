@@ -452,6 +452,7 @@ struct DeveloperSetupRuntimeIntegrationTests {
             proxyListenAddress: "0.0.0.0",
             upstreamListenAddress: "0.0.0.0",
             expectedCapturedHost: dockerHostAddress,
+            unavailableTerminationStatuses: [125],
             buildInvocation: { proxyPort, upstreamPort, _ in
                 ProcessInvocation(
                     executableURL: docker,
@@ -650,6 +651,11 @@ struct DeveloperSetupRuntimeIntegrationTests {
         expectedCapturedPath: String? = nil,
         allowAnyCapturedPath: Bool = false,
         captureTimeout: Duration = .seconds(10),
+        // Termination statuses that mean the runtime never started, rather than that
+        // capture failed. Docker reports 125 when the daemon cannot launch the container
+        // at all; there is then no traffic to assert on, so the probe is skipped exactly
+        // like an absent runtime.
+        unavailableTerminationStatuses: Set<Int32> = [],
         buildInvocation: @escaping @Sendable (
             _ proxyPort: Int,
             _ upstreamPort: Int,
@@ -698,6 +704,14 @@ struct DeveloperSetupRuntimeIntegrationTests {
                 environment: invocation.environment,
                 timeout: invocation.timeout
             )
+
+            if unavailableTerminationStatuses.contains(result.terminationStatus) {
+                // Mirror the teardown that follows the do/catch: returning from inside the
+                // do block would otherwise leak both listeners into every later test.
+                await proxyServer.stop()
+                await upstreamServer.stop()
+                return
+            }
 
             #expect(
                 result.terminationStatus == 0,
