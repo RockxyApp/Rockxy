@@ -124,6 +124,81 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return nil
     }
 
+    /// A short, user-facing reason for the failed row. Certificate problems are the case a
+    /// developer most needs to recognise, so they get a dedicated message.
+    nonisolated static func upstreamFailureReason(for error: Error) -> String {
+        if let sslError = error as? NIOSSLError {
+            switch sslError {
+            case .handshakeFailed:
+                return "Upstream TLS handshake failed (certificate rejected)"
+            default:
+                return "Upstream TLS error"
+            }
+        }
+        if error is NIOSSLExtraError {
+            return "Upstream TLS handshake failed (certificate rejected)"
+        }
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream before responding (\(http2ErrorName(reset.errorCode)))"
+        }
+        return "Upstream connection failed before responding"
+    }
+
+    /// Why a response that had already started did not finish.
+    nonisolated static func midResponseFailureReason(for error: Error) -> String {
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
+        }
+        return "Upstream connection failed mid-response"
+    }
+
+    /// Whether the response declares its own length, so an early close means missing bytes.
+    nonisolated static func hasFramedBody(_ head: HTTPResponseHead) -> Bool {
+        head.headers.contains(name: "Content-Length")
+            || head.headers[canonicalForm: "Transfer-Encoding"].contains { $0.lowercased() == "chunked" }
+    }
+
+    /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.
+    nonisolated static func http2ErrorName(_ code: HTTP2ErrorCode) -> String {
+        switch code {
+        case .noError: "NO_ERROR"
+        case .protocolError: "PROTOCOL_ERROR"
+        case .internalError: "INTERNAL_ERROR"
+        case .flowControlError: "FLOW_CONTROL_ERROR"
+        case .settingsTimeout: "SETTINGS_TIMEOUT"
+        case .streamClosed: "STREAM_CLOSED"
+        case .frameSizeError: "FRAME_SIZE_ERROR"
+        case .refusedStream: "REFUSED_STREAM"
+        case .cancel: "CANCEL"
+        case .compressionError: "COMPRESSION_ERROR"
+        case .connectError: "CONNECT_ERROR"
+        case .enhanceYourCalm: "ENHANCE_YOUR_CALM"
+        case .inadequateSecurity: "INADEQUATE_SECURITY"
+        case .http11Required: "HTTP_1_1_REQUIRED"
+        default: "0x\(String(code.networkCode, radix: 16, uppercase: true))"
+        }
+    }
+
+    // MARK: - Transaction Assembly
+
+    /// Server-sent events and newline-delimited JSON stay open for as long as the server keeps
+    /// producing — an LLM completion commonly streams for 30 s or more. Only these content
+    /// types get a live row, so ordinary responses keep their single delivery.
+    nonisolated static func isStreamingResponse(_ headers: HTTPHeaders) -> Bool {
+        guard let contentType = headers.first(name: "Content-Type")?.lowercased() else {
+            return false
+        }
+        let mediaType = contentType.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return [
+            "text/event-stream",
+            "application/x-ndjson",
+            "application/ndjson",
+            "application/jsonl",
+            "application/x-jsonlines",
+        ].contains(mediaType)
+    }
+
     nonisolated func handlerAdded(context: ChannelHandlerContext) {
         // An HTTP/2 origin is reached through a stream channel whose parent is the connection.
         serverHTTPVersion = context.channel.parent == nil ? "1.1" : "2"
@@ -215,35 +290,18 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
     }
 
-    /// The upstream went away (TLS handshake rejected, connection reset, server closed early)
-    /// before a single response byte arrived. Without this the client would sit on an open
-    /// socket until its own timeout and the request would never appear in the list.
-    nonisolated private func failClientBeforeResponse(reason: String) {
-        upstreamLogger.warning("Upstream failed before responding for \(self.requestData.url): \(reason)")
+    /// Flushes the client channel once per upstream read burst.
+    ///
+    /// The relay paths below write without flushing so that the writes of a single read
+    /// coalesce. Without this, nothing reaches the client until `relayResponseEnd` flushes,
+    /// which never happens while a `text/event-stream` or chunked response is still open:
+    /// the client would wait for headers until the response completed. Flushing here keeps
+    /// streaming responses live without flushing once per chunk.
+    nonisolated func channelReadComplete(context: ChannelHandlerContext) {
         if clientContext.channel.isActive {
-            var head = HTTPResponseHead(version: .http1_1, status: .badGateway)
-            head.headers.add(name: "Connection", value: "close")
-            head.headers.add(name: "Content-Length", value: "0")
-            clientContext.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
-            clientContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { [clientContext] _ in
-                clientContext.close(promise: nil)
-            }
+            clientContext.flush()
         }
-
-        let transaction = HTTPTransaction(
-            request: requestData,
-            response: HTTPResponseData(statusCode: 502, statusMessage: reason, headers: []),
-            state: .failed
-        )
-        if connectionLog?.failure == nil {
-            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: reason)
-        }
-        transaction.connectionLog = connectionLog
-        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds &- startTime.uptimeNanoseconds
-        transaction.measuredDuration = Double(elapsedNanoseconds) / 1_000_000_000
-        transaction.sourcePort = sourcePort
-        transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
-        onTransactionComplete(transaction)
+        context.fireChannelReadComplete()
     }
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -440,61 +498,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         context.close(promise: nil)
     }
 
-    /// A short, user-facing reason for the failed row. Certificate problems are the case a
-    /// developer most needs to recognise, so they get a dedicated message.
-    nonisolated static func upstreamFailureReason(for error: Error) -> String {
-        if let sslError = error as? NIOSSLError {
-            switch sslError {
-            case .handshakeFailed:
-                return "Upstream TLS handshake failed (certificate rejected)"
-            default:
-                return "Upstream TLS error"
-            }
-        }
-        if error is NIOSSLExtraError {
-            return "Upstream TLS handshake failed (certificate rejected)"
-        }
-        if let reset = error as? NIOHTTP2Errors.StreamClosed {
-            return "Upstream reset the HTTP/2 stream before responding (\(http2ErrorName(reset.errorCode)))"
-        }
-        return "Upstream connection failed before responding"
-    }
-
-    /// Why a response that had already started did not finish.
-    nonisolated static func midResponseFailureReason(for error: Error) -> String {
-        if let reset = error as? NIOHTTP2Errors.StreamClosed {
-            return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
-        }
-        return "Upstream connection failed mid-response"
-    }
-
-    /// Whether the response declares its own length, so an early close means missing bytes.
-    nonisolated static func hasFramedBody(_ head: HTTPResponseHead) -> Bool {
-        head.headers.contains(name: "Content-Length")
-            || head.headers[canonicalForm: "Transfer-Encoding"].contains { $0.lowercased() == "chunked" }
-    }
-
-    /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.
-    nonisolated static func http2ErrorName(_ code: HTTP2ErrorCode) -> String {
-        switch code {
-        case .noError: "NO_ERROR"
-        case .protocolError: "PROTOCOL_ERROR"
-        case .internalError: "INTERNAL_ERROR"
-        case .flowControlError: "FLOW_CONTROL_ERROR"
-        case .settingsTimeout: "SETTINGS_TIMEOUT"
-        case .streamClosed: "STREAM_CLOSED"
-        case .frameSizeError: "FRAME_SIZE_ERROR"
-        case .refusedStream: "REFUSED_STREAM"
-        case .cancel: "CANCEL"
-        case .compressionError: "COMPRESSION_ERROR"
-        case .connectError: "CONNECT_ERROR"
-        case .enhanceYourCalm: "ENHANCE_YOUR_CALM"
-        case .inadequateSecurity: "INADEQUATE_SECURITY"
-        case .http11Required: "HTTP_1_1_REQUIRED"
-        default: "0x\(String(code.networkCode, radix: 16, uppercase: true))"
-        }
-    }
-
     // MARK: Private
 
     private let requestData: HTTPRequestData
@@ -586,11 +589,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return nsError.domain == "NIOSSL.NIOSSLErrorDomain" && nsError.code == 12
     }
 
-    nonisolated private func cancelPendingResponseBreakpoint() {
-        pendingResponseBreakpointTask?.cancel()
-        pendingResponseBreakpointTask = nil
-    }
-
     /// Detects a `text/event-stream` response so the SSE framer is created only for
     /// streaming responses.
     nonisolated private static func isEventStream(_ headers: HTTPHeaders) -> Bool {
@@ -603,6 +601,42 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return headers["Content-Type"].contains { $0.lowercased().contains("text/event-stream") }
     }
 
+    /// The upstream went away (TLS handshake rejected, connection reset, server closed early)
+    /// before a single response byte arrived. Without this the client would sit on an open
+    /// socket until its own timeout and the request would never appear in the list.
+    nonisolated private func failClientBeforeResponse(reason: String) {
+        upstreamLogger.warning("Upstream failed before responding for \(self.requestData.url): \(reason)")
+        if clientContext.channel.isActive {
+            var head = HTTPResponseHead(version: .http1_1, status: .badGateway)
+            head.headers.add(name: "Connection", value: "close")
+            head.headers.add(name: "Content-Length", value: "0")
+            clientContext.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
+            clientContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { [clientContext] _ in
+                clientContext.close(promise: nil)
+            }
+        }
+
+        let transaction = HTTPTransaction(
+            request: requestData,
+            response: HTTPResponseData(statusCode: 502, statusMessage: reason, headers: []),
+            state: .failed
+        )
+        if connectionLog?.failure == nil {
+            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: reason)
+        }
+        transaction.connectionLog = connectionLog
+        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds &- startTime.uptimeNanoseconds
+        transaction.measuredDuration = Double(elapsedNanoseconds) / 1_000_000_000
+        transaction.sourcePort = sourcePort
+        transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
+        onTransactionComplete(transaction)
+    }
+
+    nonisolated private func cancelPendingResponseBreakpoint() {
+        pendingResponseBreakpointTask?.cancel()
+        pendingResponseBreakpointTask = nil
+    }
+
     // MARK: - Client Relay
 
     nonisolated private func relayResponseHead(_ head: HTTPResponseHead) {
@@ -611,11 +645,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         let proxyHead = HTTPResponseHead(version: head.version, status: head.status, headers: head.headers)
         let part = NIOAny(HTTPServerResponsePart.head(proxyHead))
-        if networkConditionProfile?.downloadBytesPerSecond != nil || networkConditionProfile?.packetLoss != nil {
-            clientContext.writeAndFlush(part, promise: nil)
-        } else {
-            clientContext.write(part, promise: nil)
-        }
+        // Always flushed: there is one head per response, so the cost is negligible, and a
+        // head relayed outside a read burst — after a response breakpoint resolves or a
+        // response script finishes — has no `channelReadComplete` behind it to flush it.
+        clientContext.writeAndFlush(part, promise: nil)
     }
 
     nonisolated private func relayResponseBody(_ buffer: ByteBuffer) {
@@ -919,26 +952,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
     }
 
-    // MARK: - Transaction Assembly
-
-    /// Server-sent events and newline-delimited JSON stay open for as long as the server keeps
-    /// producing — an LLM completion commonly streams for 30 s or more. Only these content
-    /// types get a live row, so ordinary responses keep their single delivery.
-    nonisolated static func isStreamingResponse(_ headers: HTTPHeaders) -> Bool {
-        guard let contentType = headers.first(name: "Content-Type")?.lowercased() else {
-            return false
-        }
-        let mediaType = contentType.split(separator: ";", maxSplits: 1).first?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        return [
-            "text/event-stream",
-            "application/x-ndjson",
-            "application/ndjson",
-            "application/jsonl",
-            "application/x-jsonlines",
-        ].contains(mediaType)
-    }
-
     /// Delivers a streaming response as an `.active` row the moment its head arrives, so a
     /// long stream is visible while it runs instead of appearing only once it ends. The same
     /// transaction is completed in place by `buildAndCompleteTransaction()`.
@@ -1060,7 +1073,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             } ?? 0
             return TimingInfo(
                 dnsLookup: dnsLookup,
-                tcpConnection: TimeInterval(socketOpen &- min(connectTime.uptimeNanoseconds, socketOpen)) / 1_000_000_000,
+                tcpConnection: TimeInterval(socketOpen &- min(connectTime.uptimeNanoseconds, socketOpen)) /
+                    1_000_000_000,
                 tlsHandshake: TimeInterval(handshakeAt.uptimeNanoseconds - socketOpen) / 1_000_000_000,
                 timeToFirstByte: ttfbAfterTLS,
                 contentTransfer: transfer
