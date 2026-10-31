@@ -47,17 +47,27 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
     /// deadline means a channel is wedged rather than merely busy.
     static let drainTimeout: Duration = .seconds(5)
 
+    /// Upper bound on how long start waits for channels left over from a previous run.
+    /// Start can legitimately follow a stop that proceeded early, so a channel may still
+    /// be finishing its close here; reaching this deadline means it is wedged.
+    static let startDrainTimeout: Duration = .seconds(5)
+
     func prepareForStart() async {
         var staleChannelCount = 0
+        var abandonedChannelCount = 0
         while true {
             let staleChannels = beginShutdown()
             staleChannelCount += staleChannels.count
-            await close(staleChannels)
-            // Deliberately unbounded: giving up here would have to force `isShuttingDown`
-            // back to false while stale channels are still registered, and `register`
-            // closes every new channel while that flag is set. Bounding start is a
-            // separate change from bounding stop.
-            _ = await waitUntilEmpty(timeout: nil)
+            initiateClose(staleChannels)
+            let stillClosing = await waitUntilEmpty(timeout: Self.startDrainTimeout)
+            // Bounded on purpose: start is awaited inline before the UI settles, so an
+            // unbounded wait here is a stuck Start button for as long as the slowest
+            // channel takes. Dropping the stragglers is what lets `isShuttingDown` clear,
+            // and it is safe for the same reason stop can proceed early: `close()` has
+            // already been initiated on each one, so its handler's `channel.isActive`
+            // gate is false and it can no longer start origin work or write a response.
+            // The `closeFuture` removal that follows later is then a no-op.
+            abandonedChannelCount += forget(stillClosing).count
             guard finishPreparingForStartIfEmpty() else {
                 continue
             }
@@ -65,6 +75,12 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         }
         if staleChannelCount > 0 {
             proxyServerLogger.warning("Closed \(staleChannelCount) stale client channels before proxy restart")
+        }
+        if abandonedChannelCount > 0 {
+            proxyServerLogger
+                .warning(
+                    "Proxy start proceeded with \(abandonedChannelCount) client channels still closing after \(String(describing: Self.startDrainTimeout))"
+                )
         }
     }
 
@@ -92,7 +108,7 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
     /// only still finishing its own close.
     func closeAllAndWait(timeout: Duration = ProxyChildChannelRegistry.drainTimeout) async {
         let snapshot = beginShutdown()
-        await close(snapshot)
+        initiateClose(snapshot)
         let stillClosing = await waitUntilEmpty(timeout: timeout)
         if !stillClosing.isEmpty {
             proxyServerLogger
@@ -117,13 +133,14 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         return snapshot
     }
 
-    private func close(_ channels: [Channel]) async {
-        await withTaskGroup(of: Void.self) { group in
-            for channel in channels {
-                group.addTask {
-                    try? await channel.close().get()
-                }
-            }
+    /// Initiates close on every channel without awaiting completion, so the caller's
+    /// bounded `waitUntilEmpty` is the only wait. Each channel's `closeFuture` removes it
+    /// from the registry, so awaiting the close futures here as well would wait for the
+    /// same event — but ahead of the deadline and without one, which is how a saturated
+    /// event loop could hold stop past `drainTimeout` despite the bound.
+    private func initiateClose(_ channels: [Channel]) {
+        for channel in channels {
+            channel.close(promise: nil)
         }
     }
 
@@ -135,6 +152,27 @@ final class ProxyChildChannelRegistry: @unchecked Sendable {
         }
         isShuttingDown = false
         return true
+    }
+
+    /// Drops channels from the registry without waiting for their close to complete and
+    /// resumes empty waiters if that leaves it empty, so a wedged channel cannot hold the
+    /// registry non-empty forever. Returns the channels it actually dropped.
+    private func forget(_ staleChannels: [Channel]) -> [Channel] {
+        var dropped: [Channel] = []
+        let waiters: [CheckedContinuation<Void, Never>]
+        lock.lock()
+        for staleChannel in staleChannels where channels.removeValue(forKey: ObjectIdentifier(staleChannel)) != nil {
+            dropped.append(staleChannel)
+        }
+        if channels.isEmpty {
+            waiters = Array(emptyWaiters.values)
+            emptyWaiters.removeAll()
+        } else {
+            waiters = []
+        }
+        lock.unlock()
+        waiters.forEach { $0.resume() }
+        return dropped
     }
 
     private func remove(_ identifier: ObjectIdentifier) {
@@ -781,6 +819,49 @@ actor ProxyServer {
         }
     }
 
+    /// Runs `operation`, giving up after `timeout`, and reports whether it finished.
+    ///
+    /// Deliberately not a task group: a group awaits every child before it returns, so racing
+    /// a sleeper against an operation that never completes would still never return. The
+    /// operation runs in an unstructured task that is simply abandoned on the deadline, with a
+    /// resume-once guard so the continuation is resumed exactly once — the same shape the
+    /// helper connection already uses for its XPC deadlines.
+    private static func awaitBounded(
+        _ label: String,
+        _ timeout: Duration,
+        _ operation: @escaping @Sendable () async -> Void
+    ) async
+        -> Bool
+    {
+        let resumed = OSAllocatedUnfairLock(initialState: false)
+        let completed = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let claim: @Sendable (Bool) -> Void = { didComplete in
+                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
+                    if alreadyResumed {
+                        return false
+                    }
+                    alreadyResumed = true
+                    return true
+                }
+                if shouldResume {
+                    continuation.resume(returning: didComplete)
+                }
+            }
+            Task {
+                await operation()
+                claim(true)
+            }
+            Task {
+                try? await Task.sleep(for: timeout)
+                claim(false)
+            }
+        }
+        if !completed {
+            logger.warning("Proxy stop proceeded: \(label) did not finish within \(String(describing: timeout))")
+        }
+        return completed
+    }
+
     func stop() async {
         guard let channel = serverChannel, !isStopping else {
             return
@@ -791,19 +872,25 @@ actor ProxyServer {
         listenerGeneration &+= 1
         removePolicyObservers()
         for listener in reverseListeners.values {
-            try? await listener.close().get()
+            await Self.awaitBounded("reverse listener close", Self.listenerCloseTimeout) {
+                try? await listener.close().get()
+            }
         }
         reverseListeners.removeAll()
         if let socksListener {
-            try? await socksListener.channel.close().get()
+            await Self.awaitBounded("SOCKS listener close", Self.listenerCloseTimeout) {
+                try? await socksListener.channel.close().get()
+            }
             self.socksListener = nil
         }
         childPipeline = nil
 
-        do {
-            try await channel.close().get()
-        } catch {
-            Self.logger.error("Error closing server channel: \(error.localizedDescription)")
+        await Self.awaitBounded("server channel close", Self.listenerCloseTimeout) {
+            do {
+                try await channel.close().get()
+            } catch {
+                Self.logger.error("Error closing server channel: \(error.localizedDescription)")
+            }
         }
 
         await childChannelRegistry.closeAllAndWait()
@@ -815,10 +902,24 @@ actor ProxyServer {
         liveTunnelRegistry = nil
 
         if let group = eventLoopGroup {
-            do {
-                try await group.shutdownGracefully()
-            } catch {
-                Self.logger.error("Error shutting down event loop group: \(error.localizedDescription)")
+            // Bounded like every other wait in stop. `shutdownGracefully()` waits for every
+            // registered channel with no deadline of its own, so one channel that never
+            // finishes closing hangs Stop forever — observed directly: a test that made a
+            // channel unclosable wedged here for over four hours. Giving up leaks the group's
+            // threads until the straggler closes, which is strictly better than a Stop button
+            // that never returns; the listeners are already closed, so no new work arrives.
+            let completed = await Self.awaitBounded(
+                "event loop group shutdown",
+                Self.groupShutdownTimeout
+            ) {
+                do {
+                    try await group.shutdownGracefully()
+                } catch {
+                    Self.logger.error("Error shutting down event loop group: \(error.localizedDescription)")
+                }
+            }
+            if !completed {
+                Self.logger.warning("Proxy stop abandoned the event loop group shutdown; its threads outlive stop")
             }
             eventLoopGroup = nil
         }
@@ -827,6 +928,12 @@ actor ProxyServer {
     }
 
     // MARK: Private
+
+    /// Upper bound on closing one of our own listener channels during stop.
+    private static let listenerCloseTimeout: Duration = .seconds(2)
+
+    /// Upper bound on the event-loop group shutdown that ends stop.
+    private static let groupShutdownTimeout: Duration = .seconds(5)
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyServer")
     nonisolated private static let tunnelInvalidationQueue = DispatchQueue(

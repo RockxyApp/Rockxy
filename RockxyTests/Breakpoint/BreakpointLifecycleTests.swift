@@ -91,6 +91,72 @@ struct BreakpointLifecycleTests {
         }
     }
 
+    /// A channel whose close never completes used to suspend `prepareForStart()` forever,
+    /// which the user sees as a Start button that never comes back. The wait is now
+    /// bounded and the straggler is dropped so the next run can proceed.
+    @Test("a client channel that never finishes closing stops blocking proxy start")
+    func startDrainIsBounded() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        var wedged: (channel: Channel, swallowClose: SwallowCloseHandler)?
+        do {
+            let registry = ProxyChildChannelRegistry()
+            let pair = try await makeUncloseableChannel(on: eventLoopGroup)
+            wedged = pair
+            registry.register(pair.channel)
+
+            let startedAt = ContinuousClock.now
+            await registry.prepareForStart()
+            let elapsed = startedAt.duration(to: .now)
+
+            #expect(elapsed >= ProxyChildChannelRegistry.startDrainTimeout)
+            #expect(elapsed < ProxyChildChannelRegistry.startDrainTimeout + .seconds(5))
+
+            // Start must have cleared `isShuttingDown` despite the straggler, otherwise
+            // every connection the new run accepts is closed on arrival.
+            let freshChannel = try await makeActiveChannel(on: eventLoopGroup)
+            registry.register(freshChannel)
+            #expect(freshChannel.isActive)
+
+            await registry.closeAllAndWait()
+            try await unwedge(pair.channel, removing: pair.swallowClose)
+            try await eventLoopGroup.shutdownGracefully()
+        } catch {
+            if let wedged {
+                try? await unwedge(wedged.channel, removing: wedged.swallowClose)
+            }
+            try? await eventLoopGroup.shutdownGracefully()
+            throw error
+        }
+    }
+
+    /// Stop bounded its own wait but awaited every close future first, with no deadline
+    /// on that phase, so a channel that never finished closing still hung Stop.
+    @Test("a client channel that never finishes closing stops blocking proxy stop")
+    func stopDrainIsBoundedAcrossTheClosePhase() async throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        var wedged: (channel: Channel, swallowClose: SwallowCloseHandler)?
+        do {
+            let registry = ProxyChildChannelRegistry()
+            let pair = try await makeUncloseableChannel(on: eventLoopGroup)
+            wedged = pair
+            registry.register(pair.channel)
+
+            let startedAt = ContinuousClock.now
+            await registry.closeAllAndWait(timeout: .milliseconds(200))
+            let elapsed = startedAt.duration(to: .now)
+
+            #expect(elapsed < .seconds(5))
+            try await unwedge(pair.channel, removing: pair.swallowClose)
+            try await eventLoopGroup.shutdownGracefully()
+        } catch {
+            if let wedged {
+                try? await unwedge(wedged.channel, removing: wedged.swallowClose)
+            }
+            try? await eventLoopGroup.shutdownGracefully()
+            throw error
+        }
+    }
+
     /// A bridge that never completes used to suspend `stop()` forever, which the user
     /// sees as a Stop button that never comes back. The wait is now bounded and reports
     /// what outlived it.
@@ -171,6 +237,29 @@ struct BreakpointLifecycleTests {
         )
     }
 
+    /// A channel whose pipeline swallows `close`, standing in for one wedged by a
+    /// saturated event loop: its `closeFuture` never fires, so any unbounded wait on it
+    /// never returns.
+    private func makeUncloseableChannel(
+        on group: EventLoopGroup
+    ) async throws
+        -> (channel: Channel, swallowClose: SwallowCloseHandler)
+    {
+        let channel = try await makeActiveChannel(on: group)
+        let swallowClose = SwallowCloseHandler()
+        try await channel.pipeline.addHandler(swallowClose).get()
+        return (channel, swallowClose)
+    }
+
+    /// Lets a deliberately unclosable channel close for real before the test tears its
+    /// event-loop group down. `shutdownGracefully()` waits for every channel with no
+    /// deadline, so leaving one permanently unclosable hangs the whole test run — which is
+    /// what an earlier version of these tests did, for four hours.
+    private func unwedge(_ channel: Channel, removing swallowClose: SwallowCloseHandler) async throws {
+        try? await channel.pipeline.removeHandler(swallowClose).get()
+        try? await channel.close().get()
+    }
+
     private func makeActiveChannel(on group: EventLoopGroup) async throws -> Channel {
         try await ServerBootstrap(group: group)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -179,6 +268,21 @@ struct BreakpointLifecycleTests {
             }
             .bind(host: "127.0.0.1", port: 0)
             .get()
+    }
+}
+
+// MARK: - SwallowCloseHandler
+
+/// Drops outbound `close` on the floor and leaves its promise unfulfilled, so the
+/// channel's `closeFuture` never completes.
+/// Stateless, so sharing it across the test's concurrency domains is safe.
+final class SwallowCloseHandler: ChannelOutboundHandler, RemovableChannelHandler, @unchecked Sendable {
+    typealias OutboundIn = NIOAny
+
+    func close(context: ChannelHandlerContext, mode: CloseMode, promise: EventLoopPromise<Void>?) {
+        _ = context
+        _ = mode
+        _ = promise
     }
 }
 
