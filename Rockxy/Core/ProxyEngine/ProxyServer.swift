@@ -311,7 +311,8 @@ actor ProxyServer {
             await ProcessResolver.shared.identityResolver.resolveIdentity(descriptor: $0)
         },
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void = { _ in },
-        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? = nil,
+        onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
+            nil,
         remoteAccessGate: RemoteAccessGate = .shared
     ) {
         self.configuration = configuration
@@ -489,72 +490,73 @@ actor ProxyServer {
         // One pipeline for the main listener and every reverse proxy listener; a reverse
         // listener adds only the request rewriter in front of the proxy handler.
         let accessGate = remoteAccessGate
-        let makeChildPipeline: @Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void> = { channel, reverseTarget in
-            // Access Control: refuse other devices before any byte is read. A failed
-            // initializer closes the connection.
-            let access = accessGate.decision(
-                clientAddress: channel.remoteAddress?.ipAddress,
-                localAddress: channel.localAddress?.ipAddress
-            )
-            guard access == .allow else {
-                proxyServerLogger.info("Refused a connection from a device not allowed by Access Control")
-                return channel.eventLoop.makeFailedFuture(RemoteAccessRefusedError())
-            }
-            childRegistry.register(channel)
-            // Capture an immutable connection descriptor at accept and start identity
-            // resolution concurrently. The decorated callback stamps the resolved
-            // identity onto every emitted transaction for rules and observed-app UI.
-            let descriptor = ProxyConnectionDescriptor(
-                acceptedAt: DispatchTime.now(),
-                clientHost: channel.remoteAddress?.ipAddress,
-                clientPort: channel.remoteAddress?.port.flatMap { UInt16(exactly: $0) },
-                proxyHost: channel.localAddress?.ipAddress,
-                // The port this connection actually reached (main, reverse, or SOCKS listener),
-                // which identity resolution matches against the client's socket.
-                proxyPort: channel.localAddress?.port ?? reverseTarget?.localPort ?? proxyPort
-            )
-            let identityHandle = identityProvider(descriptor)
-            identityHandle?.startResolution()
-            let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
-                handle: identityHandle,
-                downstream: ProxyServer.makeScriptAttributionCallback(
-                    ledger: scriptMgr?.executionLedger,
-                    downstream: callback
+        let makeChildPipeline: @Sendable (Channel, ReverseProxyTarget?)
+            -> EventLoopFuture<Void> = { channel, reverseTarget in
+                // Access Control: refuse other devices before any byte is read. A failed
+                // initializer closes the connection.
+                let access = accessGate.decision(
+                    clientAddress: channel.remoteAddress?.ipAddress,
+                    localAddress: channel.localAddress?.ipAddress
                 )
-            )
-            return channel.pipeline.addHandler(BreakpointClientLivenessProbeHandler()).flatMap {
-                channel.pipeline.addHandler(ConnectionTimeoutHandler(timeout: .seconds(300)))
-            }.flatMap {
-                channel.pipeline.addHandler(ConnectionLogger())
-            }.flatMap {
-                channel.pipeline.configureHTTPServerPipeline()
-            }.flatMap {
-                guard let reverseTarget else {
-                    return channel.eventLoop.makeSucceededVoidFuture()
+                guard access == .allow else {
+                    proxyServerLogger.info("Refused a connection from a device not allowed by Access Control")
+                    return channel.eventLoop.makeFailedFuture(RemoteAccessRefusedError())
                 }
-                return channel.pipeline.addHandler(ReverseProxyRequestRewriter(target: reverseTarget))
-            }.flatMap {
-                let handler = HTTPProxyHandler(
-                    certificateManager: certManager,
-                    ruleEngine: ruleEng,
-                    scriptPluginManager: scriptMgr,
-                    connectionLimiter: limiter,
-                    sslProxyingManager: sslProxyingManager,
-                    bypassProxyManager: bypassProxyManager,
-                    upstreamProxySnapshotProvider: upstreamProxyProvider,
-                    upstreamTrustProvider: self.upstreamTrustProvider,
-                    captureContextProvider: captureProvider,
-                    shouldBypassUserModifications: bypassUserModifications,
-                    clientIdentityHandle: identityHandle,
-                    clientConnectionDescriptor: descriptor,
-                    liveTunnelRegistry: tunnelRegistry,
-                    onTransactionComplete: decoratedCallback,
-                    onBreakpointHit: breakpointHit,
-                    breakpointBridgeTracker: bridgeTracker
+                childRegistry.register(channel)
+                // Capture an immutable connection descriptor at accept and start identity
+                // resolution concurrently. The decorated callback stamps the resolved
+                // identity onto every emitted transaction for rules and observed-app UI.
+                let descriptor = ProxyConnectionDescriptor(
+                    acceptedAt: DispatchTime.now(),
+                    clientHost: channel.remoteAddress?.ipAddress,
+                    clientPort: channel.remoteAddress?.port.flatMap { UInt16(exactly: $0) },
+                    proxyHost: channel.localAddress?.ipAddress,
+                    // The port this connection actually reached (main, reverse, or SOCKS listener),
+                    // which identity resolution matches against the client's socket.
+                    proxyPort: channel.localAddress?.port ?? reverseTarget?.localPort ?? proxyPort
                 )
-                return channel.pipeline.addHandler(handler)
+                let identityHandle = identityProvider(descriptor)
+                identityHandle?.startResolution()
+                let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
+                    handle: identityHandle,
+                    downstream: ProxyServer.makeScriptAttributionCallback(
+                        ledger: scriptMgr?.executionLedger,
+                        downstream: callback
+                    )
+                )
+                return channel.pipeline.addHandler(BreakpointClientLivenessProbeHandler()).flatMap {
+                    channel.pipeline.addHandler(ConnectionTimeoutHandler(timeout: .seconds(300)))
+                }.flatMap {
+                    channel.pipeline.addHandler(ConnectionLogger())
+                }.flatMap {
+                    channel.pipeline.configureHTTPServerPipeline()
+                }.flatMap {
+                    guard let reverseTarget else {
+                        return channel.eventLoop.makeSucceededVoidFuture()
+                    }
+                    return channel.pipeline.addHandler(ReverseProxyRequestRewriter(target: reverseTarget))
+                }.flatMap {
+                    let handler = HTTPProxyHandler(
+                        certificateManager: certManager,
+                        ruleEngine: ruleEng,
+                        scriptPluginManager: scriptMgr,
+                        connectionLimiter: limiter,
+                        sslProxyingManager: sslProxyingManager,
+                        bypassProxyManager: bypassProxyManager,
+                        upstreamProxySnapshotProvider: upstreamProxyProvider,
+                        upstreamTrustProvider: self.upstreamTrustProvider,
+                        captureContextProvider: captureProvider,
+                        shouldBypassUserModifications: bypassUserModifications,
+                        clientIdentityHandle: identityHandle,
+                        clientConnectionDescriptor: descriptor,
+                        liveTunnelRegistry: tunnelRegistry,
+                        onTransactionComplete: decoratedCallback,
+                        onBreakpointHit: breakpointHit,
+                        breakpointBridgeTracker: bridgeTracker
+                    )
+                    return channel.pipeline.addHandler(handler)
+                }
             }
-        }
         childPipeline = makeChildPipeline
 
         let bootstrap = ServerBootstrap(group: group)
@@ -591,68 +593,6 @@ actor ProxyServer {
         Self.logger.info(
             "Proxy server started on \(self.configuration.listenAddress):\(self.configuration.port)"
         )
-    }
-
-    /// Reverse proxy and SOCKS reconciliation run one at a time; overlapping updates
-    /// would otherwise race to bind the same port and report a stale status.
-    private func beginListenerReconcile() async {
-        if isReconcilingListeners {
-            await withCheckedContinuation { listenerReconcileWaiters.append($0) }
-        }
-        isReconcilingListeners = true
-    }
-
-    private func endListenerReconcile() {
-        if listenerReconcileWaiters.isEmpty {
-            isReconcilingListeners = false
-        } else {
-            listenerReconcileWaiters.removeFirst().resume()
-        }
-    }
-
-    /// Keeps the upstream proxy snapshot and live tunnels in step with settings changes.
-    private func installPolicyObservers(tunnelRegistry: LiveTunnelRegistry) {
-        upstreamProxyObserver = NotificationCenter.default.addObserver(
-            forName: .upstreamProxyConfigurationDidChange,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            guard let self else {
-                return
-            }
-            Task {
-                await self.refreshUpstreamProxySnapshot()
-            }
-        }
-
-        // Any SSL-proxying mutation (inspector, settings, import, global enable) routes through
-        // save()/forceGlobalPassthrough and posts this notification. Reset live raw tunnels the
-        // new policy would now intercept so the client's next request is decrypted. The registry
-        // itself is Sendable and thread-safe. Dispatch invalidation away from the posting thread:
-        // automatic TLS recovery can post from a NIO event loop, which must not synchronously
-        // sweep and close unrelated live tunnels.
-        sslPolicyObserver = NotificationCenter.default.addObserver(
-            forName: .sslProxyingStateDidChange,
-            object: nil,
-            queue: nil
-        ) { _ in
-            Self.tunnelInvalidationQueue.async {
-                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
-            }
-        }
-
-        // Bypass-list mutations also feed `initialTunnelMode`: removing a bypass entry can turn a
-        // tracked `.bypassProxyList` raw tunnel into intercept mode while the client is still
-        // connected through Rockxy. Route it through the same invalidation seam.
-        bypassPolicyObserver = NotificationCenter.default.addObserver(
-            forName: .bypassProxyListDidChange,
-            object: nil,
-            queue: nil
-        ) { _ in
-            Self.tunnelInvalidationQueue.async {
-                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
-            }
-        }
     }
 
     /// Reconciles reverse proxy listeners with `targets`: listeners that are no longer
@@ -842,6 +782,68 @@ actor ProxyServer {
     private var bypassPolicyObserver: NSObjectProtocol?
     private let upstreamProxySnapshotLock = NSLock()
     nonisolated(unsafe) private var upstreamProxyConfiguration: UpstreamProxyResolvedConfiguration?
+
+    /// Reverse proxy and SOCKS reconciliation run one at a time; overlapping updates
+    /// would otherwise race to bind the same port and report a stale status.
+    private func beginListenerReconcile() async {
+        if isReconcilingListeners {
+            await withCheckedContinuation { listenerReconcileWaiters.append($0) }
+        }
+        isReconcilingListeners = true
+    }
+
+    private func endListenerReconcile() {
+        if listenerReconcileWaiters.isEmpty {
+            isReconcilingListeners = false
+        } else {
+            listenerReconcileWaiters.removeFirst().resume()
+        }
+    }
+
+    /// Keeps the upstream proxy snapshot and live tunnels in step with settings changes.
+    private func installPolicyObservers(tunnelRegistry: LiveTunnelRegistry) {
+        upstreamProxyObserver = NotificationCenter.default.addObserver(
+            forName: .upstreamProxyConfigurationDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else {
+                return
+            }
+            Task {
+                await self.refreshUpstreamProxySnapshot()
+            }
+        }
+
+        // Any SSL-proxying mutation (inspector, settings, import, global enable) routes through
+        // save()/forceGlobalPassthrough and posts this notification. Reset live raw tunnels the
+        // new policy would now intercept so the client's next request is decrypted. The registry
+        // itself is Sendable and thread-safe. Dispatch invalidation away from the posting thread:
+        // automatic TLS recovery can post from a NIO event loop, which must not synchronously
+        // sweep and close unrelated live tunnels.
+        sslPolicyObserver = NotificationCenter.default.addObserver(
+            forName: .sslProxyingStateDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            Self.tunnelInvalidationQueue.async {
+                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            }
+        }
+
+        // Bypass-list mutations also feed `initialTunnelMode`: removing a bypass entry can turn a
+        // tracked `.bypassProxyList` raw tunnel into intercept mode while the client is still
+        // connected through Rockxy. Route it through the same invalidation seam.
+        bypassPolicyObserver = NotificationCenter.default.addObserver(
+            forName: .bypassProxyListDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in
+            Self.tunnelInvalidationQueue.async {
+                tunnelRegistry.invalidateTunnelsNowRequiringInterception()
+            }
+        }
+    }
 
     /// Removes every notification observer installed by `start()`. Safe to call on both the clean
     /// stop path and the failed-start path; each token is niled so a later start reinstalls fresh
