@@ -686,6 +686,9 @@ final class SystemProxyManager: @unchecked Sendable {
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SystemProxyManager")
     private static let networkSetupPath = "/usr/sbin/networksetup"
 
+    /// Upper bound on a single `networksetup` invocation.
+    static let networkSetupTimeout: TimeInterval = 10
+
     private static let routePath = "/sbin/route"
     private static let helperBackupPath = "/Library/Application Support/\(RockxyIdentity.current.sharedSupportDirectoryName)/proxy-backup.plist"
     /// Serializes enable, disable, and termination cleanup against each other. It is static
@@ -1815,6 +1818,48 @@ final class SystemProxyManager: @unchecked Sendable {
 
     // MARK: - Process Execution
 
+    /// Collects a child's two output streams from the queues draining them.
+    private final class NetworkSetupOutputBox: @unchecked Sendable {
+        var standardOutput: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return outputData
+        }
+
+        var standardError: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return errorData
+        }
+
+        func store(_ data: Data, isStandardOutput: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            if isStandardOutput {
+                outputData = data
+            } else {
+                errorData = data
+            }
+        }
+
+        private let lock = NSLock()
+        private var outputData = Data()
+        private var errorData = Data()
+    }
+
+    /// Ends a child that outlived its budget: SIGTERM, a bounded grace window, then SIGKILL.
+    /// A wedged `networksetup` that ignores SIGTERM must not keep the gates above it closed.
+    private static func terminate(_ process: Process) {
+        process.terminate()
+        let deadline = Date().addingTimeInterval(1)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+    }
+
     @discardableResult
     private func runNetworkSetup(_ arguments: [String]) throws -> String {
         let process = Process()
@@ -1837,13 +1882,41 @@ final class SystemProxyManager: @unchecked Sendable {
             )
         }
 
+        // Both pipes are drained concurrently, and only then is the exit awaited, under a
+        // deadline. The previous order — `waitUntilExit()` first, then `readDataToEndOfFile()`
+        // on each pipe — deadlocks outright once the child outgrows the pipe buffer, because
+        // `networksetup` blocks writing while this process blocks waiting. Commands whose
+        // output is unbounded in practice (`-listnetworkserviceorder`, `-getproxybypassdomains`
+        // on a long bypass list) are exactly the ones that reach that size.
+        let output = NetworkSetupOutputBox()
+        let reads = DispatchGroup()
+        for (pipe, isStandardOutput) in [(stdoutPipe, true), (stderrPipe, false)] {
+            DispatchQueue.global(qos: .userInitiated).async(group: reads) {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                output.store(data, isStandardOutput: isStandardOutput)
+            }
+        }
+
+        // A bound, not a latency target: `networksetup` normally answers in well under a
+        // second, so reaching this means it is wedged rather than busy. This runs inside both
+        // `ProxyOperationGate` (holding a recursive lock) and `ProxyAsyncOperationGate`, so an
+        // unbounded wait here does not stall one Start — it stalls every later Start, Stop and
+        // the termination cleanup. Enabling issues several of these calls in sequence, so the
+        // aggregate is a multiple of this value; bounding each call is what keeps the total
+        // finite at all.
+        guard reads.wait(timeout: .now() + Self.networkSetupTimeout) == .success else {
+            Self.terminate(process)
+            Self.logger.error("networksetup timed out: \(arguments.joined(separator: " "))")
+            throw SystemProxyError.networkSetupFailed(
+                command: arguments.joined(separator: " "),
+                output: "networksetup did not finish within \(Self.networkSetupTimeout) seconds",
+                exitCode: -1
+            )
+        }
         process.waitUntilExit()
 
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        let stdout = String(data: output.standardOutput, encoding: .utf8) ?? ""
+        let stderr = String(data: output.standardError, encoding: .utf8) ?? ""
 
         guard process.terminationStatus == 0 else {
             let combined = stderr.isEmpty ? stdout : stderr
