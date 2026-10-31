@@ -198,7 +198,7 @@ struct ResponseInspectorView: View {
     }
 
     private var hasAIInspection: Bool {
-        AITrafficDetector.isLikelyAI(transaction: transaction)
+        AITrafficDetector.signal(transaction: transaction).isLikelyAI
     }
 
     private var inspectorTabBar: some View {
@@ -1023,7 +1023,7 @@ enum ProtocolTabKind: Hashable {
 
     /// Returns the default protocol tab for a transaction, or nil for plain HTTP.
     static func defaultFor(_ transaction: HTTPTransaction) -> ProtocolTabKind? {
-        if AITrafficDetector.isLikelyAI(transaction: transaction) {
+        if AITrafficDetector.signal(transaction: transaction).isLikelyAI {
             return .ai
         }
         if transaction.webSocketConnection != nil {
@@ -1063,7 +1063,7 @@ enum ProtocolTabKind: Hashable {
     static func hasDetectedSignal(_ tab: ProtocolTabKind, in transaction: HTTPTransaction) -> Bool {
         switch tab {
         case .ai:
-            AITrafficDetector.isLikelyAI(transaction: transaction)
+            AITrafficDetector.signal(transaction: transaction).isLikelyAI
         case .websocket:
             transaction.webSocketConnection != nil
         case .web3:
