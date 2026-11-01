@@ -134,6 +134,59 @@ struct ScriptRuntimeTests {
         }
     }
 
+    /// Costs the test process a second spinning thread for its remaining lifetime, for
+    /// the same reason the hook test above does. It earns it by covering a different
+    /// failure: the loop here is at TOP LEVEL, so it runs inside `evaluateScript` during
+    /// the load itself, where no hook is ever called. Evaluated on the actor that would
+    /// hang `ScriptRuntime` permanently -- so the second half of this test, loading an
+    /// unrelated plugin afterwards and calling it, is the actual assertion.
+    @Test("A script whose top-level code never returns fails its load and leaves the runtime usable")
+    func runawayTopLevelSourceFailsTheLoadWithoutWedgingTheRuntime() async throws {
+        let runtime = ScriptRuntime()
+        let runaway = try makeTempPlugin(
+            id: "com.test.runaway-toplevel",
+            script: "while (true) {}\nfunction onRequest(ctx) { return ctx; }"
+        )
+
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await runtime.loadPlugin(runaway)
+        }
+
+        // Nothing was registered for it, so a call must fail at once rather than wait
+        // behind an evaluation that will never finish.
+        let startedAt = ContinuousClock.now
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await runtime.callOnRequest(
+                pluginID: runaway.id,
+                context: makeRequestContext(),
+                behavior: ScriptBehavior.defaults(),
+                originalRequest: makeHTTPRequestData()
+            )
+        }
+        #expect(startedAt.duration(to: .now) < .seconds(1))
+
+        // The point of evaluating off the actor: a runaway load must not take the
+        // runtime down with it. Another plugin still loads and still runs.
+        let healthy = try makeTempPlugin(
+            id: "com.test.after-runaway",
+            script: "function onRequest(ctx) { ctx.setHeader('X-After', 'ok'); return ctx; }"
+        )
+        try await runtime.loadPlugin(healthy)
+        let outcome = try await runtime.callOnRequest(
+            pluginID: healthy.id,
+            context: makeRequestContext(),
+            behavior: ScriptBehavior.defaults(),
+            originalRequest: makeHTTPRequestData()
+        )
+        guard case let .forward(request) = outcome else {
+            Issue.record("a healthy plugin loaded after a runaway load must forward, got \(outcome)")
+            return
+        }
+        #expect(
+            request.headers.contains { $0.name == "X-After" && $0.value == "ok" }
+        )
+    }
+
     // MARK: Private
 
     private func makeTempPlugin(id: String, script: String) throws -> PluginInfo {

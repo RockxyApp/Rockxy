@@ -67,7 +67,7 @@ actor ScriptRuntime {
 
     // MARK: Internal
 
-    func loadPlugin(_ info: PluginInfo) throws {
+    func loadPlugin(_ info: PluginInfo) async throws {
         guard let scriptEntry = info.manifest.entryPoints["script"] else {
             throw ScriptRuntimeError.scriptLoadFailed(
                 String(localized: "No script entry point defined", bundle: RockxyLocalization.bundle)
@@ -115,49 +115,24 @@ actor ScriptRuntime {
             consoleSink: consoleSink
         )
 
-        // CommonJS compatibility: prime `module` and `exports` as globals BEFORE
-        // evaluating user source so scripts that use `module.exports = { ... }`
-        // pick them up. Evaluating the user source at the top level (not inside an
-        // IIFE) preserves direct-global declarations like `function onRequest()`,
-        // so both patterns continue to work.
-        context.evaluateScript("var module = { exports: {} }; var exports = module.exports;")
-        context.evaluateScript(source)
-        if let message = Self.consumeException(from: context, lock: exceptionLock) {
-            throw ScriptRuntimeError.jsException(message)
-        }
-
-        let moduleObj = context.objectForKeyedSubscript("module")
-        let moduleExports = moduleObj?.objectForKeyedSubscript("exports")
-
-        let onRequestFn: JSValue? = {
-            if let exports = moduleExports, !exports.isUndefined, !exports.isNull,
-               let fn = exports.objectForKeyedSubscript("onRequest"),
-               !fn.isUndefined, fn.isObject
-            {
-                return fn
-            }
-            if let global = context.objectForKeyedSubscript("onRequest"),
-               !global.isUndefined, global.isObject
-            {
-                return global
-            }
-            return nil
-        }()
-
-        let onResponseFn: JSValue? = {
-            if let exports = moduleExports, !exports.isUndefined, !exports.isNull,
-               let fn = exports.objectForKeyedSubscript("onResponse"),
-               !fn.isUndefined, fn.isObject
-            {
-                return fn
-            }
-            if let global = context.objectForKeyedSubscript("onResponse"),
-               !global.isUndefined, global.isObject
-            {
-                return global
-            }
-            return nil
-        }()
+        // Evaluating the source runs the script's TOP-LEVEL code, which can fail to
+        // terminate exactly as a hook can, and `evaluateScript` is synchronous with no
+        // public way to interrupt a running evaluation. Run on this actor it would hold
+        // the actor's executor forever: every later call for every OTHER plugin, and the
+        // unload that would retire this one, would never run again, and a saved runaway
+        // script would hang the runtime on every launch because startup reconciliation
+        // loads enabled plugins one after another. So it runs on the plugin's own queue
+        // behind the same watchdog the hooks use, and a load that does not finish
+        // abandons that queue and context instead of registering them.
+        let products = try await evaluateSource(
+            source,
+            in: context,
+            on: queue,
+            pluginID: pluginID,
+            lock: exceptionLock
+        )
+        let onRequestFn = products.onRequest
+        let onResponseFn = products.onResponse
 
         contexts[info.id] = context
         queues[info.id] = queue
@@ -544,6 +519,14 @@ actor ScriptRuntime {
 
     // MARK: Private
 
+    /// Carries a load's extracted hook functions from the plugin's own queue back to
+    /// the actor. `JSValue` is not `Sendable`; the hand-off is safe because the queue
+    /// finishes writing before the continuation resumes, and nothing else holds the box.
+    private final class ScriptLoadProducts: @unchecked Sendable {
+        var onRequest: JSValue?
+        var onResponse: JSValue?
+    }
+
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptRuntime")
     private static let timeout: TimeInterval = 5
 
@@ -570,28 +553,27 @@ actor ScriptRuntime {
     private var onResponseArity: [String: Int] = [:]
     private var flowStateStores: [String: ScriptFlowStateStore] = [:]
 
-    /// Retires a plugin whose script never returned. Drops exactly what
-    /// `unloadPlugin(id:)` drops, because the queue and context are unusable: the
-    /// runaway script still holds the queue and no public JavaScriptCore API can
-    /// interrupt a running evaluation. The abandoned thread keeps the queue object
-    /// alive through its own retain; the point is only that nothing is handed it again.
-    private func markPluginWedged(_ id: String, generation: Int) {
-        // A reload during the timeout window replaces the context, and retiring that
-        // fresh load would disable a plugin the user has just fixed.
-        guard loadGenerations[id] == generation else {
-            return
+    /// Picks a hook out of `module.exports` first, then the globals, which is the order
+    /// the two supported authoring styles need.
+    private static func hookFunction(
+        named name: String,
+        in context: JSContext,
+        exports: JSValue?
+    )
+        -> JSValue?
+    {
+        if let exports, !exports.isUndefined, !exports.isNull,
+           let fn = exports.objectForKeyedSubscript(name),
+           !fn.isUndefined, fn.isObject
+        {
+            return fn
         }
-        wedgedPlugins.insert(id)
-        loadGenerations.removeValue(forKey: id)
-        contexts.removeValue(forKey: id)
-        queues.removeValue(forKey: id)
-        exceptionLocks.removeValue(forKey: id)
-        onRequestHandlers.removeValue(forKey: id)
-        onResponseHandlers.removeValue(forKey: id)
-        onRequestArity.removeValue(forKey: id)
-        onResponseArity.removeValue(forKey: id)
-        flowStateStores.removeValue(forKey: id)
-        Self.logger.error("Retired script plugin whose script did not terminate: \(id, privacy: .public)")
+        if let global = context.objectForKeyedSubscript(name),
+           !global.isUndefined, global.isObject
+        {
+            return global
+        }
+        return nil
     }
 
     private static func clearException(in context: JSContext, lock: OSAllocatedUnfairLock<String?>?) {
@@ -663,5 +645,107 @@ actor ScriptRuntime {
             bodyTruncated: false,
             contentType: ContentTypeDetector.detect(headers: headerPairs, body: bodyData)
         )
+    }
+
+    /// Evaluates a plugin's own source on its serial queue and extracts its hooks,
+    /// failing with `runawayScript` if the top-level code does not finish within
+    /// `timeout`. On that path the queue and context are left behind unregistered: the
+    /// evaluation still holds the queue and JavaScriptCore cannot interrupt it, so the
+    /// only safe thing is never to hand either out again.
+    private func evaluateSource(
+        _ source: String,
+        in context: JSContext,
+        on queue: DispatchQueue,
+        pluginID: String,
+        lock: OSAllocatedUnfairLock<String?>
+    )
+        async throws -> ScriptLoadProducts
+    {
+        let products = ScriptLoadProducts()
+        let resumed = OSAllocatedUnfairLock<Bool>(initialState: false)
+        func claimResume() -> Bool {
+            resumed.withLock { alreadyResumed -> Bool in
+                if alreadyResumed {
+                    return false
+                }
+                alreadyResumed = true
+                return true
+            }
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let workItem = DispatchWorkItem {
+                // CommonJS compatibility: prime `module` and `exports` as globals BEFORE
+                // evaluating user source so scripts that use `module.exports = { ... }`
+                // pick them up. Evaluating the user source at the top level (not inside an
+                // IIFE) preserves direct-global declarations like `function onRequest()`,
+                // so both patterns continue to work.
+                context.evaluateScript("var module = { exports: {} }; var exports = module.exports;")
+                context.evaluateScript(source)
+                let failure = Self.consumeException(from: context, lock: lock)
+                if failure == nil {
+                    let moduleExports = context.objectForKeyedSubscript("module")?
+                        .objectForKeyedSubscript("exports")
+                    products.onRequest = Self.hookFunction(
+                        named: "onRequest", in: context, exports: moduleExports
+                    )
+                    products.onResponse = Self.hookFunction(
+                        named: "onResponse", in: context, exports: moduleExports
+                    )
+                }
+                guard claimResume() else {
+                    return
+                }
+                if let failure {
+                    continuation.resume(throwing: ScriptRuntimeError.jsException(failure))
+                } else {
+                    continuation.resume(returning: products)
+                }
+            }
+
+            queue.async(execute: workItem)
+
+            // The watchdog must not share the plugin's serial queue: a serial queue runs
+            // one block at a time, so while a runaway evaluation holds it the watchdog
+            // could never be dequeued and the timeout would never fire at all.
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
+                guard claimResume() else {
+                    return
+                }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // evaluation keeps spinning on its own queue. Nothing is registered for
+                // this plugin, so later calls fail fast with `pluginNotLoaded` rather
+                // than queueing behind a loop that will never end.
+                workItem.cancel()
+                Self.logger.error(
+                    "Script plugin source did not finish evaluating: \(pluginID, privacy: .public)"
+                )
+                continuation.resume(throwing: ScriptRuntimeError.runawayScript(pluginID))
+            }
+        }
+    }
+
+    /// Retires a plugin whose script never returned. Drops exactly what
+    /// `unloadPlugin(id:)` drops, because the queue and context are unusable: the
+    /// runaway script still holds the queue and no public JavaScriptCore API can
+    /// interrupt a running evaluation. The abandoned thread keeps the queue object
+    /// alive through its own retain; the point is only that nothing is handed it again.
+    private func markPluginWedged(_ id: String, generation: Int) {
+        // A reload during the timeout window replaces the context, and retiring that
+        // fresh load would disable a plugin the user has just fixed.
+        guard loadGenerations[id] == generation else {
+            return
+        }
+        wedgedPlugins.insert(id)
+        loadGenerations.removeValue(forKey: id)
+        contexts.removeValue(forKey: id)
+        queues.removeValue(forKey: id)
+        exceptionLocks.removeValue(forKey: id)
+        onRequestHandlers.removeValue(forKey: id)
+        onResponseHandlers.removeValue(forKey: id)
+        onRequestArity.removeValue(forKey: id)
+        onResponseArity.removeValue(forKey: id)
+        flowStateStores.removeValue(forKey: id)
+        Self.logger.error("Retired script plugin whose script did not terminate: \(id, privacy: .public)")
     }
 }
