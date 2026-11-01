@@ -14,12 +14,24 @@ enum ScriptSourceValidationResult: Equatable {
 enum ScriptSourceValidator {
     // MARK: Internal
 
+    /// How long a script gets to finish validating before the editor gives up on it.
+    static let timeout: TimeInterval = 5
+
+    /// Validate a script's source without ever blocking the caller.
+    ///
+    /// Evaluating untrusted JavaScript can run forever — `while (true) {}` is a one-line
+    /// script — and JavaScriptCore offers no public way to interrupt a running
+    /// evaluation, so the work goes to a dedicated thread that is simply abandoned if it
+    /// overruns. A single leaked thread is a far better outcome than what this used to
+    /// do: evaluate synchronously on the main actor and hang the whole app until Force
+    /// Quit. The abandoned thread only ever writes into a resume-once guard nothing
+    /// reads afterwards, so it cannot corrupt the result reported here.
     static func validate(
         source: String,
         runOnRequest: Bool,
         runOnResponse: Bool,
         runAsMock: Bool
-    )
+    ) async
         -> ScriptSourceValidationResult
     {
         if !runOnRequest, !runOnResponse {
@@ -29,6 +41,44 @@ enum ScriptSourceValidator {
             return .invalid("Mock API scripts must run on Request.")
         }
 
+        return await withCheckedContinuation { continuation in
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let claim: @Sendable (ScriptSourceValidationResult) -> Void = { result in
+                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
+                    if alreadyResumed {
+                        return false
+                    }
+                    alreadyResumed = true
+                    return true
+                }
+                if shouldResume {
+                    continuation.resume(returning: result)
+                }
+            }
+
+            let thread = Thread {
+                claim(evaluate(source: source, runOnRequest: runOnRequest, runOnResponse: runOnResponse))
+            }
+            thread.name = "\(RockxyIdentity.current.logSubsystem).script-validation"
+            thread.start()
+
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                claim(.invalid("Validation did not finish within \(Int(timeout)) seconds. The script may not terminate."))
+            }
+        }
+    }
+
+    // MARK: Private
+
+    /// Runs entirely on the caller's thread, which is the throwaway thread above, so the
+    /// `JSContext` it creates never crosses a thread boundary.
+    private static func evaluate(
+        source: String,
+        runOnRequest: Bool,
+        runOnResponse: Bool
+    )
+        -> ScriptSourceValidationResult
+    {
         guard let context = JSContext() else {
             return .invalid("Failed to create JavaScript context.")
         }
@@ -66,8 +116,6 @@ enum ScriptSourceValidator {
 
         return .valid
     }
-
-    // MARK: Private
 
     private static func hasHook(named name: String, in context: JSContext) -> Bool {
         let moduleObj = context.objectForKeyedSubscript("module")

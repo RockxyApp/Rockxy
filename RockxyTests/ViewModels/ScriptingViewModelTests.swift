@@ -940,7 +940,7 @@ struct ScriptingViewModelTests {
     }
 
     @Test("Validate updates status tone for valid and invalid scripts")
-    func validateUpdatesStatusTone() {
+    func validateUpdatesStatusTone() async {
         let vm = ScriptEditorViewModel()
         vm.runOnRequest = false
         vm.runOnResponse = true
@@ -954,13 +954,13 @@ struct ScriptingViewModelTests {
         }
         """
 
-        vm.validateScript()
+        await vm.validateScript()
 
         #expect(vm.statusTone == .success)
         #expect(vm.statusMessage == "Script is valid")
 
         vm.code = "function onResponse(response) {"
-        vm.validateScript()
+        await vm.validateScript()
 
         #expect(vm.statusTone == .error)
         #expect(vm.statusMessage == "Validation failed")

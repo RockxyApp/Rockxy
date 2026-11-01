@@ -18,15 +18,35 @@ struct ScriptStarterTemplateTests {
     }
 
     @Test("Every starter template passes validation with its own behavior", arguments: ScriptStarterTemplate.allCases)
-    func templatesValidate(template: ScriptStarterTemplate) {
+    func templatesValidate(template: ScriptStarterTemplate) async {
         let behavior = template.behavior
-        let result = ScriptSourceValidator.validate(
+        let result = await ScriptSourceValidator.validate(
             source: template.source,
             runOnRequest: behavior.runOnRequest,
             runOnResponse: behavior.runOnResponse,
             runAsMock: behavior.runAsMock
         )
         #expect(result == .valid)
+    }
+
+    @Test("A script that never terminates fails validation instead of hanging the editor")
+    func runawayScriptTimesOutInsteadOfHanging() async {
+        let startedAt = ContinuousClock.now
+        let result = await ScriptSourceValidator.validate(
+            source: "function onRequest(request) { while (true) {} }",
+            runOnRequest: true,
+            runOnResponse: false,
+            runAsMock: false
+        )
+        let elapsed = startedAt.duration(to: .now)
+
+        guard case let .invalid(reason) = result else {
+            Issue.record("A non-terminating script must not validate.")
+            return
+        }
+        #expect(reason.contains("did not finish"))
+        // The bound is what matters: this used to never return at all.
+        #expect(elapsed < .seconds(ScriptSourceValidator.timeout + 10))
     }
 
     @Test("Mock templates run as mock; the others forward requests")

@@ -470,7 +470,7 @@ final class ScriptEditorViewModel {
         // async reload cannot make the completion baseline newer content.
         let draft = currentDraft
 
-        if let failure = preflightFailure(for: draft) {
+        if let failure = await preflightFailure(for: draft) {
             savedAndActive = false
             statusTone = .error
             statusMessage = failure.status
@@ -664,8 +664,8 @@ final class ScriptEditorViewModel {
         }
     }
 
-    func validateScript() {
-        let result = ScriptSourceValidator.validate(
+    func validateScript() async {
+        let result = await ScriptSourceValidator.validate(
             source: code,
             runOnRequest: runOnRequest,
             runOnResponse: runOnResponse,
@@ -916,7 +916,7 @@ final class ScriptEditorViewModel {
     /// Validate the draft before touching disk or the runtime. Returns a
     /// failure describing the first blocking problem, or `nil` when the draft is
     /// safe to persist. Never mutates state.
-    private func preflightFailure(for draft: ScriptEditorDraft) -> (status: String, consoleMessage: String)? {
+    private func preflightFailure(for draft: ScriptEditorDraft) async -> (status: String, consoleMessage: String)? {
         let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
             return (
@@ -940,7 +940,7 @@ final class ScriptEditorViewModel {
             )
         }
 
-        switch ScriptSourceValidator.validate(
+        switch await ScriptSourceValidator.validate(
             source: draft.code,
             runOnRequest: draft.runOnRequest,
             runOnResponse: draft.runOnResponse,
