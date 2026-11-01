@@ -96,6 +96,9 @@ enum TestIdentity {
         else {
             return false
         }
-        return flags & UInt32(kSecCodeSignatureAdhoc) != 0
+        // `kSecCodeSignatureAdhoc` is an anonymous-enum value in CSCommon.h and Swift does
+        // not import it under that name. `SecCodeSignatureFlags.adhoc` is the Swift-visible
+        // spelling; its raw value is 2 on the installed SDK.
+        return flags & UInt32(SecCodeSignatureFlags.adhoc.rawValue) != 0
     }
 }
