@@ -20,6 +20,9 @@ enum ScriptRuntimeError: Error, LocalizedError {
     case pluginNotLoaded(String)
     case scriptLoadFailed(String)
     case executionTimeout
+    /// The plugin's script did not terminate, so its serial queue can never run
+    /// anything again and the runtime stopped handing it out.
+    case runawayScript(String)
     case jsException(String)
 
     // MARK: Internal
@@ -34,6 +37,11 @@ enum ScriptRuntimeError: Error, LocalizedError {
             String(localized: "Script load failed: \(reason)", bundle: RockxyLocalization.bundle)
         case .executionTimeout:
             String(localized: "Plugin script execution timed out", bundle: RockxyLocalization.bundle)
+        case let .runawayScript(id):
+            String(
+                localized: "Plugin script did not terminate and was disabled: \(id)",
+                bundle: RockxyLocalization.bundle
+            )
         case let .jsException(message):
             String(localized: "JS exception: \(message)", bundle: RockxyLocalization.bundle)
         }
@@ -159,10 +167,15 @@ actor ScriptRuntime {
         flowStateStores[info.id] = ScriptFlowStateStore()
         onRequestArity[info.id] = ScriptMultiArgBridge.functionLength(onRequestFn) ?? 1
         onResponseArity[info.id] = ScriptMultiArgBridge.functionLength(onResponseFn) ?? 1
+        lastLoadGeneration += 1
+        loadGenerations[info.id] = lastLoadGeneration
         Self.logger.info("Loaded script plugin: \(info.id)")
     }
 
     func unloadPlugin(id: String) {
+        // Must clear, or reloading a corrected script would stay permanently retired.
+        wedgedPlugins.remove(id)
+        loadGenerations.removeValue(forKey: id)
         contexts.removeValue(forKey: id)
         queues.removeValue(forKey: id)
         exceptionLocks.removeValue(forKey: id)
@@ -196,6 +209,9 @@ actor ScriptRuntime {
     )
         async throws -> RequestHookOutcome
     {
+        if wedgedPlugins.contains(pluginID) {
+            throw ScriptRuntimeError.runawayScript(pluginID)
+        }
         guard let jsContext = contexts[pluginID], let queue = queues[pluginID] else {
             throw ScriptRuntimeError.pluginNotLoaded(pluginID)
         }
@@ -205,6 +221,7 @@ actor ScriptRuntime {
         }
 
         let runAsMock = behavior.runAsMock
+        let loadGeneration = loadGenerations[pluginID] ?? 0
         let arity = onRequestArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
@@ -335,7 +352,10 @@ actor ScriptRuntime {
 
             queue.async(execute: workItem)
 
-            queue.asyncAfter(deadline: .now() + Self.timeout) {
+            // The watchdog must not share the plugin's serial queue: a serial queue runs
+            // one block at a time, so while a runaway script holds it the watchdog could
+            // never be dequeued and the timeout below never fired at all.
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
                 let shouldResume = resumed.withLock { alreadyResumed -> Bool in
                     if alreadyResumed {
                         return false
@@ -346,8 +366,20 @@ actor ScriptRuntime {
                 guard shouldResume else {
                     return
                 }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // script keeps spinning and this plugin's queue stays occupied. Retire
+                // the plugin so later requests fail immediately instead of each paying
+                // the full timeout behind a loop that will never end.
                 workItem.cancel()
-                continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                // Retire the plugin BEFORE telling the caller, so by the time anyone sees
+                // this failure the next request already fails fast instead of racing the
+                // bookkeeping and queueing behind the loop for another full timeout. The
+                // hop is safe: the runaway holds the plugin's dispatch queue, not this
+                // actor, so the actor is free to run this.
+                Task {
+                    await self.markPluginWedged(pluginID, generation: loadGeneration)
+                    continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                }
             }
         }
     }
@@ -365,6 +397,9 @@ actor ScriptRuntime {
     )
         async throws -> HTTPResponseData
     {
+        if wedgedPlugins.contains(pluginID) {
+            throw ScriptRuntimeError.runawayScript(pluginID)
+        }
         guard let jsContext = contexts[pluginID], let queue = queues[pluginID] else {
             throw ScriptRuntimeError.pluginNotLoaded(pluginID)
         }
@@ -373,6 +408,7 @@ actor ScriptRuntime {
             return originalResponse
         }
 
+        let loadGeneration = loadGenerations[pluginID] ?? 0
         let arity = onResponseArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
@@ -474,7 +510,10 @@ actor ScriptRuntime {
 
             queue.async(execute: workItem)
 
-            queue.asyncAfter(deadline: .now() + Self.timeout) {
+            // The watchdog must not share the plugin's serial queue: a serial queue runs
+            // one block at a time, so while a runaway script holds it the watchdog could
+            // never be dequeued and the timeout below never fired at all.
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
                 let shouldResume = resumed.withLock { alreadyResumed -> Bool in
                     if alreadyResumed {
                         return false
@@ -485,8 +524,20 @@ actor ScriptRuntime {
                 guard shouldResume else {
                     return
                 }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // script keeps spinning and this plugin's queue stays occupied. Retire
+                // the plugin so later requests fail immediately instead of each paying
+                // the full timeout behind a loop that will never end.
                 workItem.cancel()
-                continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                // Retire the plugin BEFORE telling the caller, so by the time anyone sees
+                // this failure the next request already fails fast instead of racing the
+                // bookkeeping and queueing behind the loop for another full timeout. The
+                // hop is safe: the runaway holds the plugin's dispatch queue, not this
+                // actor, so the actor is free to run this.
+                Task {
+                    await self.markPluginWedged(pluginID, generation: loadGeneration)
+                    continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                }
             }
         }
     }
@@ -500,6 +551,17 @@ actor ScriptRuntime {
     private let previewLedger: ScriptExecutionLedger?
     private let consoleSink: @Sendable (ScriptConsoleEvent) -> Void
     private var contexts: [String: JSContext] = [:]
+    /// Plugins whose serial queue is occupied forever by a script that did not
+    /// terminate. Their queue and `JSContext` are abandoned rather than reused: a
+    /// later call enqueued behind an infinite loop would wait the whole timeout and
+    /// then fail anyway, so failing it at once is both faster and more truthful.
+    private var wedgedPlugins: Set<String> = []
+    /// Which load a plugin's current context came from. A runaway script is detected
+    /// up to `timeout` seconds late, by which time the user may have fixed and
+    /// reloaded it, so the watchdog must prove it is retiring the load it timed out
+    /// on and not a healthy replacement.
+    private var loadGenerations: [String: Int] = [:]
+    private var lastLoadGeneration = 0
     private var queues: [String: DispatchQueue] = [:]
     private var exceptionLocks: [String: OSAllocatedUnfairLock<String?>] = [:]
     private var onRequestHandlers: [String: JSValue] = [:]
@@ -507,6 +569,30 @@ actor ScriptRuntime {
     private var onRequestArity: [String: Int] = [:]
     private var onResponseArity: [String: Int] = [:]
     private var flowStateStores: [String: ScriptFlowStateStore] = [:]
+
+    /// Retires a plugin whose script never returned. Drops exactly what
+    /// `unloadPlugin(id:)` drops, because the queue and context are unusable: the
+    /// runaway script still holds the queue and no public JavaScriptCore API can
+    /// interrupt a running evaluation. The abandoned thread keeps the queue object
+    /// alive through its own retain; the point is only that nothing is handed it again.
+    private func markPluginWedged(_ id: String, generation: Int) {
+        // A reload during the timeout window replaces the context, and retiring that
+        // fresh load would disable a plugin the user has just fixed.
+        guard loadGenerations[id] == generation else {
+            return
+        }
+        wedgedPlugins.insert(id)
+        loadGenerations.removeValue(forKey: id)
+        contexts.removeValue(forKey: id)
+        queues.removeValue(forKey: id)
+        exceptionLocks.removeValue(forKey: id)
+        onRequestHandlers.removeValue(forKey: id)
+        onResponseHandlers.removeValue(forKey: id)
+        onRequestArity.removeValue(forKey: id)
+        onResponseArity.removeValue(forKey: id)
+        flowStateStores.removeValue(forKey: id)
+        Self.logger.error("Retired script plugin whose script did not terminate: \(id, privacy: .public)")
+    }
 
     private static func clearException(in context: JSContext, lock: OSAllocatedUnfairLock<String?>?) {
         context.exception = nil

@@ -83,6 +83,57 @@ struct ScriptRuntimeTests {
         }
     }
 
+    /// Costs the test process one spinning thread for its remaining lifetime: the
+    /// script below never returns and JavaScriptCore exposes no public way to
+    /// interrupt a running evaluation. That is the defect under test, so one leaked
+    /// thread is the price of covering it — do not add a second runaway test.
+    @Test("A plugin whose script never returns is retired, and a reload revives it")
+    func runawayScriptRetiresThePluginAndReloadRevivesIt() async throws {
+        let runtime = ScriptRuntime()
+        let runaway = "function onRequest(ctx) { while (true) {} }"
+        let plugin = try makeTempPlugin(id: "com.test.runaway", script: runaway)
+        try await runtime.loadPlugin(plugin)
+
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await runtime.callOnRequest(
+                pluginID: plugin.id,
+                context: makeRequestContext(),
+                behavior: ScriptBehavior.defaults(),
+                originalRequest: makeHTTPRequestData()
+            )
+        }
+
+        // The whole point of retiring it: the second call must NOT pay the timeout
+        // again behind a loop that will never end.
+        let startedAt = ContinuousClock.now
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await runtime.callOnRequest(
+                pluginID: plugin.id,
+                context: makeRequestContext(),
+                behavior: ScriptBehavior.defaults(),
+                originalRequest: makeHTTPRequestData()
+            )
+        }
+        #expect(startedAt.duration(to: .now) < .seconds(1))
+
+        // Reloading a corrected script must revive the plugin; without clearing the
+        // retired flag it would stay dead for the rest of the app's life.
+        await runtime.unloadPlugin(id: plugin.id)
+        let fixed = try makeTempPlugin(id: plugin.id, script: "function onRequest(ctx) { return ctx; }")
+        try await runtime.loadPlugin(fixed)
+
+        let outcome = try await runtime.callOnRequest(
+            pluginID: plugin.id,
+            context: makeRequestContext(),
+            behavior: ScriptBehavior.defaults(),
+            originalRequest: makeHTTPRequestData()
+        )
+        guard case .forward = outcome else {
+            Issue.record("a reloaded plugin must forward again, got \(outcome)")
+            return
+        }
+    }
+
     // MARK: Private
 
     private func makeTempPlugin(id: String, script: String) throws -> PluginInfo {

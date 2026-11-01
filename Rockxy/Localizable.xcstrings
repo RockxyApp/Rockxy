@@ -1610,6 +1610,16 @@
         }
       }
     },
+    "Plugin script did not terminate and was disabled: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插件脚本未终止，已禁用：%@"
+          }
+        }
+      }
+    },
     "Plugin script execution timed out": {
       "localizations": {
         "zh-Hans": {
