@@ -281,7 +281,17 @@ extension MainContentCoordinator {
         let activeRules = FilterRuleEvaluator.activeRules(in: filterRules, isFilterBarVisible: isFilterBarVisible)
         guard !filterCriteria.isEmpty || !activeRules.isEmpty || hasWorkspaceVisibilityRules(activeWorkspace) else {
             filteredTransactions = baseList.filter { !$0.isTLSFailure }
-            deriveFilteredRows()
+            // Filtering never mutates a transaction, so every surviving row can be
+            // reused instead of reprojected. The reuse guard is complete for what a row
+            // carries: `canReuseProjection(of:)` requires the same object identity and an
+            // unchanged `listPresentationRevision`, and every field the row projects --
+            // status, sizes, headers, duration, badges, SSL state -- comes from a property
+            // whose `didSet` bumps that revision. The one field that cannot (frame count
+            // mutates inside the `WebSocketConnection` reference, so the property's own
+            // `didSet` never fires) is compared explicitly by the same guard. Without this,
+            // one filter pass over a long capture reprojects every row, which is the
+            // after-a-long-capture lag itself.
+            deriveFilteredRows(for: activeWorkspace, reusingRetainedRows: true)
             return
         }
         let smartFilter = SmartTrafficFilter.parse(filterCriteria.searchText)
@@ -370,7 +380,17 @@ extension MainContentCoordinator {
             }
             return true
         }
-        deriveFilteredRows()
+        // Filtering never mutates a transaction, so every surviving row can be
+        // reused instead of reprojected. The reuse guard is complete for what a row
+        // carries: `canReuseProjection(of:)` requires the same object identity and an
+        // unchanged `listPresentationRevision`, and every field the row projects --
+        // status, sizes, headers, duration, badges, SSL state -- comes from a property
+        // whose `didSet` bumps that revision. The one field that cannot (frame count
+        // mutates inside the `WebSocketConnection` reference, so the property's own
+        // `didSet` never fires) is compared explicitly by the same guard. Without this,
+        // one filter pass over a long capture reprojects every row, which is the
+        // after-a-long-capture lag itself.
+        deriveFilteredRows(for: activeWorkspace, reusingRetainedRows: true)
     }
 
     func fieldValue(for field: FilterField, in transaction: HTTPTransaction) -> String {

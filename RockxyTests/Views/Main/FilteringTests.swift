@@ -1071,6 +1071,47 @@ struct FilteringTests {
         })
     }
 
+    /// Guards the invariant that makes row reuse on the filter path correct. Reuse keeps the
+    /// previously projected row whenever the transaction's identity and
+    /// `listPresentationRevision` are unchanged, so anything a row displays must bump that
+    /// revision when it changes. This asserts the no-stale-row contract per mutation class
+    /// rather than that reuse occurred -- reuse is a performance property and belongs to the
+    /// profiler, while a stale row would be a visible defect.
+    @Test("A reused row refreshes when the evidence it displays changes")
+    func reusedRowRefreshesWhenDisplayedEvidenceChanges() throws {
+        let coordinator = makeCoordinator(transactions: TestFixtures.makeBulkTransactions(count: 8))
+        coordinator.filterCriteria.searchField = .path
+        coordinator.searchTextDidChange("/users")
+        coordinator.recomputeFilteredTransactions()
+
+        let target = try #require(coordinator.filteredTransactions.first)
+        let rowID = target.id
+        func row() throws -> RequestListRow {
+            try #require(coordinator.filteredRows.first { $0.id == rowID })
+        }
+
+        // An HTTPS transaction with no recorded disposition reads as decrypted application
+        // traffic, which is what `sslState(for:)` derives for a non-CONNECT capture.
+        #expect(try row().sslState == .secureIntercepted)
+
+        // The hazard reuse was once assumed to have: SSL state is handed to the row
+        // separately, so a late disposition could leave a stale badge. It cannot -- the
+        // property bumps the revision, so the guard rejects the retained row.
+        target.sslCapture = .tunneled
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().sslState == .secureTunneled)
+
+        // Response evidence is the other class a long capture mutates in place.
+        target.response = TestFixtures.makeResponse(statusCode: 503)
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().statusCode == 503)
+
+        // A cosmetic flag, to cover the class that does not touch request or response at all.
+        target.isStruckThrough = true
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().isStruckThrough)
+    }
+
     // MARK: Private
 
     // MARK: - Setup
