@@ -42,6 +42,10 @@ struct JQFilter: Sendable {
             done.signal()
         }
         thread.stackSize = Self.stackSize
+        // The caller blocks on `done` just below, and that caller can be the main thread
+        // rendering a custom column. Left at the default service class the thread we are
+        // waiting for runs below its waiter, which is a priority inversion.
+        thread.qualityOfService = .userInitiated
         thread.name = "jq filter"
         thread.start()
         done.wait()
@@ -101,6 +105,8 @@ struct JQFilter: Sendable {
                     continuation.resume(with: Result { try Self.evaluate(root, input(), limits, cancellation) })
                 }
                 thread.stackSize = Self.stackSize
+                // Someone is looking at an inspector pane waiting for this.
+                thread.qualityOfService = .userInitiated
                 thread.name = "jq filter"
                 thread.start()
             }
