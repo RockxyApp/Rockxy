@@ -35,9 +35,15 @@ enum HeaderColumnSource: String, Codable, CaseIterable {
         self == .requestBody || self == .responseBody
     }
 
-    /// Header and query names compare without case; body expressions are exact.
+    /// Only HTTP field names are case-insensitive (RFC 9110 §5.1). A query parameter
+    /// name is not: `?Token=` and `?token=` are two different parameters, and
+    /// `HeaderColumnStore.resolveValue` reads one by exact name. Folding case here too
+    /// made the duplicate check disagree with the resolver, so a column for `Token`
+    /// could not be added beside one for `token` -- `addColumn` returned the existing
+    /// row, or enabled it, and the column the user asked for showed the other
+    /// parameter's value. Body expressions are exact for the same reason.
     var comparesCaseInsensitively: Bool {
-        !isBody
+        isHeader
     }
 
     func normalizedName(_ name: String) -> String {
