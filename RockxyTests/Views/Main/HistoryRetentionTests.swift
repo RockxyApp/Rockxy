@@ -463,6 +463,57 @@ struct HistoryRetentionTests {
         #expect(coordinator.errorCount == 0)
     }
 
+    @Test("Memory pressure spares a small session, then evicts a bounded slice once per interval")
+    @MainActor
+    func memoryPressureEvictionIsFlooredAndThrottled() {
+        let coordinator = MainContentCoordinator()
+        let floor = MainContentCoordinator.memoryPressureHistoryFloor
+        coordinator.transactions = (0 ..< floor).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/\($0)")
+        }
+
+        // At the floor nothing is reclaimed: pressure caused by another process must not
+        // cost the user the session they are reading.
+        let start = Date()
+        coordinator.evictForMemoryPressure(isCritical: false, now: start)
+        #expect(coordinator.transactions.count == floor)
+
+        coordinator.transactions += (0 ..< 50).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/extra/\($0)")
+        }
+        coordinator.evictForMemoryPressure(isCritical: false, now: start)
+        #expect(coordinator.transactions.count == 150)
+
+        // A burst of events must not rebuild every index once per event.
+        coordinator.evictForMemoryPressure(isCritical: false, now: start.addingTimeInterval(1))
+        #expect(coordinator.transactions.count == 150)
+
+        let afterInterval = start
+            .addingTimeInterval(MainContentCoordinator.memoryPressureEvictionInterval + 1)
+        coordinator.evictForMemoryPressure(isCritical: false, now: afterInterval)
+        #expect(coordinator.transactions.count == 50)
+    }
+
+    @Test("Critical pressure reclaims imported rows the live cap never trims")
+    @MainActor
+    func criticalMemoryPressureReclaimsImportedRows() {
+        let coordinator = MainContentCoordinator()
+        let imported = (0 ..< 20).map { index -> HTTPTransaction in
+            let transaction = TestFixtures.makeTransaction(url: "https://imported.example.com/\(index)")
+            transaction.isImported = true
+            return transaction
+        }
+        coordinator.transactions = imported + (0 ..< 380).map {
+            TestFixtures.makeTransaction(url: "https://live.example.com/\($0)")
+        }
+
+        coordinator.evictForMemoryPressure(isCritical: true, now: Date())
+
+        // A quarter of 400 is 100, but critical pressure reclaims at least 250 rows.
+        #expect(coordinator.transactions.count == 150)
+        #expect(!coordinator.transactions.contains { $0.isImported })
+    }
+
     @Test("reportAcceptedCount triggers eviction sized to the exact overflow")
     @MainActor
     func reportAcceptedCountTriggersEviction() async {

@@ -215,6 +215,7 @@ final class MainContentCoordinator {
         if let socksListenerObserver {
             NotificationCenter.default.removeObserver(socksListenerObserver)
         }
+        memoryPressureSource?.cancel()
     }
 
     // MARK: Internal
@@ -334,6 +335,9 @@ final class MainContentCoordinator {
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
+    nonisolated(unsafe) var memoryPressureSource: DispatchSourceMemoryPressure?
+    /// Throttles pressure-driven eviction; see `evictForMemoryPressure(isCritical:now:)`.
+    var lastMemoryPressureEvictionAt: Date?
     nonisolated(unsafe) var composeExchangeObserver: NSObjectProtocol?
     nonisolated(unsafe) var reverseProxyObserver: NSObjectProtocol?
     nonisolated(unsafe) var socksListenerObserver: NSObjectProtocol?

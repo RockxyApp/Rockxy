@@ -272,6 +272,7 @@ extension MainContentCoordinator {
                 startLogCapture()
 
                 installEvictionObserver()
+                installMemoryPressureEviction()
                 installReverseProxyObserver()
                 await applyReverseProxies()
 
@@ -359,6 +360,13 @@ extension MainContentCoordinator {
     }
 
     private func installEvictionObserver() {
+        // Guarded like `installReverseProxyObserver`: capture stop removes this one, but
+        // its teardown sits behind an early return, and a start after one of those would
+        // otherwise stack a second live observer on the first and evict the requested
+        // count once per registration.
+        guard evictionObserver == nil else {
+            return
+        }
         evictionObserver = NotificationCenter.default.addObserver(
             forName: .bufferEvictionRequested,
             object: nil,
@@ -502,6 +510,7 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(socksListenerObserver)
                 self.socksListenerObserver = nil
             }
+            cancelMemoryPressureEviction()
             ReverseProxyStore.shared.markProxyStopped()
             SOCKSListenerSettings.shared.markProxyStopped()
             probeTracker.cancel()
