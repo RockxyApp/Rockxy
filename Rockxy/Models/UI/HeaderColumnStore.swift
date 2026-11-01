@@ -63,7 +63,7 @@ final class HeaderColumnStore {
                 .first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?
                 .value ?? ""
         case .query:
-            return CustomColumnValueResolver.queryValue(named: name, in: transaction.request.url)
+            return CustomColumnValueResolver.queryValue(named: name, in: transaction)
         case .requestBody,
              .responseBody:
             return CustomColumnValueResolver.bodyValue(

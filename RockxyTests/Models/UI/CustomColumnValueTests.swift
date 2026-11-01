@@ -102,6 +102,29 @@ struct CustomColumnValueTests {
         #expect(CustomColumnValueResolver.bodyValue(expression: ".id", response: true, transaction: transaction) == "3")
     }
 
+    @Test("Query columns cache per transaction and invalidate when the request changes")
+    func queryColumnCache() {
+        let transaction = TestFixtures.makeTransaction(
+            method: "GET",
+            url: "https://api.example.com/search?q=rockxy&page=2"
+        )
+
+        #expect(HeaderColumnStore.resolveValue(for: "reqQuery.q", transaction: transaction) == "rockxy")
+        // Cached, so a redraw no longer re-parses the URL for every visible row.
+        #expect(transaction.customColumnValueCache.value(for: "qry:q") == "rockxy")
+
+        // A name that is absent caches its empty result too, or a column of misses would
+        // keep paying full URL parsing on every pass.
+        #expect(HeaderColumnStore.resolveValue(for: "reqQuery.missing", transaction: transaction).isEmpty)
+        #expect(transaction.customColumnValueCache.value(for: "qry:missing") == "")
+
+        // Replaying or editing a request must not leave the old value on screen. This shares
+        // `bodyValue`'s invalidation: mutating `request` drops the whole cache.
+        transaction.request.url = URL(string: "https://api.example.com/search?q=proxy&page=2")!
+        #expect(transaction.customColumnValueCache.value(for: "qry:q") == nil)
+        #expect(HeaderColumnStore.resolveValue(for: "reqQuery.q", transaction: transaction) == "proxy")
+    }
+
     @Test("Body column previews preserve truncation and separators for multiple matches")
     func boundedBodyPreview() throws {
         for expression in ["$[*]", ".[]"] {

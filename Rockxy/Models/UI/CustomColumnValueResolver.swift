@@ -20,6 +20,22 @@ enum CustomColumnValueResolver {
         return items.first { $0.name == name }?.value ?? ""
     }
 
+    /// Caches on the transaction exactly as `bodyValue` does. A query column resolves per
+    /// cell, per redraw, and `URLComponents` has to parse the whole URL and allocate every
+    /// query item just to read one name -- so a long capture paid that for every visible row
+    /// on every pass while a body column beside it was already cached. The value is a pure
+    /// function of `request.url`, and the cache is dropped whenever request evidence changes,
+    /// so the invalidation is the same and needs no extra bookkeeping.
+    static func queryValue(named name: String, in transaction: HTTPTransaction) -> String {
+        let cacheKey = "qry:" + name
+        if let cached = transaction.customColumnValueCache.value(for: cacheKey) {
+            return cached
+        }
+        let value = queryValue(named: name, in: transaction.request.url)
+        transaction.customColumnValueCache.store(value, for: cacheKey)
+        return value
+    }
+
     /// Evaluates `expression` against a transaction's JSON body. The result is cached on the
     /// transaction until its request or response evidence changes.
     static func bodyValue(expression: String, response: Bool, transaction: HTTPTransaction) -> String {
