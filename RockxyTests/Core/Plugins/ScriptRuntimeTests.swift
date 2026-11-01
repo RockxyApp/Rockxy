@@ -187,6 +187,40 @@ struct ScriptRuntimeTests {
         )
     }
 
+    /// Evaluating the source off the actor means `loadPlugin` suspends, so an unload can
+    /// now interleave with it. If the finishing load still registered itself, disabling a
+    /// script while it was loading would leave it running on captured traffic.
+    ///
+    /// The top-level loop below terminates, so no thread leaks; it only has to outlast the
+    /// single actor hop `unloadPlugin` needs, which it does by orders of magnitude. The
+    /// assertions hold whether the load was superseded or hit the watchdog first.
+    @Test("An unload during a load wins, and the finishing load does not register")
+    func unloadDuringLoadSupersedesIt() async throws {
+        let runtime = ScriptRuntime()
+        let slow = try makeTempPlugin(
+            id: "com.test.slow-load",
+            script: "for (let i = 0; i < 3e8; i++) {}\nfunction onRequest(ctx) { return ctx; }"
+        )
+
+        let load = Task { try await runtime.loadPlugin(slow) }
+        await runtime.unloadPlugin(id: slow.id)
+
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await load.value
+        }
+        let isLoaded = await runtime.hasPlugin(id: slow.id)
+        #expect(!isLoaded)
+
+        await #expect(throws: ScriptRuntimeError.self) {
+            try await runtime.callOnRequest(
+                pluginID: slow.id,
+                context: makeRequestContext(),
+                behavior: ScriptBehavior.defaults(),
+                originalRequest: makeHTTPRequestData()
+            )
+        }
+    }
+
     // MARK: Private
 
     private func makeTempPlugin(id: String, script: String) throws -> PluginInfo {

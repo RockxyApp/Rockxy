@@ -124,6 +124,14 @@ actor ScriptRuntime {
         // loads enabled plugins one after another. So it runs on the plugin's own queue
         // behind the same watchdog the hooks use, and a load that does not finish
         // abandons that queue and context instead of registering them.
+        //
+        // That suspension is also the one behavioral cost of moving the evaluation off the
+        // actor: `loadPlugin` used to register its tables with no suspension point, so no
+        // unload could interleave. `loadToken` closes that window. Without it, disabling a
+        // plugin while its source was still evaluating would unload nothing and then let
+        // the finishing load register itself, leaving a script the user had switched off
+        // still mutating traffic.
+        let token = beginLoad(of: info.id)
         let products = try await evaluateSource(
             source,
             in: context,
@@ -131,6 +139,13 @@ actor ScriptRuntime {
             pluginID: pluginID,
             lock: exceptionLock
         )
+        guard loadTokens[info.id] == token else {
+            // `pluginNotLoaded` rather than a new message: after the unload or the newer
+            // load won, that is exactly the state this id is in, and it needs no string
+            // the user would never see a reason for.
+            Self.logger.info("Discarded superseded load of script plugin: \(info.id, privacy: .public)")
+            throw ScriptRuntimeError.pluginNotLoaded(info.id)
+        }
         let onRequestFn = products.onRequest
         let onResponseFn = products.onResponse
 
@@ -148,6 +163,9 @@ actor ScriptRuntime {
     }
 
     func unloadPlugin(id: String) {
+        // Invalidates any load still evaluating this plugin's source, so it cannot
+        // register itself after this unload and leave a disabled script running.
+        invalidateInFlightLoad(of: id)
         // Must clear, or reloading a corrected script would stay permanently retired.
         wedgedPlugins.remove(id)
         loadGenerations.removeValue(forKey: id)
@@ -545,6 +563,11 @@ actor ScriptRuntime {
     /// on and not a healthy replacement.
     private var loadGenerations: [String: Int] = [:]
     private var lastLoadGeneration = 0
+    /// Which load attempt is currently entitled to register a plugin's tables. Separate
+    /// from `loadGenerations`, which identifies a load that already succeeded so the hook
+    /// watchdog can prove it is retiring the load it timed out on.
+    private var loadTokens: [String: Int] = [:]
+    private var lastLoadToken = 0
     private var queues: [String: DispatchQueue] = [:]
     private var exceptionLocks: [String: OSAllocatedUnfairLock<String?>] = [:]
     private var onRequestHandlers: [String: JSValue] = [:]
@@ -645,6 +668,19 @@ actor ScriptRuntime {
             bodyTruncated: false,
             contentType: ContentTypeDetector.detect(headers: headerPairs, body: bodyData)
         )
+    }
+
+    /// Claims the right to register this plugin's tables when its evaluation returns.
+    /// Any later `beginLoad` or `unloadPlugin` for the same id takes that right away.
+    private func beginLoad(of id: String) -> Int {
+        lastLoadToken += 1
+        loadTokens[id] = lastLoadToken
+        return lastLoadToken
+    }
+
+    private func invalidateInFlightLoad(of id: String) {
+        lastLoadToken += 1
+        loadTokens[id] = lastLoadToken
     }
 
     /// Evaluates a plugin's own source on its serial queue and extracts its hooks,
