@@ -32,8 +32,16 @@ struct ScriptStarterTemplateTests {
     @Test("A script that never terminates fails validation instead of hanging the editor")
     func runawayScriptTimesOutInsteadOfHanging() async {
         let startedAt = ContinuousClock.now
+        // The loop must be at TOP LEVEL. Validation evaluates the source and then checks
+        // which hooks exist; it never calls a hook. A non-terminating loop inside
+        // `onRequest` is therefore never run and validates correctly -- rejecting that
+        // would reject every legitimate script containing a loop. What hangs the editor is
+        // top-level work, which `evaluateScript` does run.
+        // Costs the test process one spinning thread for its remaining lifetime, because
+        // JavaScriptCore cannot interrupt a running evaluation. That is the defect under
+        // test, so one leaked thread is the price of covering it.
         let result = await ScriptSourceValidator.validate(
-            source: "function onRequest(request) { while (true) {} }",
+            source: "while (true) {}\nfunction onRequest(request) { return request; }",
             runOnRequest: true,
             runOnResponse: false,
             runAsMock: false
