@@ -160,7 +160,8 @@ final class MainContentCoordinator {
             AppSettingsManager.shared.settings
         },
         projectCatalogRepository: ProjectCatalogPersisting? = nil,
-        projectTabAutosaveDebounce: Duration = .milliseconds(500)
+        projectTabAutosaveDebounce: Duration = .milliseconds(500),
+        searchRecomputeDebounce: Duration = .milliseconds(150)
     ) {
         self.policy = policy
         self.assistantRuntime = assistantRuntime
@@ -174,6 +175,7 @@ final class MainContentCoordinator {
         // the concrete repository later. The store shares this coordinator's policy.
         self.projectStore = ProjectStore(policy: policy, repository: projectCatalogRepository)
         self.projectTabAutosaveDebounce = projectTabAutosaveDebounce
+        self.searchRecomputeDebounce = searchRecomputeDebounce
         self.liveHistoryLimit = policy.maxLiveHistoryEntries
         refreshCaptureContextSnapshot()
     }
@@ -390,6 +392,12 @@ final class MainContentCoordinator {
     /// The single in-flight debounced autosave, replaced/cancelled on each change so
     /// the coordinator never accumulates unbounded persistence tasks.
     @ObservationIgnored var projectTabAutosaveTask: Task<Void, Never>?
+    /// Debounce window that coalesces a burst of typing in the search field into one
+    /// filter pass. Injectable so tests can shorten it.
+    @ObservationIgnored let searchRecomputeDebounce: Duration
+    /// The single in-flight debounced search recompute, replaced/cancelled on each
+    /// keystroke so typing never queues one filter pass per character.
+    @ObservationIgnored var searchRecomputeTask: Task<Void, Never>?
     /// Coalesces concurrent startup hydration attempts so the catalog loads once.
     @ObservationIgnored var projectHydrationTask: Task<Void, Never>?
     /// True once the active Project's tabs have been applied to the workspace store.

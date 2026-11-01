@@ -1040,6 +1040,37 @@ struct FilteringTests {
         #expect(second.filteredTransactions.map(\.id) == [web.id])
     }
 
+    // MARK: - Search Debounce
+
+    @Test("Typing coalesces into one filter pass instead of one per keystroke")
+    func searchTextDebouncesTheFilterPass() async throws {
+        let coordinator = MainContentCoordinator(searchRecomputeDebounce: .milliseconds(50))
+        coordinator.transactions = TestFixtures.makeBulkTransactions(count: 20)
+        coordinator.recomputeFilteredTransactions()
+        let unfilteredCount = coordinator.filteredTransactions.count
+        coordinator.filterCriteria.searchField = .path
+
+        // A burst of keystrokes, the way the search field delivers them.
+        for keystroke in ["/", "/u", "/us", "/use", "/user", "/users"] {
+            coordinator.searchTextDidChange(keystroke)
+        }
+
+        // The text lands at once so the field stays responsive, but the pass over every
+        // captured transaction has not run yet. That is what keeps typing cheap after a
+        // long capture, where the list is far larger than this fixture.
+        #expect(coordinator.filterCriteria.searchText == "/users")
+        #expect(coordinator.filteredTransactions.count == unfilteredCount)
+
+        try await Task.sleep(for: .milliseconds(500))
+
+        // One pass, and it used the final text rather than any intermediate prefix.
+        #expect(coordinator.filteredTransactions.count < unfilteredCount)
+        #expect(!coordinator.filteredTransactions.isEmpty)
+        #expect(coordinator.filteredTransactions.allSatisfy {
+            $0.request.path.lowercased().contains("/users")
+        })
+    }
+
     // MARK: Private
 
     // MARK: - Setup

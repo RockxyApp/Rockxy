@@ -234,7 +234,38 @@ extension MainContentCoordinator {
         }
     }
 
+    /// Applies a search-field edit at once and schedules the filter pass behind a short
+    /// debounce. The text has to land immediately so the field stays responsive; what
+    /// costs real time is the pass below, which walks every captured transaction. After
+    /// a long capture that list is large enough that one pass per keystroke is itself
+    /// the typing lag.
+    func searchTextDidChange(_ text: String) {
+        filterCriteria.searchText = text
+        searchRecomputeTask?.cancel()
+        searchRecomputeTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            do {
+                try await Task.sleep(for: self.searchRecomputeDebounce)
+            } catch {
+                // Cancelled by a newer keystroke: coalesced into the later pass.
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            // Cleared before the pass so the supersede below does not cancel this
+            // very task while it is the one running.
+            self.searchRecomputeTask = nil
+            self.recomputeFilteredTransactions()
+        }
+    }
+
     func recomputeFilteredTransactions() {
+        // Any immediate recompute, from any call site, supersedes a debounced one.
+        searchRecomputeTask?.cancel()
+        searchRecomputeTask = nil
         activeWorkspace.lastDeriveWasAppendOnly = false
         let baseList: [HTTPTransaction] = switch filterCriteria.sidebarScope {
         case .saved:
