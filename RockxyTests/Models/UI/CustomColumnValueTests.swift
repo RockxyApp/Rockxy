@@ -118,9 +118,13 @@ struct CustomColumnValueTests {
         #expect(HeaderColumnStore.resolveValue(for: "reqQuery.missing", transaction: transaction).isEmpty)
         #expect(transaction.customColumnValueCache.value(for: "qry:missing") == "")
 
-        // Replaying or editing a request must not leave the old value on screen. This shares
-        // `bodyValue`'s invalidation: mutating `request` drops the whole cache.
-        transaction.request.url = URL(string: "https://api.example.com/search?q=proxy&page=2")!
+        // Replaying or editing a request must not leave the old value on screen. `url` is a
+        // `let` on `HTTPRequestData`, so a changed URL arrives as a whole replaced request --
+        // which is what bumps the revision and drops the cache, the same invalidation
+        // `bodyValue` relies on.
+        transaction.request = TestFixtures.makeRequest(
+            url: "https://api.example.com/search?q=proxy&page=2"
+        )
         #expect(transaction.customColumnValueCache.value(for: "qry:q") == nil)
         #expect(HeaderColumnStore.resolveValue(for: "reqQuery.q", transaction: transaction) == "proxy")
     }
