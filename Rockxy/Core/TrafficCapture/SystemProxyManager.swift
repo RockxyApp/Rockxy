@@ -275,6 +275,9 @@ final class SystemProxyManager: @unchecked Sendable {
 
     static let shared = SystemProxyManager()
 
+    /// Upper bound on a single `networksetup` invocation.
+    static let networkSetupTimeout: TimeInterval = 10
+
     nonisolated static var directWatchdogLabel: String {
         "\(RockxyIdentity.current.appBundleIdentifier).direct-proxy-watchdog"
     }
@@ -516,6 +519,10 @@ final class SystemProxyManager: @unchecked Sendable {
     ///
     /// Each service is re-read first and written only if it still holds exactly the settings the
     /// report observed, so a change made while the user was deciding is never overwritten.
+    ///
+    /// One service failing no longer ends the sweep; the result names what failed. Throwing
+    /// out of the loop meant every service after the failure kept pointing at the port
+    /// capture had stopped listening on, and said nothing about which ones.
     func restorePreviousProxySettings(
         _ entries: [UnrestoredPreviousProxy]
     )
@@ -524,7 +531,7 @@ final class SystemProxyManager: @unchecked Sendable {
         try await Self.lifecycleGate.withOperation { [self] in
             try await Task.detached(priority: .userInitiated) { [self] in
                 try Self.operationGate.withOperation {
-                    try restorePreviousProxySettingsLocked(entries)
+                    restorePreviousProxySettingsLocked(entries)
                 }
             }.value
         }
@@ -683,11 +690,43 @@ final class SystemProxyManager: @unchecked Sendable {
 
     // MARK: Private
 
+    // MARK: - Process Execution
+
+    /// Collects a child's two output streams from the queues draining them.
+    private final class NetworkSetupOutputBox: @unchecked Sendable {
+        // MARK: Internal
+
+        var standardOutput: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return outputData
+        }
+
+        var standardError: Data {
+            lock.lock()
+            defer { lock.unlock() }
+            return errorData
+        }
+
+        func store(_ data: Data, isStandardOutput: Bool) {
+            lock.lock()
+            defer { lock.unlock() }
+            if isStandardOutput {
+                outputData = data
+            } else {
+                errorData = data
+            }
+        }
+
+        // MARK: Private
+
+        private let lock = NSLock()
+        private var outputData = Data()
+        private var errorData = Data()
+    }
+
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SystemProxyManager")
     private static let networkSetupPath = "/usr/sbin/networksetup"
-
-    /// Upper bound on a single `networksetup` invocation.
-    static let networkSetupTimeout: TimeInterval = 10
 
     private static let routePath = "/sbin/route"
     private static let helperBackupPath = "/Library/Application Support/\(RockxyIdentity.current.sharedSupportDirectoryName)/proxy-backup.plist"
@@ -751,6 +790,19 @@ final class SystemProxyManager: @unchecked Sendable {
     /// replaces is removed.
     private static func uniqueDirectWatchdogLabel() -> String {
         "\(directWatchdogLabel).\(UUID().uuidString)"
+    }
+
+    /// Ends a child that outlived its budget: SIGTERM, a bounded grace window, then SIGKILL.
+    /// A wedged `networksetup` that ignores SIGTERM must not keep the gates above it closed.
+    private static func terminate(_ process: Process) {
+        process.terminate()
+        let deadline = Date().addingTimeInterval(1)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            Darwin.kill(process.processIdentifier, SIGKILL)
+        }
     }
 
     private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
@@ -1059,22 +1111,29 @@ final class SystemProxyManager: @unchecked Sendable {
     private func restorePreviousProxySettingsLocked(
         _ entries: [UnrestoredPreviousProxy]
     )
-        throws -> PreviousProxyRestoreResult
+        -> PreviousProxyRestoreResult
     {
-        var result = PreviousProxyRestoreResult()
-        for entry in entries {
-            guard let live = captureReadableProxySnapshot(for: entry.service), live == entry.current else {
-                Self.logger.info("Not restoring '\(entry.service)': its proxy settings changed again")
-                result.changedServices.append(entry.service)
-                continue
+        PreviousProxyRestorePolicy.restore(
+            entries,
+            liveSnapshot: { [self] service in
+                let live = captureReadableProxySnapshot(for: service)
+                if live == nil {
+                    Self.logger.info("Not restoring '\(service)': its proxy settings could not be read")
+                }
+                return live
+            },
+            write: { [self] entry in
+                try restoreServiceProxyState(service: entry.service, snapshot: entry.previous)
+                if let domains = entry.previousBypassDomains {
+                    try restoreServiceBypassDomains(service: entry.service, domains: domains)
+                }
+            },
+            onFailure: { service, error in
+                Self.logger.error(
+                    "Could not restore '\(service)': \(error.localizedDescription); continuing with the rest"
+                )
             }
-            try restoreServiceProxyState(service: entry.service, snapshot: entry.previous)
-            if let domains = entry.previousBypassDomains {
-                try restoreServiceBypassDomains(service: entry.service, domains: domains)
-            }
-            result.restoredServices.append(entry.service)
-        }
-        return result
+        )
     }
 
     private func isSystemProxyEnabled() -> Bool {
@@ -1814,50 +1873,6 @@ final class SystemProxyManager: @unchecked Sendable {
         )
         try ProxyBackupFilePublication.publish(PropertyListEncoder().encode(backup), to: url)
         Self.logger.info("Persisted direct backup for \(backup.services.count) service(s) at port \(backup.rockxyPort)")
-    }
-
-    // MARK: - Process Execution
-
-    /// Collects a child's two output streams from the queues draining them.
-    private final class NetworkSetupOutputBox: @unchecked Sendable {
-        var standardOutput: Data {
-            lock.lock()
-            defer { lock.unlock() }
-            return outputData
-        }
-
-        var standardError: Data {
-            lock.lock()
-            defer { lock.unlock() }
-            return errorData
-        }
-
-        func store(_ data: Data, isStandardOutput: Bool) {
-            lock.lock()
-            defer { lock.unlock() }
-            if isStandardOutput {
-                outputData = data
-            } else {
-                errorData = data
-            }
-        }
-
-        private let lock = NSLock()
-        private var outputData = Data()
-        private var errorData = Data()
-    }
-
-    /// Ends a child that outlived its budget: SIGTERM, a bounded grace window, then SIGKILL.
-    /// A wedged `networksetup` that ignores SIGTERM must not keep the gates above it closed.
-    private static func terminate(_ process: Process) {
-        process.terminate()
-        let deadline = Date().addingTimeInterval(1)
-        while process.isRunning, Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        if process.isRunning {
-            Darwin.kill(process.processIdentifier, SIGKILL)
-        }
     }
 
     @discardableResult

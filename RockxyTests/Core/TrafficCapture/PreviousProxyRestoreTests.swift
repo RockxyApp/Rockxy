@@ -123,6 +123,82 @@ struct PreviousProxyRestoreTests {
             .contains("http://127.0.0.1:33331/pac") == true)
     }
 
+    /// The sweep used to `try` inside its loop, so one service failing ended it. `networksetup`
+    /// is bounded rather than stopped from wedging, so that failure is reachable, and every
+    /// service after it kept pointing at the port capture had just stopped listening on --
+    /// the user losing network on that interface, with nothing recording which services.
+    @Test("One service failing does not stop the others from being restored")
+    func aFailedServiceDoesNotAbandonTheSweep() {
+        let entries = ["Wi-Fi", "Ethernet", "Thunderbolt Bridge"].map { Self.entry(service: $0) }
+        var attempted: [String] = []
+
+        let result = PreviousProxyRestorePolicy.restore(
+            entries,
+            liveSnapshot: { _ in Self.clash },
+            write: { entry in
+                attempted.append(entry.service)
+                if entry.service == "Wi-Fi" {
+                    throw SystemProxyError.proxyRestoreFailed
+                }
+            }
+        )
+
+        #expect(attempted == ["Wi-Fi", "Ethernet", "Thunderbolt Bridge"])
+        #expect(result.failedServices == ["Wi-Fi"])
+        #expect(result.restoredServices == ["Ethernet", "Thunderbolt Bridge"])
+        #expect(!result.isComplete)
+    }
+
+    @Test("A service whose settings changed again is left alone and never written")
+    func changedServicesAreNotWritten() {
+        let entries = [Self.entry(service: "Wi-Fi"), Self.entry(service: "Ethernet")]
+        var attempted: [String] = []
+
+        let result = PreviousProxyRestorePolicy.restore(
+            entries,
+            liveSnapshot: { service in service == "Wi-Fi" ? Self.direct : Self.clash },
+            write: { attempted.append($0.service) }
+        )
+
+        #expect(attempted == ["Ethernet"])
+        #expect(result.changedServices == ["Wi-Fi"])
+        #expect(result.restoredServices == ["Ethernet"])
+        #expect(result.isComplete, "nothing was attempted for Wi-Fi, so nothing failed")
+    }
+
+    /// Reading a service can fail on its own, and a write must be able to prove nothing
+    /// changed first. An unreadable service is reported, not written blind.
+    @Test("A service that cannot be read is reported rather than written")
+    func unreadableServiceIsNotWritten() {
+        var attempted: [String] = []
+        let result = PreviousProxyRestorePolicy.restore(
+            [Self.entry(service: "Wi-Fi")],
+            liveSnapshot: { _ in nil },
+            write: { attempted.append($0.service) }
+        )
+
+        #expect(attempted.isEmpty)
+        #expect(result.changedServices == ["Wi-Fi"])
+        #expect(result.restoredServices.isEmpty)
+    }
+
+    @Test("Every failure is named, not just the first")
+    func allFailuresAreNamed() {
+        let entries = ["Wi-Fi", "Ethernet"].map { Self.entry(service: $0) }
+        var reported: [String] = []
+
+        let result = PreviousProxyRestorePolicy.restore(
+            entries,
+            liveSnapshot: { _ in Self.clash },
+            write: { _ in throw SystemProxyError.proxyRestoreFailed },
+            onFailure: { service, _ in reported.append(service) }
+        )
+
+        #expect(result.failedServices == ["Wi-Fi", "Ethernet"])
+        #expect(reported == ["Wi-Fi", "Ethernet"])
+        #expect(result.restoredServices.isEmpty)
+    }
+
     // MARK: Private
 
     private static let rockxyPort = 9_090
@@ -135,6 +211,15 @@ struct PreviousProxyRestoreTests {
         socks: (true, "127.0.0.1", 7_890)
     )
     private static let pac = Self.snapshot(pac: (true, "http://127.0.0.1:33331/pac"))
+
+    private static func entry(service: String) -> UnrestoredPreviousProxy {
+        UnrestoredPreviousProxy(
+            service: service,
+            previous: clash,
+            previousBypassDomains: clashBypass,
+            current: clash
+        )
+    }
 
     private static func snapshot(
         http: (Bool, String, Int) = (false, "", 0),
