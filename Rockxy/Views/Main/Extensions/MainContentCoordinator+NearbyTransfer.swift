@@ -37,6 +37,7 @@ extension MainContentCoordinator {
         }
         transactionsByProjectID[projectStore.activeProjectID] = transactions
         nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
+        updateErrorCount(for: importedTransactions)
         refreshDomainTree(for: destinationWorkspace)
         let retainedTransactionIDs = Set(transactions.map(\.id))
         destinationWorkspace.filteredTransactions = importedTransactions.filter {

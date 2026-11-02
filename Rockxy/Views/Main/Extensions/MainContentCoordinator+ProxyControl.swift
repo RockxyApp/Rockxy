@@ -882,6 +882,7 @@ extension MainContentCoordinator {
             rebuildObservedDomainsByApp()
             logEntries.removeAll()
             errorCount = 0
+            erroredTransactionIDs.removeAll()
             sessionProvenance = nil
             importPreview = nil
             exportScopeContext = nil
@@ -916,12 +917,6 @@ extension MainContentCoordinator {
     func clearCaptureAndFilters() async {
         await clearSession()
         clearFiltersAcrossAllWorkspaces()
-    }
-
-    func recomputeErrorCount() {
-        errorCount = transactions.count { transaction in
-            (transaction.response?.statusCode ?? 0) >= 400
-        }
     }
 
     // MARK: - Proxy Configuration
@@ -1150,7 +1145,7 @@ extension MainContentCoordinator {
             if evictionCount > 0 {
                 CaptureRetentionProfiler.measure(.errorCount) { recomputeErrorCount() }
             } else {
-                errorCount += projectBatch.count { ($0.response?.statusCode ?? 0) >= 400 }
+                updateErrorCount(for: projectBatch)
             }
             followLatestVisibleTransaction(from: projectBatch)
             selectPendingReplayTransaction(from: projectBatch)
@@ -1200,6 +1195,13 @@ extension MainContentCoordinator {
         liveRowRefreshTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(16))
             guard !Task.isCancelled else {
+                // The guard above only schedules a flush while this handle is nil, and a
+                // cancelled sleep is the one exit that does not reach the flush that
+                // clears it. Leaving it set would stop every later flush from being
+                // scheduled: live rows would freeze for the rest of the session and the
+                // pending map would only grow. Today the sole outside canceller is
+                // `deinit`, so this is a trap for the next one rather than a live defect.
+                self?.liveRowRefreshTask = nil
                 return
             }
             self?.flushQueuedLiveTransactionUpdates()
@@ -1236,7 +1238,9 @@ extension MainContentCoordinator {
                 rewriteVisibleRowsInPlace(from: updatedByID, in: workspace)
             }
         }
-        recomputeErrorCount()
+        // These rows are already known to be in the history, and a refresh never removes
+        // one, so the count follows from the batch alone.
+        updateErrorCount(for: updatedTransactions)
     }
 
     /// Reject stale ownership before scanning history. Temporary membership storage scales
@@ -1249,7 +1253,12 @@ extension MainContentCoordinator {
             return []
         }
         var present: Set<UUID> = []
-        for transaction in transactions where missing.remove(transaction.id) != nil {
+        // Newest first. The early exit only fires once every update has been accounted
+        // for, and a refresh is almost always for a row near the end of the history -- an
+        // open stream, or one that just finished -- so scanning from the oldest row walked
+        // nearly the whole retained capture before finding them. Iteration order cannot
+        // change which ids are found, only how soon.
+        for transaction in transactions.reversed() where missing.remove(transaction.id) != nil {
             present.insert(transaction.id)
             if missing.isEmpty {
                 break

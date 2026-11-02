@@ -886,6 +886,9 @@ extension MainContentCoordinator {
                 && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
         }
         syncActiveProjectHistory()
+        // Rows left the history, which is the one change the count cannot be folded
+        // forward from -- the deleted rows are already gone by the time we look.
+        recomputeErrorCount()
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was removed by this action.
@@ -913,6 +916,9 @@ extension MainContentCoordinator {
     func removeAppFromSidebar(_ appName: String) {
         transactions.removeAll { $0.clientApp == appName }
         syncActiveProjectHistory()
+        // Rows left the history, which is the one change the count cannot be folded
+        // forward from -- the deleted rows are already gone by the time we look.
+        recomputeErrorCount()
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was this app

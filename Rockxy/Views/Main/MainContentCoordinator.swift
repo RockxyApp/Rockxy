@@ -347,6 +347,20 @@ final class MainContentCoordinator {
     var proxyStartedAt: Date?
     var errorCount: Int = 0
 
+    /// Which retained rows are currently counted in `errorCount`.
+    ///
+    /// Remembering the classification is what lets a live refresh adjust the count from
+    /// just the rows that changed. The producer hands back transactions that carry a
+    /// response the row did not have when it was first counted, so without this there is
+    /// nothing to compare against and the only correct answer is to rescan the whole
+    /// retained capture -- which `handleLiveTransactionUpdate` did on every display
+    /// interval, so the cost grew with how long capture had been running.
+    ///
+    /// Maintained only by `recomputeErrorCount()` and `updateErrorCount(for:)`, which are
+    /// also the only writers of `errorCount`. It cannot be `private(set)`: those live in
+    /// an extension in another file, and a private setter does not reach across files.
+    @ObservationIgnored var erroredTransactionIDs: Set<UUID> = []
+
     // MARK: - Breakpoint
 
     var breakpointManager = BreakpointManager.shared

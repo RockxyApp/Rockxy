@@ -370,6 +370,7 @@ extension MainContentCoordinator {
             }
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
+            updateErrorCount(for: transactions)
             rebuildObservedDomainsByApp()
             recomputeFilteredTransactions()
             headerColumnStore.updateDiscoveredHeaders(from: transactions)
@@ -425,6 +426,7 @@ extension MainContentCoordinator {
             }
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
+            updateErrorCount(for: transactions)
             rebuildObservedDomainsByApp()
 
             if let codableLogEntries = session.logEntries {
