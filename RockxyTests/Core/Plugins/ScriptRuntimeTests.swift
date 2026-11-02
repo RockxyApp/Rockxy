@@ -191,18 +191,41 @@ struct ScriptRuntimeTests {
     /// now interleave with it. If the finishing load still registered itself, disabling a
     /// script while it was loading would leave it running on captured traffic.
     ///
-    /// The top-level loop below terminates, so no thread leaks; it only has to outlast the
-    /// single actor hop `unloadPlugin` needs, which it does by orders of magnitude. The
-    /// assertions hold whether the load was superseded or hit the watchdog first.
+    /// Waiting for `inFlightLoadCount` is what makes this honest rather than a coin flip:
+    /// both calls have to reach the actor, so an unload issued right after the load task
+    /// can arrive first, correctly supersede nothing, and let the later load register --
+    /// which would fail every assertion here against a product that behaved correctly.
+    ///
+    /// Timing alone cannot close the rest of the gap. Tests run in parallel, so the hop
+    /// that carries `unloadPlugin` onto the actor waits on a cooperative pool other suites
+    /// are using, while the evaluation runs on its own Dispatch queue and is not slowed by
+    /// any of it. A 3e8 loop lost that race on 2026-11-02: it finished, registered, and
+    /// only then did the unload land, so `loadPlugin` returned normally.
+    ///
+    /// What makes the outcome deterministic is that both remaining paths prove the same
+    /// thing. If the unload lands first the load is superseded; if the pool stalls long
+    /// enough the watchdog retires the evaluation instead. Either way `loadPlugin` throws
+    /// a `ScriptRuntimeError` and the plugin is never registered, which is the invariant
+    /// the user actually depends on: a script they switched off must not end up loaded and
+    /// callable. The loop is sized so that finishing before the unload is implausible
+    /// rather than merely unlikely; it still terminates, so nothing leaks permanently.
     @Test("An unload during a load wins, and the finishing load does not register")
     func unloadDuringLoadSupersedesIt() async throws {
         let runtime = ScriptRuntime()
         let slow = try makeTempPlugin(
             id: "com.test.slow-load",
-            script: "for (let i = 0; i < 3e8; i++) {}\nfunction onRequest(ctx) { return ctx; }"
+            script: "for (let i = 0; i < 1e10; i++) {}\nfunction onRequest(ctx) { return ctx; }"
         )
 
         let load = Task { try await runtime.loadPlugin(slow) }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await runtime.inFlightLoadCount == 0, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        try #require(
+            await runtime.inFlightLoadCount == 1,
+            "the load never began evaluating, so there was nothing for the unload to supersede"
+        )
         await runtime.unloadPlugin(id: slow.id)
 
         await #expect(throws: ScriptRuntimeError.self) {

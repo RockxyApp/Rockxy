@@ -488,10 +488,18 @@ struct HistoryRetentionTests {
         coordinator.evictForMemoryPressure(isCritical: false, now: start.addingTimeInterval(1))
         #expect(coordinator.transactions.count == 150)
 
+        // Once the interval has passed, eviction resumes -- but only while history is
+        // still above the floor. The 150 rows left above are BELOW it, so topping the
+        // history back up is part of the assertion, not setup noise: without it this
+        // step would prove nothing except that the floor works, which the first step
+        // already covers.
+        coordinator.transactions += (0 ..< 150).map {
+            TestFixtures.makeTransaction(url: "https://pressure.example.com/more/\($0)")
+        }
         let afterInterval = start
             .addingTimeInterval(MainContentCoordinator.memoryPressureEvictionInterval + 1)
         coordinator.evictForMemoryPressure(isCritical: false, now: afterInterval)
-        #expect(coordinator.transactions.count == 50)
+        #expect(coordinator.transactions.count == 200)
     }
 
     @Test("Critical pressure reclaims imported rows the live cap never trims")

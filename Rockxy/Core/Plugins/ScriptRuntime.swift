@@ -67,6 +67,16 @@ actor ScriptRuntime {
 
     // MARK: Internal
 
+    /// How many loads are currently suspended evaluating a plugin's source.
+    ///
+    /// Only the unload-wins regression test reads this. It has to fire its unload while a
+    /// load is actually in flight, and it cannot get there by racing: `loadPlugin` and
+    /// `unloadPlugin` both have to reach this actor, so an unload started right after the
+    /// load can still arrive first, find nothing to supersede, and let the later load
+    /// register itself -- which is correct behavior, and would make the test pass without
+    /// ever exercising the guard it exists to cover.
+    private(set) var inFlightLoadCount = 0
+
     func loadPlugin(_ info: PluginInfo) async throws {
         guard let scriptEntry = info.manifest.entryPoints["script"] else {
             throw ScriptRuntimeError.scriptLoadFailed(
@@ -132,6 +142,8 @@ actor ScriptRuntime {
         // the finishing load register itself, leaving a script the user had switched off
         // still mutating traffic.
         let token = beginLoad(of: info.id)
+        inFlightLoadCount += 1
+        defer { inFlightLoadCount -= 1 }
         let products = try await evaluateSource(
             source,
             in: context,

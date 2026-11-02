@@ -150,7 +150,20 @@ struct RootCADownloadServerLifecycleTests {
         let firstStart = Task {
             try await server.start(certificatePEM: "first")
         }
-        await Task.yield()
+        // A single `Task.yield()` used to stand in for ordering here, and it is not one:
+        // both starts have to reach the actor, so the second task's body can arrive first,
+        // claim the newer generation, and leave the FIRST start as the winner -- at which
+        // point `secondStart` throws `CancellationError` and the test fails on a product
+        // that behaved correctly. This was seen on 2026-11-02 under machine load.
+        // Waiting for the first start to claim its generation removes the coin flip.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await server.lifecycleGeneration == 0, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        try #require(
+            await server.lifecycleGeneration == 1,
+            "the first start never claimed a generation, so the second cannot supersede it"
+        )
         let secondStart = Task {
             try await server.start(certificatePEM: "second")
         }
