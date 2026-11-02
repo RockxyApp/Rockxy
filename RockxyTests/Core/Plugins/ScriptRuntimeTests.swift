@@ -207,14 +207,23 @@ struct ScriptRuntimeTests {
     /// enough the watchdog retires the evaluation instead. Either way `loadPlugin` throws
     /// a `ScriptRuntimeError` and the plugin is never registered, which is the invariant
     /// the user actually depends on: a script they switched off must not end up loaded and
-    /// callable. The loop is sized so that finishing before the unload is implausible
-    /// rather than merely unlikely; it still terminates, so nothing leaks permanently.
+    /// callable.
+    ///
+    /// So the loop is sized against the 5 s watchdog, not against the hop: outrunning the
+    /// hop cannot be guaranteed at any size, while exceeding the watchdog can. Measured
+    /// with JavaScriptCore on this machine, idle: 3e8 takes 1.1 s, 1e9 takes 3.9 s. 3e9 is
+    /// therefore around 12 s, and a loaded machine only makes it longer, which is the safe
+    /// direction. It must also not be far larger than that: `workItem.cancel()` is a no-op
+    /// for work already running, so the thread spins for the whole loop whatever the
+    /// watchdog does, and this suite already leaks two permanent spinners by design. A
+    /// 1e10 loop measured ~39 s, and the full suite stalled on 2026-11-02 with three
+    /// CPU-bound threads of an 11-core box held at once.
     @Test("An unload during a load wins, and the finishing load does not register")
     func unloadDuringLoadSupersedesIt() async throws {
         let runtime = ScriptRuntime()
         let slow = try makeTempPlugin(
             id: "com.test.slow-load",
-            script: "for (let i = 0; i < 1e10; i++) {}\nfunction onRequest(ctx) { return ctx; }"
+            script: "for (let i = 0; i < 3e9; i++) {}\nfunction onRequest(ctx) { return ctx; }"
         )
 
         let load = Task { try await runtime.loadPlugin(slow) }
