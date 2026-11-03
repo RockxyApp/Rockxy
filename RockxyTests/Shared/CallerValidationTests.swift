@@ -79,6 +79,12 @@ struct CallerValidationTests {
         #expect(CallerValidation.isXcodeDerivedDataBuildProduct(path: releaseApp))
         #expect(!CallerValidation.isXcodeDerivedDataBuildProduct(path: applicationsApp))
         #expect(!CallerValidation.isXcodeDerivedDataBuildProduct(path: siblingPath))
+
+        // Both segments present but in the wrong order: an attacker-controlled path can
+        // hold either string anywhere, so only their order distinguishes a real build
+        // product from a directory named to look like one.
+        let reordered = "/tmp/attacker/Build/Products/x/Library/Developer/Xcode/DerivedData/y/Rockxy.app/Contents/MacOS/Rockxy"
+        #expect(!CallerValidation.isXcodeDerivedDataBuildProduct(path: reordered))
     }
 
     // MARK: - Live Caller Identity (TEST_HOST = signed Rockxy app)

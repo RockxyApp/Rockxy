@@ -556,24 +556,31 @@ private enum DirectProxyWatchdog {
             ])
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: networkSetupPath)
-        process.arguments = arguments
+        let result: BoundedHelperCommand.CapturedOutput
+        do {
+            result = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: networkSetupPath),
+                arguments: arguments,
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
+            )
+        } catch {
+            // The watchdog's whole job is to finish a stranded restore. A command it could not
+            // bound must fail the step so the journal keeps it, never read as a clean reading.
+            throw NSError(domain: "DirectProxyWatchdog", code: -1, userInfo: [
+                NSLocalizedDescriptionKey:
+                    "networksetup \(arguments.joined(separator: " ")) could not be run: \(String(describing: error))",
+            ])
+        }
 
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        try process.run()
-        process.waitUntilExit()
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-        guard process.terminationStatus == 0 else {
+        // Decoded leniently: both buffers are byte budgets, so a strict decode would throw away a
+        // whole reading whose last character happens to be cut mid-sequence.
+        // swiftlint:disable:next optional_data_string_conversion
+        let stdout = String(decoding: result.standardOutput, as: UTF8.self)
+        guard result.status == 0 else {
+            // swiftlint:disable:next optional_data_string_conversion
+            let stderr = String(decoding: result.diagnostic, as: UTF8.self)
             let output = stderr.isEmpty ? stdout : stderr
-            throw NSError(domain: "DirectProxyWatchdog", code: Int(process.terminationStatus), userInfo: [
+            throw NSError(domain: "DirectProxyWatchdog", code: Int(result.status), userInfo: [
                 NSLocalizedDescriptionKey: "networksetup \(arguments.joined(separator: " ")) failed: \(output)",
             ])
         }

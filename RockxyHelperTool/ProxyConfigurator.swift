@@ -1172,31 +1172,30 @@ enum ProxyConfigurator {
             return nil
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: routePath)
-        process.arguments = ["-n", "get", "0.0.0.0"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
+        let result: BoundedHelperCommand.CapturedOutput
         do {
-            try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            for line in output.components(separatedBy: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("interface:") {
-                    let iface = trimmed
-                        .replacingOccurrences(of: "interface:", with: "")
-                        .trimmingCharacters(in: .whitespaces)
-                    if !iface.isEmpty {
-                        return iface
-                    }
+            result = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: routePath),
+                arguments: ["-n", "get", "0.0.0.0"],
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
+            )
+        } catch {
+            logger.warning("Failed to detect primary interface: \(String(describing: error))")
+            return nil
+        }
+
+        // swiftlint:disable:next optional_data_string_conversion
+        let output = String(decoding: result.standardOutput, as: UTF8.self)
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("interface:") {
+                let iface = trimmed
+                    .replacingOccurrences(of: "interface:", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if !iface.isEmpty {
+                    return iface
                 }
             }
-        } catch {
-            logger.warning("Failed to detect primary interface: \(error.localizedDescription)")
         }
 
         return nil
@@ -1270,39 +1269,32 @@ enum ProxyConfigurator {
     private static func runNetworkSetup(_ arguments: [String]) throws -> String {
         try validateBinary(networkSetupPath)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: networkSetupPath)
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
+        let command = arguments.joined(separator: " ")
+        let output: BoundedHelperCommand.CapturedOutput
         do {
-            try process.run()
-        } catch {
-            logger.error("Failed to launch networksetup: \(error.localizedDescription)")
-            throw ProxyConfiguratorError.executionFailed(
-                command: arguments.joined(separator: " "),
-                reason: error.localizedDescription
+            output = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: networkSetupPath),
+                arguments: arguments,
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
             )
+        } catch {
+            // A failed spawn, a timeout and an overlong reading are all definite failures. None
+            // may read as a service that simply has no proxy configured, because the caller would
+            // then write that emptiness into the recovery backup.
+            logger.error("Failed to run networksetup: \(String(describing: error))")
+            throw ProxyConfiguratorError.executionFailed(command: command, reason: String(describing: error))
         }
 
-        process.waitUntilExit()
-
-        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-
-        guard process.terminationStatus == 0 else {
+        // Decoded leniently: both buffers are byte budgets, so the last character can be a
+        // truncated multi-byte sequence a strict decode would discard the whole reading for.
+        // swiftlint:disable:next optional_data_string_conversion
+        let stdout = String(decoding: output.standardOutput, as: UTF8.self)
+        guard output.status == 0 else {
+            // swiftlint:disable:next optional_data_string_conversion
+            let stderr = String(decoding: output.diagnostic, as: UTF8.self)
             let combined = stderr.isEmpty ? stdout : stderr
-            logger.error("networksetup failed (\(process.terminationStatus)): \(combined)")
-            throw ProxyConfiguratorError.executionFailed(
-                command: arguments.joined(separator: " "),
-                reason: combined
-            )
+            logger.error("networksetup failed (\(output.status)): \(combined)")
+            throw ProxyConfiguratorError.executionFailed(command: command, reason: combined)
         }
 
         return stdout

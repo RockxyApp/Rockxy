@@ -1,6 +1,19 @@
 import Foundation
 
 enum ProxyBypassDomainValidator {
+    /// The largest total one bypass list may occupy, counting the newline `networksetup` prints
+    /// after each domain.
+    ///
+    /// The helper's 500-domain cap does not bound the reply: 500 entries at the 253-byte maximum
+    /// below is roughly 127 KB, which is past the 64 KiB pipe buffer that
+    /// `networksetup -getproxybypassdomains` would block on and past what any caller should ask a
+    /// command runner to buffer. Bounding the total instead keeps every supported list inside
+    /// `BoundedHelperCommand.standardOutputLimit`, so the supported API cannot by itself produce a
+    /// reading the command layer refuses. 64 KiB is the pipe buffer, and it still allows all 500
+    /// domains averaging 130 bytes — an order of magnitude above the hostnames and CIDR blocks a
+    /// real bypass list holds.
+    static let maximumTotalBytes = 65_536
+
     static func isValid(_ domain: String) -> Bool {
         let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed == domain, trimmed.count <= 253 else {
@@ -17,6 +30,12 @@ enum ProxyBypassDomainValidator {
         }
 
         return !trimmed.contains("/") || ipv4CIDR(trimmed) != nil
+    }
+
+    /// Whether `domains` fits `maximumTotalBytes` once `networksetup`'s per-line newline is
+    /// counted. Checked alongside the count cap, not instead of it.
+    static func fitsTotalByteBound(_ domains: [String]) -> Bool {
+        domains.reduce(0) { $0 + $1.utf8.count + 1 } <= maximumTotalBytes
     }
 
     static func ipv4CIDR(_ value: String) -> (network: UInt32, mask: UInt32)? {

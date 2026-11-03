@@ -16,7 +16,11 @@ import Security
 ///    PID-race-resistant caller identification, then checks against a `SecRequirement`
 ///    string for each allowed bundle identifier.
 ///
-/// Both checks must pass for a connection to be accepted.
+/// Both checks must pass for a connection to be accepted -- EXCEPT that layer 2 is
+/// skipped when the connection's audit token cannot be read, in which case the caller is
+/// accepted on layer 1 alone. See the guard in `validateCaller(pid:auditTokenData:)`:
+/// whether that should instead fail closed is a pending decision, because the token is
+/// reached through an undocumented key.
 ///
 /// References:
 /// - Pearcleaner `CodesignCheck.swift` for certificate chain comparison
@@ -53,17 +57,27 @@ enum ConnectionValidator {
 
         // Defense-in-depth: if audit token data is available, recheck identity
         // via the audit-token-derived SecCode (immune to PID recycling).
-        if let tokenData = auditTokenData,
-           let auditCode = CallerValidation.secCodeFromAuditToken(tokenData)
+        //
+        // No token means this layer did not run and the caller is accepted on the PID
+        // layer alone. Whether that should instead reject is a pending decision: the
+        // token is read through an undocumented KVC key, so failing closed would take
+        // the helper offline entirely if a future macOS renamed it.
+        guard let tokenData = auditTokenData,
+              let auditCode = CallerValidation.secCodeFromAuditToken(tokenData) else
         {
-            let auditSatisfied = CallerValidation.callerSatisfiesAnyIdentifier(
-                callerCode: auditCode,
-                allowedIdentifiers: allowedCallerIdentifiers
+            logger.warning(
+                "SECURITY: audit token unavailable for pid \(pid), accepted on PID validation alone"
             )
-            if !auditSatisfied {
-                logger.error("SECURITY: PID validation passed but audit token check failed for pid \(pid)")
-                return false
-            }
+            return true
+        }
+
+        let auditSatisfied = CallerValidation.callerSatisfiesAnyIdentifier(
+            callerCode: auditCode,
+            allowedIdentifiers: allowedCallerIdentifiers
+        )
+        guard auditSatisfied else {
+            logger.error("SECURITY: PID validation passed but audit token check failed for pid \(pid)")
+            return false
         }
 
         logger.info("SECURITY: Two-layer validation passed for pid \(pid)")

@@ -806,18 +806,27 @@ enum CrashRecovery {
             )
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: networkSetupPath)
-        process.arguments = ["-get\(type)", service]
+        let result: BoundedHelperCommand.CapturedOutput
+        do {
+            result = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: networkSetupPath),
+                arguments: ["-get\(type)", service],
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
+            )
+        } catch {
+            // This reading becomes the backup the restore is measured against, so a command that
+            // was killed or overran its budget has to throw. Returning the empty string here
+            // would record "no proxy configured" for a service that has one.
+            throw ProxyConfiguratorError.executionFailed(
+                command: "-get\(type)",
+                reason: String(describing: error)
+            )
+        }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        // Decoded leniently, and the exit status is deliberately not inspected: the previous
+        // reader also returned whatever the tool printed, and the parsers treat an unrecognized
+        // reading as absent.
+        // swiftlint:disable:next optional_data_string_conversion
+        return String(decoding: result.standardOutput, as: UTF8.self)
     }
 }

@@ -191,9 +191,17 @@ enum CallerValidation {
         return code
     }
 
+    /// Both segments have to appear IN ORDER. Two unanchored `contains` checks also
+    /// accept a path that merely holds both somewhere -- for example
+    /// `/tmp/x/Build/Products/y/Library/Developer/Xcode/DerivedData/z`, which is no
+    /// Xcode build product at all. This gates a debug-helper install, so the laxer form
+    /// widened who could claim to be one. Every real layout, including a renamed
+    /// configuration, still has `/Build/Products/` below the DerivedData directory.
     static func isXcodeDerivedDataBuildProduct(path: String) -> Bool {
-        path.contains("/Library/Developer/Xcode/DerivedData/")
-            && path.contains("/Build/Products/")
+        guard let derivedData = path.range(of: "/Library/Developer/Xcode/DerivedData/") else {
+            return false
+        }
+        return path[derivedData.upperBound...].contains("/Build/Products/")
     }
 
     /// Obtains a `SecCode` from raw audit token data (32-byte `audit_token_t`).

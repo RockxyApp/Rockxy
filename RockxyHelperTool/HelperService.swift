@@ -397,6 +397,14 @@ final class HelperService: NSObject, RockxyHelperProtocol {
             return
         }
 
+        // The count cap alone still admits a list whose `-getproxybypassdomains` reply no longer
+        // fits what the command layer will read back, which recovery depends on.
+        guard ProxyBypassDomainValidator.fitsTotalByteBound(domains) else {
+            Self.logger.warning("SECURITY: Bypass domain list exceeds the total byte bound")
+            reply(false, "Bypass domain list is too large (max \(ProxyBypassDomainValidator.maximumTotalBytes) bytes)")
+            return
+        }
+
         guard let result = Self.mutationGate.withExclusiveAccess({
             Result {
                 guard let backup = try CrashRecovery.loadBackup(),
