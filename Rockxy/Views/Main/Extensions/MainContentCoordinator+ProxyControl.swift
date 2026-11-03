@@ -883,6 +883,8 @@ extension MainContentCoordinator {
             logEntries.removeAll()
             errorCount = 0
             erroredTransactionIDs.removeAll()
+            signalMaskByTransactionID.removeAll()
+            trafficSignalCounts.removeAll()
             sessionProvenance = nil
             importPreview = nil
             exportScopeContext = nil
@@ -1169,9 +1171,9 @@ extension MainContentCoordinator {
         moveObservedDomainsFromUnknown(for: enrichedTransactions)
 
         for workspace in workspaceStore.allWorkspaces {
+            // Both paths inside this call publish the app nodes themselves, so refreshing
+            // them again here only repeated the work.
             updateAppGroupingForEnrichedTransactions(enrichedTransactions, in: workspace)
-            refreshAppNodes(for: workspace)
-
             if workspaceUsesClientDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {
@@ -1232,7 +1234,14 @@ extension MainContentCoordinator {
         )
         for workspace in workspaceStore.allWorkspaces {
             refreshSidebarContributions(updatedTransactions, in: workspace)
-            if workspaceUsesStateDependentOrderingOrFiltering(workspace) {
+            // A search term, a status pill, or any other state-dependent filter used to
+            // escalate every live flush into a full re-filter of the retained capture. The
+            // rows this flush changed are the only ones whose membership can have changed,
+            // so re-test just those against the same predicate the recompute folds over the
+            // history, and keep the recompute for the flushes that really do move a row.
+            if workspaceUsesStateDependentOrderingOrFiltering(workspace),
+               !liveUpdatesPreserveRowMembership(updatedTransactions, in: workspace)
+            {
                 recomputeFilteredTransactions(for: workspace)
             } else {
                 rewriteVisibleRowsInPlace(from: updatedByID, in: workspace)
