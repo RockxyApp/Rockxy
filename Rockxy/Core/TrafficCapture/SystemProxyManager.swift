@@ -599,7 +599,21 @@ final class SystemProxyManager: @unchecked Sendable {
                 guard self.systemProxyEnabled else {
                     return
                 }
-                try? await self.applyBypassDomains()
+                do {
+                    try await self.applyBypassDomains()
+                } catch {
+                    // This is the ONLY path that applies a bypass edit while the proxy is
+                    // already on, and it fails for real: the helper answers `busyMessage`
+                    // whenever a certificate mutation holds the privileged gate, and the
+                    // direct path throws out of `networksetup`. Discarded, the OS kept
+                    // routing a host the user had just excluded, and a matching Decrypt rule
+                    // kept intercepting it -- with nothing logged for either the user or a
+                    // maintainer to find. The initial enable already propagates this error;
+                    // this call site was the outlier.
+                    Self.logger.error(
+                        "Failed to apply bypass list change: \(error.localizedDescription, privacy: .public)"
+                    )
+                }
             }
         }
     }
@@ -630,8 +644,20 @@ final class SystemProxyManager: @unchecked Sendable {
     /// Removes the on-disk direct backup after successful restore.
     func clearDirectBackup() {
         let url = Self.directBackupURL
-        try? FileManager.default.removeItem(at: url)
-        Self.logger.info("Cleared direct backup plist")
+        do {
+            try FileManager.default.removeItem(at: url)
+            Self.logger.info("Cleared direct backup plist")
+        } catch CocoaError.fileNoSuchFile {
+            // Already absent, which is the state this function exists to reach.
+            Self.logger.info("Cleared direct backup plist")
+        } catch {
+            // Saying "cleared" regardless hid a retained restore point: the next launch's
+            // recovery still finds it and may restore a proxy state the user has moved past,
+            // while the log said the record was gone.
+            Self.logger.error(
+                "Failed to clear direct backup plist: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     // MARK: - Ownership Detection

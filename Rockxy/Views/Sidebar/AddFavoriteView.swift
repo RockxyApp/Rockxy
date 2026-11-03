@@ -55,8 +55,14 @@ struct AddFavoriteView: View {
     @State private var isDomainsExpanded = true
     @Environment(\.appUIDisplayMetrics) private var metrics
 
+    /// Reads the maintained app index, exactly as `filteredDomains` below reads the maintained
+    /// domain tree. Scanning `coordinator.transactions` here instead cost a pass per keystroke
+    /// and a pass per captured request, and -- because the app index skips rows outside an
+    /// active sidebar app scope -- it also derived this list under different scope rules from
+    /// the Domains list beside it, so the two halves of one sheet could disagree with each
+    /// other and with the sidebar.
     private var filteredApps: [AppCandidate] {
-        let apps = buildAppCandidates()
+        let apps = coordinator.appNodes.map { AppCandidate(name: $0.name) }.sorted { $0.name < $1.name }
         if searchText.isEmpty {
             return apps
         }
@@ -306,15 +312,6 @@ struct AddFavoriteView: View {
         }
         coordinator.focusNavigatorMode = .library
         coordinator.selectSidebarItem(favorite)
-    }
-
-    private func buildAppCandidates() -> [AppCandidate] {
-        var appNames: Set<String> = []
-        for transaction in coordinator.transactions {
-            let name = transaction.clientApp ?? String(localized: "Unknown", bundle: RockxyLocalization.bundle)
-            appNames.insert(name)
-        }
-        return appNames.sorted().map { AppCandidate(name: $0) }
     }
 }
 

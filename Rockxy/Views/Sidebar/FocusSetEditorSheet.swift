@@ -16,7 +16,6 @@ struct FocusSetEditorSheet: View {
         self.transactions = transactions
         self.isCreating = isCreating
         self.onSave = onSave
-        suggestions = FocusSetEditorSuggestions(transactions: transactions)
         _draft = State(initialValue: initialValue)
         _usesSuggestedName = State(initialValue: isCreating && initialValue.name == initialValue.suggestedName)
     }
@@ -38,6 +37,16 @@ struct FocusSetEditorSheet: View {
         .frame(width: max(640, toolMetrics.fieldWidth(640)), height: 600)
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityIdentifier("focusSetEditor.sheet")
+        .task {
+            // The sheet is re-initialised on every captured request while it is open, because
+            // the presenting closure reads the live transaction list. Aggregating the
+            // suggestions here instead of in `init` means that re-initialisation costs nothing:
+            // this runs once for the sheet's lifetime, not once per request.
+            suggestions = FocusSetEditorSuggestions(transactions: transactions)
+        }
+        .task(id: draft) {
+            await refreshMatchCount()
+        }
         .onChange(of: draft.suggestedName) { _, suggestedName in
             guard isCreating, usesSuggestedName else {
                 return
@@ -54,12 +63,17 @@ struct FocusSetEditorSheet: View {
 
     // MARK: Private
 
+    /// Long enough to coalesce typing, short enough that the preview still reads as live.
+    /// Matches the traffic search field's debounce, which solves the same problem.
+    private static let matchCountDebounce = Duration.milliseconds(150)
+
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.dismiss) private var dismiss
     @State private var draft: FocusSet
     @State private var usesSuggestedName: Bool
-
-    private let suggestions: FocusSetEditorSuggestions
+    @State private var suggestions = FocusSetEditorSuggestions()
+    @State private var matchCount = 0
+    @State private var hasMatchCount = false
 
     private var trimmedName: String {
         draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -67,10 +81,6 @@ struct FocusSetEditorSheet: View {
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
-    }
-
-    private var matchCount: Int {
-        transactions.count { !$0.isTLSFailure && draft.matches($0) }
     }
 
     private var matchSummary: String {
@@ -349,12 +359,41 @@ struct FocusSetEditorSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    /// One match pass per settled edit, not one per keystroke. The pass walks every captured
+    /// transaction and the preview used to be read twice per render, so after a long capture
+    /// two full passes landed on the main actor for every character typed in the editor.
+    ///
+    /// `task(id:)` cancels and restarts this on each `draft` change, so the sleep at the head
+    /// is the debounce. The very first pass skips it: the sheet opens showing a real count
+    /// rather than "no matching requests" for the length of the delay.
+    private func refreshMatchCount() async {
+        if hasMatchCount {
+            do {
+                try await Task.sleep(for: Self.matchCountDebounce)
+            } catch {
+                // Cancelled by a newer edit, which is coalesced into that edit's pass.
+                return
+            }
+        }
+        let draft = draft
+        matchCount = transactions.count { !$0.isTLSFailure && draft.matches($0) }
+        hasMatchCount = true
+    }
 }
 
 // MARK: - FocusSetEditorSuggestions
 
 struct FocusSetEditorSuggestions: Equatable {
     // MARK: Lifecycle
+
+    /// What a sheet shows before its first aggregation lands. The fields are suggestion lists
+    /// for free-text pickers, so an empty one offers nothing rather than reading as "none".
+    init() {
+        applications = []
+        domains = []
+        paths = []
+    }
 
     init(transactions: [HTTPTransaction]) {
         applications = Self.aggregate(transactions.compactMap(\.clientApp))

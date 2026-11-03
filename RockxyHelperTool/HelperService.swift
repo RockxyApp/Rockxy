@@ -346,8 +346,17 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         IdleExitMonitor.resetIdleTimer()
         Self.logger.info("Preparing helper executable refresh without unregistering service")
 
+        // `getCurrentStatus()` answers `(false, 0)` both when nothing is overridden and when
+        // `networksetup` could not be read, so on its own it cannot tell "no override" from
+        // "do not know" -- and reading "no override" here lets the helper exit in the middle of
+        // one, leaving the user's proxy settings with no live owner. `IdleExitMonitor` already
+        // solved this by ORing in the on-disk restore point, which names exactly the services
+        // in that position; route through the same policy rather than trusting the status alone.
         let proxyStatus = ProxyConfigurator.getCurrentStatus()
-        guard !proxyStatus.isOverridden else {
+        guard !HelperOverrideResidencyPolicy.overrideNeedsHelper(
+            routedServiceIsOverridden: proxyStatus.isOverridden,
+            unresolvedBackupExists: CrashRecovery.hasBackup()
+        ) else {
             Self.logger.info(
                 "Deferring helper executable refresh while Rockxy proxy override is active on port \(proxyStatus.port)"
             )
@@ -365,7 +374,10 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         // If proxy ownership changed, do not exit and restore the gate by restarting naturally
         // through the helper's idle lifecycle rather than risking an interrupted override.
         let confirmedProxyStatus = ProxyConfigurator.getCurrentStatus()
-        guard !confirmedProxyStatus.isOverridden else {
+        guard !HelperOverrideResidencyPolicy.overrideNeedsHelper(
+            routedServiceIsOverridden: confirmedProxyStatus.isOverridden,
+            unresolvedBackupExists: CrashRecovery.hasBackup()
+        ) else {
             Self.mutationGate.release(exitBarrier)
             Self.logger.info(
                 "Deferring helper executable refresh because proxy override became active on port \(confirmedProxyStatus.port)"

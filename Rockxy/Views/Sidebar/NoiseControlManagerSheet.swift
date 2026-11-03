@@ -4,13 +4,6 @@ import SwiftUI
 
 /// Traffic Tab-scoped manager for traffic that should stay captured but remain out of the working set.
 struct NoiseControlManagerSheet: View {
-    // MARK: Lifecycle
-
-    init(coordinator: MainContentCoordinator) {
-        self.coordinator = coordinator
-        suggestions = FocusSetEditorSuggestions(transactions: coordinator.transactions)
-    }
-
     // MARK: Internal
 
     let coordinator: MainContentCoordinator
@@ -25,6 +18,11 @@ struct NoiseControlManagerSheet: View {
         .frame(width: max(680, toolMetrics.fieldWidth(680)), height: 590)
         .background(Color(nsColor: .windowBackgroundColor))
         .accessibilityIdentifier("noiseControl.sheet")
+        .task {
+            // Three full scans and a sort over the capture. Done here rather than in `init`,
+            // so re-initialising the sheet while traffic arrives does not repeat them.
+            suggestions = FocusSetEditorSuggestions(transactions: coordinator.transactions)
+        }
     }
 
     // MARK: Private
@@ -34,8 +32,7 @@ struct NoiseControlManagerSheet: View {
     @State private var sourceKind: CapturedValueKind = .domain
     @State private var sourceDraft = ""
     @State private var searchText = ""
-
-    private let suggestions: FocusSetEditorSuggestions
+    @State private var suggestions = FocusSetEditorSuggestions()
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)

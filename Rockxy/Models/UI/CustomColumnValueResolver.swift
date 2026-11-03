@@ -38,15 +38,54 @@ enum CustomColumnValueResolver {
 
     /// Evaluates `expression` against a transaction's JSON body. The result is cached on the
     /// transaction until its request or response evidence changes.
+    ///
+    /// This blocks the caller until the filter finishes, so it belongs to callers that need the
+    /// value in hand: sorting a column, and copying or exporting a row. A table cell drawing a
+    /// body column must not use it -- see `cachedBodyValue` and `resolveBodyValue`.
     static func bodyValue(expression: String, response: Bool, transaction: HTTPTransaction) -> String {
-        let cacheKey = (response ? "res:" : "req:") + expression
+        let cacheKey = cacheKey(expression: expression, response: response)
         if let cached = transaction.customColumnValueCache.value(for: cacheKey) {
             return cached
         }
-        let body: Data? = response
-            ? transaction.response.flatMap { $0.decodedBody(limit: maxBodySize) ?? $0.body }
-            : transaction.request.body
-        let value = body.map { evaluate(expression, on: $0) } ?? ""
+        let value = bodyData(response: response, transaction: transaction)
+            .map { evaluate(expression, on: $0) } ?? ""
+        transaction.customColumnValueCache.store(value, for: cacheKey)
+        return value
+    }
+
+    /// The value already resolved for this column, or `nil` when it has not been evaluated yet.
+    ///
+    /// A cell drawing a body column reads this and shows nothing while it is `nil`, because
+    /// evaluating the filter inline blocked the thread doing the drawing -- the main thread --
+    /// once for every newly visible row. Each transaction is still paid for exactly once: the
+    /// cache below is the same one `bodyValue` fills, and is dropped on the same evidence change.
+    static func cachedBodyValue(expression: String, response: Bool, transaction: HTTPTransaction) -> String? {
+        transaction.customColumnValueCache.value(for: cacheKey(expression: expression, response: response))
+    }
+
+    /// Evaluates the column off the caller's actor and caches the result, returning it. A column
+    /// that is already cached returns without reaching the interpreter, so a caller may call this
+    /// for every visible row without rationing it.
+    @discardableResult
+    static func resolveBodyValue(
+        expression: String,
+        response: Bool,
+        transaction: HTTPTransaction
+    )
+        async -> String
+    {
+        let cacheKey = cacheKey(expression: expression, response: response)
+        if let cached = transaction.customColumnValueCache.value(for: cacheKey) {
+            return cached
+        }
+        // Body decoding is itself unbounded work on a 2 MB cap, so it stays off the caller
+        // alongside the evaluation rather than being read here first.
+        let value = await Task.detached(priority: .userInitiated) {
+            guard let body = bodyData(response: response, transaction: transaction) else {
+                return ""
+            }
+            return await evaluate(expression, on: body)
+        }.value
         transaction.customColumnValueCache.store(value, for: cacheKey)
         return value
     }
@@ -58,30 +97,67 @@ enum CustomColumnValueResolver {
             return ""
         }
         if expression.hasPrefix("$") {
-            guard let document = try? JSONPathDocument(data: data),
-                  let result = try? JSONPathEvaluator(document: document).evaluate(expression) else
-            {
-                return ""
-            }
-            return displayValue(result.matches.lazy.map(\.scalarDescription))
-        } else {
-            guard let filter = try? JQFilter(expression),
-                  let output = try? filter.run(JQValue.parse(data), limits: columnLimits) else
-            {
-                return ""
-            }
-            return displayValue(output.values.lazy.map { value in
-                if case let .string(text) = value {
-                    return text
-                }
-                return value.jsonText()
-            })
+            return jsonPathValue(expression, on: data)
         }
+        guard let filter = try? JQFilter(expression),
+              let output = try? filter.run(JQValue.parse(data), limits: columnLimits) else
+        {
+            return ""
+        }
+        return displayValue(output.values.lazy.map(cellText))
+    }
+
+    /// `evaluate` without blocking on the filter: the interpreter still runs on its own
+    /// large-stack thread, but this awaits it instead of parking the caller's thread on a
+    /// semaphore until it finishes. `run(json:)` also moves the JSON parse off the caller.
+    static func evaluate(_ expression: String, on data: Data) async -> String {
+        guard data.count <= maxBodySize, looksLikeJSON(data) else {
+            return ""
+        }
+        guard !expression.hasPrefix("$") else {
+            // JSONPath has no off-thread entry point, and this caller is already off the main
+            // actor. Calling the synchronous `evaluate` here would resolve to this overload
+            // instead and recurse, so the shared branch is named rather than overloaded.
+            return jsonPathValue(expression, on: data)
+        }
+        guard let filter = try? JQFilter(expression),
+              let output = try? await filter.run(json: data, limits: columnLimits) else
+        {
+            return ""
+        }
+        return displayValue(output.values.lazy.map(cellText))
     }
 
     // MARK: Private
 
     private static let columnLimits = JQLimits(maxSteps: 200_000, maxOutputs: 50, maxDepth: 128)
+
+    private static func cacheKey(expression: String, response: Bool) -> String {
+        (response ? "res:" : "req:") + expression
+    }
+
+    private static func bodyData(response: Bool, transaction: HTTPTransaction) -> Data? {
+        response
+            ? transaction.response.flatMap { $0.decodedBody(limit: maxBodySize) ?? $0.body }
+            : transaction.request.body
+    }
+
+    private static func jsonPathValue(_ expression: String, on data: Data) -> String {
+        guard let document = try? JSONPathDocument(data: data),
+              let result = try? JSONPathEvaluator(document: document).evaluate(expression) else
+        {
+            return ""
+        }
+        return displayValue(result.matches.lazy.map(\.scalarDescription))
+    }
+
+    /// A jq string output is shown as its own characters; anything else as its JSON text.
+    private static func cellText(_ value: JQValue) -> String {
+        if case let .string(text) = value {
+            return text
+        }
+        return value.jsonText()
+    }
 
     /// Stop formatting matches as soon as the cell is full. A wildcard can otherwise
     /// serialize thousands of objects just to discard almost all of the joined text.

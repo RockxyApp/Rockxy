@@ -262,8 +262,36 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let connection: NWConnection
         var accumulator = BabylonFrameAccumulator()
         var hasAuthenticatedFrame = false
-        /// The client session this connection carries, once its first frame is authenticated.
-        var sessionKey: String?
+        /// Every client session this connection has carried, oldest first.
+        ///
+        /// This used to be one `sessionKey` that each frame overwrote. Nothing in the frame
+        /// format ties a connection to a single session ID — the key is built per frame from
+        /// `frame.clientID` and `frame.sessionID` — so on a connection that carried two
+        /// sessions, `remove(_:)` finished only the LAST session's open rows. The earlier
+        /// session's rows stayed active in the inspector for the rest of the run, and
+        /// `hasLiveConnection` stopped counting that session as connected the moment the key
+        /// was overwritten, which also made it the preferred eviction victim while its rows
+        /// were still live.
+        private(set) var sessionKeys: [String] = []
+
+        func carries(_ key: String) -> Bool {
+            sessionKeys.contains(key)
+        }
+
+        /// Appends `key` if it is new and returns the key pushed out of the bounded list, if
+        /// any. `clientID` and `sessionID` arrive in the frame, so this list has to be
+        /// bounded like every other Babylon intake map even though the frame was
+        /// authenticated; the caller releases whatever comes back.
+        func noteSessionKey(_ key: String, limit: Int) -> String? {
+            guard !carries(key) else {
+                return nil
+            }
+            sessionKeys.append(key)
+            guard sessionKeys.count > limit else {
+                return nil
+            }
+            return sessionKeys.removeFirst()
+        }
     }
 
     private final class SessionState: @unchecked Sendable {
@@ -300,6 +328,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private static let maximumSessionCount = 64
     private static let maximumTrackedTransactions = 10_000
     private static let authenticationTimeout: TimeInterval = 10
+    private static let disconnectReason = "The app disconnected before the WebSocket closed"
     private static let runtimeBatchSize = 128
     private static let logger = Logger(
         subsystem: RockxyIdentity.current.logSubsystem,
@@ -574,7 +603,12 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             context.hasAuthenticatedFrame = true
             publishOpenConnectionCount()
         }
-        context.sessionKey = Self.sessionKey(clientID: frame.clientID, sessionID: frame.sessionID)
+        let key = Self.sessionKey(clientID: frame.clientID, sessionID: frame.sessionID)
+        if let pushedOut = context.noteSessionKey(key, limit: Self.maximumSessionCount) {
+            // This connection can no longer be asked to finish that session's rows, so it is
+            // released here on the same terms `remove(_:)` uses.
+            releaseSessionIfUnreachable(pushedOut, reason: Self.disconnectReason)
+        }
         let state = sessionState(clientID: frame.clientID, sessionID: frame.sessionID)
         let replayDisposition = try state.accept(frame: frame)
         if replayDisposition == .duplicate {
@@ -1017,7 +1051,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func hasLiveConnection(_ sessionKey: String) -> Bool {
-        connections.values.contains { $0.sessionKey == sessionKey }
+        connections.values.contains { $0.carries(sessionKey) }
     }
 
     private func forgetSession(_ key: String) {
@@ -1034,28 +1068,36 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         aggregateBufferedByteCount -= context.accumulator.bufferedByteCount
         context.connection.cancel()
         publishOpenConnectionCount()
-        if let key = context.sessionKey,
-           !connections.values.contains(where: { $0.sessionKey == key }),
-           let state = sessions[key]
-        {
-            finishOpenRows(in: state, reason: "The app disconnected before the WebSocket closed")
-            // No further package can arrive for these IDs, so keeping the map would pin up
-            // to 10,000 captured rows and their bodies for the rest of the app's run, one
-            // such cache per relaunch of the instrumented app. `finishOpenRows` copied the
-            // rows it needs into its own array, so it does not read the map after this.
-            //
-            // The session itself stays: it owns the replay guard and the outbound sequence
-            // counter, and dropping it would reset both for a session that reconnects under
-            // the same session ID. `security.md` lists replay/duplicate rejection among the
-            // guards Babylon intake depends on, so disconnect is not allowed to clear it.
-            // What bounds the retained state instead is eviction: with no connection left,
-            // this key is the preferred victim at the session cap
-            // (`sessionEvictionCandidateKey()`), so it is released ahead of any live session.
-            //
-            // Pending frame-refresh publications are dropped with the coalescers, which costs
-            // nothing: `finishOpenRows` bumps `webSocketFrameVersion` for every row it fails.
-            forgetTrackedTransactions(in: state)
+        // Every session this connection carried, not just the last one it saw: otherwise one
+        // session's rows are finished against another session's state.
+        for key in context.sessionKeys {
+            releaseSessionIfUnreachable(key, reason: Self.disconnectReason)
         }
+    }
+
+    /// Finishes `key`'s open rows and releases its tracked rows, once no remaining connection
+    /// can send another package for it.
+    private func releaseSessionIfUnreachable(_ key: String, reason: String) {
+        guard !hasLiveConnection(key), let state = sessions[key] else {
+            return
+        }
+        finishOpenRows(in: state, reason: reason)
+        // No further package can arrive for these IDs, so keeping the map would pin up
+        // to 10,000 captured rows and their bodies for the rest of the app's run, one
+        // such cache per relaunch of the instrumented app. `finishOpenRows` copied the
+        // rows it needs into its own array, so it does not read the map after this.
+        //
+        // The session itself stays: it owns the replay guard and the outbound sequence
+        // counter, and dropping it would reset both for a session that reconnects under
+        // the same session ID. `security.md` lists replay/duplicate rejection among the
+        // guards Babylon intake depends on, so disconnect is not allowed to clear it.
+        // What bounds the retained state instead is eviction: with no connection left,
+        // this key is the preferred victim at the session cap
+        // (`sessionEvictionCandidateKey()`), so it is released ahead of any live session.
+        //
+        // Pending frame-refresh publications are dropped with the coalescers, which costs
+        // nothing: `finishOpenRows` bumps `webSocketFrameVersion` for every row it fails.
+        forgetTrackedTransactions(in: state)
     }
 
     private func forgetTrackedTransactions(in state: SessionState) {
