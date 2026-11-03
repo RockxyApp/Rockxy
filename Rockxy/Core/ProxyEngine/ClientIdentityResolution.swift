@@ -45,6 +45,8 @@ struct ProxyConnectionSnapshot: Sendable {
 /// client whose source endpoint (host + port) points at the proxy port is eligible; the
 /// proxy's own reverse-accepted socket and remote devices are never matched.
 enum ClientConnectionMatcher {
+    // MARK: Internal
+
     /// Whether a host string denotes a local / loopback source. Remote-device traffic must
     /// never match application rules.
     static func isLocalSource(_ host: String) -> Bool {
@@ -97,6 +99,8 @@ enum ClientConnectionMatcher {
         }
         return candidates[0].pid
     }
+
+    // MARK: Private
 
     private static func hostsRepresentSameEndpoint(_ lhs: String, _ rhs: String) -> Bool {
         let normalizedLHS = lhs.lowercased()
@@ -224,7 +228,7 @@ private actor SnapshotCoordinator {
             try? await Task.sleep(for: delay)
             let started = now()
             let deadline = started + timeout
-            let records = provider(proxyPort, deadline)
+            let records = await Self.collect(using: provider, proxyPort: proxyPort, deadline: deadline)
             return ProxyConnectionSnapshot(startedAt: started, proxyPort: proxyPort, records: records)
         }
         inFlight = InFlight(id: id, task: task)
@@ -241,6 +245,16 @@ private actor SnapshotCoordinator {
         let task: Task<ProxyConnectionSnapshot, Never>
     }
 
+    /// Collection shells out and blocks until the child exits or its deadline passes. Run
+    /// directly from an async task that would park one of the cooperative pool's few threads
+    /// for the whole bounded wait, once per connection burst, stalling every unrelated async
+    /// task in the app. A dedicated queue keeps the block off that pool; it can be serial
+    /// because the coordinator already allows only one collection in flight.
+    private static let collectionQueue = DispatchQueue(
+        label: "rockxy.client-identity.connection-table",
+        qos: .utility
+    )
+
     private let connectionTableProvider: @Sendable (_ proxyPort: Int, _ deadline: DispatchTime)
         -> [ProxyConnectionRecord]
     private let now: @Sendable () -> DispatchTime
@@ -248,6 +262,21 @@ private actor SnapshotCoordinator {
     private let coalescingDelay: Duration
     private var latest: ProxyConnectionSnapshot?
     private var inFlight: InFlight?
+
+    private static func collect(
+        using provider: @escaping @Sendable (_ proxyPort: Int, _ deadline: DispatchTime)
+            -> [ProxyConnectionRecord],
+        proxyPort: Int,
+        deadline: DispatchTime
+    )
+        async -> [ProxyConnectionRecord]
+    {
+        await withCheckedContinuation { continuation in
+            collectionQueue.async {
+                continuation.resume(returning: provider(proxyPort, deadline))
+            }
+        }
+    }
 
     private func commit(_ snapshot: ProxyConnectionSnapshot, inFlightID: UUID) {
         latest = snapshot
@@ -295,6 +324,11 @@ final class ClientIdentityHandle: @unchecked Sendable {
 
     // MARK: Private
 
+    private let resolver: ClientIdentityResolver
+    private let state = IdentityState()
+    private let taskLock = NSLock()
+    private var task: Task<ClientApplicationIdentity?, Never>?
+
     private func resolutionTask() -> Task<ClientApplicationIdentity?, Never> {
         taskLock.lock()
         defer { taskLock.unlock() }
@@ -332,11 +366,6 @@ final class ClientIdentityHandle: @unchecked Sendable {
         task = created
         return created
     }
-
-    private let resolver: ClientIdentityResolver
-    private let state = IdentityState()
-    private let taskLock = NSLock()
-    private var task: Task<ClientApplicationIdentity?, Never>?
 }
 
 // MARK: - IdentityResolutionGate
@@ -345,10 +374,14 @@ final class ClientIdentityHandle: @unchecked Sendable {
 /// connection-level deadline fails closed. The underlying OS lookup remains independently
 /// bounded and may finish later without delaying the NIO pipeline.
 private final class IdentityResolutionGate: @unchecked Sendable {
+    // MARK: Internal
+
     func resolve(
         _ identity: ClientApplicationIdentity?,
         continuation: CheckedContinuation<ClientApplicationIdentity?, Never>
-    ) -> Bool {
+    )
+        -> Bool
+    {
         lock.lock()
         guard !isResolved else {
             lock.unlock()
@@ -359,6 +392,8 @@ private final class IdentityResolutionGate: @unchecked Sendable {
         continuation.resume(returning: identity)
         return true
     }
+
+    // MARK: Private
 
     private let lock = NSLock()
     private var isResolved = false

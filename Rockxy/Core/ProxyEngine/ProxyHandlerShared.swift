@@ -126,7 +126,9 @@ enum ProxyHandlerShared {
     /// in rule order.
     nonisolated static func headerOperations(
         of headerRules: [ProxyRule]
-    ) -> (request: [HeaderOperation], response: [HeaderOperation]) {
+    )
+        -> (request: [HeaderOperation], response: [HeaderOperation])
+    {
         let operations = headerRules.flatMap { rule -> [HeaderOperation] in
             guard case let .modifyHeader(operations) = rule.action else {
                 return []
@@ -142,7 +144,9 @@ enum ProxyHandlerShared {
         _ operations: [HeaderOperation],
         head: HTTPRequestHead,
         requestData: HTTPRequestData
-    ) -> (head: HTTPRequestHead, requestData: HTTPRequestData) {
+    )
+        -> (head: HTTPRequestHead, requestData: HTTPRequestData)
+    {
         guard !operations.isEmpty else {
             return (head, requestData)
         }
@@ -158,7 +162,9 @@ enum ProxyHandlerShared {
     nonisolated static func applyResponseHeaderOperations(
         _ operations: [HeaderOperation]?,
         to responseData: HTTPResponseData
-    ) -> HTTPResponseData {
+    )
+        -> HTTPResponseData
+    {
         guard let operations, !operations.isEmpty else {
             return responseData
         }
@@ -171,7 +177,9 @@ enum ProxyHandlerShared {
     nonisolated static func mergedResponseOperations(
         _ pending: [HeaderOperation]?,
         _ explicit: [HeaderOperation]?
-    ) -> [HeaderOperation]? {
+    )
+        -> [HeaderOperation]?
+    {
         let merged = (pending ?? []) + (explicit ?? [])
         return merged.isEmpty ? nil : merged
     }
@@ -212,7 +220,7 @@ enum ProxyHandlerShared {
     )
         -> @Sendable (HTTPTransaction) -> Void
     {
-        if let matchedRule, Self.hidesBlockedTraffic(matchedRule) {
+        if let matchedRule, hidesBlockedTraffic(matchedRule) {
             return { _ in }
         }
         let matchedRuleID = matchedRule?.id
@@ -253,6 +261,7 @@ enum ProxyHandlerShared {
     nonisolated static func mapRemoteActionSummary(originalURL: URL) -> String {
         "Map Remote (from \(originalURL.absoluteString))"
     }
+
     /// Rebuild the outbound `HTTPRequestHead` from a (possibly script-mutated)
     /// `HTTPRequestData`, scoped to the safe mutation kinds: method, origin-form
     /// path + query, headers, and a recomputed `Content-Length` when the original
@@ -451,7 +460,9 @@ enum ProxyHandlerShared {
         breakpointRule: ProxyRule?,
         matchedRule: ProxyRule?,
         headerRules: [ProxyRule] = []
-    ) -> ProxyRule? {
+    )
+        -> ProxyRule?
+    {
         let matchedRule = matchedRule ?? headerRules.first
         guard breakpointRule?.action.responseBreakpointPhase != nil else {
             return matchedRule
@@ -479,18 +490,27 @@ enum ProxyHandlerShared {
         "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS", "TRACE", "CONNECT", "QUERY",
     ]
 
+    /// Bounds on the warn-once memory below. The set is a diagnostic aid -- it exists so one
+    /// malformed script value is logged once instead of once per request -- not a ledger, so
+    /// forgetting the overflow costs nothing but a warning nobody was going to read. Without
+    /// the bounds a script that emits a fresh bad method per request grows the set for the
+    /// lifetime of the process, and the detail it stores is attacker-sized.
+    nonisolated private static let maximumWarnedKeys = 64
+    nonisolated private static let maximumWarnedDetailLength = 64
+
     nonisolated(unsafe) private static var warned: Set<String> = []
     private static let warnedLock = NSLock()
 
     private static func warnOnce(kind: String, details: String) {
-        let key = "\(kind)|\(details)"
+        let detail = String(details.prefix(maximumWarnedDetailLength))
+        let key = "\(kind)|\(detail)"
         warnedLock.lock()
         defer { warnedLock.unlock() }
-        guard !warned.contains(key) else {
+        guard warned.count < maximumWarnedKeys, !warned.contains(key) else {
             return
         }
         warned.insert(key)
-        proxyHandlerSharedLogger.warning("buildForwardHead: \(kind) \(details)")
+        proxyHandlerSharedLogger.warning("buildForwardHead: \(kind) \(detail)")
     }
 
     private static func normalizedScheme(_ scheme: String?) -> String? {

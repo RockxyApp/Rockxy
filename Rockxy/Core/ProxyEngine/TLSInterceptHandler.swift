@@ -597,7 +597,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 )
             case let .failure(error):
                 tlsLogger.error("Certificate generation failed for \(host): \(error.localizedDescription)")
-                self.setupRawTunnel(context: context, host: host, port: port)
+                self.setupRawTunnelAfterInterceptionFailure(context: context, host: host, port: port)
             }
         }
     }
@@ -615,13 +615,21 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
     ) {
         guard !identity.certificateChainPEM.isEmpty, !identity.privateKeyPEM.isEmpty else {
             tlsLogger.warning("Empty certificate data for \(host), passing through raw bytes")
-            setupRawTunnel(context: context, host: host, port: port)
+            setupRawTunnelAfterInterceptionFailure(context: context, host: host, port: port)
             return
         }
 
         do {
             let sslContext = try NIOSSLContext(configuration: Self.makeServerTLSConfiguration(identity: identity))
             let sslHandler = NIOSSLServerHandler(context: sslContext)
+
+            // Resolved once for both handlers below. `EmulatorHostAlias` pays a `getifaddrs`
+            // behind this call, so the relay and the protocol detector's raw-tunnel fallback
+            // share one answer instead of each asking for its own.
+            let upstreamConnectHost = UpstreamConnectHost.resolve(
+                for: host,
+                clientHost: self.clientConnectionDescriptor?.clientHost
+            )
 
             let postHandshake = PostHandshakeHandler(
                 host: host,
@@ -645,10 +653,7 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 onTransactionComplete: callback,
                 onBreakpointHit: breakpointHit,
                 breakpointBridgeTracker: self.breakpointBridgeTracker,
-                upstreamConnectHost: UpstreamConnectHost.resolve(
-                    for: host,
-                    clientHost: self.clientConnectionDescriptor?.clientHost
-                )
+                upstreamConnectHost: upstreamConnectHost
             )
 
             let detector = ProtocolDetectorHandler(
@@ -659,7 +664,8 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
                 connectionLimiter: self.connectionLimiter,
                 upstreamProxySnapshotProvider: self.upstreamProxySnapshotProvider,
                 rawTunnelConnector: self.rawTunnelConnector,
-                networkProfile: self.tunnelNetworkProfile
+                networkProfile: self.tunnelNetworkProfile,
+                connectHost: upstreamConnectHost
             )
 
             let pipeline = context.pipeline
@@ -705,8 +711,28 @@ final class TLSInterceptHandler: ChannelInboundHandler, RemovableChannelHandler,
             }
         } catch {
             tlsLogger.error("SSL context creation failed for \(host): \(String(describing: error))")
-            setupRawTunnel(context: context, host: host, port: port)
+            setupRawTunnelAfterInterceptionFailure(context: context, host: host, port: port)
         }
+    }
+
+    /// Falls back to a raw tunnel because interception could not be set up at all -- no host
+    /// certificate, empty certificate material, or a `NIOSSLContext` that would not build.
+    ///
+    /// These three paths used to leave `rawTunnelReason` nil, so their CONNECT row carried no
+    /// reason and the HTTPS prompt in the inspector showed a user looking at undecrypted traffic
+    /// nothing at all about why. `.noSSLProxyingRule` is the "nothing here could decrypt this"
+    /// reason and its capture note already names an unready certificate as one of its causes.
+    ///
+    /// `trackingReason` stays nil deliberately: this is not a policy decision a later SSL-policy
+    /// change should reset, and it must not acquire the plain-HTTP sniff that policy-driven raw
+    /// tunnels use.
+    nonisolated private func setupRawTunnelAfterInterceptionFailure(
+        context: ChannelHandlerContext,
+        host: String,
+        port: Int
+    ) {
+        rawTunnelReason = .noSSLProxyingRule
+        setupRawTunnel(context: context, host: host, port: port)
     }
 
     /// Sets up a raw byte tunnel to the upstream.

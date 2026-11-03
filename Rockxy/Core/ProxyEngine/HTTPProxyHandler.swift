@@ -207,22 +207,6 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     private var clientSourcePort: UInt16?
     private var requestBodyLimitState = RequestBodyLimitState()
 
-    /// Builds an `HTTPResponseData` from a resolved Map Local payload, deriving the standard
-    /// reason phrase when the payload did not carry one.
-    nonisolated private static func mapLocalResponse(
-        from payload: MapLocalResponseResolver.Payload
-    )
-        -> HTTPResponseData
-    {
-        let message = payload.statusMessage ?? HTTPResponseStatus(statusCode: payload.statusCode).reasonPhrase
-        return HTTPResponseData(
-            statusCode: payload.statusCode,
-            statusMessage: message,
-            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
-            body: payload.body
-        )
-    }
-
     nonisolated private func makeTransactionCallback(
         for matchedRule: ProxyRule?
     )
@@ -251,9 +235,6 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         proxyHandlerLogger.info("Processing \(head.method.rawValue) \(head.uri)")
 
         let requestData = buildRequestData(from: head)
-        let headers = requestData.headers
-        let method = requestData.method
-        let url = requestData.url
 
         // Internal health probes must measure the listener and upstream relay itself, not
         // user-authored breakpoints, throttles, scripts, cache mutation, or External Proxy.
@@ -263,6 +244,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: head,
                 requestData: requestData,
+                graphQLInfo: GraphQLDetector.detect(request: requestData),
                 bypassUserModifications: true,
                 callback: onTransactionComplete
             )
@@ -272,14 +254,16 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Rule evaluation is async (actor-isolated), so bridge to NIO's EventLoopFuture world
         let eventLoop = context.eventLoop
         let ruleEngine = self.ruleEngine
-        let operationName = GraphQLDetector.detect(request: requestData)?.operationName
+        // Detected once per request: the body parse is the dominant per-request cost, and every
+        // path that keeps this request's URL and body carries the result instead of repeating it.
+        let graphQLInfo = GraphQLDetector.detect(request: requestData)
         let identityHandle = self.clientIdentityHandle
 
         eventLoop.makeFutureWithTask {
             await ProxyHandlerShared.evaluateRules(
                 ruleEngine,
                 request: requestData,
-                graphQLOperationName: operationName,
+                graphQLOperationName: graphQLInfo?.operationName,
                 clientApplication: { await identityHandle?.awaitIdentity() }
             )
         }.whenComplete { [weak self] result in
@@ -310,6 +294,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                             context: context,
                             head: head,
                             requestData: requestData,
+                            graphQLInfo: graphQLInfo,
                             callback: callback,
                             matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                         )
@@ -366,6 +351,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: rewritten.head,
                     requestData: rewritten.requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: self.makeTransactionCallback(for: breakpointRule),
                     matchContext: MapLocalMatchContext(matchCondition: breakpointRule.matchCondition)
                 )
@@ -378,6 +364,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: rewritten.head,
                     requestData: rewritten.requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: callback,
                     matchContext: MapLocalMatchContext(matchCondition: matchedRule.matchCondition)
                 )
@@ -390,6 +377,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: rewritten.head,
                 requestData: rewritten.requestData,
+                graphQLInfo: graphQLInfo,
                 callback: forwardCallback
             )
         }
@@ -400,10 +388,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let scriptPluginManager else {
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
         context.eventLoop.makeFutureWithTask {
@@ -414,11 +409,24 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             }
             switch outcome {
             case let .forward(modifiedRequest):
-                self.forwardRequest(context: context, head: head, requestData: modifiedRequest, callback: callback)
+                // A script can rewrite the URL or the body, so the carried detection no longer
+                // describes this request.
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: modifiedRequest,
+                    graphQLInfo: GraphQLDetector.detect(request: modifiedRequest),
+                    callback: callback
+                )
             case .blockLocally:
                 self.sendErrorResponse(context: context, status: 403, requestData: requestData, callback: callback)
             case let .mock(mockResponse):
-                self.sendResponse(context: context, responseData: mockResponse, requestData: requestData, callback: callback)
+                self.sendResponse(
+                    context: context,
+                    responseData: mockResponse,
+                    requestData: requestData,
+                    callback: callback
+                )
             case .mockFailure:
                 self.sendErrorResponse(context: context, status: 502, requestData: requestData, callback: callback)
             }
@@ -458,6 +466,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void,
         matchContext: MapLocalMatchContext? = nil
     ) {
@@ -478,6 +487,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                         statusCode: statusCode,
                         responseHeaders: responseHeaders,
                         requestData: requestData,
+                        graphQLInfo: graphQLInfo,
                         callback: callback,
                         matchContext: matchContext ?? MapLocalMatchContext(matchCondition: RuleMatchCondition())
                     )
@@ -489,6 +499,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                         statusCode: statusCode,
                         responseHeaders: responseHeaders,
                         requestData: requestData,
+                        graphQLInfo: graphQLInfo,
                         callback: callback
                     )
                 }
@@ -513,6 +524,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: modifiedHead,
                 requestData: modifiedData,
+                graphQLInfo: graphQLInfo,
                 responseHeaderOperations: responseOps.isEmpty ? nil : responseOps,
                 callback: callback
             )
@@ -522,6 +534,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 context: context,
                 head: head,
                 requestData: requestData,
+                graphQLInfo: graphQLInfo,
                 configuration: configuration,
                 callback: callback
             )
@@ -532,7 +545,13 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 guard let self else {
                     return
                 }
-                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
 
         case let .networkCondition(preset, delayMs, custom):
@@ -555,6 +574,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: head,
                     requestData: requestData,
+                    graphQLInfo: graphQLInfo,
                     networkConditionProfile: profile,
                     callback: callback
                 )
@@ -563,9 +583,21 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         case let .breakpoint(phase):
             pendingBreakpointPhase = phase
             if phase == .request || phase == .both {
-                handleBreakpoint(context: context, head: head, requestData: requestData, callback: callback)
+                handleBreakpoint(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             } else {
-                forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
         }
     }
@@ -574,11 +606,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         configuration: MapRemoteConfiguration,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard configuration.hasOverride else {
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
 
@@ -598,88 +637,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             context: context,
             head: rewrite.head,
             requestData: rewrite.requestData,
+            // The rewrite can move the request to another path, so it is detected again.
+            graphQLInfo: GraphQLDetector.detect(request: rewrite.requestData),
             callback: provenanceCallback
         )
-    }
-
-    nonisolated private func handleMapLocal(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        filePath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        guard let data = MapLocalFileValidator.loadFileData(at: filePath) else {
-            // Missing / unreadable / oversized target — serve the origin instead of a
-            // synthesized 404 so a broken mapping degrades to normal traffic.
-            proxyHandlerLogger.info("Map local file unavailable, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-            return
-        }
-
-        let outcome = MapLocalResponseResolver.resolve(
-            fileData: data,
-            actionStatusCode: statusCode,
-            configuredHeaders: responseHeaders,
-            inferredContentType: MimeTypeResolver.mimeType(for: filePath)
-        )
-        switch outcome {
-        case let .serve(payload):
-            sendResponse(
-                context: context,
-                responseData: Self.mapLocalResponse(from: payload),
-                requestData: requestData,
-                callback: callback
-            )
-        case .fallbackToOrigin:
-            // Invalid status or a malformed HTTP-message-looking file — forward the origin.
-            proxyHandlerLogger.info("Map local response invalid, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-        }
-    }
-
-    nonisolated private func handleMapLocalDirectory(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        directoryPath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void,
-        matchContext: MapLocalMatchContext
-    ) {
-        let result = MapLocalDirectoryResolver.resolve(
-            requestURL: requestData.url.absoluteString,
-            matchContext: matchContext,
-            directoryPath: directoryPath
-        )
-        switch result {
-        case let .success(file):
-            let outcome = MapLocalResponseResolver.resolve(
-                fileData: file.data,
-                actionStatusCode: statusCode,
-                configuredHeaders: responseHeaders,
-                inferredContentType: file.mimeType
-            )
-            switch outcome {
-            case let .serve(payload):
-                sendResponse(
-                    context: context,
-                    responseData: Self.mapLocalResponse(from: payload),
-                    requestData: requestData,
-                    callback: callback
-                )
-            case .fallbackToOrigin:
-                proxyHandlerLogger.info("Map local directory response invalid, falling back to origin")
-                forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-            }
-        case .failure:
-            // Unresolved / invalid target — fall back to the origin request.
-            proxyHandlerLogger.info("Map local directory unresolved, falling back to origin")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
-        }
     }
 
     /// Pauses the request and presents the breakpoint UI for user decision. The NIO
@@ -689,11 +650,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         guard let onBreakpointHit else {
             proxyHandlerLogger.warning("Breakpoint rule matched but no handler configured, forwarding")
-            forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
             return
         }
 
@@ -738,11 +706,18 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                     context: context,
                     head: head,
                     requestData: requestData,
+                    graphQLInfo: graphQLInfo,
                     callback: callback
                 )
             case let .failure(error):
                 proxyHandlerLogger.error("Breakpoint handler failed: \(error.localizedDescription), forwarding")
-                self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+                self.forwardRequest(
+                    context: context,
+                    head: head,
+                    requestData: requestData,
+                    graphQLInfo: graphQLInfo,
+                    callback: callback
+                )
             }
         }
     }
@@ -769,6 +744,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         callback: @escaping @Sendable (HTTPTransaction) -> Void
     ) {
         switch decision {
@@ -787,11 +763,24 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
                 originalHead: head,
                 originalRequestData: requestData
             )
-            self.forwardRequest(context: context, head: built.head, requestData: built.requestData, callback: callback)
+            self.forwardRequest(
+                context: context,
+                head: built.head,
+                requestData: built.requestData,
+                // The user may have edited the URL or the body, so it is detected again.
+                graphQLInfo: GraphQLDetector.detect(request: built.requestData),
+                callback: callback
+            )
         case .abort:
             self.sendErrorResponse(context: context, status: 503, requestData: requestData, callback: callback)
         case .cancel:
-            self.forwardRequest(context: context, head: head, requestData: requestData, callback: callback)
+            self.forwardRequest(
+                context: context,
+                head: head,
+                requestData: requestData,
+                graphQLInfo: graphQLInfo,
+                callback: callback
+            )
         }
     }
 }
@@ -1020,6 +1009,7 @@ extension HTTPProxyHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil
     ) {
@@ -1027,6 +1017,7 @@ extension HTTPProxyHandler {
             context: context,
             head: head,
             requestData: requestData,
+            graphQLInfo: graphQLInfo,
             responseHeaderOperations: responseHeaderOperations,
             networkConditionProfile: networkConditionProfile,
             callback: onTransactionComplete
@@ -1037,6 +1028,7 @@ extension HTTPProxyHandler {
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
+        graphQLInfo: GraphQLInfo?,
         responseHeaderOperations: [HeaderOperation]? = nil,
         networkConditionProfile: NetworkConditionProfile? = nil,
         bypassUserModifications: Bool = false,
@@ -1053,7 +1045,6 @@ extension HTTPProxyHandler {
 
         let host = requestData.host
         let startTime = requestStartTime ?? .now()
-        let graphQLInfo = GraphQLDetector.detect(request: requestData)
         guard !host.isEmpty else {
             sendErrorResponse(context: context, status: 400, requestData: requestData, callback: callback)
             return
@@ -1301,7 +1292,7 @@ extension HTTPProxyHandler {
         callback(transaction)
     }
 
-    nonisolated private func sendResponse(
+    nonisolated func sendResponse(
         context: ChannelHandlerContext,
         responseData: HTTPResponseData,
         requestData: HTTPRequestData,

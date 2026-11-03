@@ -188,23 +188,6 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     private var requestCaptureContext: TrafficCaptureContext?
     private var requestBodyLimitState = RequestBodyLimitState()
 
-    /// Builds an `HTTPResponseData` from a resolved Map Local payload, deriving the standard
-    /// reason phrase when the payload did not carry one. Shared with the single-file and
-    /// directory serving paths so HTTP and HTTPS stay structurally identical.
-    nonisolated private static func mapLocalResponse(
-        from payload: MapLocalResponseResolver.Payload
-    )
-        -> HTTPResponseData
-    {
-        let message = payload.statusMessage ?? HTTPResponseStatus(statusCode: payload.statusCode).reasonPhrase
-        return HTTPResponseData(
-            statusCode: payload.statusCode,
-            statusMessage: message,
-            headers: MapLocalMarkerSetting.markedHeaders(payload.headers),
-            body: payload.body
-        )
-    }
-
     nonisolated private func makeTransactionCallback(
         for matchedRule: ProxyRule?
     )
@@ -400,7 +383,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         )
     }
 
-    nonisolated private func connectToUpstream(
+    nonisolated func connectToUpstream(
         context: ChannelHandlerContext,
         head: HTTPRequestHead,
         requestData: HTTPRequestData,
@@ -811,119 +794,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         callback(transaction)
     }
 
-    nonisolated private func handleMapLocal(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        filePath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void
-    ) {
-        guard let data = MapLocalFileValidator.loadFileData(at: filePath) else {
-            // Missing / unreadable / oversized target — serve the origin instead of a
-            // synthesized 404 so a broken mapping degrades to normal traffic.
-            httpsRelayLogger.info("Map local file unavailable, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-            return
-        }
-
-        let outcome = MapLocalResponseResolver.resolve(
-            fileData: data,
-            actionStatusCode: statusCode,
-            configuredHeaders: responseHeaders,
-            inferredContentType: MimeTypeResolver.mimeType(for: filePath)
-        )
-        switch outcome {
-        case let .serve(payload):
-            sendMappedResponse(
-                context: context,
-                responseData: Self.mapLocalResponse(from: payload),
-                requestData: requestData,
-                callback: callback
-            )
-        case .fallbackToOrigin:
-            // Invalid status or a malformed HTTP-message-looking file — forward the origin.
-            httpsRelayLogger.info("Map local response invalid, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-        }
-    }
-
-    nonisolated private func handleMapLocalDirectory(
-        context: ChannelHandlerContext,
-        head: HTTPRequestHead,
-        directoryPath: String,
-        statusCode: Int,
-        responseHeaders: [HTTPHeader],
-        requestData: HTTPRequestData,
-        graphQLInfo: GraphQLInfo?,
-        startTime: DispatchTime,
-        callback: @escaping @Sendable (HTTPTransaction) -> Void,
-        matchContext: MapLocalMatchContext
-    ) {
-        let result = MapLocalDirectoryResolver.resolve(
-            requestURL: requestData.url.absoluteString,
-            matchContext: matchContext,
-            directoryPath: directoryPath
-        )
-        switch result {
-        case let .success(file):
-            let outcome = MapLocalResponseResolver.resolve(
-                fileData: file.data,
-                actionStatusCode: statusCode,
-                configuredHeaders: responseHeaders,
-                inferredContentType: file.mimeType
-            )
-            switch outcome {
-            case let .serve(payload):
-                sendMappedResponse(
-                    context: context,
-                    responseData: Self.mapLocalResponse(from: payload),
-                    requestData: requestData,
-                    callback: callback
-                )
-            case .fallbackToOrigin:
-                httpsRelayLogger.info("Map local directory response invalid, falling back to origin")
-                connectToUpstream(
-                    context: context,
-                    head: head,
-                    requestData: requestData,
-                    graphQLInfo: graphQLInfo,
-                    startTime: startTime,
-                    callback: callback
-                )
-            }
-        case .failure:
-            // Unresolved / invalid target — fall back to the origin request.
-            httpsRelayLogger.info("Map local directory unresolved, falling back to origin")
-            connectToUpstream(
-                context: context,
-                head: head,
-                requestData: requestData,
-                graphQLInfo: graphQLInfo,
-                startTime: startTime,
-                callback: callback
-            )
-        }
-    }
-
-    nonisolated private func sendMappedResponse(
+    nonisolated func sendMappedResponse(
         context: ChannelHandlerContext,
         responseData: HTTPResponseData,
         requestData: HTTPRequestData,

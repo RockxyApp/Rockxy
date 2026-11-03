@@ -273,6 +273,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         // the queue drains; its resolution gate then suppresses relay/build because
         // the client channel is already inactive.
         cancelPendingResponseBreakpoint()
+        cancelThrottleTasks()
         guard !completed else {
             return
         }
@@ -587,6 +588,13 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var pendingResponseBreakpointTask: Task<Void, Never>?
     private var downloadReadyAtNanos: UInt64?
     private var downloadTailFuture: EventLoopFuture<Void>?
+    /// Every task armed for a throttled download, plus the promise its last chunk completes.
+    /// The whole plan is armed up front, so a client that hangs up mid-download would leave one
+    /// closure per remaining chunk alive until that chunk's own deadline -- each holding
+    /// `clientContext` strongly and, through the shared `ByteBuffer`, the response body.
+    /// Cancelling removes the task from the event loop's queue, which is what actually frees it.
+    private var throttleTasks: [Scheduled<Void>] = []
+    private var downloadTailPromise: EventLoopPromise<Void>?
     /// The row published when a streaming response's head arrived, completed in place at `.end`.
     private var liveStreamTransaction: HTTPTransaction?
 
@@ -700,8 +708,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             let tailPromise = isLastChunk ? clientContext.eventLoop.makePromise(of: Void.self) : nil
             if let tailPromise {
                 downloadTailFuture = tailPromise.futureResult
+                downloadTailPromise = tailPromise
             }
-            clientContext.eventLoop.scheduleTask(in: .milliseconds(chunk.delayMs)) { [clientContext] in
+            let chunkTask = clientContext.eventLoop.scheduleTask(in: .milliseconds(chunk.delayMs)) { [clientContext] in
                 guard clientContext.channel.isActive else {
                     tailPromise?.fail(ChannelError.ioOnClosedChannel)
                     return
@@ -720,7 +729,38 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                     }
                 }
             }
+            throttleTasks.append(chunkTask)
         }
+    }
+
+    /// Drops a throttled download's pending work.
+    ///
+    /// Only `clientDisconnected()` calls this -- deliberately NOT `channelInactive`. This
+    /// handler sits on the per-request UPSTREAM channel, so its `channelInactive` is the
+    /// origin closing after it finished sending, which is the normal end of every response
+    /// while chunks are still being paced out to the client and the `.end` write is still
+    /// scheduled. Cancelling there truncated a throttled download and, worse, cancelled the
+    /// task that writes `HTTPServerResponsePart.end`, so every proxied request hung until the
+    /// client timed out.
+    ///
+    /// Called BEFORE the `completed` guard in `clientDisconnected()` on purpose: `.end` sets
+    /// `completed` while this work is still armed, so a client that hangs up after it would
+    /// return early and leave the tasks in place.
+    nonisolated private func cancelThrottleTasks() {
+        guard !throttleTasks.isEmpty || downloadTailPromise != nil else {
+            return
+        }
+        for task in throttleTasks {
+            task.cancel()
+        }
+        throttleTasks.removeAll()
+        // The last chunk is what completes this promise, so cancelling it means nothing ever
+        // would -- and `relayResponseEnd` registers a `whenComplete` that waits on it. Failing
+        // it releases that closure too. Nilled first so no later path can complete it twice.
+        let promise = downloadTailPromise
+        downloadTailPromise = nil
+        downloadTailFuture = nil
+        promise?.fail(ChannelError.ioOnClosedChannel)
     }
 
     nonisolated private func relayResponseEnd() {
@@ -742,7 +782,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             return
         }
         let delayMs = NetworkThrottlePlanner.millisecondsUntil(readyAtNanos: downloadReadyAtNanos)
-        clientContext.eventLoop.scheduleTask(in: .milliseconds(delayMs)) { [clientContext] in
+        let endTask = clientContext.eventLoop.scheduleTask(in: .milliseconds(delayMs)) { [clientContext] in
             guard clientContext.channel.isActive else {
                 return
             }
@@ -751,6 +791,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 promise: nil
             )
         }
+        throttleTasks.append(endTask)
     }
 
     // MARK: - Response Script
