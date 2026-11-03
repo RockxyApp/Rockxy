@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - AssistantLocalRuntimeDescriptor
 
@@ -554,39 +555,60 @@ private final class AssistantRuntimeArtifactDownloadOperation: NSObject, URLSess
 // MARK: - SystemAssistantProcessRunner
 
 struct SystemAssistantProcessRunner: AssistantProcessRunning {
-    func run(executable: URL, arguments: [String]) async throws -> String {
-        try await Task.detached(priority: .userInitiated) {
-            try Task.checkCancellation()
-            let process = Process()
-            let output = Pipe()
-            process.executableURL = executable
-            process.arguments = arguments
-            process.standardOutput = output
-            process.standardError = output
-            try process.run()
+    /// Upper bound on one runtime-setup command.
+    ///
+    /// The drain order and the 4 MB output budget were already right here; what was missing was
+    /// any deadline at all, so a wedged child held its thread for the rest of the session. The
+    /// bound has to clear the slowest legitimate command by a wide margin: `ditto -x -k` expands
+    /// a runtime application that can be hundreds of megabytes, and `spctl --assess` reaches the
+    /// notarization service, so both are minutes rather than seconds on a slow disk or link. Ten
+    /// minutes is generous enough that no real install is failed by it and still finite.
+    static let commandTimeout: TimeInterval = 600
 
-            var data = Data()
-            while let chunk = try output.fileHandleForReading.read(upToCount: 64 * 1_024),
-                  !chunk.isEmpty
-            {
-                data.append(chunk)
-                guard data.count <= 4 * 1_024 * 1_024 else {
-                    process.terminate()
-                    throw AssistantRuntimeInstallError.processOutputTooLarge
-                }
-            }
-            process.waitUntilExit()
-            try Task.checkCancellation()
-            let text = String(data: data, encoding: .utf8) ?? ""
-            guard process.terminationStatus == 0 else {
-                throw AssistantRuntimeInstallError.commandFailed(
-                    executable.lastPathComponent,
-                    String(text.prefix(2_048))
-                )
-            }
-            return text
-        }.value
+    func run(executable: URL, arguments: [String]) async throws -> String {
+        try Task.checkCancellation()
+        // The runner drains both streams through one pipe, bounds the retained output exactly as
+        // this did, and — new here — enforces a deadline and reaps the child on every exit path.
+        // The overflow path previously called `terminate()` and threw immediately, so an
+        // oversized command left a zombie behind for as long as the app ran.
+        let result: BoundedProcessRun.Output
+        do {
+            result = try await BoundedProcessRun.runDetached(
+                executable: executable,
+                arguments: arguments,
+                timeout: Self.commandTimeout,
+                outputLimit: Self.outputLimit,
+                mergesStandardError: true
+            )
+        } catch BoundedProcessRun.Failure.outputTooLarge {
+            throw AssistantRuntimeInstallError.processOutputTooLarge
+        } catch BoundedProcessRun.Failure.timedOut {
+            // The child was killed at its deadline, so there is no transcript worth quoting and
+            // no exit code it ever produced. Reported through the existing failure case rather
+            // than a new one, with the deadline recorded in the log.
+            Self.logger.error("\(executable.lastPathComponent, privacy: .public) exceeded its runtime-setup budget")
+            throw AssistantRuntimeInstallError.commandFailed(executable.lastPathComponent, "")
+        }
+
+        try Task.checkCancellation()
+        let text = result.combinedText
+        guard result.status == 0 else {
+            throw AssistantRuntimeInstallError.commandFailed(
+                executable.lastPathComponent,
+                String(text.prefix(2_048))
+            )
+        }
+        return text
     }
+
+    // MARK: Private
+
+    private static let outputLimit = 4 * 1_024 * 1_024
+
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "AssistantLocalRuntimeInstaller"
+    )
 }
 
 // MARK: - AssistantRuntimeInstallError

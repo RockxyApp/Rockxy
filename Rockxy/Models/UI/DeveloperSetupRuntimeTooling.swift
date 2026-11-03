@@ -3,15 +3,21 @@ import Foundation
 // MARK: - SetupRuntimeReadiness
 
 struct SetupRuntimeReadiness: Equatable {
+    static let notRequired = SetupRuntimeReadiness(isSatisfied: true, note: nil)
+
     let isSatisfied: Bool
     let note: String?
-
-    static let notRequired = SetupRuntimeReadiness(isSatisfied: true, note: nil)
 }
 
 // MARK: - DeveloperSetupRuntimeTooling
 
 enum DeveloperSetupRuntimeTooling {
+    // MARK: Internal
+
+    /// Upper bound on the `java_home` lookup. Unlike the launcher commands this one never faces
+    /// a user, so a few seconds is a stall backstop rather than a wait on a person.
+    static let javaHomeTimeout: TimeInterval = 10
+
     static func readiness(for targetID: SetupTarget.ID) -> SetupRuntimeReadiness {
         switch targetID {
         case .python:
@@ -112,25 +118,21 @@ enum DeveloperSetupRuntimeTooling {
             return URL(fileURLWithPath: candidate)
         }
 
-        let javaHomeProcess = Process()
-        let outputPipe = Pipe()
-        javaHomeProcess.executableURL = URL(fileURLWithPath: "/usr/libexec/java_home")
-        javaHomeProcess.standardOutput = outputPipe
-        javaHomeProcess.standardError = Pipe()
-
-        guard (try? javaHomeProcess.run()) != nil else {
+        // Both pipes are drained while the child runs, and only then is the exit awaited. The
+        // previous order waited first and read standard output afterwards, with standard error
+        // never read at all, so a `java_home` that ever grew noisy would have deadlocked this
+        // readiness probe outright. The deadline is the other half: a wedged child used to park
+        // the probe's thread with nothing to end it.
+        guard let result = try? BoundedProcessRun.run(
+            executable: URL(fileURLWithPath: "/usr/libexec/java_home"),
+            arguments: [],
+            timeout: javaHomeTimeout
+        ), result.status == 0 else {
             return nil
         }
 
-        javaHomeProcess.waitUntilExit()
-        guard javaHomeProcess.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        guard
-            let javaHomePath = String(bytes: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let javaHomePath = String(bytes: result.standardOutput, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
             !javaHomePath.isEmpty
         else {
             return nil
@@ -153,10 +155,9 @@ enum DeveloperSetupRuntimeTooling {
         for component in searchPath.split(separator: ":").map(String.init) where !component.isEmpty {
             let candidate = URL(fileURLWithPath: component).appendingPathComponent(name)
             let normalizedPath = candidate.path
-            guard
-                seen.insert(normalizedPath).inserted,
-                fileManager.isExecutableFile(atPath: normalizedPath)
-            else {
+            guard seen.insert(normalizedPath).inserted,
+                  fileManager.isExecutableFile(atPath: normalizedPath) else
+            {
                 continue
             }
             urls.append(candidate)
@@ -168,7 +169,9 @@ enum DeveloperSetupRuntimeTooling {
     static func nodeExecutableCandidates(
         path: String? = nil,
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-    ) -> [URL] {
+    )
+        -> [URL]
+    {
         let fileManager = FileManager.default
         var urls = executableURLsOnPath(named: "node", path: path)
         var seen = Set(urls.map(\.path))
@@ -199,6 +202,8 @@ enum DeveloperSetupRuntimeTooling {
         return urls
     }
 
+    // MARK: Private
+
     private static func executableReadiness(
         title: String,
         urls: [URL],
@@ -222,7 +227,9 @@ enum DeveloperSetupRuntimeTooling {
         additionalPaths: [String],
         includeCargoHome: Bool = false,
         includeNVM: Bool = false
-    ) -> [URL] {
+    )
+        -> [URL]
+    {
         let fileManager = FileManager.default
         let homeDirectory = fileManager.homeDirectoryForCurrentUser
         var paths = additionalPaths

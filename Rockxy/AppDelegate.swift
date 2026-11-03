@@ -203,11 +203,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
 
     func applicationWillTerminate(_ notification: Notification) {
         Self.logger.info("applicationWillTerminate — final proxy cleanup fallback")
-        SystemProxyManager.shared.performEmergencyTerminationCleanup(
-            reason: "applicationWillTerminate"
-        )
-        if !SSLProxyingManager.shared.flushPassthroughPersistence() {
-            Self.logger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
+        let fallbackManager = SSLProxyingManager.shared
+        let terminationLogger = Self.logger
+        // None of this ran off the main thread before, and `SystemProxyManager` is a plain class
+        // rather than an actor, so the cleanup executed on whatever thread called it — here, the
+        // main one. Its worst case is minutes: a blocking recursive lock, a 5 s cross-process
+        // flock acquisition, then five `networksetup` reads per network service at a 10 s cap
+        // each, plus a 3 s helper semaphore and, if an earlier disable left a direct backup, six
+        // more reads and about seven writes per service. Quit beachballed, and the OS termination
+        // watchdog could kill the app mid-restore — leaving the user's system proxy pointed at a
+        // port that no longer listens. Returning the main thread promptly makes that *less*
+        // likely, not more.
+        let finishedInBudget = TerminationCleanupBarrier.wait {
+            SystemProxyManager.shared.performEmergencyTerminationCleanup(
+                reason: "applicationWillTerminate"
+            )
+            if !fallbackManager.flushPassthroughPersistence() {
+                terminationLogger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
+            }
+        }
+        if !finishedInBudget {
+            Self.logger
+                .error(
+                    "applicationWillTerminate: cleanup is past its budget — it continues on its own thread, and the narrowed direct backup lets startup recovery finish it"
+                )
         }
         MCPHandshakeStore.delete()
         CommandLineControlCoordinator.shared.stop()
@@ -248,5 +267,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         let normalizedIdentifier = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPath = bundleURL.standardizedFileURL.resolvingSymlinksInPath().path
         return "\(normalizedIdentifier)|\(normalizedPath)"
+    }
+}
+
+// MARK: - TerminationCleanupBarrier
+
+/// Bounds how long the main thread waits for the final termination cleanup.
+///
+/// The barrier bounds only the *wait*. Nothing cancels the work, nothing shortens the shared
+/// flock or the proxy mutation gate, and no per-command budget changes — restoring the user's
+/// system proxy is the point of the whole path, so it is never abandoned to meet a deadline.
+/// Expiry therefore has two outcomes. If the process outlives the barrier the cleanup simply
+/// completes a moment later. If macOS kills it first the restore is not lost:
+/// `recoverOwnedDirectServices` persists the backup narrowed to the services it still owns
+/// *before* restoring them, and an incomplete restore deliberately leaves that narrowed record on
+/// disk, so `SystemProxyStartupRecovery` — which already runs before any network use on the next
+/// launch — and the launchd direct watchdog finish exactly the services that were left behind.
+enum TerminationCleanupBarrier {
+    // MARK: Internal
+
+    /// The complete main-thread budget for the final termination cleanup.
+    ///
+    /// Not derived from a documented OS limit — macOS publishes no number for how long
+    /// `applicationWillTerminate` may take, and by the time it runs the system has already been
+    /// waiting through the `.terminateLater` reply. It is instead twice `DirectProxySessionLock`'s
+    /// own 5 s acquisition timeout, so a cleanup that arrives while another process holds the
+    /// shared flock still gets one full acquisition attempt and about as long again to do its
+    /// restore writes, while the user sees a short pause rather than a beachball. **This number is
+    /// Stephen's to change** — it trades how often the restore finishes inside the quit against
+    /// how long Quit can appear to hang.
+    static let budget: TimeInterval = 10
+
+    /// Runs `work` off the caller's thread and waits for it for at most `budget`, reporting
+    /// whether it finished.
+    ///
+    /// A detached thread rather than a global queue: this work holds a recursive lock and a
+    /// cross-process advisory lock for its whole duration, which is not something to park on a
+    /// shared queue worker during shutdown.
+    @discardableResult
+    static func wait(budget: TimeInterval = budget, for work: @escaping @Sendable () -> Void) -> Bool {
+        let finished = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            work()
+            finished.signal()
+        }
+        return finished.wait(timeout: .now() + budget) == .success
     }
 }
