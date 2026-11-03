@@ -293,12 +293,29 @@ private actor SnapshotCoordinator {
 /// non-blocking snapshot for transaction stamping, while `awaitIdentity()` bounds the TLS
 /// decision. The proxy starts resolution at accept time so short-lived sockets remain observable;
 /// later policy and stamping reads reuse that work without launching another OS lookup.
+///
+/// Lifetime. Everything the handle starts stays reachable and cancellable. Resolution is one
+/// stored Task, and the connection deadline is a cancellable sibling of each bounded wait
+/// rather than a Task of its own. The previous shape left an 850 ms sleeper per accepted
+/// connection that expired even when the resolver had already won, plus an awaiter and a
+/// late-identity Task nothing held a reference to; a capture running for hours therefore kept
+/// a standing population of Tasks whose only remaining purpose was to expire. `cancel()` now
+/// reclaims the work as soon as the client channel closes.
 final class ClientIdentityHandle: @unchecked Sendable {
     // MARK: Lifecycle
 
-    init(descriptor: ProxyConnectionDescriptor, resolver: ClientIdentityResolver) {
+    /// - Parameter decisionDeadline: how long `awaitIdentity()` waits before failing the TLS
+    ///   decision closed. The OS lookup keeps its own independent bound and is deliberately
+    ///   left running past this deadline so a late result can still be stamped onto the
+    ///   connection's rows.
+    init(
+        descriptor: ProxyConnectionDescriptor,
+        resolver: ClientIdentityResolver,
+        decisionDeadline: Duration = .milliseconds(850)
+    ) {
         self.descriptor = descriptor
         self.resolver = resolver
+        self.decisionDeadline = decisionDeadline
     }
 
     // MARK: Internal
@@ -317,15 +334,52 @@ final class ClientIdentityHandle: @unchecked Sendable {
         _ = resolutionTask()
     }
 
-    /// Starts resolution once, then awaits the same bounded result for every caller.
+    /// Starts resolution once, then waits for it until the connection deadline fails the
+    /// decision closed. Both sides of that race are cancellable and structured, so the loser
+    /// stops as soon as the winner is known and this call returns only once it has.
     func awaitIdentity() async -> ClientApplicationIdentity? {
-        await resolutionTask().value
+        _ = resolutionTask()
+        let gate = gate
+        let deadline = decisionDeadline
+        return await withTaskGroup(
+            of: ClientApplicationIdentity?.self,
+            returning: ClientApplicationIdentity?.self
+        ) { group in
+            group.addTask {
+                await gate.awaitIdentity()
+            }
+            group.addTask {
+                // Fails the decision closed. `cancelAll()` below wakes this sleep the moment
+                // the lookup wins, instead of leaving it to run out its full deadline.
+                try? await Task.sleep(for: deadline)
+                return nil
+            }
+            let outcome = await group.next() ?? nil
+            group.cancelAll()
+            return outcome
+        }
+    }
+
+    /// Stops the connection's identity work and releases every parked wait. The proxy calls
+    /// this from the client channel's close, where the client socket the lookup matches
+    /// against is already gone, so nothing is left to resolve or to stamp.
+    func cancel() {
+        taskLock.lock()
+        let pending = task
+        taskLock.unlock()
+        pending?.cancel()
+        // Resolve the gate as well: a cancelled lookup may still be coalesced behind an
+        // in-flight connection-table collection, and no caller on a closed channel should
+        // wait for that to land.
+        gate.resolve(nil)
     }
 
     // MARK: Private
 
     private let resolver: ClientIdentityResolver
+    private let decisionDeadline: Duration
     private let state = IdentityState()
+    private let gate = IdentityResolutionGate()
     private let taskLock = NSLock()
     private var task: Task<ClientApplicationIdentity?, Never>?
 
@@ -338,29 +392,16 @@ final class ClientIdentityHandle: @unchecked Sendable {
         let descriptor = descriptor
         let resolver = resolver
         let state = state
+        let gate = gate
+        // The only Task the handle owns, and the only work that outlives a bounded wait. The
+        // lookup is still worth finishing after the deadline failed the decision closed,
+        // because a short-lived raw tunnel resolved late still needs its rows attributed; the
+        // separate late-identity Task that used to do that is folded in here, where it is
+        // reachable by `cancel()`.
         let created = Task {
-            let gate = IdentityResolutionGate()
-            let resolverTask = Task {
-                await resolver.resolveIdentity(descriptor: descriptor)
-            }
-            let identity = await withCheckedContinuation { continuation in
-                Task {
-                    let resolved = await resolverTask.value
-                    _ = gate.resolve(resolved, continuation: continuation)
-                }
-                Task {
-                    try? await Task.sleep(for: .milliseconds(850))
-                    _ = gate.resolve(nil, continuation: continuation)
-                }
-            }
+            let identity = await resolver.resolveIdentity(descriptor: descriptor)
             state.set(identity)
-            if identity == nil {
-                Task {
-                    if let lateIdentity = await resolverTask.value {
-                        state.set(lateIdentity)
-                    }
-                }
-            }
+            gate.resolve(identity)
             return identity
         }
         task = created
@@ -370,33 +411,87 @@ final class ClientIdentityHandle: @unchecked Sendable {
 
 // MARK: - IdentityResolutionGate
 
-/// Completes a connection's identity wait exactly once: either the resolver wins or the
-/// connection-level deadline fails closed. The underlying OS lookup remains independently
-/// bounded and may finish later without delaying the NIO pipeline.
+/// Publishes a connection's resolution outcome to every bounded waiter exactly once. Waiters
+/// park here instead of awaiting the resolution Task directly, because abandoning a wait must
+/// not abandon the lookup: the deadline fails the TLS decision closed while the OS lookup
+/// keeps running for late stamping. A parked wait is also abandonable, so the losing side of
+/// the deadline race and a wait on a closed connection both stop immediately.
 private final class IdentityResolutionGate: @unchecked Sendable {
     // MARK: Internal
 
-    func resolve(
-        _ identity: ClientApplicationIdentity?,
-        continuation: CheckedContinuation<ClientApplicationIdentity?, Never>
-    )
-        -> Bool
-    {
+    /// Resolves the gate once and wakes every parked waiter. Later calls are ignored, so a
+    /// lookup that lands after the connection was cancelled cannot replace the outcome a
+    /// caller already acted on.
+    func resolve(_ identity: ClientApplicationIdentity?) {
         lock.lock()
         guard !isResolved else {
             lock.unlock()
-            return false
+            return
         }
         isResolved = true
+        resolvedIdentity = identity
+        let parked = Array(waiters.values)
+        waiters.removeAll()
         lock.unlock()
-        continuation.resume(returning: identity)
-        return true
+        for continuation in parked {
+            continuation.resume(returning: identity)
+        }
+    }
+
+    /// Parks until the gate resolves or the calling task is cancelled, whichever comes first.
+    func awaitIdentity() async -> ClientApplicationIdentity? {
+        let waitID = UUID()
+        let identity = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                guard !isResolved else {
+                    let identity = resolvedIdentity
+                    lock.unlock()
+                    continuation.resume(returning: identity)
+                    return
+                }
+                // The cancellation handler runs before this continuation exists when the task
+                // was already cancelled on entry. It records the wait instead of resuming it,
+                // and consuming that record here is what keeps a wait from parking unresumed.
+                guard cancelledWaitIDs.remove(waitID) == nil else {
+                    lock.unlock()
+                    continuation.resume(returning: nil)
+                    return
+                }
+                waiters[waitID] = continuation
+                lock.unlock()
+            }
+        } onCancel: {
+            lock.lock()
+            guard let continuation = waiters.removeValue(forKey: waitID) else {
+                cancelledWaitIDs.insert(waitID)
+                lock.unlock()
+                return
+            }
+            lock.unlock()
+            continuation.resume(returning: nil)
+        }
+        // The handler above can record a cancellation that the resumed wait no longer needs.
+        // Dropping it here is what stops the gate growing one entry per cancelled wait for as
+        // long as the connection lives.
+        discardWait(waitID)
+        return identity
     }
 
     // MARK: Private
 
     private let lock = NSLock()
+    private var waiters: [UUID: CheckedContinuation<ClientApplicationIdentity?, Never>] = [:]
+    private var cancelledWaitIDs: Set<UUID> = []
     private var isResolved = false
+    private var resolvedIdentity: ClientApplicationIdentity?
+
+    private func discardWait(_ waitID: UUID) {
+        lock.lock()
+        waiters.removeValue(forKey: waitID)
+        cancelledWaitIDs.remove(waitID)
+        lock.unlock()
+    }
 }
 
 // MARK: - IdentityState

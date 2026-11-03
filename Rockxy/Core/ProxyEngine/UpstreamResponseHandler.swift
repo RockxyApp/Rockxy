@@ -273,6 +273,12 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         // the queue drains; its resolution gate then suppresses relay/build because
         // the client channel is already inactive.
         cancelPendingResponseBreakpoint()
+        // The response script hook, for the same reason and in the same place: `.end` sets
+        // `completed` before the hook is started, so anything below the guard would leave it
+        // running. This is the only cancellation point for it -- deliberately NOT
+        // `channelInactive`, which is the origin's normal end-of-response; see the comment on
+        // `cancelThrottleTasks()`.
+        responseHookTask.cancel()
         cancelThrottleTasks()
         guard !completed else {
             return
@@ -586,6 +592,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     /// client `closeFuture` cancels it — an upstream close after a full response is a
     /// normal end-of-stream and must not disturb a legitimately paused breakpoint.
     private var pendingResponseBreakpointTask: Task<Void, Never>?
+    /// The response script hook of this one request, retained so a downstream-client
+    /// disconnect can cancel it. Same asymmetry as the breakpoint task above: only
+    /// `clientDisconnected()` reaches it, never this handler's own `channelInactive`.
+    private let responseHookTask = ProxyHookTaskSlot()
     private var downloadReadyAtNanos: UInt64?
     private var downloadTailFuture: EventLoopFuture<Void>?
     /// Every task armed for a throttled download, plus the promise its last chunk completes.
@@ -819,13 +829,23 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         let request = requestData
         let eventLoop = context.eventLoop
 
-        eventLoop.makeFutureWithTask {
-            await scriptPluginManager.runResponseHook(request: request, response: originalResponse)
-        }.whenComplete { [weak self] result in
+        // Liveness here is the CLIENT channel, never `context.channel` -- this handler sits on
+        // the per-request upstream channel, whose inactivity is the origin closing after it
+        // finished sending, which is the normal end of every response. `relayResponseHead`,
+        // `relayResponseBody` and `relayResponseEnd` all gate on the same channel.
+        //
+        // Gating matters beyond saved work: `clientDisconnected()` has already built and
+        // emitted this exchange's transaction, so letting a hook that resolves afterwards reach
+        // `applyMutatedResponseAndRelay` sent a second row for the same request through
+        // `buildAndCompleteTransaction`, which has no idempotence of its own.
+        responseHookTask.run(
+            on: eventLoop,
+            hook: { await scriptPluginManager.runResponseHook(request: request, response: originalResponse) },
+            isLive: { [clientContext] in clientContext.channel.isActive }
+        ) { [weak self] mutated in
             guard let self else {
                 return
             }
-            let mutated: HTTPResponseData = (try? result.get()) ?? originalResponse
             self.applyMutatedResponseAndRelay(mutated: mutated, context: context)
         }
     }

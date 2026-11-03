@@ -25,11 +25,29 @@ nonisolated enum HTTP2ProxyOptions {
     static let h2 = "h2"
     static let alpnProtocols = ["h2", "http/1.1"]
 
+    /// Answered from a cached snapshot. `TLSInterceptHandler` reaches this through a default
+    /// argument and `HTTPSProxyRelayHandler` through `offersHTTP2Upstream(for:)`, both once
+    /// per intercepted connection on a NIO event-loop thread. `UserDefaults` serves from the
+    /// in-process CFPreferences cache, so this was never a disk read, but it is a lock
+    /// acquisition plus a keyed lookup taken concurrently from several event loops.
+    ///
+    /// The snapshot is invalidated on `UserDefaults.didChangeNotification` so the setting
+    /// still applies to the next connection without restarting the proxy, as the type
+    /// comment promises. Residual: a connection whose ALPN offer is already being built
+    /// negotiates under the old value, and a write from another process is seen when that
+    /// change is noticed rather than at the write. The worst case is one connection speaking
+    /// the protocol the user just turned off (or staying on HTTP/1.1 just after turning
+    /// HTTP/2 on); both are protocols Rockxy intercepts either way, so nothing is dropped.
     static var isEnabled: Bool {
         if let forced = override.withLockedValue({ $0 }) {
             return forced
         }
-        return UserDefaults.standard.bool(forKey: defaultsKey)
+        if let cached = enabledCache.withLockedValue({ $0 }) {
+            return cached
+        }
+        let value = UserDefaults.standard.bool(forKey: defaultsKey)
+        enabledCache.withLockedValue { $0 = value }
+        return value
     }
 
     /// Whether the origin connection for `head` may offer HTTP/2. A request that asks to
@@ -47,6 +65,21 @@ nonisolated enum HTTP2ProxyOptions {
     // MARK: Private
 
     private static let override = NIOLockedValueBox<Bool?>(nil)
+
+    /// The toggle as the connection path last read it; `nil` means it has to be read again.
+    /// The box and its observer live for the process, so the observer is never removed --
+    /// unlike `ScriptPluginManager`, which has one observer per instance and has to.
+    private static let enabledCache: NIOLockedValueBox<Bool?> = {
+        let cache = NIOLockedValueBox<Bool?>(nil)
+        _ = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            cache.withLockedValue { $0 = nil }
+        }
+        return cache
+    }()
 }
 
 // MARK: - UpstreamHTTPChannelConnector

@@ -142,6 +142,12 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Client disconnected while a request breakpoint may still be paused: cancel
         // the waiting Task so the queue drains and no upstream work is initiated.
         cancelPendingBreakpoint()
+        // Same point for the rule/script hook in flight. `channelInactive` and not
+        // `handlerRemoved`, for the reason `notifyClientDisconnected` documents below: this
+        // handler is also removed on a WebSocket upgrade and by `beginTunnel`, neither of
+        // which ends the exchange, and cancelling a live hook is how a Block rule would
+        // quietly become a pass-through.
+        hookTask.cancel()
         notifyClientDisconnected()
         context.fireChannelInactive()
     }
@@ -199,6 +205,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
     /// and drain the paused item instead of leaking the row and its continuation.
     private var pendingBreakpointTask: Task<Void, Never>?
+
+    /// The rule-evaluation / request-script hook this connection has in flight. One slot is
+    /// enough because those are sequential phases of a single request.
+    private let hookTask = ProxyHookTaskSlot()
 
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
@@ -259,21 +269,29 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         let graphQLInfo = GraphQLDetector.detect(request: requestData)
         let identityHandle = self.clientIdentityHandle
 
-        eventLoop.makeFutureWithTask {
-            await ProxyHandlerShared.evaluateRules(
-                ruleEngine,
-                request: requestData,
-                graphQLOperationName: graphQLInfo?.operationName,
-                clientApplication: { await identityHandle?.awaitIdentity() }
-            )
-        }.whenComplete { [weak self] result in
+        // Retained and liveness-gated through `hookTask` instead of `makeFutureWithTask`, which
+        // throws its Task handle away. The gate is the part that matters here: an evaluation
+        // that resolved after the client had gone still ran this continuation, and
+        // `forwardRequest` below acquires a `ConnectionLimiter` slot and opens a real origin
+        // socket for a client that is no longer there. See `ProxyHookTaskSlot`.
+        hookTask.run(
+            on: eventLoop,
+            hook: {
+                await ProxyHandlerShared.evaluateRules(
+                    ruleEngine,
+                    request: requestData,
+                    graphQLOperationName: graphQLInfo?.operationName,
+                    clientApplication: { await identityHandle?.awaitIdentity() }
+                )
+            },
+            isLive: { context.channel.isActive }
+        ) { [weak self] evaluation in
             guard let self else {
                 return
             }
-            let evaluation = try? result.get()
-            let breakpointRule = evaluation?.breakpoint
-            let matchedRule = evaluation?.matched
-            let headerRules = evaluation?.headerRules ?? []
+            let breakpointRule = evaluation.breakpoint
+            let matchedRule = evaluation.matched
+            let headerRules = evaluation.headerRules
             let ruleForTransaction = ProxyHandlerShared.transactionRule(
                 breakpointRule: breakpointRule,
                 matchedRule: matchedRule,
@@ -401,9 +419,14 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
             )
             return
         }
-        context.eventLoop.makeFutureWithTask {
-            await scriptPluginManager.runRequestHook(on: requestData)
-        }.whenSuccess { [weak self] outcome in
+        // Same slot the rule evaluation used: it has completed by the time this runs, so the
+        // phases of one request never contend for it. Gated for the same reason — a script
+        // backlog resolving after Stop must not forward, block or mock into a dead channel.
+        hookTask.run(
+            on: context.eventLoop,
+            hook: { await scriptPluginManager.runRequestHook(on: requestData) },
+            isLive: { context.channel.isActive }
+        ) { [weak self] outcome in
             guard let self else {
                 return
             }
@@ -897,7 +920,12 @@ extension HTTPProxyHandler {
         ))
         let ruleEngine = self.ruleEngine
         let identityHandle = self.clientIdentityHandle
-        return context.eventLoop.makeFutureWithTask {
+        // Retained but deliberately not liveness-gated: the SOCKS handler is blocked on this
+        // future for the reply byte it owes its client, so dropping the value would strand its
+        // handshake in `.admitting` rather than save work. This handler is still in the
+        // pipeline here (`SOCKS5ServerHandler` reaches it via `pipeline.handler(type:)`), so
+        // `channelInactive` can and does cancel it.
+        return hookTask.run(on: context.eventLoop) {
             await ProxyHandlerShared.evaluateRules(
                 ruleEngine,
                 request: requestData,
@@ -947,6 +975,14 @@ extension HTTPProxyHandler {
             // to interception, or an application-scoped rule needs to know the caller.
             // autoRead is already false so no client bytes are lost; an unresolved identity
             // fails closed for application-only SSL rules and never matches a rule.
+            //
+            // Left on `makeFutureWithTask` on purpose, unlike the other hooks in this file:
+            // `removeHandler(context:)` two steps up this chain has already taken this handler
+            // out of the pipeline, so its `channelInactive` can never fire again and a stored
+            // handle would have nothing to cancel it. The await is bounded by
+            // `awaitIdentity()` itself and retains no request body, so it is not part of the
+            // backlog `ProxyHookTaskSlot` exists for. Failing or dropping it instead would
+            // lose the CONNECT.
             return context.eventLoop.makeFutureWithTask {
                 guard sslIdentityCanAffectDecision else {
                     return await ruleEngine.hasApplicationScopedRules

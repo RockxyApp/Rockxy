@@ -46,6 +46,18 @@ final class SSLProxyingManager: @unchecked Sendable {
         "dns.google,one.one.one.one,ocsp.digicert.com,ocsp.apple.com,ocsp2.apple.com"
 
     private(set) var isEnabled: Bool = true
+
+    /// The reason the last write to disk failed, or `nil` while the stored copy matches what
+    /// is in memory. Observable so a settings surface can tell the user, because the failure is
+    /// otherwise invisible in the one way that matters: the edit looks applied for this session,
+    /// and the next launch reads the OLD file back. For a removed Decrypt rule that means the
+    /// rule returns and Rockxy decrypts a host the user had just stopped decrypting.
+    ///
+    /// The change notification is still posted after a failed write, deliberately: the
+    /// in-memory state really did change and every observer must reflect it. What was missing
+    /// was any way to know the change had not been persisted.
+    private(set) var persistenceFailure: String?
+
     private(set) var bypassDomains: String = SSLProxyingManager.defaultBypassDomains
 
     private(set) var rules: [SSLProxyingRule] = [] {
@@ -717,8 +729,10 @@ final class SSLProxyingManager: @unchecked Sendable {
             )
             let data = try JSONEncoder().encode(storage)
             try data.write(to: url, options: .atomic)
+            persistenceFailure = nil
             Self.logger.debug("Saved \(self.rules.count) SSL proxying rules")
         } catch {
+            persistenceFailure = error.localizedDescription
             Self.logger.error("Failed to save SSL proxying rules: \(error.localizedDescription)")
         }
         NotificationCenter.default.post(name: .sslProxyingStateDidChange, object: nil)

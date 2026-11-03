@@ -655,6 +655,19 @@ actor ProxyServer {
                 )
                 let identityHandle = identityProvider(descriptor)
                 identityHandle?.startResolution()
+                if let identityHandle {
+                    // Reclaim the identity work when this connection goes away: once the client
+                    // socket is closed the lookup can no longer be matched against the OS
+                    // connection table, and Stop and Quit reach it the same way, by closing
+                    // every registered child channel. Registered exactly once here, in the
+                    // child initializer, for the one handle that belongs to this channel —
+                    // unlike `UpstreamResponseHandler`'s former per-request `closeFuture`
+                    // callback, which could not be deregistered and so accumulated one
+                    // callback per request on a long-lived client channel.
+                    channel.closeFuture.whenComplete { _ in
+                        identityHandle.cancel()
+                    }
+                }
                 let decoratedCallback = ProxyServer.makeIdentityStampingCallback(
                     handle: identityHandle,
                     downstream: ProxyServer.makeScriptAttributionCallback(

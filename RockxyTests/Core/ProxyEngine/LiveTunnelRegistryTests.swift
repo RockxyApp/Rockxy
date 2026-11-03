@@ -89,6 +89,45 @@ private final class ResolutionGate: @unchecked Sendable {
     private var resolvedCount = 0
 }
 
+// MARK: - ResolutionCancellationFlag
+
+/// Records how an injected resolver's wait ended. A cancelled `Task.sleep` throws immediately,
+/// so this distinguishes "the registry cancelled the resolution" from "the resolution ran to
+/// completion", which is what proves a closed tunnel no longer leaves work behind.
+private final class ResolutionCancellationFlag: @unchecked Sendable {
+    func markCancelled() {
+        lock.lock()
+        outcome = .cancelled
+        lock.unlock()
+    }
+
+    func markCompleted() {
+        lock.lock()
+        outcome = .completed
+        lock.unlock()
+    }
+
+    var settled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome != nil
+    }
+
+    var wasCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome == .cancelled
+    }
+
+    private enum Outcome {
+        case cancelled
+        case completed
+    }
+
+    private let lock = NSLock()
+    private var outcome: Outcome?
+}
+
 private final class FutureCompletionGate: @unchecked Sendable {
     func complete(_ result: Result<Void, Error>, promise: EventLoopPromise<Void>) {
         lock.lock()
@@ -741,6 +780,67 @@ struct LiveTunnelRegistryTests {
         // mirror the real proxy stop path waiting for channel teardown to complete.
         channel.close(promise: nil)
         drain(channel)
+        #expect(registry.trackedTunnelCount() == 0)
+
+        _ = try? channel.finish()
+    }
+
+    @Test("closing a tunnel cancels the application resolution started for it")
+    func channelCloseCancelsPendingResolution() async throws {
+        let sslManager = makeSSLProxyingManager()
+        let bypassManager = makeBypassProxyManager()
+        sslManager.setEnabled(true)
+        sslManager.setBypassDomains("")
+        let chrome = ClientApplicationIdentity.bundle(
+            identifier: "com.google.Chrome",
+            displayName: "Google Chrome"
+        )
+        let flag = ResolutionCancellationFlag()
+        let registry = LiveTunnelRegistry(
+            shouldInterceptNow: { host, application in
+                TLSInterceptHandler.initialTunnelMode(
+                    host: host,
+                    sslProxyingManager: sslManager,
+                    bypassProxyManager: bypassManager,
+                    application: application
+                ) == .intercept
+            },
+            shouldResolveApplicationNow: {
+                sslManager.hasEnabledApplicationRules()
+            },
+            resolveApplication: { _ in
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                    flag.markCompleted()
+                } catch {
+                    flag.markCancelled()
+                }
+                return chrome
+            }
+        )
+
+        let channel = EmbeddedChannel()
+        registry.registerRawTunnel(
+            channel: channel,
+            host: "shared.example.com",
+            connectionDescriptor: makeDescriptor(clientPort: 51_001),
+            reason: .noSSLProxyingRule,
+            decisionGeneration: registry.currentGeneration()
+        )
+        sslManager.addApplicationRule(ApplicationSSLProxyingRule(identity: chrome, listType: .include))
+        registry.invalidateTunnelsNowRequiringInterception()
+        // Let the resolution park in its wait before the client disconnects.
+        try await Task.sleep(for: .milliseconds(50))
+
+        channel.close(promise: nil)
+        drain(channel)
+
+        for _ in 0 ..< 200 where !flag.settled {
+            drain(channel)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(flag.wasCancelled)
         #expect(registry.trackedTunnelCount() == 0)
 
         _ = try? channel.finish()

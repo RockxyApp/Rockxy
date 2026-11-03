@@ -144,6 +144,17 @@ final class BypassProxyManager {
         }
     }
 
+    /// The reason the last write to disk failed, or `nil` while the stored copy matches what
+    /// is in memory. Observable so a settings surface can tell the user, because the failure is
+    /// otherwise invisible in the one way that matters: the edit looks applied for this session,
+    /// and the next launch reads the OLD file back. For a removed Decrypt rule that means the
+    /// rule returns and Rockxy decrypts a host the user had just stopped decrypting.
+    ///
+    /// The change notification is still posted after a failed write, deliberately: the
+    /// in-memory state really did change and every observer must reflect it. What was missing
+    /// was any way to know the change had not been persisted.
+    private(set) var persistenceFailure: String?
+
     func save() {
         let url = resolvedStorageURL
         do {
@@ -151,8 +162,10 @@ final class BypassProxyManager {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let data = try JSONEncoder().encode(domains)
             try data.write(to: url, options: .atomic)
+            persistenceFailure = nil
             Self.logger.debug("Saved \(self.domains.count) bypass proxy domains")
         } catch {
+            persistenceFailure = error.localizedDescription
             Self.logger.error("Failed to save bypass proxy domains: \(error.localizedDescription)")
         }
     }
