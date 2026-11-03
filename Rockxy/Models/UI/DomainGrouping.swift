@@ -36,10 +36,36 @@ struct DomainNode: Identifiable, Hashable {
 
 // MARK: - DomainGroupingIndex
 
+/// Incremental domain, host, and path counts behind the sidebar's domain source list.
+///
+/// The index also owns the materialized `[DomainNode]` tree it last published and patches
+/// only the branches that changed. `makeTree` used to rebuild and re-sort every node on
+/// every delivery batch, once per open Traffic Tab, and the node count here is the number
+/// of distinct hosts and paths observed -- which grows for the whole session and is not
+/// bounded by the transaction cap, so evicting rows never shrank it. That made this the
+/// one piece of derived state whose cost rose monotonically with hours of capture.
 struct DomainGroupingIndex {
     // MARK: Internal
 
     private(set) var supportsIncrementalRemoval = true
+
+    /// Requests recorded against the root nodes: what reducing `requestCount` over the
+    /// published tree's top level produced. Maintained because that reduce was itself a
+    /// per-batch pass over a root list that only ever grows.
+    private(set) var rootRequestTotal = 0
+
+    /// Every non-path node's `selectionDomain`, already in the order
+    /// `TrafficDomainSnapshot` publishes them in: case-insensitive collation, with the raw
+    /// value breaking ties so the order is total rather than merely self-consistent.
+    ///
+    /// Maintained for the same reason the tree is. The snapshot flattened the whole tree
+    /// and re-sorted every observed domain on each batch, and one collation comparison is
+    /// a full ICU collator call -- over a collection the history cap does not bound.
+    private(set) var sortedSelectionDomains: [String] = []
+
+    /// Bumped when the root list's membership or order changes, never for a count change,
+    /// so `refreshDomainTree` rebuilds `domainIndexMap` only when it can have changed.
+    private(set) var rootOrderRevision: UInt = 0
 
     func contains(_ transaction: HTTPTransaction) -> Bool {
         contributions[ObjectIdentifier(transaction)] != nil
@@ -53,6 +79,15 @@ struct DomainGroupingIndex {
         methodCounts.removeAll(keepingCapacity: true)
         sequenceCounts.removeAll(keepingCapacity: true)
         contributions.removeAll(keepingCapacity: true)
+        projectedNodesByID.removeAll(keepingCapacity: true)
+        projectedTree.removeAll(keepingCapacity: true)
+        dirtyNodeIDs.removeAll(keepingCapacity: true)
+        rootIndexByID.removeAll(keepingCapacity: true)
+        selectionDomainCounts.removeAll(keepingCapacity: true)
+        sortedSelectionDomains.removeAll(keepingCapacity: true)
+        rootRequestTotal = 0
+        rootIndexIsStale = true
+        rootOrderRevision &+= 1
         supportsIncrementalRemoval = true
     }
 
@@ -67,11 +102,13 @@ struct DomainGroupingIndex {
         let isError = DomainGrouping.isError(transaction)
         var nodeIDs: [String] = []
         for spec in specs {
-            var node = nodesByID[spec.id] ?? DomainNode(
+            let existing = nodesByID[spec.id]
+            var node = existing ?? DomainNode(
                 id: spec.id, domain: spec.title, requestCount: 0, children: [],
                 kind: spec.kind, filterDomain: spec.filterDomain,
                 pathPrefix: spec.pathPrefix, firstSeenSequence: sequence
             )
+            let previousSequence = node.firstSeenSequence
             node.requestCount += 1
             if isError {
                 node.errorCount += 1
@@ -82,12 +119,27 @@ struct DomainGroupingIndex {
             methodCounts[spec.id, default: [:]][method, default: 0] += 1
             sequenceCounts[spec.id, default: [:]][sequence, default: 0] += 1
             nodeIDs.append(node.id)
-            if let parent = spec.parentID {
-                parentIDs[spec.id] = parent
-                childIDsByParentID[parent, default: []].insert(spec.id)
-            } else {
-                rootIDs.insert(spec.id)
+            if spec.parentID == nil {
+                rootRequestTotal += 1
             }
+            if existing == nil {
+                if let parent = spec.parentID {
+                    parentIDs[spec.id] = parent
+                    insert(spec.id, intoChildrenOf: parent)
+                } else {
+                    insertRoot(spec.id)
+                }
+                if spec.kind != .path {
+                    retainSelectionDomain(node.selectionDomain)
+                }
+            } else if node.firstSeenSequence != previousSequence {
+                // A node sits at its earliest contributing sequence, so a row older than
+                // everything already filed under it moves the node. An append can never
+                // lower it -- which is why the ordinary capture path only ever inserts a
+                // brand-new node, and at the end of its sibling list.
+                reposition(spec.id)
+            }
+            markDirty(spec.id)
         }
         if contributions[objectID] == nil {
             contributions[objectID] = Contribution(
@@ -135,8 +187,11 @@ struct DomainGroupingIndex {
             {
                 if old.isError != isError {
                     let delta = isError ? 1 : -1
-                    for nodeID in old.nodeIDs {
+                    for nodeID in old.nodeIDs where nodesByID[nodeID] != nil {
                         nodesByID[nodeID]?.errorCount += delta
+                        // The error badge is part of the published node, so a row that
+                        // only changed disposition still invalidates the branch it is on.
+                        markDirty(nodeID)
                     }
                     old.isError = isError
                     contributions[id] = old
@@ -153,8 +208,41 @@ struct DomainGroupingIndex {
         return changed
     }
 
-    func makeTree(alphabetical: Bool = false) -> [DomainNode] {
-        sorted(ids: rootIDs, alphabetical: alphabetical).map { makeNode(id: $0, alphabetical: alphabetical) }
+    /// The published tree, with only the branches that changed since the last call rebuilt.
+    ///
+    /// `alphabetical` is the one-shot sidebar sort command and deliberately bypasses the
+    /// projection: it publishes a different order from the one the index maintains, is not
+    /// sticky (the next batch republishes capture order), and must not leave the cache
+    /// describing an order the index does not hold.
+    mutating func makeTree(alphabetical: Bool = false) -> [DomainNode] {
+        guard !alphabetical else {
+            return alphabeticalOrder(of: rootIDs).map { alphabeticalNode(id: $0) }
+        }
+        if rootIndexIsStale {
+            var tree: [DomainNode] = []
+            tree.reserveCapacity(rootIDs.count)
+            rootIndexByID.removeAll(keepingCapacity: true)
+            for (index, id) in rootIDs.enumerated() {
+                rootIndexByID[id] = index
+                tree.append(projectedNode(id: id))
+            }
+            projectedTree = tree
+            rootIndexIsStale = false
+        } else {
+            // Marking a node dirty marks every ancestor, so a dirty node always has a
+            // dirty root above it and rebuilding the dirty roots reaches all of them.
+            for id in dirtyNodeIDs where parentIDs[id] == nil {
+                guard let index = rootIndexByID[id] else {
+                    continue
+                }
+                // Through a local, so the mutating projection call does not overlap the
+                // write access to the array it is being stored into.
+                let node = projectedNode(id: id)
+                projectedTree[index] = node
+            }
+        }
+        dirtyNodeIDs.removeAll(keepingCapacity: true)
+        return projectedTree
     }
 
     // MARK: Private
@@ -168,21 +256,50 @@ struct DomainGroupingIndex {
     }
 
     private var nodesByID: [String: DomainNode] = [:]
-    private var childIDsByParentID: [String: Set<String>] = [:]
-    private var rootIDs: Set<String> = []
+    /// Sibling ids in published order, maintained by insertion rather than re-sorted.
+    private var childIDsByParentID: [String: [String]] = [:]
+    private var rootIDs: [String] = []
     private var parentIDs: [String: String] = [:]
     private var methodCounts: [String: [String: Int]] = [:]
     private var sequenceCounts: [String: [Int: Int]] = [:]
     private var contributions: [ObjectIdentifier: Contribution] = [:]
+
+    /// The last published form of each node, children attached. Kept so a batch rebuilds
+    /// only the branches it touched instead of every node in the capture.
+    private var projectedNodesByID: [String: DomainNode] = [:]
+    /// Nodes whose published form is out of date, always together with their ancestors.
+    private var dirtyNodeIDs: Set<String> = []
+    private var projectedTree: [DomainNode] = []
+    private var rootIndexByID: [String: Int] = [:]
+    private var rootIndexIsStale = true
+    private var selectionDomainCounts: [String: Int] = [:]
+
+    private static func insertionIndex(of value: String, in values: [String]) -> Int {
+        var low = 0
+        var high = values.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if DomainGrouping.isOrderedBefore(domain: values[middle], value) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
 
     private mutating func subtract(_ contribution: Contribution, dirtyOrdering: inout Set<String>) {
         for id in contribution.nodeIDs {
             guard var node = nodesByID[id] else {
                 continue
             }
+            let isRoot = parentIDs[id] == nil
             node.requestCount -= 1
             if contribution.isError {
                 node.errorCount -= 1
+            }
+            if isRoot {
+                rootRequestTotal -= 1
             }
             let methods = methodCounts[id]?[contribution.method] ?? 0
             if methods <= 1 {
@@ -204,52 +321,200 @@ struct DomainGroupingIndex {
                 nodesByID.removeValue(forKey: id)
                 methodCounts.removeValue(forKey: id)
                 sequenceCounts.removeValue(forKey: id)
+                dirtyOrdering.remove(id)
+                projectedNodesByID.removeValue(forKey: id)
+                dirtyNodeIDs.remove(id)
+                if node.kind != .path {
+                    releaseSelectionDomain(node.selectionDomain)
+                }
                 if let parent = parentIDs.removeValue(forKey: id) {
-                    childIDsByParentID[parent]?.remove(id)
-                    if childIDsByParentID[parent]?.isEmpty == true {
-                        childIDsByParentID.removeValue(forKey: parent)
-                    }
+                    remove(id, fromChildrenOf: parent)
+                    markDirty(parent)
                 } else {
-                    rootIDs.remove(id)
+                    removeRoot(id)
                 }
                 childIDsByParentID.removeValue(forKey: id)
             } else {
                 nodesByID[id] = node
+                markDirty(id)
             }
         }
     }
 
     private mutating func reconcileOrdering(_ nodeIDs: Set<String>) {
-        for id in nodeIDs where nodesByID[id] != nil {
-            nodesByID[id]?.firstSeenSequence = sequenceCounts[id]?.keys.min() ?? .max
+        for id in nodeIDs {
+            guard let node = nodesByID[id] else {
+                continue
+            }
+            let firstSeen = sequenceCounts[id]?.keys.min() ?? .max
+            guard firstSeen != node.firstSeenSequence else {
+                continue
+            }
+            nodesByID[id]?.firstSeenSequence = firstSeen
+            // The node's position is derived from this value, so losing the row it was
+            // taken from moves the node among its siblings.
+            reposition(id)
+            markDirty(id)
         }
     }
 
-    private func makeNode(id: String, alphabetical: Bool) -> DomainNode {
+    /// Marks `id` and every ancestor above it as needing republication. The walk stops at
+    /// the first already-dirty node, which is sound because nothing is marked without its
+    /// ancestors being marked in the same pass.
+    private mutating func markDirty(_ id: String) {
+        var current: String? = id
+        while let next = current, dirtyNodeIDs.insert(next).inserted {
+            current = parentIDs[next]
+        }
+    }
+
+    private mutating func insert(_ id: String, intoChildrenOf parent: String) {
+        var children = childIDsByParentID[parent] ?? []
+        children.insert(id, at: siblingInsertionIndex(of: id, in: children))
+        childIDsByParentID[parent] = children
+    }
+
+    private mutating func remove(_ id: String, fromChildrenOf parent: String) {
+        guard var children = childIDsByParentID[parent], let index = children.firstIndex(of: id) else {
+            return
+        }
+        children.remove(at: index)
+        if children.isEmpty {
+            childIDsByParentID.removeValue(forKey: parent)
+        } else {
+            childIDsByParentID[parent] = children
+        }
+    }
+
+    private mutating func insertRoot(_ id: String) {
+        rootIDs.insert(id, at: siblingInsertionIndex(of: id, in: rootIDs))
+        rootIndexIsStale = true
+        rootOrderRevision &+= 1
+    }
+
+    private mutating func removeRoot(_ id: String) {
+        guard let index = rootIDs.firstIndex(of: id) else {
+            return
+        }
+        rootIDs.remove(at: index)
+        rootIndexIsStale = true
+        rootOrderRevision &+= 1
+    }
+
+    private mutating func reposition(_ id: String) {
+        if let parent = parentIDs[id] {
+            remove(id, fromChildrenOf: parent)
+            insert(id, intoChildrenOf: parent)
+            markDirty(parent)
+        } else {
+            removeRoot(id)
+            insertRoot(id)
+        }
+    }
+
+    private mutating func retainSelectionDomain(_ domain: String) {
+        let count = selectionDomainCounts[domain] ?? 0
+        selectionDomainCounts[domain] = count + 1
+        guard count == 0 else {
+            return
+        }
+        sortedSelectionDomains.insert(
+            domain,
+            at: Self.insertionIndex(of: domain, in: sortedSelectionDomains)
+        )
+    }
+
+    private mutating func releaseSelectionDomain(_ domain: String) {
+        guard let count = selectionDomainCounts[domain] else {
+            return
+        }
+        guard count <= 1 else {
+            selectionDomainCounts[domain] = count - 1
+            return
+        }
+        selectionDomainCounts.removeValue(forKey: domain)
+        let index = Self.insertionIndex(of: domain, in: sortedSelectionDomains)
+        guard index < sortedSelectionDomains.count, sortedSelectionDomains[index] == domain else {
+            return
+        }
+        sortedSelectionDomains.remove(at: index)
+    }
+
+    private mutating func projectedNode(id: String) -> DomainNode {
+        if !dirtyNodeIDs.contains(id), let projected = projectedNodesByID[id] {
+            return projected
+        }
         guard var node = nodesByID[id] else {
             return DomainNode(id: id, domain: id, requestCount: 0, children: [])
         }
-
         let childIDs = childIDsByParentID[id] ?? []
-        node.children = sorted(ids: childIDs, alphabetical: alphabetical).map {
-            makeNode(id: $0, alphabetical: alphabetical)
+        var children: [DomainNode] = []
+        children.reserveCapacity(childIDs.count)
+        for childID in childIDs {
+            children.append(projectedNode(id: childID))
         }
+        node.children = children
+        projectedNodesByID[id] = node
         return node
     }
 
-    private func sorted(ids: Set<String>, alphabetical: Bool) -> [String] {
+    /// Siblings are ordered by earliest sequence, then collated title, then id. The id is
+    /// what makes it a total order: without it two siblings sharing a sequence and
+    /// collating equal had no defined relative position, and an unstable comparator is
+    /// also unsafe to binary-search against.
+    private func siblingInsertionIndex(of id: String, in ids: [String]) -> Int {
+        var low = 0
+        var high = ids.count
+        while low < high {
+            let middle = low + (high - low) / 2
+            if nodeIsOrderedBefore(ids[middle], id) {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return low
+    }
+
+    private func nodeIsOrderedBefore(_ lhsID: String, _ rhsID: String) -> Bool {
+        guard let lhs = nodesByID[lhsID], let rhs = nodesByID[rhsID] else {
+            return lhsID < rhsID
+        }
+        if lhs.firstSeenSequence != rhs.firstSeenSequence {
+            return lhs.firstSeenSequence < rhs.firstSeenSequence
+        }
+        switch lhs.domain.localizedCaseInsensitiveCompare(rhs.domain) {
+        case .orderedAscending:
+            return true
+        case .orderedDescending:
+            return false
+        case .orderedSame:
+            return lhsID < rhsID
+        }
+    }
+
+    private func alphabeticalOrder(of ids: [String]) -> [String] {
         ids.sorted { lhsID, rhsID in
             guard let lhs = nodesByID[lhsID], let rhs = nodesByID[rhsID] else {
                 return lhsID < rhsID
             }
-            if alphabetical {
-                return lhs.domain.localizedCaseInsensitiveCompare(rhs.domain) == .orderedAscending
+            switch lhs.domain.localizedCaseInsensitiveCompare(rhs.domain) {
+            case .orderedAscending:
+                return true
+            case .orderedDescending:
+                return false
+            case .orderedSame:
+                return lhsID < rhsID
             }
-            if lhs.firstSeenSequence != rhs.firstSeenSequence {
-                return lhs.firstSeenSequence < rhs.firstSeenSequence
-            }
-            return lhs.domain.localizedCaseInsensitiveCompare(rhs.domain) == .orderedAscending
         }
+    }
+
+    private func alphabeticalNode(id: String) -> DomainNode {
+        guard var node = nodesByID[id] else {
+            return DomainNode(id: id, domain: id, requestCount: 0, children: [])
+        }
+        node.children = alphabeticalOrder(of: childIDsByParentID[id] ?? []).map { alphabeticalNode(id: $0) }
+        return node
     }
 }
 
@@ -298,17 +563,22 @@ struct AppGroupingIndex {
             supportsIncrementalRemoval = false
         }
         let key = Self.key(for: name)
+        var entry = entries[key] ?? Entry(name: name)
         if entries[key] == nil {
-            entries[key] = Entry(name: name)
             insertionOrder.append(key)
         }
-        entries[key]?.requestCount += 1
-        if entries[key]?.identity == nil {
-            entries[key]?.identity = transaction.clientApplicationIdentity
+        entry.requestCount += 1
+        if entry.identity == nil {
+            entry.identity = transaction.clientApplicationIdentity
         }
         if !host.isEmpty {
-            entries[key]?.domainCounts[host, default: 0] += 1
+            let count = entry.domainCounts[host] ?? 0
+            entry.domainCounts[host] = count + 1
+            if count == 0 {
+                entry.insertSortedDomain(host)
+            }
         }
+        entries[key] = entry
         if memberships[id] == nil {
             memberships[id] = Membership(name: name, host: host, identity: transaction.clientApplicationIdentity)
         }
@@ -407,7 +677,7 @@ struct AppGroupingIndex {
             }
             return AppInfo(
                 name: entry.name,
-                domains: entry.domainCounts.keys.sorted(),
+                domains: entry.sortedDomains,
                 requestCount: entry.requestCount,
                 identity: entry.identity
             )
@@ -421,6 +691,41 @@ struct AppGroupingIndex {
         var requestCount = 0
         var domainCounts: [String: Int] = [:]
         var identity: ClientApplicationIdentity?
+
+        /// `domainCounts.keys` in published order, maintained by insertion.
+        ///
+        /// `makeNodes()` sorted the keys on every delivery batch, and an app's contacted
+        /// host set grows for the whole session -- the history cap does not bound it -- so
+        /// that sort was one of the costs that rose with how long capture had run. The
+        /// comparator stays the plain `<` the sort used, so the published order is
+        /// unchanged.
+        private(set) var sortedDomains: [String] = []
+
+        mutating func insertSortedDomain(_ domain: String) {
+            sortedDomains.insert(domain, at: Self.insertionIndex(of: domain, in: sortedDomains))
+        }
+
+        mutating func removeSortedDomain(_ domain: String) {
+            let index = Self.insertionIndex(of: domain, in: sortedDomains)
+            guard index < sortedDomains.count, sortedDomains[index] == domain else {
+                return
+            }
+            sortedDomains.remove(at: index)
+        }
+
+        private static func insertionIndex(of domain: String, in domains: [String]) -> Int {
+            var low = 0
+            var high = domains.count
+            while low < high {
+                let middle = low + (high - low) / 2
+                if domains[middle] < domain {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            return low
+        }
     }
 
     private struct Membership {
@@ -456,6 +761,7 @@ struct AppGroupingIndex {
         if !membership.host.isEmpty, let domains = entries[key]?.domainCounts[membership.host] {
             if domains <= 1 {
                 entries[key]?.domainCounts.removeValue(forKey: membership.host)
+                entries[key]?.removeSortedDomain(membership.host)
             } else {
                 entries[key]?.domainCounts[membership.host] = domains - 1
             }
@@ -542,6 +848,24 @@ enum DomainGrouping {
             return true
         }
         return path == prefix || path.hasPrefix(prefix.hasSuffix("/") ? prefix : "\(prefix)/")
+    }
+
+    /// Publication order for observed domain names: case-insensitive collation, with the
+    /// raw value breaking ties.
+    ///
+    /// The tiebreak is what makes the order total. Collation ties left two distinct names
+    /// with no defined relative position, which both let them swap places between batches
+    /// with no traffic change and makes the comparator unsafe to binary-search against --
+    /// the same defect the Insights sorts had to add a key tiebreak for.
+    static func isOrderedBefore(domain lhs: String, _ rhs: String) -> Bool {
+        switch lhs.localizedCaseInsensitiveCompare(rhs) {
+        case .orderedAscending:
+            return true
+        case .orderedDescending:
+            return false
+        case .orderedSame:
+            return lhs < rhs
+        }
     }
 
     static func isError(_ transaction: HTTPTransaction) -> Bool {

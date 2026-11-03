@@ -14,10 +14,13 @@ extension MainContentCoordinator {
         let removedIDs = Self.evictionCandidateIDs(in: transactions, count: count, includesImported: true)
         let removeCount = removedIDs.count
 
+        // Taken before the removal, because the ledgers below are subtracted from rather
+        // than rebuilt and the rows they describe have to still be in hand.
+        let removed = transactions.filter { removedIDs.contains($0.id) }
         transactions.removeAll { removedIDs.contains($0.id) }
         transactionsByProjectID[projectStore.activeProjectID] = transactions
-        rebuildObservedDomainsByApp()
-        recomputeErrorCount()
+        retainObservedDomainsByApp(removing: removed, appending: [])
+        retainErrorAndSignalCounts(removing: removed, appending: [])
         // Evicted rows have to leave the byte total as well, or the footer keeps
         // counting traffic the user can no longer see.
         rebuildTrafficTotals(from: transactions)
@@ -111,9 +114,9 @@ extension MainContentCoordinator {
     /// Two guards matter more than the slice size. The floor keeps a small session intact:
     /// pressure caused by something else on the machine must not cost the user the handful
     /// of rows they are reading. The interval keeps the response from becoming the problem:
-    /// the kernel can deliver pressure events in bursts, and each eviction rebuilds the
-    /// domain, assistant and error indexes over the whole history, so an unthrottled
-    /// handler would stall the main thread exactly when the machine is already struggling.
+    /// the kernel can deliver pressure events in bursts, and each eviction still rebuilds
+    /// every workspace's sidebar indexes over the whole history, so an unthrottled handler
+    /// would stall the main thread exactly when the machine is already struggling.
     func evictForMemoryPressure(isCritical: Bool, now: Date = Date()) {
         guard transactions.count > Self.memoryPressureHistoryFloor else {
             return

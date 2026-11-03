@@ -11,6 +11,14 @@ import os
 actor TrafficSessionManager {
     // MARK: Internal
 
+    /// Who still needs the batch flush loop. Both producers deliver through this actor and
+    /// have independent lifetimes: the proxy stops and starts with Start/Stop, while
+    /// Babylon SDK ingest is bound to the receiver the person turns on, not to the proxy.
+    enum BatchProducer: Hashable, Sendable {
+        case proxy
+        case babylon
+    }
+
     var onBatchReady: (@Sendable ([HTTPTransaction], _ generation: UInt) -> Void)?
     var onClientAppEnriched: (@Sendable ([HTTPTransaction]) -> Void)?
     var onLiveTransactionUpdated: (@Sendable ([HTTPTransaction]) -> Void)?
@@ -68,6 +76,7 @@ actor TrafficSessionManager {
         {
             return
         }
+        startBatchTimerTaskIfIdle()
         if liveTransactionIDs.contains(transaction.id) {
             if transaction.state != .active, transaction.state != .pending {
                 liveTransactionIDs.remove(transaction.id)
@@ -114,22 +123,53 @@ actor TrafficSessionManager {
 
     // MARK: - Batch Timer
 
-    func startBatchTimer() {
-        batchTimerTask?.cancel()
-
-        let interval = batchInterval
-        batchTimerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(Int(interval * 1_000)))
-                guard !Task.isCancelled else {
-                    break
-                }
-                await self?.flushAndDeliver()
-            }
-        }
+    /// Whether the flush loop is running. Readers are tests: nothing in the app decides
+    /// anything from it, and the whole point of the ownership below is that no caller has
+    /// to know.
+    var isBatchTimerRunning: Bool {
+        batchTimerTask != nil
     }
 
+    /// Registers `producer` as a continuous source that needs the flush loop running even
+    /// while nothing is buffered, and starts the loop if it is idle.
+    ///
+    /// The loop's lifetime follows whether anything still needs it, not whether the proxy
+    /// specifically is running: Babylon SDK ingest accepts connections independently of
+    /// the proxy, so ending the loop on proxy stop would stall its delivery entirely.
+    ///
+    /// A live handle is never replaced. One loop serves every producer, so replacing it
+    /// would at best reset the interval. The handle is non-nil only while its task is
+    /// running -- it is nil'd by the only two things that end the task -- so this gives the
+    /// same "never two timers" guarantee the previous unconditional cancel did.
+    func startBatchTimer(for producer: BatchProducer = .proxy) {
+        activeProducers.insert(producer)
+        startBatchTimerTaskIfIdle()
+    }
+
+    /// Unregisters `producer`; the loop ends only once the last producer has gone.
+    ///
+    /// Nothing called this before, so after the first Start the 100 ms loop ran for the
+    /// rest of the process, hopping onto the actor ten times a second to hit two empty
+    /// guards -- for as long as the app stayed open after the user pressed Stop.
+    func stopBatchTimer(for producer: BatchProducer) {
+        guard activeProducers.remove(producer) != nil, activeProducers.isEmpty else {
+            return
+        }
+        // What the interval had not reached yet is delivered rather than dropped, or a row
+        // captured inside the last 100 ms before Stop would never reach the list. The flush
+        // also drains the live-row updates, so a stream that finished during teardown still
+        // refreshes. This method is actor-isolated and does not suspend, so no delivery can
+        // be accepted between the flush and the cancellation.
+        flushAndDeliver()
+        stopBatchTimer()
+    }
+
+    /// Ends the loop whatever is registered, and forgets the producers. Buffered work is
+    /// not flushed, which is why the production stop path is the one above; this is the
+    /// blunt stop for session teardown and for tests that must know no flush can land
+    /// in the middle of an assertion.
     func stopBatchTimer() {
+        activeProducers.removeAll()
         batchTimerTask?.cancel()
         batchTimerTask = nil
     }
@@ -222,6 +262,7 @@ actor TrafficSessionManager {
     private var generation: UInt = 0
     private var proxyPort: Int = 9_090
     private var batchTimerTask: Task<Void, Never>?
+    private var activeProducers: Set<BatchProducer> = []
 
     private static func survivesClear(
         _ context: TrafficCaptureContext?,
@@ -236,6 +277,46 @@ actor TrafficSessionManager {
     }
 
     // MARK: - Flush and Deliver
+
+    /// Arms the flush loop for buffered work from a source that declares no lifetime.
+    ///
+    /// Repeat, Compose/Edit and Repeat, and Babylon ingest all deliver through
+    /// `addTransaction(_:acceptsNewRows:)` without registering as producers, and all three
+    /// can deliver while the proxy is stopped. Making the loop's lifetime purely a
+    /// producer refcount would have left their rows in the buffer until 50 of them piled
+    /// up. The loop retires itself again once no producer is registered and nothing is
+    /// left buffered, so this re-arms rather than pins it.
+    private func startBatchTimerTaskIfIdle() {
+        guard batchTimerTask == nil else {
+            return
+        }
+        let interval = batchInterval
+        batchTimerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(Int(interval * 1_000)))
+                guard !Task.isCancelled else {
+                    break
+                }
+                guard await self?.flushAndReportWhetherStillNeeded() == true else {
+                    break
+                }
+            }
+        }
+    }
+
+    /// Flushes, then reports whether the loop still has a reason to run.
+    ///
+    /// Clearing the handle here, rather than cancelling, is what lets the next delivery
+    /// arm a fresh loop: the task this runs inside returns immediately afterwards, so a
+    /// loop armed in the meantime is still the only one.
+    private func flushAndReportWhetherStillNeeded() -> Bool {
+        flushAndDeliver()
+        guard activeProducers.isEmpty, pendingUpdates.isEmpty, pendingLiveUpdates.isEmpty else {
+            return true
+        }
+        batchTimerTask = nil
+        return false
+    }
 
     private func flushAndDeliver() {
         // Publish new rows first when a short stream opens and closes inside one interval.

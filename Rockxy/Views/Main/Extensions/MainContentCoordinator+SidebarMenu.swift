@@ -742,7 +742,9 @@ extension MainContentCoordinator {
         }
     }
 
-    private func publishObservedDomains(for appNames: Set<String>) {
+    /// Not private: `retainObservedDomainsByApp(removing:appending:)` publishes through
+    /// this too, so the ledger has one publication point rather than two that can drift.
+    func publishObservedDomains(for appNames: Set<String>) {
         var snapshot = observedDomainsByApp
         for appName in appNames {
             if let counts = observedDomainCountsByApp[appName], !counts.isEmpty {

@@ -13,7 +13,15 @@ extension MainContentCoordinator {
             liveHistoryLimit = max(1, effectiveBufferSize)
             await manager.setMaxBufferSize(effectiveBufferSize)
             await manager.setProxyPort(activeProxyPort)
-            await manager.startBatchTimer()
+            // Declare Babylon as a producer only while its receiver is actually accepting
+            // connections. This ran at every launch regardless, which is why the flush
+            // loop stayed alive for the whole process even for someone who never turns
+            // Babylon on -- and why the proxy's own Stop could not end it. A receiver
+            // enabled later needs no declaration: its first delivery arms the loop, and
+            // the loop retires itself once nothing is buffered.
+            if BabylonCaptureReceiver.shared.isEnabled {
+                await manager.startBatchTimer(for: .babylon)
+            }
         }
     }
 

@@ -152,6 +152,14 @@ final class WorkspaceState: Identifiable {
     var totalDomainCount = 0
     var domainIndexMap: [String: Int] = [:]
     var domainGroupingIndex = DomainGroupingIndex()
+
+    /// The `rootOrderRevision` `domainIndexMap` was last built for. Maintenance state, so
+    /// `@ObservationIgnored`: nothing reads it but `refreshDomainTree`, which uses it to
+    /// skip rebuilding the map on the batches that only changed counts. The root list is
+    /// the one sidebar collection sized by the whole session rather than by the history
+    /// cap, so rebuilding its map ten times a second was a cost that rose with capture
+    /// length.
+    @ObservationIgnored var domainIndexRevision: UInt?
     @ObservationIgnored var sidebarIndexSignature: [String?]?
     @ObservationIgnored var sidebarTransactionRevisions: [ObjectIdentifier: UInt64] = [:]
     @ObservationIgnored var rowProjectionLocale: String?
@@ -212,6 +220,7 @@ final class WorkspaceState: Identifiable {
         domainTree.removeAll()
         totalDomainCount = 0
         domainIndexMap.removeAll()
+        domainIndexRevision = nil
         domainGroupingIndex.removeAll()
         sidebarIndexSignature = nil
         sidebarTransactionRevisions.removeAll()

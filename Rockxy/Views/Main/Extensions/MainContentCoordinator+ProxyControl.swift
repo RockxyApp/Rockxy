@@ -259,7 +259,7 @@ extension MainContentCoordinator {
                 await configureProxy(port: resolvedPort, settings: settings)
 
                 try await proxyServer.start()
-                await sessionManager.startBatchTimer()
+                await sessionManager.startBatchTimer(for: .proxy)
                 isProxyRunning = true
                 proxyStartedAt = Date()
                 runtimeListenerSnapshot = ProxyListenerSnapshot(
@@ -535,6 +535,11 @@ extension MainContentCoordinator {
                     "Capture stop connection drain took \(String(describing: drainStartedAt.duration(to: .now)), privacy: .public)"
                 )
             breakpointManager.resolveAll(decision: .cancel)
+            // After the channels are drained and the paused items resolved, so the final
+            // flush inside this call carries every row the proxy produced. The loop only
+            // ends if Babylon ingest is not also registered -- stopping it here regardless
+            // would stall Babylon's delivery, which does not depend on the proxy at all.
+            await sessionManager.stopBatchTimer(for: .proxy)
             stopLogCapture()
             stopBandwidthTimer()
             resetInstantaneousSpeeds()
@@ -1132,9 +1137,16 @@ extension MainContentCoordinator {
             transactions = history
             nextSequenceNumber = sequence
             if evictionCount > 0 {
-                CaptureRetentionProfiler.measure(.observedDomains) { rebuildObservedDomainsByApp() }
+                // Both of these used to rebuild from the whole retained history, which is
+                // 1,000-10,000 rows, and eviction only starts once the cap is reached and
+                // then runs for the rest of the session -- the shape that made issue #416
+                // look unreproducible. They already receive the rows that left, which is
+                // the one thing a rebuild needed the whole history for.
+                CaptureRetentionProfiler.measure(.observedDomains) {
+                    retainObservedDomainsByApp(removing: removedTransactions, appending: projectBatch)
+                }
                 CaptureRetentionProfiler.measure(.assistantIndex) {
-                    rebuildDebugAssistantTrafficIndex()
+                    retainDebugAssistantTrafficIndex(removing: removedTransactions, appending: projectBatch)
                 }
                 retainAllWorkspaces(removing: removedTransactions, appending: projectBatch)
             } else {
@@ -1145,7 +1157,9 @@ extension MainContentCoordinator {
 
             recordTrafficMetrics(for: projectBatch)
             if evictionCount > 0 {
-                CaptureRetentionProfiler.measure(.errorCount) { recomputeErrorCount() }
+                CaptureRetentionProfiler.measure(.errorCount) {
+                    retainErrorAndSignalCounts(removing: removedTransactions, appending: projectBatch)
+                }
             } else {
                 updateErrorCount(for: projectBatch)
             }
@@ -1180,7 +1194,7 @@ extension MainContentCoordinator {
                 rewriteVisibleRowsInPlace(from: enrichedByID, in: workspace)
             }
         }
-        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+        publishTrafficDomainSnapshot()
     }
 
     /// Stop can finish thousands of streams in one burst. The session actor limits each

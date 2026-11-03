@@ -49,7 +49,7 @@ extension MainContentCoordinator {
         for workspace in workspaceStore.allWorkspaces {
             workspace.reset()
         }
-        TrafficDomainSnapshot.shared.update(appNodes: [], domainTree: [])
+        TrafficDomainSnapshot.shared.update(appNodes: [], domains: [])
     }
 
     func updateAllWorkspaces(with batch: [HTTPTransaction]) {
@@ -68,7 +68,7 @@ extension MainContentCoordinator {
             refreshAppNodes(for: workspace)
             appendFilteredTransactions(batch, to: workspace)
         }
-        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+        publishTrafficDomainSnapshot()
     }
 
     // MARK: - Per-Workspace Sidebar
@@ -99,13 +99,42 @@ extension MainContentCoordinator {
         workspace.domainGroupingIndex.add(transaction)
     }
 
+    /// Publishes the workspace's domain tree, patching only what changed.
+    ///
+    /// Everything here used to be proportional to the number of distinct hosts and paths
+    /// in the capture -- the tree was rebuilt and re-sorted wholesale, the total was
+    /// reduced over the roots, and the index map was rebuilt -- and it ran once per open
+    /// Traffic Tab on every 100 ms delivery batch. That collection is not bounded by the
+    /// history cap: it only grows for as long as capture runs, so evicting rows never made
+    /// this cheaper. The index now maintains all three, and the map is rebuilt only when
+    /// the root list it describes actually changed.
+    ///
+    /// `alphabetical` is the one-shot sidebar sort command: it publishes an order the
+    /// index does not maintain, so the map is rebuilt unconditionally and the recorded
+    /// revision is cleared so the next ordinary refresh rebuilds it again.
     func refreshDomainTree(for workspace: WorkspaceState, alphabetical: Bool = false) {
         workspace.domainTree = workspace.domainGroupingIndex.makeTree(alphabetical: alphabetical)
-        workspace.totalDomainCount = workspace.domainTree.reduce(0) { $0 + $1.requestCount }
+        workspace.totalDomainCount = workspace.domainGroupingIndex.rootRequestTotal
+        let revision = workspace.domainGroupingIndex.rootOrderRevision
+        guard alphabetical || workspace.domainIndexRevision != revision else {
+            return
+        }
         workspace.domainIndexMap.removeAll(keepingCapacity: true)
         for (index, node) in workspace.domainTree.enumerated() {
             workspace.domainIndexMap[node.selectionDomain] = index
         }
+        workspace.domainIndexRevision = alphabetical ? nil : revision
+    }
+
+    /// Republishes the read-only snapshot secondary windows read traffic context from.
+    ///
+    /// Reads the domain list the active workspace's index already keeps in order, rather
+    /// than flattening and re-collating the published tree on every batch.
+    func publishTrafficDomainSnapshot() {
+        TrafficDomainSnapshot.shared.update(
+            appNodes: appNodes,
+            domains: activeWorkspace.domainGroupingIndex.sortedSelectionDomains
+        )
     }
 
     func updateAppNodes(for transaction: HTTPTransaction, in workspace: WorkspaceState) {
@@ -154,7 +183,7 @@ extension MainContentCoordinator {
             rebuildSidebarIndexes(for: workspace)
             return
         }
-        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+        publishTrafficDomainSnapshot()
     }
 
     /// A different sidebar scope or language requires an authoritative rebuild.
@@ -222,7 +251,7 @@ extension MainContentCoordinator {
                 recomputeFilteredTransactions(for: workspace, reusingRetainedRows: true)
             }
         }
-        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+        publishTrafficDomainSnapshot()
     }
 
     func refreshSidebarContributions(_ updates: [HTTPTransaction], in workspace: WorkspaceState) {

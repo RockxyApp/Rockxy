@@ -318,6 +318,13 @@ final class MainContentCoordinator {
     @ObservationIgnored var debugAssistantTasks: [UUID: DebugAssistantTaskHandle] = [:]
     @ObservationIgnored var debugAssistantTransactionsByHost: [String: [HTTPTransaction]] = [:]
     @ObservationIgnored var debugAssistantIndexedTransactionIDs: Set<UUID> = []
+    /// The host bucket each indexed row was filed under. Maintenance state, so
+    /// `@ObservationIgnored`. It records where the row actually went rather than what its
+    /// request names now, which is what lets a retention step remove it: a rule rewrite or
+    /// a replay can change `request` after indexing, and a removal that looked up the
+    /// current host would leave the evicted row in the index holding the last strong
+    /// reference to it.
+    @ObservationIgnored var debugAssistantIndexedHostByID: [UUID: String] = [:]
     @ObservationIgnored var debugAssistantIndexedLiveCount = 0
     @ObservationIgnored var debugAssistantIndexedFavoriteCount = 0
     @ObservationIgnored var debugAssistantTrafficIndexGeneration: UInt = 0
@@ -364,9 +371,10 @@ final class MainContentCoordinator {
     /// retained capture -- which `handleLiveTransactionUpdate` did on every display
     /// interval, so the cost grew with how long capture had been running.
     ///
-    /// Maintained only by `recomputeErrorCount()` and `updateErrorCount(for:)`, which are
-    /// also the only writers of `errorCount`. It cannot be `private(set)`: those live in
-    /// an extension in another file, and a private setter does not reach across files.
+    /// Maintained only by `recomputeErrorCount()`, `updateErrorCount(for:)`, and
+    /// `retainErrorAndSignalCounts(removing:appending:)`, which are also the only writers
+    /// of `errorCount`. It cannot be `private(set)`: those live in extensions in other
+    /// files, and a private setter does not reach across files.
     @ObservationIgnored var erroredTransactionIDs: Set<UUID> = []
 
     /// Which retained rows are TLS-failure rows, which the request list never shows.
@@ -378,8 +386,8 @@ final class MainContentCoordinator {
     /// every retained row -- so the next arriving response invalidated the pane and the
     /// pass ran again. Subtracting a maintained count touches no row at all.
     ///
-    /// Maintained only by `recomputeErrorCount()` and `updateErrorCount(for:)`, the same
-    /// two points as the error count, deliberately so the two cannot drift apart.
+    /// Maintained at the same three points as the error count, deliberately so the two
+    /// cannot drift apart.
     @ObservationIgnored var tlsFailureTransactionIDs: Set<UUID> = []
 
     /// Monotonic stamp for `SidebarFavoritesCacheKey`, bumped by
@@ -395,8 +403,8 @@ final class MainContentCoordinator {
     /// `TrafficSignal.allCases` position. Same role as `erroredTransactionIDs`: it is
     /// what lets a live refresh adjust the counts from just the rows that changed.
     ///
-    /// Maintained only by `recomputeTrafficSignalCounts()` and
-    /// `updateTrafficSignalCounts(for:)`.
+    /// Maintained only by `recomputeTrafficSignalCounts()`,
+    /// `updateTrafficSignalCounts(for:)`, and `retainErrorAndSignalCounts(removing:appending:)`.
     @ObservationIgnored var signalMaskByTransactionID: [UUID: UInt8] = [:]
 
     // MARK: - Breakpoint
