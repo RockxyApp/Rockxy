@@ -365,12 +365,22 @@ extension MainContentCoordinator {
                 transaction.sequenceNumber = nextSequenceNumber
                 nextSequenceNumber += 1
                 transactions.append(transaction)
-                updateDomainTree(for: transaction)
-                updateAppNodes(for: transaction)
+                // Index only. `updateDomainTree`/`updateAppNodes` also publish the finished
+                // trees, which re-materializes and re-sorts every node; doing that per row
+                // made an import cost the square of the file size. Published once below.
+                updateDomainGroupingIndex(for: transaction, in: activeWorkspace)
+                addToAppGroupingIndex(transaction, in: activeWorkspace)
             }
+            refreshDomainTree(for: activeWorkspace)
+            refreshAppNodes(for: activeWorkspace)
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
             updateErrorCount(for: transactions)
+            // The byte total is defined over the retained history, so rows arriving by
+            // any route other than capture have to be folded in too. Without this the
+            // footer kept its pre-import figure and only jumped once a project switch
+            // happened to recompute it.
+            rebuildTrafficTotals(from: transactions)
             rebuildObservedDomainsByApp()
             recomputeFilteredTransactions()
             headerColumnStore.updateDiscoveredHeaders(from: transactions)
@@ -421,12 +431,18 @@ extension MainContentCoordinator {
                 transaction.sequenceNumber = nextSequenceNumber
                 nextSequenceNumber += 1
                 transactions.append(transaction)
-                updateDomainTree(for: transaction)
-                updateAppNodes(for: transaction)
+                // Index only. `updateDomainTree`/`updateAppNodes` also publish the finished
+                // trees, which re-materializes and re-sorts every node; doing that per row
+                // made an import cost the square of the file size. Published once below.
+                updateDomainGroupingIndex(for: transaction, in: activeWorkspace)
+                addToAppGroupingIndex(transaction, in: activeWorkspace)
             }
+            refreshDomainTree(for: activeWorkspace)
+            refreshAppNodes(for: activeWorkspace)
             transactionsByProjectID[projectStore.activeProjectID] = transactions
             nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
             updateErrorCount(for: transactions)
+            rebuildTrafficTotals(from: transactions)
             rebuildObservedDomainsByApp()
 
             if let codableLogEntries = session.logEntries {

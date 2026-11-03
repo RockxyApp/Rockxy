@@ -18,6 +18,9 @@ extension MainContentCoordinator {
         transactionsByProjectID[projectStore.activeProjectID] = transactions
         rebuildObservedDomainsByApp()
         recomputeErrorCount()
+        // Evicted rows have to leave the byte total as well, or the footer keeps
+        // counting traffic the user can no longer see.
+        rebuildTrafficTotals(from: transactions)
         evictFromAllWorkspaces(removedIDs: removedIDs)
 
         Self.logger.info("Evicted \(removeCount) oldest transactions (remaining: \(self.transactions.count))")

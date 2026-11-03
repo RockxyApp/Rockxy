@@ -881,14 +881,18 @@ extension MainContentCoordinator {
     }
 
     func removeDomainFromSidebar(_ domain: String, pathPrefix: String?) {
-        transactions.removeAll {
-            DomainGrouping.host($0.request.host, matchesDomain: domain)
-                && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
-        }
+        let removedIDs = Set(
+            transactions.lazy.filter {
+                DomainGrouping.host($0.request.host, matchesDomain: domain)
+                    && DomainGrouping.path($0.request.path, matchesPrefix: pathPrefix)
+            }.map(\.id)
+        )
+        transactions.removeAll { removedIDs.contains($0.id) }
         syncActiveProjectHistory()
         // Rows left the history, which is the one change the count cannot be folded
         // forward from -- the deleted rows are already gone by the time we look.
         recomputeErrorCount()
+        rebuildTrafficTotals(from: transactions)
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was removed by this action.
@@ -908,17 +912,24 @@ extension MainContentCoordinator {
             break
         }
 
-        rebuildSidebarIndexes()
+        // Every Traffic Tab keeps its own filtered rows and sidebar indexes, so repairing
+        // only the active one left the other tabs listing traffic the user had just
+        // deleted -- and holding the last strong reference to it. The recompute after is
+        // for the active tab alone, whose filter criteria the selection reset above may
+        // have widened.
+        evictFromAllWorkspaces(removedIDs: removedIDs)
         recomputeFilteredTransactions()
         Self.logger.info("Removed domain from sidebar: \(domain)")
     }
 
     func removeAppFromSidebar(_ appName: String) {
-        transactions.removeAll { $0.clientApp == appName }
+        let removedIDs = Set(transactions.lazy.filter { $0.clientApp == appName }.map(\.id))
+        transactions.removeAll { removedIDs.contains($0.id) }
         syncActiveProjectHistory()
         // Rows left the history, which is the one change the count cannot be folded
         // forward from -- the deleted rows are already gone by the time we look.
         recomputeErrorCount()
+        rebuildTrafficTotals(from: transactions)
         rebuildObservedDomainsByApp()
 
         // Clear selection if it was this app
@@ -928,7 +939,7 @@ extension MainContentCoordinator {
             filterCriteria.sidebarScope = .allTraffic
         }
 
-        rebuildSidebarIndexes()
+        evictFromAllWorkspaces(removedIDs: removedIDs)
         recomputeFilteredTransactions()
         Self.logger.info("Removed app from sidebar: \(appName)")
     }

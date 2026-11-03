@@ -33,12 +33,16 @@ extension MainContentCoordinator {
             nextSequenceNumber += 1
             transactions.append(transaction)
             updateDomainGroupingIndex(for: transaction, in: destinationWorkspace)
-            updateAppNodes(for: transaction, in: destinationWorkspace)
+            // Index only; the app nodes are published once after the loop, for the same
+            // reason the domain tree already was.
+            addToAppGroupingIndex(transaction, in: destinationWorkspace)
         }
         transactionsByProjectID[projectStore.activeProjectID] = transactions
         nextSequenceNumberByProjectID[projectStore.activeProjectID] = nextSequenceNumber
         updateErrorCount(for: importedTransactions)
+        rebuildTrafficTotals(from: transactions)
         refreshDomainTree(for: destinationWorkspace)
+        refreshAppNodes(for: destinationWorkspace)
         let retainedTransactionIDs = Set(transactions.map(\.id))
         destinationWorkspace.filteredTransactions = importedTransactions.filter {
             retainedTransactionIDs.contains($0.id) && !$0.isTLSFailure
