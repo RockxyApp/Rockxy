@@ -725,10 +725,25 @@ final class SystemProxyManager: @unchecked Sendable {
         private var errorData = Data()
     }
 
+    /// What a child produced once it finished inside its deadline. Its absence, rather than a
+    /// field on it, is how `runBounded` reports a timeout.
+    private struct BoundedProcessOutput {
+        let standardOutput: String
+        let standardError: String
+        let terminationStatus: Int32
+    }
+
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SystemProxyManager")
     private static let networkSetupPath = "/usr/sbin/networksetup"
 
     private static let routePath = "/sbin/route"
+
+    /// Upper bound on a single `launchctl` or `route` invocation. Deliberately the same budget
+    /// `networkSetupTimeout` gives `networksetup`, for the same reason: these children run
+    /// inside the proxy gates, so an unbounded one stalls every later Start and Stop, not just
+    /// the operation that spawned it.
+    private static let shellCommandTimeout: TimeInterval = networkSetupTimeout
+
     private static let helperBackupPath = "/Library/Application Support/\(RockxyIdentity.current.sharedSupportDirectoryName)/proxy-backup.plist"
     /// Serializes enable, disable, and termination cleanup against each other. It is static
     /// because the signal handler and the capture task both reach the same shared manager, and
@@ -803,6 +818,44 @@ final class SystemProxyManager: @unchecked Sendable {
         if process.isRunning {
             Darwin.kill(process.processIdentifier, SIGKILL)
         }
+    }
+
+    /// Runs an already-configured `process` under a deadline, draining both pipes before it
+    /// awaits the exit, and returns `nil` once the deadline passes.
+    ///
+    /// The ordering is the whole point, and it is the same reasoning `runNetworkSetup` spells
+    /// out inline: waiting first and reading after deadlocks as soon as the child's output
+    /// outgrows the pipe buffer, because the child blocks writing while this process blocks
+    /// waiting. A timeout kills the child and reports nothing, so every caller can treat it
+    /// exactly like a command that failed rather than like an empty success.
+    private static func runBounded(
+        _ process: Process,
+        stdoutPipe: Pipe,
+        stderrPipe: Pipe,
+        timeout: TimeInterval
+    )
+        -> BoundedProcessOutput?
+    {
+        let output = NetworkSetupOutputBox()
+        let reads = DispatchGroup()
+        for (pipe, isStandardOutput) in [(stdoutPipe, true), (stderrPipe, false)] {
+            DispatchQueue.global(qos: .userInitiated).async(group: reads) {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                output.store(data, isStandardOutput: isStandardOutput)
+            }
+        }
+
+        guard reads.wait(timeout: .now() + timeout) == .success else {
+            terminate(process)
+            return nil
+        }
+        process.waitUntilExit()
+
+        return BoundedProcessOutput(
+            standardOutput: String(data: output.standardOutput, encoding: .utf8) ?? "",
+            standardError: String(data: output.standardError, encoding: .utf8) ?? "",
+            terminationStatus: process.terminationStatus
+        )
     }
 
     private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
@@ -1716,28 +1769,43 @@ final class SystemProxyManager: @unchecked Sendable {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: Self.routePath)
         process.arguments = ["-n", "get", "0.0.0.0"]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
         do {
             try process.run()
-            process.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let output = String(data: data, encoding: .utf8) ?? ""
-            for line in output.components(separatedBy: "\n") {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasPrefix("interface:") {
-                    let iface = trimmed
-                        .replacingOccurrences(of: "interface:", with: "")
-                        .trimmingCharacters(in: .whitespaces)
-                    if !iface.isEmpty {
-                        Self.logger.info("Primary interface from route table: \(iface)")
-                        return iface
-                    }
-                }
-            }
         } catch {
             Self.logger.warning("Failed to detect primary interface via route: \(error.localizedDescription)")
+            return nil
+        }
+
+        // Bounded and drained like every other child here. This is on the Stop path taken when
+        // there is no same-session restore state, so a `route` that never answers would hold
+        // the proxy gates for the rest of the session. Both streams are drained because the
+        // undrained stderr pipe the previous version installed could wedge the child just as
+        // readily as stdout.
+        guard let result = Self.runBounded(
+            process,
+            stdoutPipe: stdoutPipe,
+            stderrPipe: stderrPipe,
+            timeout: Self.shellCommandTimeout
+        ) else {
+            Self.logger.warning("route timed out while detecting the primary interface")
+            return nil
+        }
+
+        for line in result.standardOutput.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("interface:") {
+                let iface = trimmed
+                    .replacingOccurrences(of: "interface:", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if !iface.isEmpty {
+                    Self.logger.info("Primary interface from route table: \(iface)")
+                    return iface
+                }
+            }
         }
         return nil
     }
@@ -2372,12 +2440,28 @@ extension SystemProxyManager {
             throw SystemProxyError.unexpectedOutput("Failed to launch launchctl: \(error.localizedDescription)")
         }
 
-        process.waitUntilExit()
+        // `launchctl list` prints every loaded job — tens of kilobytes on an ordinary Mac, and
+        // more with each installed launch agent — so the default pipe buffer was the only thing
+        // standing between the old wait-then-read order and a permanent hang. An ordinary Stop
+        // reaches this through the direct-watchdog retirement sweep while holding the operation
+        // gate, the shared-directory lock and the lifecycle gate, so wedging here wedges the
+        // app, not just this command.
+        guard let result = runBounded(
+            process,
+            stdoutPipe: stdoutPipe,
+            stderrPipe: stderrPipe,
+            timeout: shellCommandTimeout
+        ) else {
+            throw SystemProxyError.unexpectedOutput(
+                "launchctl \(arguments.joined(separator: " ")) "
+                    + "did not finish within \(shellCommandTimeout) seconds"
+            )
+        }
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = result.standardOutput
+        let stderr = result.standardError
 
-        let terminationStatus = process.terminationStatus
+        let terminationStatus = result.terminationStatus
         if terminationStatus == 0 || toleratedExitCodes.contains(terminationStatus) {
             return stdout
         }
