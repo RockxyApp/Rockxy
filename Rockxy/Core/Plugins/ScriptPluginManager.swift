@@ -377,6 +377,7 @@ actor ScriptPluginManager {
     {
         let settings = currentSettings()
         guard settings.scriptingToolEnabled else {
+            await discardUnconsumedFlows(flowID: request.flowID)
             return response
         }
         let chain = settings.allowMultipleScriptsPerRequest
@@ -412,6 +413,7 @@ actor ScriptPluginManager {
                     current = mutated
                     continue
                 }
+                await discardUnconsumedFlows(flowID: request.flowID)
                 return mutated
             } catch {
                 Self.logger.error("Plugin \(plugin.id) onResponse failed: \(error.localizedDescription)")
@@ -420,7 +422,21 @@ actor ScriptPluginManager {
                 continue
             }
         }
+        await discardUnconsumedFlows(flowID: request.flowID)
         return current
+    }
+
+    /// Releases every plugin's flow state for one exchange once the response pass is
+    /// over. The runtime cannot do this itself: whether a response hook ran at all is
+    /// decided here, by the master toggle, each plugin's enablement and matcher, and the
+    /// chaining setting. `discardFlowState` is idempotent, so a flow a hook already
+    /// ended costs one dictionary lookup, and asking every plugin is cheaper than
+    /// tracking which ones were skipped -- and cannot drift out of step with the loop
+    /// above the way a tracking set would.
+    private func discardUnconsumedFlows(flowID: UUID) async {
+        for plugin in plugins {
+            await runtime.discardFlowState(pluginID: plugin.id, flowID: flowID)
+        }
     }
 
     /// Nonisolated snapshot used by proxy handlers (NIO event-loop threads) to

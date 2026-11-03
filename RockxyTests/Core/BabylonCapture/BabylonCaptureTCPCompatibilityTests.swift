@@ -877,6 +877,80 @@ struct BabylonCaptureTCPCompatibilityTests {
         #expect(coordinator.transactions.contains { $0.request.url.absoluteString == "https://example.test/success" })
     }
 
+    @Test("The session cap drops a least-recently-used session, not the one still sending")
+    func sessionCapKeepsTheSessionStillSending() async throws {
+        let token = String(repeating: "f", count: 64)
+        let pairingStore = BabylonPairingStore(storage: FixturePairingStorage(value: token))
+        let portProbe = try await Self.boundListener()
+        let port = try #require(portProbe.port?.rawValue)
+        portProbe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let catalog = ProjectCatalog.makeDefault(now: Date(timeIntervalSince1970: 1_725_000_000))
+        let repository = TCPFixtureProjectRepository(catalog: catalog)
+        let coordinator = MainContentCoordinator(projectCatalogRepository: repository)
+        coordinator.configureBabylonCaptureIntake()
+        let (defaults, suiteName) = try Self.isolatedDefaults()
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let sessionID = "long-lived-session"
+        let clientID = "com.example.fixture"
+        let connectionPackage = try Data(contentsOf: Self.fixtureURL("connection.json"))
+        let trafficPackage = try Data(contentsOf: Self.fixtureURL("traffic-success.json"))
+        let connectionFrame = try BabylonFrameAccumulator.frame(Self.encoded(
+            type: .connection, content: connectionPackage, messageID: "connection-1", sequence: 1,
+            sessionID: sessionID, clientID: clientID, token: token
+        ))
+        let trafficFrame = try BabylonFrameAccumulator.frame(Self.encoded(
+            type: .traffic, content: trafficPackage, messageID: "traffic-success", sequence: 2,
+            sessionID: sessionID, clientID: clientID, token: token
+        ))
+        let client = try await Self.connect(receiver: receiver)
+        defer { client.cancel() }
+        let ackReader = BabylonAckReader(token: token)
+        try await Self.send(connectionFrame + trafficFrame, on: client)
+        #expect(try await ackReader.next(on: client) == "connection-1")
+        #expect(try await ackReader.next(on: client) == "traffic-success")
+        try await Self.waitForTransactions(coordinator, expected: 1)
+
+        // More distinct sessions than the receiver's session cap, each one paired with a frame
+        // from the long-lived session so that session is never the least recently used.
+        for index in 0 ..< 80 {
+            let filler = try BabylonFrameAccumulator.frame(Self.encoded(
+                type: .heartbeat, content: Data("{}".utf8), messageID: "filler-\(index)", sequence: 1,
+                sessionID: "filler-session-\(index)", clientID: clientID, token: token
+            ))
+            let keepAlive = try BabylonFrameAccumulator.frame(Self.encoded(
+                type: .heartbeat, content: Data("{}".utf8), messageID: "keep-alive-\(index)",
+                sequence: UInt64(3 + index), sessionID: sessionID, clientID: clientID, token: token
+            ))
+            try await Self.send(filler + keepAlive, on: client)
+            #expect(try await ackReader.next(on: client) == "filler-\(index)")
+            #expect(try await ackReader.next(on: client) == "keep-alive-\(index)")
+        }
+
+        // Replaying the first two frames proves the long-lived session still owns its replay
+        // guard: they are answered as duplicates and capture nothing. When the cap evicted by
+        // creation order this session was the victim -- the oldest key is exactly the one that
+        // has been connected the whole time -- so its guard restarted from zero and the replay
+        // was accepted as a fresh capture.
+        try await Self.send(connectionFrame + trafficFrame, on: client)
+        #expect(try await ackReader.next(on: client) == "connection-1")
+        #expect(try await ackReader.next(on: client) == "traffic-success")
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(coordinator.transactions.filter {
+            $0.request.url.absoluteString == "https://example.test/success"
+        }.count == 1)
+        try await Self.stopAndWait(receiver)
+    }
+
     // MARK: Private
 
     private static func fixtureURL(_ name: String) -> URL {

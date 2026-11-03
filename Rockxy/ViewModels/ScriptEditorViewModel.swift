@@ -773,8 +773,10 @@ final class ScriptEditorViewModel {
     private let pluginsDirectoryOverride: URL?
     private var pluginBundlePath: URL?
     private var loadGeneration: UInt = 0
-    private var runtimeConsoleObserver: NSObjectProtocol?
-    private var runReportObserver: NSObjectProtocol?
+    /// Removes the notification observations when this view model goes away. See
+    /// `NotificationObserverTokens` for why the tokens live in a box rather than in a
+    /// `deinit` here.
+    private let observerTokens = NotificationObserverTokens()
 
     private var effectivePolicyGate: ScriptPolicyGate {
         policyGate ?? ScriptPolicyGate.shared
@@ -994,7 +996,7 @@ final class ScriptEditorViewModel {
     }
 
     private func installRuntimeConsoleObserver() {
-        runtimeConsoleObserver = NotificationCenter.default.addObserver(
+        observerTokens.keep(NotificationCenter.default.addObserver(
             forName: .scriptConsoleDidAppend,
             object: nil,
             queue: .main
@@ -1005,11 +1007,11 @@ final class ScriptEditorViewModel {
             Task { @MainActor [weak self] in
                 self?.appendRuntimeConsoleEvent(event)
             }
-        }
+        })
     }
 
     private func installRunReportObserver() {
-        runReportObserver = NotificationCenter.default.addObserver(
+        observerTokens.keep(NotificationCenter.default.addObserver(
             forName: .scriptRunDidFinish,
             object: nil,
             queue: .main
@@ -1020,7 +1022,7 @@ final class ScriptEditorViewModel {
             Task { @MainActor [weak self] in
                 self?.receiveRunReport(report)
             }
-        }
+        })
     }
 
     func receiveRunReport(_ report: ScriptRunReport) {

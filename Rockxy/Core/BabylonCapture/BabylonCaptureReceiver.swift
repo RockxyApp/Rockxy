@@ -278,6 +278,9 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         /// order is bucket order, so it cannot answer which entry is the oldest, and the cap
         /// in `remember` has to drop a chosen entry rather than an arbitrary one.
         var transactionOrder: [String] = []
+        /// One inspector-refresh coalescer per tracked package, keyed like `transactions` so it
+        /// is released with the row it belongs to.
+        var frameRefreshCoalescers: [String: WebSocketFrameRefreshCoalescer] = [:]
 
         func accept(frame: BabylonSecureFrame) throws -> BabylonReplayDisposition {
             try replayGuard.accept(messageID: frame.messageID, sequence: frame.sequence)
@@ -672,15 +675,55 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         guard package.websocketMessagePackage != nil else {
             return
         }
-        let frame = try BabylonCaptureMapper.makeWebSocketFrame(from: package)
-        guard let connection = transaction.webSocketConnection,
-              connection.addFrame(frame, maximumTotalPayloadSize: ProxyLimits.maxWebSocketConnectionSize) else
-        {
+        guard let connection = transaction.webSocketConnection else {
             throw BabylonCaptureMappingError.oversizedBody
         }
-        Task { @MainActor in
-            transaction.webSocketFrameVersion += 1
+        // A connection reaches its caps once, not once per frame. Reporting every later frame
+        // would turn one exhausted connection into a skipped-package diagnostic per frame,
+        // which is the same flood in a different queue; the proxy path returns early here too
+        // (`WebSocketFrameHandler.captureFrame`).
+        guard !connection.isCaptureLimitReached else {
+            return
         }
+        let frame = try BabylonCaptureMapper.makeWebSocketFrame(from: package)
+        // The frame count is capped as well as the aggregate payload size, exactly as the proxy
+        // path caps it. Passing only the byte cap let a device streaming 20-byte ticks reach
+        // roughly 5 million frames -- a UUID, a Date, two enums, a `Data` and three optionals
+        // each -- before 100 MB of payload accumulated.
+        guard connection.addFrame(
+            frame,
+            maximumTotalPayloadSize: ProxyLimits.maxWebSocketConnectionSize,
+            maximumFrameCount: ProxyLimits.maxWebSocketFrameCount
+        ) else {
+            throw BabylonCaptureMappingError.oversizedBody
+        }
+        frameRefreshCoalescer(for: package.id, transaction: transaction, state: state).requestRefresh()
+    }
+
+    /// The inspector invalidation for a captured frame, coalesced through the same mechanism
+    /// the proxy path uses -- one `WebSocketFrameRefreshCoalescer` per connection, built by
+    /// `WebSocketFrameHandler.makeFrameRefreshCoalescer`, publishing at most every 100 ms.
+    ///
+    /// Bumping `webSocketFrameVersion` from its own `Task { @MainActor }` per frame meant a
+    /// streaming device scheduled a main-actor hop and an inspector rebuild per frame. The
+    /// coalescer is `Sendable` and its factory is `nonisolated`, so it is safe to build and
+    /// call from `queue`; only the publication it schedules touches the main actor.
+    ///
+    /// Held per tracked package so it lives and dies with the row it refreshes: `forget` and
+    /// `forgetTrackedTransactions` drop it, which keeps it inside the tracked-transaction cap.
+    private func frameRefreshCoalescer(
+        for packageID: String,
+        transaction: HTTPTransaction,
+        state: SessionState
+    )
+        -> WebSocketFrameRefreshCoalescer
+    {
+        if let existing = state.frameRefreshCoalescers[packageID] {
+            return existing
+        }
+        let coalescer = WebSocketFrameHandler.makeFrameRefreshCoalescer(for: transaction)
+        state.frameRefreshCoalescers[packageID] = coalescer
+        return coalescer
     }
 
     /// Applies a later package to a captured row on the main actor, then hands the row back to the
@@ -888,6 +931,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
     private func forget(packageID: String, in state: SessionState) {
         state.transactions[packageID] = nil
+        state.frameRefreshCoalescers[packageID] = nil
         if let index = state.transactionOrder.firstIndex(of: packageID) {
             state.transactionOrder.remove(at: index)
         }
@@ -925,15 +969,62 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private func sessionState(clientID: String, sessionID: String) -> SessionState {
         let key = Self.sessionKey(clientID: clientID, sessionID: sessionID)
         if let existing = sessions[key] {
+            touchSession(key)
             return existing
         }
         while sessionOrder.count >= Self.maximumSessionCount {
-            sessions[sessionOrder.removeFirst()] = nil
+            guard let evicted = sessionEvictionCandidateKey() else {
+                break
+            }
+            forgetSession(evicted)
         }
         let state = SessionState()
         sessions[key] = state
         sessionOrder.append(key)
         return state
+    }
+
+    /// Moves a session to the most-recently-used end of `sessionOrder`. `sessionOrder` used to
+    /// be creation order that nothing touched on use, which is what made the cap drop the
+    /// longest-lived session -- see `sessionEvictionCandidateKey()`.
+    private func touchSession(_ key: String) {
+        guard let index = sessionOrder.firstIndex(of: key),
+              index != sessionOrder.count - 1 else
+        {
+            return
+        }
+        sessionOrder.remove(at: index)
+        sessionOrder.append(key)
+    }
+
+    /// The session to drop at the cap: the least recently used session with no live connection
+    /// first, and a connected session only when every tracked session has one.
+    ///
+    /// Evicting by creation order dropped the OLDEST key, which in a long capture is the
+    /// connection that has been up the whole time while short-lived relaunches cycled through
+    /// the other 63 slots. Dropping a live session resets its `BabylonMessageReplayGuard` and
+    /// its outbound sequence counter, so replay and duplicate rejection for a session still
+    /// sending frames restart from zero -- a security guard lost, not a cosmetic glitch.
+    /// Recency plus a liveness preference keeps the victim a session that can no longer send
+    /// anything, the same rule `evictionCandidateID(in:)` applies to captured rows.
+    private func sessionEvictionCandidateKey() -> String? {
+        for takesLiveSessions in [false, true] {
+            for key in sessionOrder where hasLiveConnection(key) == takesLiveSessions {
+                return key
+            }
+        }
+        return nil
+    }
+
+    private func hasLiveConnection(_ sessionKey: String) -> Bool {
+        connections.values.contains { $0.sessionKey == sessionKey }
+    }
+
+    private func forgetSession(_ key: String) {
+        sessions[key] = nil
+        if let index = sessionOrder.firstIndex(of: key) {
+            sessionOrder.remove(at: index)
+        }
     }
 
     private func remove(_ context: ConnectionContext) {
@@ -955,7 +1046,14 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             //
             // The session itself stays: it owns the replay guard and the outbound sequence
             // counter, and dropping it would reset both for a session that reconnects under
-            // the same session ID.
+            // the same session ID. `security.md` lists replay/duplicate rejection among the
+            // guards Babylon intake depends on, so disconnect is not allowed to clear it.
+            // What bounds the retained state instead is eviction: with no connection left,
+            // this key is the preferred victim at the session cap
+            // (`sessionEvictionCandidateKey()`), so it is released ahead of any live session.
+            //
+            // Pending frame-refresh publications are dropped with the coalescers, which costs
+            // nothing: `finishOpenRows` bumps `webSocketFrameVersion` for every row it fails.
             forgetTrackedTransactions(in: state)
         }
     }
@@ -963,6 +1061,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private func forgetTrackedTransactions(in state: SessionState) {
         state.transactions.removeAll()
         state.transactionOrder.removeAll()
+        state.frameRefreshCoalescers.removeAll()
     }
 
     private func reconcileBufferedByteCount(for context: ConnectionContext, previousByteCount: Int) {

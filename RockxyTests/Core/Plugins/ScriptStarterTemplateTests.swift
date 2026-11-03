@@ -7,6 +7,10 @@ import Testing
 // Every starter template must be valid as shipped and do what its title says when the real
 // runtime executes it.
 
+/// Serialized because `runawayScriptTimesOutInsteadOfHanging` evaluates a deliberately
+/// long-running script to prove the validator's watchdog fires, and the other tests here
+/// also run scripts. In parallel they compete for cores with no benefit.
+@Suite(.serialized)
 struct ScriptStarterTemplateTests {
     // MARK: Internal
 
@@ -37,11 +41,16 @@ struct ScriptStarterTemplateTests {
         // `onRequest` is therefore never run and validates correctly -- rejecting that
         // would reject every legitimate script containing a loop. What hangs the editor is
         // top-level work, which `evaluateScript` does run.
-        // Costs the test process one spinning thread for its remaining lifetime, because
-        // JavaScriptCore cannot interrupt a running evaluation. That is the defect under
-        // test, so one leaked thread is the price of covering it.
+        // Long rather than infinite. JavaScriptCore cannot interrupt a running evaluation,
+        // so a `while (true)` pins a core for the rest of the test process -- and with
+        // Swift Testing running suites in parallel, the spinners in this file and in
+        // `ScriptRuntimeTests` starved the cooperative pool and stalled the run on
+        // 2026-11-03. A bounded loop proves the same thing, because the assertion is that
+        // the 5 s watchdog fires while the evaluation is still going: 3e9 is around 12 s
+        // on this machine, and a loaded machine only makes it longer, which is the safe
+        // direction. The thread then exits and gives the core back.
         let result = await ScriptSourceValidator.validate(
-            source: "while (true) {}\nfunction onRequest(request) { return request; }",
+            source: "for (let i = 0; i < 3e9; i++) {}\nfunction onRequest(request) { return request; }",
             runOnRequest: true,
             runOnResponse: false,
             runAsMock: false

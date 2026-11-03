@@ -196,6 +196,14 @@ actor ScriptRuntime {
         contexts[id] != nil
     }
 
+    #if DEBUG
+    /// Test seam: flow states this plugin's store is still holding. A flow that no
+    /// response hook will ever end has to leave this at zero.
+    func pendingFlowStateCount(pluginID: String) -> Int {
+        flowStateStores[pluginID]?.count ?? 0
+    }
+    #endif
+
     // MARK: - Request hook
 
     /// Invoke the plugin's `onRequest(ctx)`. The outcome is interpreted based on
@@ -231,6 +239,24 @@ actor ScriptRuntime {
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
 
+        // The state `beginFlow` hands the script is only ever consumed by a forwarded
+        // request whose `onResponse` takes the multi-arg form; no other ending of this
+        // call reaches a response hook, and a legacy `onResponse` is not given the state
+        // at all. So every other ending has to release it, or on a long capture the
+        // store fills with flows nothing will ever end and evicts the live ones.
+        let beganFlow = arity >= 3
+        // `runOnResponse` is part of it because the caller skips the response hook
+        // entirely when it is off, as the request-only script templates have it.
+        let responseConsumesState = behavior.runOnResponse
+            && onResponseHandlers[pluginID] != nil
+            && (onResponseArity[pluginID] ?? 1) >= 4
+        let releaseFlowState: @Sendable (_ forwarded: Bool) -> Void = { forwarded in
+            guard beganFlow, !(forwarded && responseConsumesState) else {
+                return
+            }
+            flowStates?.discardFlow(originalRequest.flowID)
+        }
+
         let gate = ScriptResumeGate()
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -252,6 +278,9 @@ actor ScriptRuntime {
                     multiArgs = (triplet.context, triplet.url, triplet.request)
                     initialResult = onRequest.call(withArguments: [triplet.context, triplet.url, triplet.request])
                 } else {
+                    // `beginFlow` has already run when the arity matched, so a bridge that
+                    // could not build the arguments drops to the legacy path owing a release.
+                    releaseFlowState(false)
                     multiArgs = nil
                     let jsArg = requestContext.toJSValue(in: jsContext)
                     initialResult = onRequest.call(withArguments: [jsArg])
@@ -266,6 +295,7 @@ actor ScriptRuntime {
                     }
 
                     if let message = Self.consumeException(from: jsContext, lock: exceptionLock) {
+                        releaseFlowState(false)
                         continuation
                             .resume(throwing: ScriptRuntimeError.jsException(message))
                         return
@@ -280,6 +310,8 @@ actor ScriptRuntime {
                     }
 
                     if runAsMock {
+                        // A mock never goes upstream, so no ending below reaches `onResponse`.
+                        releaseFlowState(false)
                         guard let value, !value.isUndefined else {
                             continuation.resume(returning: .mockFailure(reason: "mock script returned undefined"))
                             return
@@ -298,9 +330,13 @@ actor ScriptRuntime {
                     }
 
                     if let value, value.isNull {
+                        releaseFlowState(false)
                         continuation.resume(returning: .blockLocally(reason: "script returned null"))
                         return
                     }
+                    // Everything below forwards, so only a state-carrying `onResponse`
+                    // keeps the flow alive from here.
+                    releaseFlowState(true)
                     if let multiArgs {
                         let modified = ScriptMultiArgBridge.readRequestMutations(
                             original: originalRequest,
@@ -333,6 +369,7 @@ actor ScriptRuntime {
                         guard gate.claimResume() else {
                             return
                         }
+                        releaseFlowState(false)
                         continuation.resume(throwing: ScriptRuntimeError.jsException(errMsg))
                     }
                 )
@@ -350,6 +387,10 @@ actor ScriptRuntime {
                 // the plugin so later requests fail immediately instead of each paying
                 // the full timeout behind a loop that will never end.
                 workItem.cancel()
+                // The retirement below drops this plugin's whole store, but it has to hop
+                // to the actor first; release the flow here so the timeout path does not
+                // depend on that hop winning.
+                releaseFlowState(false)
                 // Retire the plugin BEFORE telling the caller, so by the time anyone sees
                 // this failure the next request already fails fast instead of racing the
                 // bookkeeping and queueing behind the loop for another full timeout. The
@@ -366,6 +407,20 @@ actor ScriptRuntime {
     }
 
     // MARK: - Response hook
+
+    /// Releases a flow that `onRequest` began and no response hook consumed. Only the
+    /// caller knows that: the response pass skips a plugin whose matcher no longer
+    /// matches, one disabled mid-exchange, one whose hook threw, and every plugin after
+    /// the first match when chaining is off -- and a request hook with a lower arity
+    /// never had a consumer to begin with. Left unreleased, the state sits in the store
+    /// until capacity evicts the OLDEST entry, which is a LIVE flow, so a dead flow here
+    /// silently costs a live plugin its `sharedState`.
+    ///
+    /// Idempotent for a flow already ended or never begun, which is what makes it safe
+    /// to call once per plugin after the pass instead of tracking which hooks ran.
+    func discardFlowState(pluginID: String, flowID: UUID) {
+        flowStateStores[pluginID]?.discardFlow(flowID)
+    }
 
     /// Invoke `onResponse(ctx)`. If the plugin mutates status/headers/body, the
     /// mutated response is returned. If the plugin has no `onResponse` function or

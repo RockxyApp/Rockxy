@@ -5,6 +5,12 @@ import Testing
 
 // Regression tests for `ScriptRuntime` in the core plugins layer.
 
+/// Serialized because three tests here evaluate a deliberately long-running script to
+/// prove the 5 s watchdog fires, and JavaScriptCore cannot be interrupted once an
+/// evaluation is running. Run in parallel they pin three cores at once, which is what
+/// starved the cooperative pool and stalled the run on 2026-11-02 and again on
+/// 2026-11-03. Serialized, at most one core is burning at a time.
+@Suite(.serialized)
 struct ScriptRuntimeTests {
     // MARK: Internal
 
@@ -83,14 +89,23 @@ struct ScriptRuntimeTests {
         }
     }
 
-    /// Costs the test process one spinning thread for its remaining lifetime: the
-    /// script below never returns and JavaScriptCore exposes no public way to
-    /// interrupt a running evaluation. That is the defect under test, so one leaked
-    /// thread is the price of covering it — do not add a second runaway test.
+    /// The loop is long rather than infinite, and that is deliberate.
+    /// `workItem.cancel()` is a no-op for work already running and JavaScriptCore
+    /// exposes no public way to interrupt a running evaluation, so the thread spins for
+    /// the whole loop whatever the watchdog does. A `while (true)` therefore pins a core
+    /// for the rest of the test process, and this file needs three such scripts: with
+    /// Swift Testing running suites in parallel that starved the cooperative pool and
+    /// stalled the run on 2026-11-03.
+    ///
+    /// A bounded loop proves the same thing, because the assertion is that the 5 s
+    /// watchdog fires while the evaluation is still going. Sized as in
+    /// `unloadDuringLoadSupersedesIt`: 3e9 is around 12 s on this machine, over twice the
+    /// watchdog, and a loaded machine only makes it longer -- the safe direction. The
+    /// thread then exits and gives the core back.
     @Test("A plugin whose script never returns is retired, and a reload revives it")
     func runawayScriptRetiresThePluginAndReloadRevivesIt() async throws {
         let runtime = ScriptRuntime()
-        let runaway = "function onRequest(ctx) { while (true) {} }"
+        let runaway = "function onRequest(ctx) { for (let i = 0; i < 3e9; i++) {} }"
         let plugin = try makeTempPlugin(id: "com.test.runaway", script: runaway)
         try await runtime.loadPlugin(plugin)
 
@@ -134,8 +149,7 @@ struct ScriptRuntimeTests {
         }
     }
 
-    /// Costs the test process a second spinning thread for its remaining lifetime, for
-    /// the same reason the hook test above does. It earns it by covering a different
+    /// Bounded for the reason the hook test above explains. It covers a different
     /// failure: the loop here is at TOP LEVEL, so it runs inside `evaluateScript` during
     /// the load itself, where no hook is ever called. Evaluated on the actor that would
     /// hang `ScriptRuntime` permanently -- so the second half of this test, loading an
@@ -145,7 +159,7 @@ struct ScriptRuntimeTests {
         let runtime = ScriptRuntime()
         let runaway = try makeTempPlugin(
             id: "com.test.runaway-toplevel",
-            script: "while (true) {}\nfunction onRequest(ctx) { return ctx; }"
+            script: "for (let i = 0; i < 3e9; i++) {}\nfunction onRequest(ctx) { return ctx; }"
         )
 
         await #expect(throws: ScriptRuntimeError.self) {
@@ -215,9 +229,8 @@ struct ScriptRuntimeTests {
     /// therefore around 12 s, and a loaded machine only makes it longer, which is the safe
     /// direction. It must also not be far larger than that: `workItem.cancel()` is a no-op
     /// for work already running, so the thread spins for the whole loop whatever the
-    /// watchdog does, and this suite already leaks two permanent spinners by design. A
-    /// 1e10 loop measured ~39 s, and the full suite stalled on 2026-11-02 with three
-    /// CPU-bound threads of an 11-core box held at once.
+    /// watchdog does. A 1e10 loop measured ~39 s, and the full suite stalled on
+    /// 2026-11-02 with three CPU-bound threads of an 11-core box held at once.
     @Test("An unload during a load wins, and the finishing load does not register")
     func unloadDuringLoadSupersedesIt() async throws {
         let runtime = ScriptRuntime()

@@ -64,6 +64,48 @@ struct MCPSessionManagerTests {
         #expect(manager.activeSessions == 0)
     }
 
+    @Test("Validating a session refreshes its idle deadline")
+    func useRefreshesIdleDeadline() throws {
+        let manager = MCPSessionManager()
+        let sessionID = try #require(manager.createSession())
+
+        // Just short of the idle deadline: the session is still valid, and that use
+        // has to move the deadline, or a client working past it would be cut off.
+        manager.setSessionTimestamp(
+            Date().addingTimeInterval(-(MCPLimits.sessionTimeout - 5)),
+            for: sessionID
+        )
+        #expect(manager.validateSession(sessionID))
+
+        manager.removeExpiredSessions()
+        #expect(manager.activeSessions == 1)
+        #expect(manager.validateSession(sessionID))
+    }
+
+    @Test("Idle session is dropped once the idle interval passes")
+    func idleSessionExpires() throws {
+        let manager = MCPSessionManager()
+        let sessionID = try #require(manager.createSession())
+
+        manager.setSessionTimestamp(
+            Date().addingTimeInterval(-(MCPLimits.sessionTimeout + 5)),
+            for: sessionID
+        )
+        #expect(!manager.validateSession(sessionID))
+        #expect(manager.activeSessions == 0)
+    }
+
+    @Test("Absolute lifetime still caps a continuously used session")
+    func maxLifetimeCapsRefreshedSession() throws {
+        let manager = MCPSessionManager()
+        let sessionID = try #require(manager.createSession())
+
+        // Freshly used, so only the absolute cap can end it.
+        manager.setSessionCreation(Date().addingTimeInterval(-(24 * 60 * 60)), for: sessionID)
+        #expect(!manager.validateSession(sessionID))
+        #expect(manager.activeSessions == 0)
+    }
+
     @Test("Active session count is accurate")
     func activeCount() throws {
         let manager = MCPSessionManager()

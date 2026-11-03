@@ -605,8 +605,8 @@ struct BabylonCaptureMapperTests {
         let first = WebSocketFrameData(direction: .received, opcode: .binary, payload: Data(repeating: 1, count: 3))
         let second = WebSocketFrameData(direction: .received, opcode: .binary, payload: Data(repeating: 2, count: 3))
 
-        #expect(connection.addFrame(first, maximumTotalPayloadSize: 5))
-        #expect(!connection.addFrame(second, maximumTotalPayloadSize: 5))
+        #expect(connection.addFrame(first, maximumTotalPayloadSize: 5, maximumFrameCount: .max))
+        #expect(!connection.addFrame(second, maximumTotalPayloadSize: 5, maximumFrameCount: .max))
         #expect(connection.frameCount == 1)
         #expect(connection.totalPayloadSize == 3)
     }

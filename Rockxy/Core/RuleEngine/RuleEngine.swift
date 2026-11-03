@@ -167,13 +167,16 @@ actor RuleEngine {
         rules.contains { $0.isEnabled && $0.matchCondition.requiredClientApplication != nil }
     }
 
+    /// Number of rules whose URL pattern is compiled. Exposed so a test can prove every
+    /// mutation path leaves a compiled pattern behind instead of falling back to
+    /// re-interpreting the pattern per request.
+    var compiledPatternCount: Int {
+        compiledPatterns.count
+    }
+
     func addRule(_ rule: ProxyRule) {
         rules.append(rule)
-        if let pattern = rule.matchCondition.runtimeURLPattern {
-            if case let .success(regex) = RegexValidator.compile(pattern) {
-                compiledPatterns[rule.id] = regex
-            }
-        }
+        compileRuntimePattern(for: rule)
     }
 
     func removeRule(id: UUID) {
@@ -204,12 +207,7 @@ actor RuleEngine {
     func updateRule(_ rule: ProxyRule) {
         if let index = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[index] = rule
-            compiledPatterns.removeValue(forKey: rule.id)
-            if let pattern = rule.matchCondition.runtimeURLPattern,
-               case let .success(regex) = RegexValidator.compile(pattern)
-            {
-                compiledPatterns[rule.id] = regex
-            }
+            compileRuntimePattern(for: rule)
         }
     }
 
@@ -349,6 +347,11 @@ actor RuleEngine {
         var enabledRule = rule
         enabledRule.isEnabled = true
         rules.append(enabledRule)
+        // This path used to append without compiling, so `ruleApplies` passed `nil` and
+        // `RuleMatchCondition.matches` fell back to re-interpreting the pattern through
+        // `range(of:options:.regularExpression)` on every request until the next `replaceAll`
+        // or relaunch. Every other mutation compiles here; so does this one.
+        compileRuntimePattern(for: enabledRule)
     }
 
     func disableAllNetworkConditions() {
@@ -530,6 +533,19 @@ actor RuleEngine {
     private var networkConditionsToolEnabled: Bool = true
     private var modifyHeaderToolEnabled: Bool = true
     private var compiledPatterns: [UUID: NSRegularExpression] = [:]
+
+    /// Compiles one rule's URL pattern, replacing any pattern the rule had before. Every
+    /// mutation that adds or replaces a rule routes through here so no path can leave
+    /// `compiledPatterns` without an entry the matcher expects.
+    private func compileRuntimePattern(for rule: ProxyRule) {
+        compiledPatterns.removeValue(forKey: rule.id)
+        guard let pattern = rule.matchCondition.runtimeURLPattern,
+              case let .success(regex) = RegexValidator.compile(pattern) else
+        {
+            return
+        }
+        compiledPatterns[rule.id] = regex
+    }
 
     private func compilePatterns() {
         compiledPatterns.removeAll()
