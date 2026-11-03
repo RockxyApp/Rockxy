@@ -175,6 +175,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         parentTransaction: HTTPTransaction,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         lifecycle: WebSocketLifecycle? = nil,
+        frameRefreshCoalescer: WebSocketFrameRefreshCoalescer? = nil,
         frameRefreshScheduler: @escaping WebSocketFrameRefreshCoalescer.Scheduler = { publication in
             WebSocketFrameRefreshCoalescer.scheduleOnMainQueue(publication)
         }
@@ -183,13 +184,35 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         self.peerChannel = peerChannel
         self.webSocketConnection = webSocketConnection
         self.parentTransaction = parentTransaction
-        frameRefreshCoalescer = WebSocketFrameRefreshCoalescer(
+        // One coalescer per connection, shared by both directions, the same way the two
+        // handlers already share one `WebSocketLifecycle`. A coalescer per handler meant each
+        // socket scheduled two independent 100 ms main-queue blocks that bumped the same
+        // observable frame version, so a few hundred open sockets woke the main queue hundreds
+        // of times per interval for one redraw each.
+        self.frameRefreshCoalescer = frameRefreshCoalescer ?? WebSocketFrameRefreshCoalescer(
             publish: { [weak parentTransaction] in
                 parentTransaction?.webSocketFrameVersion += 1
             },
             scheduler: frameRefreshScheduler
         )
         self.lifecycle = lifecycle ?? WebSocketLifecycle(onTransactionComplete: onTransactionComplete)
+    }
+
+    /// Builds the per-connection coalescer both direction handlers share.
+    nonisolated static func makeFrameRefreshCoalescer(
+        for transaction: HTTPTransaction,
+        scheduler: @escaping WebSocketFrameRefreshCoalescer.Scheduler = { publication in
+            WebSocketFrameRefreshCoalescer.scheduleOnMainQueue(publication)
+        }
+    )
+        -> WebSocketFrameRefreshCoalescer
+    {
+        WebSocketFrameRefreshCoalescer(
+            publish: { [weak transaction] in
+                transaction?.webSocketFrameVersion += 1
+            },
+            scheduler: scheduler
+        )
     }
 
     // MARK: Internal
@@ -346,6 +369,7 @@ nonisolated enum WebSocketPipelineConfigurator {
         transaction.sourcePort = handshake?.sourcePort
         transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(requestData.headers)
         let lifecycle = lifecycle ?? WebSocketLifecycle(onTransactionComplete: onTransactionComplete)
+        let frameRefreshCoalescer = WebSocketFrameHandler.makeFrameRefreshCoalescer(for: transaction)
 
         let clientHandler = WebSocketFrameHandler(
             direction: .sent,
@@ -353,7 +377,8 @@ nonisolated enum WebSocketPipelineConfigurator {
             webSocketConnection: wsConnection,
             parentTransaction: transaction,
             onTransactionComplete: onTransactionComplete,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            frameRefreshCoalescer: frameRefreshCoalescer
         )
         let serverHandler = WebSocketFrameHandler(
             direction: .received,
@@ -361,7 +386,8 @@ nonisolated enum WebSocketPipelineConfigurator {
             webSocketConnection: wsConnection,
             parentTransaction: transaction,
             onTransactionComplete: onTransactionComplete,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            frameRefreshCoalescer: frameRefreshCoalescer
         )
 
         let clientFuture = ProxyPipeline.configureClientWebSocketPipeline(

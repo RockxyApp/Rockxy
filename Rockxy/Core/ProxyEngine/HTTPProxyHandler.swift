@@ -41,6 +41,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         shouldBypassUserModifications: @escaping @Sendable (HTTPRequestData) -> Bool = { _ in false },
         clientIdentityHandle: ClientIdentityHandle? = nil,
         clientConnectionDescriptor: ProxyConnectionDescriptor? = nil,
+        localAddresses: [String],
         liveTunnelRegistry: LiveTunnelRegistry? = nil,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
         onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (BreakpointDecision, BreakpointRequestData))? =
@@ -60,6 +61,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         self.shouldBypassUserModifications = shouldBypassUserModifications
         self.clientIdentityHandle = clientIdentityHandle
         self.clientConnectionDescriptor = clientConnectionDescriptor
+        self.localAddresses = localAddresses
         self.liveTunnelRegistry = liveTunnelRegistry
         self.onTransactionComplete = onTransactionComplete
         self.onBreakpointHit = onBreakpointHit
@@ -140,6 +142,7 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         // Client disconnected while a request breakpoint may still be paused: cancel
         // the waiting Task so the queue drains and no upstream work is initiated.
         cancelPendingBreakpoint()
+        notifyClientDisconnected()
         context.fireChannelInactive()
     }
 
@@ -164,6 +167,10 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     private let shouldBypassUserModifications: @Sendable (HTTPRequestData) -> Bool
     private let clientIdentityHandle: ClientIdentityHandle?
     private let clientConnectionDescriptor: ProxyConnectionDescriptor?
+    /// The machine's LAN IPv4 addresses, resolved once by the server and handed to every
+    /// connection. The loop guard consults them on every CONNECT, SOCKS admission and plain
+    /// request, so resolving them per request put a `getifaddrs` walk on the event loop.
+    private let localAddresses: [String]
     private let liveTunnelRegistry: LiveTunnelRegistry?
     private let onTransactionComplete: @Sendable (HTTPTransaction) -> Void
     private let onBreakpointHit: (@Sendable (BreakpointRequestData) async -> (
@@ -172,6 +179,16 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
     ))?
     private let breakpointBridgeTracker: BreakpointBridgeTracker?
     private var pendingThrottleTask: Scheduled<Void>?
+
+    /// The response handler of the request currently in flight upstream, so the client's
+    /// disconnect can tear it down.
+    ///
+    /// Weak on purpose: the upstream pipeline owns the handler, and a strong reference here
+    /// would outlive the request and pin its captured bodies for the whole keep-alive
+    /// connection — the leak this reference exists to replace. Only ever touched on this
+    /// channel's event loop, which is also the loop the upstream channel is bootstrapped on.
+    private weak var currentUpstreamResponseHandler: UpstreamResponseHandler?
+
     /// Network conditions matched by the CONNECT request; applied to an undecrypted tunnel.
     private var connectNetworkProfile: NetworkConditionProfile?
     private var pendingBreakpointPhase: BreakpointRulePhase?
@@ -730,6 +747,17 @@ final class HTTPProxyHandler: ChannelInboundHandler, RemovableChannelHandler, @u
         }
     }
 
+    /// Tells the in-flight request's upstream handler that the client is gone.
+    ///
+    /// Driven from `channelInactive` rather than `handlerRemoved`: this handler is also removed
+    /// when the pipeline is reconfigured for a WebSocket upgrade, which is not a disconnect and
+    /// must not close the upgraded connection's origin channel.
+    nonisolated private func notifyClientDisconnected() {
+        let handler = currentUpstreamResponseHandler
+        currentUpstreamResponseHandler = nil
+        handler?.clientDisconnected()
+    }
+
     nonisolated private func cancelPendingBreakpoint() {
         pendingBreakpointTask?.cancel()
         pendingBreakpointTask = nil
@@ -792,7 +820,8 @@ extension HTTPProxyHandler {
                host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused CONNECT that targets the proxy listener itself")
@@ -861,7 +890,8 @@ extension HTTPProxyHandler {
                host: UpstreamConnectHost.resolve(for: host, clientHost: descriptor.clientHost),
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused SOCKS tunnel that targets the proxy listener itself")
@@ -1037,7 +1067,8 @@ extension HTTPProxyHandler {
                host: connectHost,
                port: port,
                proxyPort: descriptor.proxyPort,
-               proxyHost: descriptor.proxyHost
+               proxyHost: descriptor.proxyHost,
+               localAddresses: localAddresses
            )
         {
             proxyHandlerLogger.warning("SECURITY: Refused request that targets the proxy listener itself")
@@ -1174,6 +1205,7 @@ extension HTTPProxyHandler {
         )
         pendingBreakpointPhase = nil
         pendingBreakpointRuleName = nil
+        currentUpstreamResponseHandler = responseHandler
 
         clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
             switch result {

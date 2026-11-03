@@ -130,6 +130,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
         // Client disconnected while a request breakpoint may still be paused: cancel
         // the waiting Task so the queue drains and no upstream work is initiated.
         cancelPendingBreakpoint()
+        notifyClientDisconnected()
         context.fireChannelInactive()
     }
 
@@ -171,6 +172,15 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
     /// @MainActor queue. Retained so a client disconnect / proxy stop can cancel it
     /// and drain the paused item instead of leaking the row and its continuation.
     private var pendingBreakpointTask: Task<Void, Never>?
+
+    /// The response handler of the request currently in flight upstream, so the client's
+    /// disconnect can tear it down.
+    ///
+    /// Weak on purpose: the upstream pipeline owns the handler, and a strong reference here
+    /// would outlive the request and pin its captured bodies for the whole keep-alive
+    /// connection — the leak this reference exists to replace. Only ever touched on this
+    /// channel's event loop, which is also the loop the upstream channel is bootstrapped on.
+    private weak var currentUpstreamResponseHandler: UpstreamResponseHandler?
 
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
@@ -552,6 +562,7 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
             )
             self.pendingBreakpointPhase = nil
             self.pendingBreakpointRuleName = nil
+            self.currentUpstreamResponseHandler = responseHandler
             clientChannel.pipeline.addHandler(responseHandler).whenComplete { result in
                 switch result {
                 case .success:
@@ -1072,6 +1083,17 @@ final class HTTPSProxyRelayHandler: ChannelInboundHandler, RemovableChannelHandl
                 )
             }
         }
+    }
+
+    /// Tells the in-flight request's upstream handler that the client is gone.
+    ///
+    /// Driven from `channelInactive` rather than `handlerRemoved`: this handler is also removed
+    /// when the pipeline is reconfigured for a WebSocket upgrade, which is not a disconnect and
+    /// must not close the upgraded connection's origin channel.
+    nonisolated private func notifyClientDisconnected() {
+        let handler = currentUpstreamResponseHandler
+        currentUpstreamResponseHandler = nil
+        handler?.clientDisconnected()
     }
 
     nonisolated private func cancelPendingBreakpoint() {

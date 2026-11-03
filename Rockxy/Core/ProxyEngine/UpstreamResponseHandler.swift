@@ -204,6 +204,11 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         serverHTTPVersion = context.channel.parent == nil ? "1.1" : "2"
         // Socket addresses are only readable while the channel is open, so take them now.
         snapshotConnection(context.channel)
+        // Weak: the pipeline owns this handler and the channel owns the pipeline, so a strong
+        // reference here would be a cycle that only the channel's own teardown could break.
+        // While the handler is installed its channel is necessarily alive, and once it is not,
+        // there is nothing left to close.
+        upstreamChannel = context.channel
         readTimeoutTask = context.eventLoop.scheduleTask(in: .seconds(30)) { [weak self] in
             guard let self, !self.completed else {
                 return
@@ -239,28 +244,46 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             context.close(promise: nil)
         }
 
-        // Close upstream channel when the client disconnects to prevent FD leaks
-        clientContext.channel.closeFuture.whenComplete { [weak self] _ in
-            guard let self else {
-                return
-            }
-            // A response breakpoint sets `completed` at `.end` before pausing, so the
-            // guard below would otherwise skip a paused item. Cancel it here first so
-            // the queue drains; its resolution gate then suppresses relay/build because
-            // the client channel is already inactive.
-            self.cancelPendingResponseBreakpoint()
-            guard !self.completed else {
-                return
-            }
-            self.completed = true
-            self.readTimeoutTask?.cancel()
-            self.readTimeoutTask = nil
-            if self.responseHead != nil {
-                self.finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
-                self.buildAndCompleteTransaction()
-            }
-            context.close(promise: nil)
+        // The client-side relay handler drives this on its own `channelInactive`; see
+        // `clientDisconnected()`. A client channel that is already gone never produces that
+        // hook for this request, so run the same teardown immediately instead.
+        if !clientContext.channel.isActive {
+            clientDisconnected()
         }
+    }
+
+    /// Closes the upstream channel when the accepted client connection goes away, so a client
+    /// that hangs up mid-request does not leak its origin socket.
+    ///
+    /// Called by the client-side relay handler (`HTTPSProxyRelayHandler` / `HTTPProxyHandler`)
+    /// from its `channelInactive`. This handler used to subscribe to the client channel's
+    /// `closeFuture` itself, but it is built once per request while the client channel is
+    /// long-lived — a keep-alive connection or a decrypted CONNECT tunnel serves unboundedly
+    /// many requests — and NIO cannot deregister a `whenComplete` callback. Every request
+    /// therefore left one behind, and because the closure captured the upstream
+    /// `ChannelHandlerContext`, each one pinned a whole handler with its request and response
+    /// bodies until the connection finally closed. One callback per connection replaces it,
+    /// and the callbacks no longer all fire at once when a busy connection closes.
+    ///
+    /// Safe without a hop: the upstream channel is bootstrapped on the client channel's event
+    /// loop, so both handlers run on that one loop and this is an ordinary same-loop call.
+    nonisolated func clientDisconnected() {
+        // A response breakpoint sets `completed` at `.end` before pausing, so the
+        // guard below would otherwise skip a paused item. Cancel it here first so
+        // the queue drains; its resolution gate then suppresses relay/build because
+        // the client channel is already inactive.
+        cancelPendingResponseBreakpoint()
+        guard !completed else {
+            return
+        }
+        completed = true
+        readTimeoutTask?.cancel()
+        readTimeoutTask = nil
+        if responseHead != nil {
+            finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
+            buildAndCompleteTransaction()
+        }
+        upstreamChannel?.close(promise: nil)
     }
 
     nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -538,6 +561,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
     private var responseBodyTruncated = false
+    /// The origin channel this handler is installed on, used to close it when the client
+    /// disconnects. See `handlerAdded(context:)` for why it is weak.
+    private weak var upstreamChannel: Channel?
     private var responseBreakpointSuppressed = false
     private var firstByteTime: DispatchTime?
 
@@ -1023,6 +1049,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         finalizeStreamDiagnosticsIfNeeded(reason: .endOfStream)
         transaction.streamDiagnostics = streamDiagnostics
 
+        // The captured bytes now belong to the delivered transaction. Dropping them here means
+        // a handler that outlives its request — pinned by a stray retention somewhere in the
+        // pipeline — no longer holds the response body with it.
+        responseBody = nil
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
             return

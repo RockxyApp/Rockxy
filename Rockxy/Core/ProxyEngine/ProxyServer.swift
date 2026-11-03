@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
@@ -572,6 +573,15 @@ actor ProxyServer {
         let identityProviderOverride = clientIdentityHandleProvider
         let identityResolver = clientIdentityResolver
         let proxyPort = configuration.port
+        // Resolved once per start rather than per request. `lanIPv4Addresses()` walks
+        // `getifaddrs`, formats every AF_INET interface and sorts the result with a
+        // locale-aware comparator; the loop guard used to pull it in as a default argument,
+        // which Swift evaluates at the call site, so every CONNECT, SOCKS admission and plain
+        // request paid for it on an event loop. Interface addresses change only when the
+        // machine's networking does, and reverse-listener reconciliation refreshes the
+        // snapshot for connections accepted afterwards.
+        let localAddressBox = localAddressSnapshot
+        localAddressBox.withLockedValue { $0 = RootCADownloadServer.lanIPv4Addresses() }
         let sslManagerOverride = sslProxyingManagerOverride
         let bypassManagerOverride = bypassProxyManagerOverride
         // Resolve the UI-owned policy managers on their actor, then capture the stable references
@@ -677,6 +687,7 @@ actor ProxyServer {
                         shouldBypassUserModifications: bypassUserModifications,
                         clientIdentityHandle: identityHandle,
                         clientConnectionDescriptor: descriptor,
+                        localAddresses: localAddressBox.withLockedValue { $0 },
                         liveTunnelRegistry: tunnelRegistry,
                         onTransactionComplete: decoratedCallback,
                         onBreakpointHit: breakpointHit,
@@ -730,6 +741,10 @@ actor ProxyServer {
     func updateReverseProxies(_ targets: [ReverseProxyTarget]) async -> [UUID: ReverseProxyBindFailure] {
         await beginListenerReconcile()
         defer { endListenerReconcile() }
+        // Reconciling listeners is the one routine point where the machine's networking may
+        // have changed since start, so refresh the loop guard's address snapshot here instead
+        // of re-resolving it per request.
+        localAddressSnapshot.withLockedValue { $0 = RootCADownloadServer.lanIPv4Addresses() }
         let generation = listenerGeneration
         let wanted = Set(targets)
         for (target, channel) in reverseListeners where !wanted.contains(target) {
@@ -819,6 +834,13 @@ actor ProxyServer {
         }
     }
 
+    /// How long one stop phase may wait: its own documented bound, capped by what is left of
+    /// the shared `stopBudget` so the phases cannot add up past it.
+    private static func phaseBudget(_ ownBound: Duration, since start: ContinuousClock.Instant) -> Duration {
+        let remaining = stopBudget - (ContinuousClock.now - start)
+        return min(ownBound, max(remaining, minimumPhaseBudget))
+    }
+
     /// Runs `operation`, giving up after `timeout`, and reports whether it finished.
     ///
     /// Deliberately not a task group: a group awaits every child before it returns, so racing
@@ -868,24 +890,47 @@ actor ProxyServer {
         }
         isStopping = true
         defer { isStopping = false }
+        // One wall clock for the whole function. Every wait below is individually bounded and
+        // every site documents that proceeding early is safe, but they ran one after another,
+        // so what the Stop button actually cost was their sum — a ~21 s floor, more with
+        // reverse listeners. Each phase now gets whatever is left of the shared budget.
+        let stopStartedAt = ContinuousClock.now
         serverChannel = nil
         listenerGeneration &+= 1
         removePolicyObservers()
-        for listener in reverseListeners.values {
-            await Self.awaitBounded("reverse listener close", Self.listenerCloseTimeout) {
-                try? await listener.close().get()
+        // Reverse listeners are independent channels, so close them all at once under one
+        // bound. Serially, one unresponsive listener's deadline was paid per listener.
+        let listenerChannels = Array(reverseListeners.values)
+        reverseListeners.removeAll()
+        if !listenerChannels.isEmpty {
+            await Self.awaitBounded(
+                "reverse listener close",
+                Self.phaseBudget(Self.listenerCloseTimeout, since: stopStartedAt)
+            ) {
+                await withTaskGroup(of: Void.self) { group in
+                    for listener in listenerChannels {
+                        group.addTask {
+                            _ = try? await listener.close().get()
+                        }
+                    }
+                }
             }
         }
-        reverseListeners.removeAll()
         if let socksListener {
-            await Self.awaitBounded("SOCKS listener close", Self.listenerCloseTimeout) {
+            await Self.awaitBounded(
+                "SOCKS listener close",
+                Self.phaseBudget(Self.listenerCloseTimeout, since: stopStartedAt)
+            ) {
                 try? await socksListener.channel.close().get()
             }
             self.socksListener = nil
         }
         childPipeline = nil
 
-        await Self.awaitBounded("server channel close", Self.listenerCloseTimeout) {
+        await Self.awaitBounded(
+            "server channel close",
+            Self.phaseBudget(Self.listenerCloseTimeout, since: stopStartedAt)
+        ) {
             do {
                 try await channel.close().get()
             } catch {
@@ -893,8 +938,12 @@ actor ProxyServer {
             }
         }
 
-        await childChannelRegistry.closeAllAndWait()
-        let outstandingBridges = await breakpointBridgeTracker.waitUntilIdle()
+        await childChannelRegistry.closeAllAndWait(
+            timeout: Self.phaseBudget(ProxyChildChannelRegistry.drainTimeout, since: stopStartedAt)
+        )
+        let outstandingBridges = await breakpointBridgeTracker.waitUntilIdle(
+            timeout: Self.phaseBudget(BreakpointBridgeTracker.drainTimeout, since: stopStartedAt)
+        )
         if outstandingBridges > 0 {
             Self.logger
                 .warning("Proxy stop proceeded with \(outstandingBridges) breakpoint bridges still outstanding")
@@ -910,7 +959,7 @@ actor ProxyServer {
             // that never returns; the listeners are already closed, so no new work arrives.
             let completed = await Self.awaitBounded(
                 "event loop group shutdown",
-                Self.groupShutdownTimeout
+                Self.phaseBudget(Self.groupShutdownTimeout, since: stopStartedAt)
             ) {
                 do {
                     try await group.shutdownGracefully()
@@ -934,6 +983,14 @@ actor ProxyServer {
 
     /// Upper bound on the event-loop group shutdown that ends stop.
     private static let groupShutdownTimeout: Duration = .seconds(5)
+
+    /// Upper bound on the whole of `stop()`, shared by every bounded wait inside it.
+    private static let stopBudget: Duration = .seconds(8)
+
+    /// The smallest budget a phase is ever given. A phase whose operation has already
+    /// finished still has to win the race against its deadline, so a fully spent budget
+    /// would turn a clean shutdown into a run of false "did not finish" warnings.
+    private static let minimumPhaseBudget: Duration = .milliseconds(200)
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyServer")
     nonisolated private static let tunnelInvalidationQueue = DispatchQueue(
@@ -970,6 +1027,10 @@ actor ProxyServer {
     private var eventLoopGroup: MultiThreadedEventLoopGroup?
     /// Child pipeline factory built by `start()`; reverse proxy listeners reuse it.
     private var childPipeline: (@Sendable (Channel, ReverseProxyTarget?) -> EventLoopFuture<Void>)?
+    /// The machine's LAN IPv4 addresses, shared with every accepted connection so the proxy
+    /// loop guard never has to resolve them on an event loop. Boxed because the child-channel
+    /// initializer is a `@Sendable` closure that reads it outside the actor.
+    private let localAddressSnapshot = NIOLockedValueBox<[String]>([])
     private var reverseListeners: [ReverseProxyTarget: Channel] = [:]
     private var socksListener: (channel: Channel, host: String, port: Int)?
     /// Bumped by every stop so a listener bind that finishes after the proxy stopped is discarded.
