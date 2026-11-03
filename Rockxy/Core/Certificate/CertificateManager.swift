@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import NIOSSL
 import os
 import Security
 import SwiftASN1
@@ -48,6 +49,16 @@ actor CertificateManager {
     var cachedHostCount: Int {
         hostCertCache.count
     }
+
+    #if DEBUG
+    /// How many cached leaves currently carry a built server TLS context. A context lives inside
+    /// its leaf's entry, so this can never exceed `cachedHostCount` -- which is the property the
+    /// invalidation tests assert, because a context that outlived its leaf would be a context
+    /// signed by a root the user may have replaced.
+    var cachedServerTLSContextCountForTests: Int {
+        hostCertCache.values.filter { $0.serverTLSContext != nil }.count
+    }
+    #endif
 
     #if DEBUG
     /// Creates an independent manager so a test can exercise cold, per-test actor state — a
@@ -779,62 +790,54 @@ actor CertificateManager {
     // MARK: - Host Certificates
 
     func certificateForHost(_ host: String) throws -> GeneratedHostCertificate {
-        if let customRoot = usableCustomRootIssuer() {
-            let cacheKey = "\(customRoot.fingerprintSHA256):\(host)"
-            if let cached = hostCertCache[cacheKey] {
-                touchCacheEntry(cacheKey)
-                return GeneratedHostCertificate(
-                    certificate: cached.certificate,
-                    privateKey: cached.privateKey,
-                    issuerCertificate: customRoot.certificate,
-                    provesRootCATrust: false
-                )
-            }
+        try resolveHostCertificate(host).certificate
+    }
 
-            let result = try HostCertGenerator.generate(
-                host: host,
-                issuer: customRoot.certificate,
-                issuerPrivateKey: customRoot.privateKey
-            )
-            insertCacheEntry(
-                cacheKey,
-                entry: HostCertEntry(certificate: result.certificate, privateKey: result.privateKey)
-            )
-            Self.logger.debug("Generated certificate for host with custom root issuer: \(host)")
-            return GeneratedHostCertificate(
-                certificate: result.certificate,
-                privateKey: result.privateKey,
-                issuerCertificate: customRoot.certificate,
-                provesRootCATrust: false
-            )
-        }
-
-        if let cached = hostCertCache[host] {
-            touchCacheEntry(host)
-            guard let rootCert = rootCACertificate else {
-                throw CertificateManagerError.noRootCA
-            }
-            return GeneratedHostCertificate(
-                certificate: cached.certificate,
-                privateKey: cached.privateKey,
-                issuerCertificate: rootCert
+    /// Returns the server `NIOSSLContext` for `host`, building it at most once per cached leaf.
+    ///
+    /// Caching the leaf was never the expensive half. Everything downstream of it was redone for
+    /// every intercepted connection: DER-serializing the leaf and its issuer into PEM, re-encoding
+    /// the private key, handing those strings back to BoringSSL to base64-decode and re-parse, and
+    /// allocating a fresh `SSL_CTX`. A browser opens several connections per host for one page, so
+    /// that was paid several times over for one navigation. swift-nio-ssl documents `NIOSSLContext`
+    /// as thread-safe and shareable across connections on different event loops, and warns against
+    /// building one on an event loop at all, so one context per host leaf is both safe and the
+    /// shape the library asks for.
+    ///
+    /// The context is stored *inside* the leaf's own cache entry rather than beside it, so it
+    /// inherits that entry's lifetime exactly: LRU eviction and `clearHostCache` drop both
+    /// together, and the access-order list stays 1:1 with the dictionary because this never adds
+    /// or removes a key. A root change therefore cannot leave a context behind that would make
+    /// Rockxy present a chain signed by a root the user has replaced.
+    ///
+    /// `options` are the runtime server-TLS switches baked into a built context. They are compared
+    /// rather than assumed, because turning HTTP/2 or the TLS key log on has to reach the next
+    /// connection even for a host whose context already exists.
+    func serverTLSContextForHost(
+        _ host: String,
+        options: ServerTLSContextOptions,
+        build: @Sendable (CustomTLSIdentity, ServerTLSContextOptions) throws -> NIOSSLContext
+    )
+        throws -> GeneratedHostTLSContext
+    {
+        let resolved = try resolveHostCertificate(host)
+        if let cached = hostCertCache[resolved.cacheKey]?.serverTLSContext, cached.options == options {
+            return GeneratedHostTLSContext(
+                context: cached.context,
+                provesRootCATrust: resolved.certificate.provesRootCATrust
             )
         }
 
-        guard let rootCert = rootCACertificate, let rootKey = rootCAPrivateKey else {
-            throw CertificateManagerError.noRootCA
-        }
-
-        let result = try HostCertGenerator.generate(host: host, issuer: rootCert, issuerKey: rootKey)
-
-        let entry = HostCertEntry(certificate: result.certificate, privateKey: result.privateKey)
-        insertCacheEntry(host, entry: entry)
-
-        Self.logger.debug("Generated certificate for host: \(host)")
-        return GeneratedHostCertificate(
-            certificate: result.certificate,
-            privateKey: result.privateKey,
-            issuerCertificate: rootCert
+        let context = try build(resolved.certificate.serverIdentity(), options)
+        // Optional-chained on purpose: `resolveHostCertificate` just inserted or touched this key,
+        // and if anything ever stops holding that, dropping the context is the correct outcome.
+        hostCertCache[resolved.cacheKey]?.serverTLSContext = CachedServerTLSContext(
+            context: context,
+            options: options
+        )
+        return GeneratedHostTLSContext(
+            context: context,
+            provesRootCATrust: resolved.certificate.provesRootCATrust
         )
     }
 
@@ -1053,6 +1056,72 @@ actor CertificateManager {
         async throws
     {
         try await authorizationQueue.run(work)
+    }
+
+    /// The leaf for `host` plus the cache key it is filed under, so a caller that needs to attach
+    /// something to the same entry does not have to re-derive the key and risk disagreeing.
+    private func resolveHostCertificate(
+        _ host: String
+    )
+        throws -> (cacheKey: String, certificate: GeneratedHostCertificate)
+    {
+        if let customRoot = usableCustomRootIssuer() {
+            let cacheKey = "\(customRoot.fingerprintSHA256):\(host)"
+            if let cached = hostCertCache[cacheKey] {
+                touchCacheEntry(cacheKey)
+                return (cacheKey, GeneratedHostCertificate(
+                    certificate: cached.certificate,
+                    privateKey: cached.privateKey,
+                    issuerCertificate: customRoot.certificate,
+                    provesRootCATrust: false
+                ))
+            }
+
+            let result = try HostCertGenerator.generate(
+                host: host,
+                issuer: customRoot.certificate,
+                issuerPrivateKey: customRoot.privateKey
+            )
+            insertCacheEntry(
+                cacheKey,
+                entry: HostCertEntry(certificate: result.certificate, privateKey: result.privateKey)
+            )
+            Self.logger.debug("Generated certificate for host with custom root issuer: \(host)")
+            return (cacheKey, GeneratedHostCertificate(
+                certificate: result.certificate,
+                privateKey: result.privateKey,
+                issuerCertificate: customRoot.certificate,
+                provesRootCATrust: false
+            ))
+        }
+
+        if let cached = hostCertCache[host] {
+            touchCacheEntry(host)
+            guard let rootCert = rootCACertificate else {
+                throw CertificateManagerError.noRootCA
+            }
+            return (host, GeneratedHostCertificate(
+                certificate: cached.certificate,
+                privateKey: cached.privateKey,
+                issuerCertificate: rootCert
+            ))
+        }
+
+        guard let rootCert = rootCACertificate, let rootKey = rootCAPrivateKey else {
+            throw CertificateManagerError.noRootCA
+        }
+
+        let result = try HostCertGenerator.generate(host: host, issuer: rootCert, issuerKey: rootKey)
+
+        let entry = HostCertEntry(certificate: result.certificate, privateKey: result.privateKey)
+        insertCacheEntry(host, entry: entry)
+
+        Self.logger.debug("Generated certificate for host: \(host)")
+        return (host, GeneratedHostCertificate(
+            certificate: result.certificate,
+            privateKey: result.privateKey,
+            issuerCertificate: rootCert
+        ))
     }
 
     /// The active custom root, or `nil` when there is none *or* it cannot be used.
@@ -1776,13 +1845,6 @@ nonisolated struct GeneratedHostCertificate {
         }
         return CustomTLSIdentity(certificateChainPEM: chain, privateKeyPEM: privateKey.pemRepresentation)
     }
-}
-
-// MARK: - HostCertEntry
-
-nonisolated private struct HostCertEntry {
-    let certificate: Certificate
-    let privateKey: P256.Signing.PrivateKey
 }
 
 // MARK: - TrustEvaluationDecision

@@ -521,6 +521,20 @@ final class CustomCertificateManager: @unchecked Sendable {
         let fingerprintSHA256: String
     }
 
+    /// Private key PEMs loaded for `identity(for:kind:)`, keyed by Keychain account and tagged
+    /// with the generation of the entry list they belong to.
+    ///
+    /// Same residual as `cachedRootIssuer`, and it is worth restating: invalidation tracks this
+    /// store, not the Keychain. An import, a delete, or a reload drops this, but a key rewritten
+    /// under the same account by something other than Rockxy is not noticed until one of those
+    /// happens. Only this type writes those accounts and an import always allocates a fresh one,
+    /// so the window is a user editing Keychain Access by hand. Clearing this also drops the
+    /// loaded keys from memory as soon as the entries they belong to stop being current.
+    private struct CachedIdentityKeys {
+        let generation: UInt64
+        var privateKeyPEMByAccount: [String: String]
+    }
+
     private let storageURL: URL
     private let secureStore: any SecureDataStore
     private let metadataWriter: any CustomCertificateMetadataWriter
@@ -532,6 +546,7 @@ final class CustomCertificateManager: @unchecked Sendable {
     /// store has moved on without comparing the entries themselves.
     private var entriesGeneration: UInt64 = 0
     private var cachedRootIssuer: CachedRootIssuer?
+    private var cachedIdentityKeys: CachedIdentityKeys?
 
     /// A custom root signs a certificate for every host, so it must be a CA that is valid now.
     private static func validateRootAuthority(_ certificate: Certificate) throws {
@@ -667,11 +682,22 @@ final class CustomCertificateManager: @unchecked Sendable {
         }
     }
 
+    /// Resolves the custom identity Rockxy should present for `host`, if the user configured one.
+    ///
+    /// Called from the TLS interception path for every intercepted connection, so the two costs
+    /// here are both per-connection. The Keychain read is memoized the same way
+    /// `activeRootIssuerSnapshot` memoizes the active root -- same `entriesGeneration`, dropped by
+    /// the same critical section that replaces `entries` -- and the host is only normalized once
+    /// there is something to match it against, so a user with no custom certificates at all pays
+    /// nothing beyond one `isEmpty` check.
     private func identity(for host: String, kind: CustomCertificateKind) -> CustomTLSIdentity? {
-        let normalizedHost = host.lowercased()
-        return transactionLock.withLock {
-            let match = lock.withLock {
-                entries.last { entry in
+        transactionLock.withLock {
+            let match = lock.withLock { () -> CustomCertificateMetadata? in
+                guard !entries.isEmpty else {
+                    return nil
+                }
+                let normalizedHost = host.lowercased()
+                return entries.last { entry in
                     guard entry.kind == kind, let pattern = entry.hostPattern else {
                         return false
                     }
@@ -679,13 +705,47 @@ final class CustomCertificateManager: @unchecked Sendable {
                 }
             }
 
-            guard let match,
-                  let keyData = try? secureStore.load(account: match.keychainAccount),
-                  let privateKeyPEM = String(data: keyData, encoding: .utf8) else
-            {
+            guard let match else {
                 return nil
             }
+
+            if let memoized = memoizedPrivateKeyPEM(account: match.keychainAccount) {
+                return CustomTLSIdentity(certificateChainPEM: [match.certificatePEM], privateKeyPEM: memoized)
+            }
+
+            guard let keyData = try? secureStore.load(account: match.keychainAccount),
+                  let privateKeyPEM = String(data: keyData, encoding: .utf8) else
+            {
+                // Deliberately not memoized. An unreadable or undecodable key is the state a user
+                // goes and fixes, and remembering it would keep answering with the failure until
+                // the next store mutation -- long after the key worked again.
+                return nil
+            }
+            memoizePrivateKeyPEM(privateKeyPEM, account: match.keychainAccount)
             return CustomTLSIdentity(certificateChainPEM: [match.certificatePEM], privateKeyPEM: privateKeyPEM)
+        }
+    }
+
+    /// The memoized key for `account`, or `nil` when nothing was loaded for the current generation
+    /// of `entries`.
+    private func memoizedPrivateKeyPEM(account: String) -> String? {
+        lock.withLock {
+            guard let cached = cachedIdentityKeys, cached.generation == entriesGeneration else {
+                return nil
+            }
+            return cached.privateKeyPEMByAccount[account]
+        }
+    }
+
+    private func memoizePrivateKeyPEM(_ privateKeyPEM: String, account: String) {
+        lock.withLock {
+            // Keyed by account rather than by host: hosts arrive from the network and would grow
+            // this without bound over a long capture, while the accounts are exactly the ones the
+            // user imported.
+            if cachedIdentityKeys?.generation != entriesGeneration {
+                cachedIdentityKeys = CachedIdentityKeys(generation: entriesGeneration, privateKeyPEMByAccount: [:])
+            }
+            cachedIdentityKeys?.privateKeyPEMByAccount[account] = privateKeyPEM
         }
     }
 
@@ -705,6 +765,7 @@ final class CustomCertificateManager: @unchecked Sendable {
     private func invalidateDerivedStateLocked() {
         entriesGeneration &+= 1
         cachedRootIssuer = nil
+        cachedIdentityKeys = nil
     }
 
     private func loadFromDisk() {
