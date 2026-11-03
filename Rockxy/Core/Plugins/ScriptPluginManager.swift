@@ -41,6 +41,13 @@ actor ScriptPluginManager {
         } else {
             self.settingsProviderOverride = nil
         }
+        // Nothing routes a Scripting-toggle change through this manager — the Scripting
+        // settings surface and the CLI both write it straight to `AppSettingsStorage` — so a
+        // defaults change is the refresh point available. The observer only drops the cached
+        // answer; the next hook check reads it again. It captures the box rather than `self`,
+        // so the manager's lifetime stays out of the notification center.
+        let cache = scriptingToolEnabledCache
+        settingsObserver = DefaultsChangeObserver { cache.withLock { $0 = nil } }
     }
 
     // MARK: Internal
@@ -70,6 +77,40 @@ actor ScriptPluginManager {
     /// Whether the one-shot startup load has completed.
     var isReady: Bool {
         isLoadedOnce
+    }
+
+    /// Whether a request hook changed anything the client or server will see; a script
+    /// that only observed the request is not attributed as having modified it.
+    nonisolated static func changes(_ outcome: RequestHookOutcome, from request: HTTPRequestData) -> Bool {
+        guard case let .forward(forwarded) = outcome else {
+            return true
+        }
+        return forwarded.method != request.method
+            || forwarded.url != request.url
+            || forwarded.headers != request.headers
+            || forwarded.body != request.body
+    }
+
+    nonisolated static func differs(_ response: HTTPResponseData, from original: HTTPResponseData) -> Bool {
+        response.statusCode != original.statusCode
+            || response.headers != original.headers
+            || response.body != original.body
+    }
+
+    static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
+        guard let condition = behavior.matchCondition else {
+            return true
+        }
+        // Parse the body for an operation name only when the script filters by one.
+        let operation = condition.requiredGraphQLOperationName == nil
+            ? nil
+            : GraphQLDetector.detect(request: request)?.operationName
+        return condition.matches(
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            graphQLOperationName: operation
+        )
     }
 
     /// Startup-readiness entry point. Runs the discovery + reconcile pass exactly
@@ -382,31 +423,13 @@ actor ScriptPluginManager {
         return current
     }
 
-    /// Whether a request hook changed anything the client or server will see; a script
-    /// that only observed the request is not attributed as having modified it.
-    nonisolated static func changes(_ outcome: RequestHookOutcome, from request: HTTPRequestData) -> Bool {
-        guard case let .forward(forwarded) = outcome else {
-            return true
-        }
-        return forwarded.method != request.method
-            || forwarded.url != request.url
-            || forwarded.headers != request.headers
-            || forwarded.body != request.body
-    }
-
-    nonisolated static func differs(_ response: HTTPResponseData, from original: HTTPResponseData) -> Bool {
-        response.statusCode != original.statusCode
-            || response.headers != original.headers
-            || response.body != original.body
-    }
-
     /// Nonisolated snapshot used by proxy handlers (NIO event-loop threads) to
     /// decide, without awaiting the actor, whether response-side buffering needs
     /// to be activated for an incoming request. Based on a last-known plugin
     /// snapshot that the actor refreshes after every mutation.
     nonisolated func hasResponseHookForSnapshot(request: HTTPRequestData) -> Bool {
         // Honor the master toggle from the NIO event loop without awaiting the actor.
-        guard currentSettings().scriptingToolEnabled else {
+        guard isScriptingToolEnabled() else {
             return false
         }
         let snapshot = pluginSnapshot.withLock { $0 }
@@ -430,40 +453,73 @@ actor ScriptPluginManager {
 
     // MARK: Private
 
+    /// Holds the `UserDefaults` change observer for exactly as long as its manager and
+    /// removes it on the way out: the notification center retains a block observer, so every
+    /// `ScriptPluginManager` a test builds would otherwise leave one firing forever.
+    private final class DefaultsChangeObserver: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(onChange: @escaping @Sendable () -> Void) {
+            token = NotificationCenter.default.addObserver(
+                forName: UserDefaults.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                onChange()
+            }
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(token)
+        }
+
+        // MARK: Private
+
+        private let token: NSObjectProtocol
+    }
+
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptPluginManager")
+
+    private static let maxConsecutiveHookFailures = 5
 
     private let discovery: PluginDiscovery
     private let runtime: ScriptRuntime
     private let runReporter: ScriptRunReporter
 
-    private static let maxConsecutiveHookFailures = 5
+    /// The master Scripting toggle as the nonisolated hot path last read it; `nil` means it
+    /// has to be read again.
+    ///
+    /// `hasResponseHookForSnapshot` answers once per request on a NIO event-loop thread, and
+    /// it used to take this from `AppSettingsStorage.load()` — roughly fifty `UserDefaults`
+    /// reads plus, once any AI Assistant provider is configured, a `JSONDecoder` and a decode
+    /// of the provider list, all on the event loop. The value only changes when the person
+    /// flips the toggle, so it is cached and invalidated rather than recomputed per request.
+    nonisolated private let scriptingToolEnabledCache = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+    nonisolated private let settingsObserver: DefaultsChangeObserver
 
     private var consecutiveHookFailures: [String: Int] = [:]
     private var isLoadedOnce: Bool = false
     private var loadOnceTask: Task<Void, Never>?
     private var inFlightDiscoveryTask: Task<Void, Never>?
 
-    static func matches(behavior: ScriptBehavior, request: HTTPRequestData) -> Bool {
-        guard let condition = behavior.matchCondition else {
-            return true
-        }
-        // Parse the body for an operation name only when the script filters by one.
-        let operation = condition.requiredGraphQLOperationName == nil
-            ? nil
-            : GraphQLDetector.detect(request: request)?.operationName
-        return condition.matches(
-            method: request.method,
-            url: request.url,
-            headers: request.headers,
-            graphQLOperationName: operation
-        )
-    }
-
     nonisolated private func currentSettings() -> AppSettings {
         if let override = settingsProviderOverride {
             return override()
         }
         return AppSettingsStorage.load()
+    }
+
+    /// The master Scripting toggle for the nonisolated hot path, read through
+    /// `currentSettings()` so an injected settings provider still decides the answer, and
+    /// then cached until a defaults change invalidates it.
+    nonisolated private func isScriptingToolEnabled() -> Bool {
+        if let cached = scriptingToolEnabledCache.withLock({ $0 }) {
+            return cached
+        }
+        let enabled = currentSettings().scriptingToolEnabled
+        scriptingToolEnabledCache.withLock { $0 = enabled }
+        return enabled
     }
 
     private func performInitialLoad() async {
@@ -505,6 +561,10 @@ actor ScriptPluginManager {
     private func publishSnapshot() {
         let current = plugins
         pluginSnapshot.withLock { $0 = current }
+        // The master toggle travels with the snapshot the hot path reads against it, so a
+        // publication never leaves the two disagreeing.
+        let scriptingToolEnabled = currentSettings().scriptingToolEnabled
+        scriptingToolEnabledCache.withLock { $0 = scriptingToolEnabled }
         NotificationCenter.default.post(name: .scriptsDidChange, object: current)
     }
 

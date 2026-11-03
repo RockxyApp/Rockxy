@@ -274,6 +274,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         var producerCapabilities: BabylonConnectionPackageDTO.Capabilities?
         var compatibilityDiagnostics: [String] = []
         var transactions: [String: HTTPTransaction] = [:]
+        /// `transactions`' keys in the order they were first tracked. A dictionary's own key
+        /// order is bucket order, so it cannot answer which entry is the oldest, and the cap
+        /// in `remember` has to drop a chosen entry rather than an arbitrary one.
+        var transactionOrder: [String] = []
 
         func accept(frame: BabylonSecureFrame) throws -> BabylonReplayDisposition {
             try replayGuard.accept(messageID: frame.messageID, sequence: frame.sequence)
@@ -319,6 +323,30 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
     private static func sessionKey(clientID: String, sessionID: String) -> String {
         "\(clientID):\(sessionID)"
+    }
+
+    /// The package to drop when a session is at its tracked-transaction cap: the oldest
+    /// closed row first, and a row whose WebSocket is still open only when every tracked
+    /// row is one.
+    ///
+    /// `state.transactions` is what lets a later package update the row it belongs to, so
+    /// evicting a live WebSocket makes its next frame look like a new capture — a duplicate
+    /// row, the original stuck active and no longer reachable by `finishOpenRows`, and the
+    /// frame log split in two. Plain oldest-first would pick exactly the overnight
+    /// connection that causes that, so an open row yields to any closed one; the cap still
+    /// holds because the second pass takes an open row when nothing else is left.
+    private static func evictionCandidateID(in state: SessionState) -> String? {
+        for takesOpenRows in [false, true] {
+            for packageID in state.transactionOrder {
+                // `webSocketConnection` is read off the main actor exactly as `finishOpenRows`
+                // reads it; the row's `state` is MainActor-owned and deliberately not read here.
+                let isOpen = state.transactions[packageID]?.webSocketConnection != nil
+                if isOpen == takesOpenRows {
+                    return packageID
+                }
+            }
+        }
+        return nil
     }
 
     private func startListenerIfNeeded() {
@@ -847,12 +875,22 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func remember(transaction: HTTPTransaction, packageID: String, state: SessionState) {
-        while state.transactions.count >= Self.maximumTrackedTransactions,
-              let oldest = state.transactions.keys.first
-        {
-            state.transactions[oldest] = nil
+        while state.transactions.count >= Self.maximumTrackedTransactions {
+            guard let evicted = Self.evictionCandidateID(in: state) else {
+                break
+            }
+            forget(packageID: evicted, in: state)
         }
-        state.transactions[packageID] = transaction
+        if state.transactions.updateValue(transaction, forKey: packageID) == nil {
+            state.transactionOrder.append(packageID)
+        }
+    }
+
+    private func forget(packageID: String, in state: SessionState) {
+        state.transactions[packageID] = nil
+        if let index = state.transactionOrder.firstIndex(of: packageID) {
+            state.transactionOrder.remove(at: index)
+        }
     }
 
     private func sendAcknowledgement(
@@ -910,7 +948,21 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
            let state = sessions[key]
         {
             finishOpenRows(in: state, reason: "The app disconnected before the WebSocket closed")
+            // No further package can arrive for these IDs, so keeping the map would pin up
+            // to 10,000 captured rows and their bodies for the rest of the app's run, one
+            // such cache per relaunch of the instrumented app. `finishOpenRows` copied the
+            // rows it needs into its own array, so it does not read the map after this.
+            //
+            // The session itself stays: it owns the replay guard and the outbound sequence
+            // counter, and dropping it would reset both for a session that reconnects under
+            // the same session ID.
+            forgetTrackedTransactions(in: state)
         }
+    }
+
+    private func forgetTrackedTransactions(in state: SessionState) {
+        state.transactions.removeAll()
+        state.transactionOrder.removeAll()
     }
 
     private func reconcileBufferedByteCount(for context: ConnectionContext, previousByteCount: Int) {

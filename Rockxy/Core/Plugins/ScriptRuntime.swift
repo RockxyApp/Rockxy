@@ -231,9 +231,9 @@ actor ScriptRuntime {
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
+        let gate = ScriptResumeGate()
 
+        return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
                 Self.clearException(in: jsContext, lock: exceptionLock)
                 // Arity dispatch: 1 => single-arg legacy `onRequest(ctx)`,
@@ -259,16 +259,9 @@ actor ScriptRuntime {
 
                 // `interpret` is the single point that decides .forward / .block / .mock
                 // from a (possibly Promise-resolved) JS value. It guards against
-                // double-resume via `resumed`.
+                // double-resume through the gate.
                 let interpret: (JSValue?) -> Void = { value in
-                    let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                        if alreadyResumed {
-                            return false
-                        }
-                        alreadyResumed = true
-                        return true
-                    }
-                    guard shouldResume else {
+                    guard gate.claimResume() else {
                         return
                     }
 
@@ -337,14 +330,7 @@ actor ScriptRuntime {
                         queue.async { interpret(resolved) }
                     },
                     onReject: { errMsg in
-                        let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                            if alreadyResumed {
-                                return false
-                            }
-                            alreadyResumed = true
-                            return true
-                        }
-                        guard shouldResume else {
+                        guard gate.claimResume() else {
                             return
                         }
                         continuation.resume(throwing: ScriptRuntimeError.jsException(errMsg))
@@ -355,20 +341,8 @@ actor ScriptRuntime {
                 }
             }
 
-            queue.async(execute: workItem)
-
-            // The watchdog must not share the plugin's serial queue: a serial queue runs
-            // one block at a time, so while a runaway script holds it the watchdog could
-            // never be dequeued and the timeout below never fired at all.
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
-                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                    if alreadyResumed {
-                        return false
-                    }
-                    alreadyResumed = true
-                    return true
-                }
-                guard shouldResume else {
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
                     return
                 }
                 // `cancel()` is a documented no-op for work already executing, so the
@@ -386,6 +360,8 @@ actor ScriptRuntime {
                     continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
                 }
             }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
         }
     }
 
@@ -418,9 +394,9 @@ actor ScriptRuntime {
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
+        let gate = ScriptResumeGate()
 
+        return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
                 Self.clearException(in: jsContext, lock: exceptionLock)
                 let initialResult: JSValue?
@@ -445,14 +421,7 @@ actor ScriptRuntime {
                 }
 
                 let interpret: (JSValue?) -> Void = { value in
-                    let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                        if alreadyResumed {
-                            return false
-                        }
-                        alreadyResumed = true
-                        return true
-                    }
-                    guard shouldResume else {
+                    guard gate.claimResume() else {
                         return
                     }
 
@@ -495,14 +464,7 @@ actor ScriptRuntime {
                         queue.async { interpret(resolved) }
                     },
                     onReject: { errMsg in
-                        let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                            if alreadyResumed {
-                                return false
-                            }
-                            alreadyResumed = true
-                            return true
-                        }
-                        guard shouldResume else {
+                        guard gate.claimResume() else {
                             return
                         }
                         continuation.resume(throwing: ScriptRuntimeError.jsException(errMsg))
@@ -513,20 +475,8 @@ actor ScriptRuntime {
                 }
             }
 
-            queue.async(execute: workItem)
-
-            // The watchdog must not share the plugin's serial queue: a serial queue runs
-            // one block at a time, so while a runaway script holds it the watchdog could
-            // never be dequeued and the timeout below never fired at all.
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
-                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                    if alreadyResumed {
-                        return false
-                    }
-                    alreadyResumed = true
-                    return true
-                }
-                guard shouldResume else {
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
                     return
                 }
                 // `cancel()` is a documented no-op for work already executing, so the
@@ -544,6 +494,8 @@ actor ScriptRuntime {
                     continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
                 }
             }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
         }
     }
 
@@ -555,6 +507,58 @@ actor ScriptRuntime {
     private final class ScriptLoadProducts: @unchecked Sendable {
         var onRequest: JSValue?
         var onResponse: JSValue?
+    }
+
+    /// The single gate deciding which of a script call's possible endings resumes its
+    /// continuation, plus the watchdog that ending has to stop.
+    ///
+    /// GCD retains a scheduled block until it fires, and a watchdog block captures the
+    /// work item it would cancel — and through it the request or response and its body —
+    /// so a watchdog left pending after the call had already finished kept every hooked
+    /// exchange alive for the full timeout, at request rate. Cancelling a block that has
+    /// not started yet does take effect; the documented no-op cancel on the timeout path
+    /// is the script's own work item, which by then is already running.
+    private struct ScriptResumeGate {
+        // MARK: Internal
+
+        /// Schedules the watchdog and remembers it so the winning ending can stop it. Armed
+        /// before the script's work item is enqueued: a call that finished first would
+        /// otherwise find nothing to cancel and leak exactly the block this exists to drop.
+        ///
+        /// The watchdog must not share the plugin's serial queue: a serial queue runs one
+        /// block at a time, so while a runaway script holds it the watchdog could never be
+        /// dequeued and the timeout would never fire at all.
+        func arm(_ watchdog: DispatchWorkItem, timeout: TimeInterval) {
+            pendingWatchdog.withLock { $0 = watchdog }
+            DispatchQueue.global(qos: .userInitiated)
+                .asyncAfter(deadline: .now() + timeout, execute: watchdog)
+        }
+
+        /// Claims the right to resume the continuation. The claim is also what stops the
+        /// watchdog, so no ending can forget to.
+        func claimResume() -> Bool {
+            let claimed = resumed.withLock { alreadyResumed -> Bool in
+                if alreadyResumed {
+                    return false
+                }
+                alreadyResumed = true
+                return true
+            }
+            guard claimed else {
+                return false
+            }
+            let watchdog = pendingWatchdog.withLock { item -> DispatchWorkItem? in
+                defer { item = nil }
+                return item
+            }
+            watchdog?.cancel()
+            return true
+        }
+
+        // MARK: Private
+
+        private let resumed = OSAllocatedUnfairLock(initialState: false)
+        private let pendingWatchdog = OSAllocatedUnfairLock<DispatchWorkItem?>(initialState: nil)
     }
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptRuntime")
@@ -710,16 +714,7 @@ actor ScriptRuntime {
         async throws -> ScriptLoadProducts
     {
         let products = ScriptLoadProducts()
-        let resumed = OSAllocatedUnfairLock<Bool>(initialState: false)
-        func claimResume() -> Bool {
-            resumed.withLock { alreadyResumed -> Bool in
-                if alreadyResumed {
-                    return false
-                }
-                alreadyResumed = true
-                return true
-            }
-        }
+        let gate = ScriptResumeGate()
 
         return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
@@ -741,7 +736,7 @@ actor ScriptRuntime {
                         named: "onResponse", in: context, exports: moduleExports
                     )
                 }
-                guard claimResume() else {
+                guard gate.claimResume() else {
                     return
                 }
                 if let failure {
@@ -751,13 +746,8 @@ actor ScriptRuntime {
                 }
             }
 
-            queue.async(execute: workItem)
-
-            // The watchdog must not share the plugin's serial queue: a serial queue runs
-            // one block at a time, so while a runaway evaluation holds it the watchdog
-            // could never be dequeued and the timeout would never fire at all.
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + Self.timeout) {
-                guard claimResume() else {
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
                     return
                 }
                 // `cancel()` is a documented no-op for work already executing, so the
@@ -770,6 +760,8 @@ actor ScriptRuntime {
                 )
                 continuation.resume(throwing: ScriptRuntimeError.runawayScript(pluginID))
             }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
         }
     }
 
