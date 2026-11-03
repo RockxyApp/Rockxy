@@ -779,7 +779,7 @@ actor CertificateManager {
     // MARK: - Host Certificates
 
     func certificateForHost(_ host: String) throws -> GeneratedHostCertificate {
-        if let customRoot = try CustomCertificateManager.shared.activeRootIssuerSnapshot() {
+        if let customRoot = usableCustomRootIssuer() {
             let cacheKey = "\(customRoot.fingerprintSHA256):\(host)"
             if let cached = hostCertCache[cacheKey] {
                 touchCacheEntry(cacheKey)
@@ -1030,6 +1030,9 @@ actor CertificateManager {
 
     private var hostCertCache: [String: HostCertEntry] = [:]
     private var cacheAccessOrder: [String] = []
+    /// Most recent reason the custom root could not be used, so the per-connection fallback in
+    /// `usableCustomRootIssuer` reports a change instead of repeating itself for every host.
+    private var lastCustomRootFailureReason: String?
 
     /// Runs one blocking, authorization-backed Security call off the actor's executor.
     ///
@@ -1050,6 +1053,41 @@ actor CertificateManager {
         async throws
     {
         try await authorizationQueue.run(work)
+    }
+
+    /// The active custom root, or `nil` when there is none *or* it cannot be used.
+    ///
+    /// A custom root whose private key is unreadable -- removed from Keychain, written by a
+    /// different app identity, or saved in a form the parser rejects -- used to propagate out of
+    /// `certificateForHost`, which made the TLS pipeline abandon interception and relay the
+    /// connection as an opaque raw tunnel. One broken Keychain item therefore stopped decryption
+    /// for *every* host while the configured rules still said Decrypt. Rockxy's own generated
+    /// root can sign for the host perfectly well, so fall back to it and keep intercepting.
+    /// `activeRootIssuerSnapshot` keeps throwing for the certificate UI, which must report the
+    /// broken root rather than quietly route around it.
+    private func usableCustomRootIssuer() -> (
+        certificate: Certificate,
+        privateKey: Certificate.PrivateKey,
+        fingerprintSHA256: String
+    )? {
+        do {
+            let snapshot = try CustomCertificateManager.shared.activeRootIssuerSnapshot()
+            lastCustomRootFailureReason = nil
+            return snapshot
+        } catch {
+            // Logged once per distinct reason: this runs per intercepted connection, and a
+            // broken root stays broken until the user replaces it.
+            let reason = error.localizedDescription
+            if lastCustomRootFailureReason != reason {
+                lastCustomRootFailureReason = reason
+                // No privacy specifier: the reason is parser text, not a measured fact, and the
+                // default redaction keeps anything it echoed out of the persisted log.
+                Self.logger.error(
+                    "Custom root CA is unusable (\(reason)) — signing host certificates with Rockxy's own root instead"
+                )
+            }
+            return nil
+        }
     }
 
     /// A missing/unreadable private key must not hide the certificate we are removing.

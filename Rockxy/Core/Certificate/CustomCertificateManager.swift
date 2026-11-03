@@ -412,19 +412,55 @@ final class CustomCertificateManager: @unchecked Sendable {
     {
         try transactionLock.withLock {
             guard let entry = metadata(kind: .root).last else {
+                lock.withLock { cachedRootIssuer = nil }
                 return nil
             }
+
+            // `CertificateManager.certificateForHost` asks for this on every intercepted
+            // connection, including the ones it then answers from its own host-certificate
+            // cache. Resolving it costs a Keychain read plus a certificate and a private-key
+            // PEM parse, which is why the result is kept. Every mutation of `entries` bumps
+            // `entriesGeneration` and drops the cache, so a replaced or deleted root can never
+            // be served from here -- the generation is also compared, not just the entry id,
+            // because a re-import reuses neither but a restored backup could reuse the id.
+            var generation: UInt64 = 0
+            var memoized: (certificate: Certificate, privateKey: Certificate.PrivateKey, fingerprint: String)?
+            lock.withLock {
+                generation = entriesGeneration
+                guard let cached = cachedRootIssuer,
+                      cached.generation == generation,
+                      cached.entryID == entry.id else
+                {
+                    return
+                }
+                memoized = (cached.certificate, cached.privateKey, cached.fingerprintSHA256)
+            }
+            if let memoized {
+                return (
+                    certificate: memoized.certificate,
+                    privateKey: memoized.privateKey,
+                    fingerprintSHA256: memoized.fingerprint
+                )
+            }
+
             guard let keyData = try secureStore.load(account: entry.keychainAccount),
                   let privateKeyPEM = String(data: keyData, encoding: .utf8) else
             {
                 throw CustomCertificateError.missingPrivateKey
             }
             let certificate = try Certificate(pemEncoded: entry.certificatePEM)
-            return try (
-                certificate: certificate,
-                privateKey: Certificate.PrivateKey(pemEncoded: privateKeyPEM),
-                fingerprintSHA256: entry.fingerprintSHA256 ?? Self.fingerprint(certificate) ?? "custom"
-            )
+            let privateKey = try Certificate.PrivateKey(pemEncoded: privateKeyPEM)
+            let fingerprint = entry.fingerprintSHA256 ?? Self.fingerprint(certificate) ?? "custom"
+            lock.withLock {
+                cachedRootIssuer = CachedRootIssuer(
+                    generation: generation,
+                    entryID: entry.id,
+                    certificate: certificate,
+                    privateKey: privateKey,
+                    fingerprintSHA256: fingerprint
+                )
+            }
+            return (certificate: certificate, privateKey: privateKey, fingerprintSHA256: fingerprint)
         }
     }
 
@@ -469,6 +505,22 @@ final class CustomCertificateManager: @unchecked Sendable {
 
     // MARK: Private
 
+    /// The parsed active root, memoized for `activeRootIssuerSnapshot`. Keyed by the generation of
+    /// the entry list it was derived from so it cannot outlive the root it came from.
+    ///
+    /// Invalidation tracks this store, not the Keychain: an import, a delete, or a reload drops
+    /// it, but a private key rewritten under the same account by something other than Rockxy is
+    /// not noticed until one of those happens. Only this type writes those accounts, and an
+    /// import always allocates a fresh one, so the window is a user editing Keychain Access by
+    /// hand -- where keeping the key Rockxy already loaded is the better of the two outcomes.
+    private struct CachedRootIssuer {
+        let generation: UInt64
+        let entryID: UUID
+        let certificate: Certificate
+        let privateKey: Certificate.PrivateKey
+        let fingerprintSHA256: String
+    }
+
     private let storageURL: URL
     private let secureStore: any SecureDataStore
     private let metadataWriter: any CustomCertificateMetadataWriter
@@ -476,6 +528,10 @@ final class CustomCertificateManager: @unchecked Sendable {
     private let transactionLock = NSRecursiveLock()
     private let lock = NSLock()
     private var entries: [CustomCertificateMetadata] = []
+    /// Bumped by every assignment to `entries`, so a cached derivation of them can tell that the
+    /// store has moved on without comparing the entries themselves.
+    private var entriesGeneration: UInt64 = 0
+    private var cachedRootIssuer: CachedRootIssuer?
 
     /// A custom root signs a certificate for every host, so it must be a CA that is valid now.
     private static func validateRootAuthority(_ certificate: Certificate) throws {
@@ -605,6 +661,7 @@ final class CustomCertificateManager: @unchecked Sendable {
 
             lock.withLock {
                 entries = proposedEntries
+                invalidateDerivedStateLocked()
             }
             return entry
         }
@@ -641,6 +698,15 @@ final class CustomCertificateManager: @unchecked Sendable {
         ))
     }
 
+    /// Marks everything derived from `entries` stale. Call with `lock` held, from the same
+    /// critical section that replaces `entries`, so no reader can observe new entries beside a
+    /// snapshot of the old ones. Clearing the issuer also drops the parsed private key from
+    /// memory as soon as its root stops being the active one.
+    private func invalidateDerivedStateLocked() {
+        entriesGeneration &+= 1
+        cachedRootIssuer = nil
+    }
+
     private func loadFromDisk() {
         guard let data = try? Data(contentsOf: storageURL),
               let decoded = try? JSONDecoder().decode([CustomCertificateMetadata].self, from: data) else
@@ -649,6 +715,7 @@ final class CustomCertificateManager: @unchecked Sendable {
         }
         lock.withLock {
             entries = decoded
+            invalidateDerivedStateLocked()
         }
     }
 
@@ -679,6 +746,7 @@ final class CustomCertificateManager: @unchecked Sendable {
 
         lock.withLock {
             entries = proposedEntries
+            invalidateDerivedStateLocked()
         }
     }
 
