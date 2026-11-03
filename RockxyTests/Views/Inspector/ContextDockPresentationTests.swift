@@ -621,7 +621,7 @@ struct ContextDockInvestigationReportTests {
 
         // Behavior preserved: honest Open Rule routing, native Compare handoff, Notes identity.
         #expect(details.contains("matchedRuleNavigationTarget(transaction)"))
-        #expect(details.contains("coordinator.compareTransactions(transactions[0], transactions[1])"))
+        #expect(details.contains("coordinator.compareTransactions(selected[0], selected[1])"))
         #expect(details.contains("ContextNotesEditor(coordinator: coordinator, transaction: transaction)"))
     }
 

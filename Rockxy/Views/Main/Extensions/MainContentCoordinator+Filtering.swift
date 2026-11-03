@@ -206,18 +206,27 @@ extension MainContentCoordinator {
         workspace.mutedTrafficSources.removeAll()
     }
 
+    /// The status bar's "available" count: how many rows the current scope could show.
+    ///
+    /// `.allTraffic` is answered from the maintained TLS-failure set rather than by
+    /// counting `!isTLSFailure` across the capture. The status bar sits in the centre
+    /// pane's `body`, so that count ran once per render and, worse, registered an
+    /// observation dependency on every retained row -- the next arriving response
+    /// invalidated the pane and the count ran again, which is what made a long capture
+    /// lag. The three favourite scopes keep counting: their lists are the cached
+    /// favourites, bounded by how many rows the user pinned, saved, or annotated rather
+    /// than by how long capture has run.
     var availableTransactionCountForCurrentScope: Int {
-        let baseList: [HTTPTransaction] = switch filterCriteria.sidebarScope {
+        switch filterCriteria.sidebarScope {
         case .saved:
-            allSavedTransactions
+            allSavedTransactions.count { !$0.isTLSFailure }
         case .pinned:
-            allPinnedTransactions
+            allPinnedTransactions.count { !$0.isTLSFailure }
         case .notes:
-            allNotesTransactions
+            allNotesTransactions.count { !$0.isTLSFailure }
         case .allTraffic:
-            transactions
+            transactions.count - tlsFailureTransactionIDs.count
         }
-        return baseList.count { !$0.isTLSFailure }
     }
 
     func appendFilteredTransactions(_ batch: [HTTPTransaction]) {

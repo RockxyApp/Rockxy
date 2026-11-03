@@ -216,11 +216,17 @@ struct WebSocketInspectorView: View {
             HStack(spacing: 16) {
                 summaryRow(
                     String(localized: "Sent", bundle: RockxyLocalization.bundle),
-                    value: frameCountSummary(connection.sentFrames)
+                    value: frameCountSummary(
+                        frameCount: connection.sentFrameCount,
+                        payloadBytes: connection.sentPayloadSize
+                    )
                 )
                 summaryRow(
                     String(localized: "Received", bundle: RockxyLocalization.bundle),
-                    value: frameCountSummary(connection.receivedFrames)
+                    value: frameCountSummary(
+                        frameCount: connection.receivedFrameCount,
+                        payloadBytes: connection.receivedPayloadSize
+                    )
                 )
             }
             if connection.isCaptureLimitReached {
@@ -264,11 +270,11 @@ struct WebSocketInspectorView: View {
             Text(String(localized: "All (\(connection.frameCount))", bundle: RockxyLocalization.bundle))
                 .tag(FrameDirection?.none)
             Text(
-                "↑ \(String(localized: "Sent", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.sentFrames.count)))"
+                "↑ \(String(localized: "Sent", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.sentFrameCount)))"
             )
             .tag(Optional(FrameDirection.sent))
             Text(
-                "↓ \(String(localized: "Received", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.receivedFrames.count)))"
+                "↓ \(String(localized: "Received", bundle: RockxyLocalization.bundle)) (\(CountFormatter.format(connection.receivedFrameCount)))"
             )
             .tag(Optional(FrameDirection.received))
         } label: {
@@ -549,15 +555,16 @@ struct WebSocketInspectorView: View {
         )
     }
 
-    private func totalSize(_ frames: [WebSocketFrameData]) -> String {
-        SizeFormatter.format(bytes: frames.reduce(0) { $0 + $1.payload.count })
-    }
-
     /// "1,204 (2.3 MB)" — the frame count beside its own payload total. Both halves go through a
     /// shared formatter so the pair reads in one locale; the parentheses carry no wording to
     /// translate, so this stays a plain composition.
-    private func frameCountSummary(_ frames: [WebSocketFrameData]) -> String {
-        "\(CountFormatter.format(frames.count)) (\(totalSize(frames)))"
+    ///
+    /// Takes the two numbers rather than the frames: `sentFrames`/`receivedFrames` copy the whole
+    /// array under the connection's lock and then filter it, so reading a count that way cost a
+    /// full copy plus a full pass -- per summary, in a body that re-evaluates on every frame
+    /// refresh. `WebSocketConnection` keeps both as running totals for exactly this reason.
+    private func frameCountSummary(frameCount: Int, payloadBytes: Int) -> String {
+        "\(CountFormatter.format(frameCount)) (\(SizeFormatter.format(bytes: payloadBytes)))"
     }
 
     private func filteredFrames(_ connection: WebSocketConnection) -> [WebSocketFrameData] {

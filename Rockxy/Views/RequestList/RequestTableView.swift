@@ -1680,7 +1680,8 @@ extension RequestTableView {
 
         private static var appIconCache: [String: NSImage] = [:]
         private static var resizedAppIconCache: [AppIconCacheKey: NSImage] = [:]
-        private static var missingAppIconNames: Set<String> = []
+        /// Bounded: the name is client-controlled, the cache outlives the rows it was built for.
+        private static var missingAppIconNames = MissingIconNameCache()
 
         private static let bundleIDByAppName: [String: String] = [
             "Chrome": "com.google.Chrome",

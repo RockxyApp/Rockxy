@@ -389,7 +389,7 @@ struct ToolWindowReadabilityTests {
         #expect(!controlsSource.contains("Text(target.rawValue)"))
         #expect(!controlsSource.contains("Text(mode.rawValue)"))
 
-        #expect(contextSource.contains("coordinator.compareTransactions(transactions[0], transactions[1])"))
+        #expect(contextSource.contains("coordinator.compareTransactions(selected[0], selected[1])"))
         #expect(!contextSource.contains("NotificationCenter.default.post(name: .openDiffWindow"))
     }
 

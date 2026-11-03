@@ -75,7 +75,12 @@ private struct InspectorSelectionSummaryView: View {
     let selectedIDs: Set<UUID>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        // Resolved once per pass, and in one pass. Each of the four rows below used to
+        // read a computed property that mapped `transaction(for:)` over the selection,
+        // and that walks the capture once per id -- so a shift-click range over a long
+        // capture cost four quadratic resolutions per render.
+        let selected = coordinator.resolveTransactions(for: selectedIDs)
+        return VStack(alignment: .leading, spacing: 12) {
             Label(
                 String(localized: "Selection Summary", bundle: RockxyLocalization.bundle),
                 systemImage: "square.stack.3d.up"
@@ -84,19 +89,19 @@ private struct InspectorSelectionSummaryView: View {
             Grid(alignment: .leading, horizontalSpacing: 28, verticalSpacing: 8) {
                 summaryRow(
                     String(localized: "Selected", bundle: RockxyLocalization.bundle),
-                    CountFormatter.format(transactions.count)
+                    CountFormatter.format(selected.count)
                 )
                 summaryRow(
                     String(localized: "Hosts", bundle: RockxyLocalization.bundle),
-                    CountFormatter.format(Set(transactions.map(\.request.host)).count)
+                    CountFormatter.format(Set(selected.map(\.request.host)).count)
                 )
                 summaryRow(
                     String(localized: "Errors", bundle: RockxyLocalization.bundle),
-                    CountFormatter.format(transactions.count { ($0.response?.statusCode ?? 0) >= 400 })
+                    CountFormatter.format(selected.count { ($0.response?.statusCode ?? 0) >= 400 })
                 )
                 summaryRow(
                     String(localized: "Transferred", bundle: RockxyLocalization.bundle),
-                    SizeFormatter.format(bytes: transferredBytes)
+                    SizeFormatter.format(bytes: Self.transferredBytes(of: selected))
                 )
             }
             Text(String(
@@ -112,20 +117,16 @@ private struct InspectorSelectionSummaryView: View {
 
     // MARK: Private
 
-    private var transactions: [HTTPTransaction] {
-        selectedIDs.compactMap(coordinator.transaction(for:))
-    }
-
-    private var transferredBytes: Int64 {
-        transactions.reduce(0) { total, transaction in
-            total + Int64(transaction.request.body?.count ?? 0) + Int64(transaction.response?.body?.count ?? 0)
-        }
-    }
-
     private func summaryRow(_ label: String, _ value: String) -> some View {
         GridRow {
             Text(label).foregroundStyle(.secondary)
             Text(value).monospacedDigit()
+        }
+    }
+
+    private static func transferredBytes(of selected: [HTTPTransaction]) -> Int64 {
+        selected.reduce(0) { total, transaction in
+            total + Int64(transaction.request.body?.count ?? 0) + Int64(transaction.response?.body?.count ?? 0)
         }
     }
 }

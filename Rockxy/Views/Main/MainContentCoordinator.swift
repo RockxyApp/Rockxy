@@ -226,7 +226,11 @@ final class MainContentCoordinator {
     }
 
     struct SidebarFavoritesCacheKey: Equatable {
-        let transactionCount: Int
+        /// Bumped by `invalidateSidebarFavoriteCache()`, which every pin, save, note, and
+        /// removal path already calls. The key used to carry `transactions.count`, which
+        /// made the cache miss on every captured request -- so the six scans below ran
+        /// again for an append that cannot change which rows are pinned, saved, or noted.
+        let favoritesRevision: UInt
         let persistedFavoriteCount: Int
         let sessionGeneration: UInt
     }
@@ -331,7 +335,11 @@ final class MainContentCoordinator {
     var downloadSpeed: Int64 = 0
     var totalUploadBytes: Int64 = 0
     var totalDownloadBytes: Int64 = 0
-    var trafficSamples: [(timestamp: Date, upload: Int64, download: Int64)] = []
+    /// The 1-second sliding window behind `uploadSpeed`/`downloadSpeed`. Pure maintenance
+    /// state, like `erroredTransactionIDs`: the bandwidth timer rewrites it four times a
+    /// second, and observing it would invalidate every reader of the coordinator at that
+    /// cadence even though nothing reads the samples themselves.
+    @ObservationIgnored var trafficSamples: [(timestamp: Date, upload: Int64, download: Int64)] = []
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
@@ -360,6 +368,24 @@ final class MainContentCoordinator {
     /// also the only writers of `errorCount`. It cannot be `private(set)`: those live in
     /// an extension in another file, and a private setter does not reach across files.
     @ObservationIgnored var erroredTransactionIDs: Set<UUID> = []
+
+    /// Which retained rows are TLS-failure rows, which the request list never shows.
+    ///
+    /// Same role as `erroredTransactionIDs`, for the status bar's "available" count:
+    /// `availableTransactionCountForCurrentScope` answered `.allTraffic` by counting
+    /// `!isTLSFailure` across the whole retained capture inside the centre pane's `body`,
+    /// which both cost a pass per render and registered an observation dependency on
+    /// every retained row -- so the next arriving response invalidated the pane and the
+    /// pass ran again. Subtracting a maintained count touches no row at all.
+    ///
+    /// Maintained only by `recomputeErrorCount()` and `updateErrorCount(for:)`, the same
+    /// two points as the error count, deliberately so the two cannot drift apart.
+    @ObservationIgnored var tlsFailureTransactionIDs: Set<UUID> = []
+
+    /// Monotonic stamp for `SidebarFavoritesCacheKey`, bumped by
+    /// `invalidateSidebarFavoriteCache()`. Not observed: it is cache bookkeeping, and the
+    /// favourites themselves are read through `allPinnedTransactions` and its siblings.
+    @ObservationIgnored var sidebarFavoritesRevision: UInt = 0
 
     /// Badge counts for the sidebar's Traffic Signals, read by the sidebar instead of
     /// being counted in its `body`.
@@ -666,7 +692,12 @@ final class MainContentCoordinator {
         activeWorkspace.totalDomainCount
     }
 
+    /// Called by every mutator that can change which rows are pinned, saved, or noted,
+    /// and by `recomputeErrorCount()` -- which is exactly where rows have left the
+    /// retained history. Bumping the revision there is what keeps the cached lists from
+    /// outliving the rows they name now that an append no longer invalidates them.
     func invalidateSidebarFavoriteCache() {
+        sidebarFavoritesRevision &+= 1
         sidebarFavoritesCache = nil
     }
 
@@ -693,6 +724,31 @@ final class MainContentCoordinator {
             return live
         }
         return persistedFavorites.first(where: { $0.id == id })
+    }
+
+    /// Resolves a set of ids in one pass, live rows first, in the same order
+    /// `resolveSelectedTransactions()` produces for the focused pane's selection.
+    ///
+    /// Calling `transaction(for:)` per id walks the capture once per id, so a shift-click
+    /// range over a long capture was quadratic -- and the inspector's summary resolved
+    /// its selection four times per render.
+    func resolveTransactions(for ids: Set<UUID>) -> [HTTPTransaction] {
+        guard !ids.isEmpty else {
+            return []
+        }
+        var result: [HTTPTransaction] = []
+        var resolved: Set<UUID> = []
+        for transaction in transactions where ids.contains(transaction.id) {
+            result.append(transaction)
+            resolved.insert(transaction.id)
+        }
+        let remaining = ids.subtracting(resolved)
+        if !remaining.isEmpty {
+            for transaction in persistedFavorites where remaining.contains(transaction.id) {
+                result.append(transaction)
+            }
+        }
+        return result
     }
 
     func setupRulesObserver() {
@@ -812,7 +868,7 @@ final class MainContentCoordinator {
 
     private func sidebarFavoriteTransactions() -> SidebarFavoritesCache {
         let key = SidebarFavoritesCacheKey(
-            transactionCount: transactions.count,
+            favoritesRevision: sidebarFavoritesRevision,
             persistedFavoriteCount: persistedFavorites.count,
             sessionGeneration: sessionGeneration
         )

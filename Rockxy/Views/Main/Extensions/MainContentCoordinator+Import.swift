@@ -41,29 +41,62 @@ extension MainContentCoordinator {
             return
         }
 
-        do {
-            let fileAttributes = try FileManager.default.attributesOfItem(atPath: url.path)
-            let fileSize = fileAttributes[.size] as? Int64 ?? 0
+        // A small session is parsed in place so the review sheet appears immediately; a large one
+        // is read and parsed off the main actor so the UI never freezes. This mirrors the HAR
+        // sibling below exactly. It used to differ: the whole file — up to
+        // `ImportSizePolicy.maxSessionFileSize`, 200 MB — was read and decoded synchronously on
+        // this `@MainActor` coordinator just to count transactions and read two dates, from
+        // File ▸ Open, from a Finder open, and from a drop.
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        if fileSize <= Self.inlineSessionParseLimit {
+            do {
+                presentSessionPreview(try Self.makeSessionPreview(from: url), url: url)
+            } catch {
+                showSessionPreviewFailure(error, url: url)
+            }
+            return
+        }
+        Task { @MainActor in
+            do {
+                let preview = try await Task.detached(priority: .userInitiated) {
+                    try Self.makeSessionPreview(from: url)
+                }.value
+                presentSessionPreview(preview, url: url)
+            } catch {
+                showSessionPreviewFailure(error, url: url)
+            }
+        }
+    }
 
-            let data = try Data(contentsOf: url)
-            let session = try SessionSerializer.deserialize(from: data)
+    nonisolated static let inlineSessionParseLimit: Int64 = 1_048_576
 
-            let preview = ImportPreview(
-                fileName: url.lastPathComponent,
-                fileType: .rockxysession,
-                transactionCount: session.transactions.count,
-                logEntryCount: session.logEntries?.count ?? 0,
-                fileSize: fileSize,
-                captureStartDate: session.metadata.captureStartDate,
-                captureEndDate: session.metadata.captureEndDate,
-                rockxyVersion: session.metadata.rockxyVersion,
-                sourceURL: url
-            )
+    nonisolated static func makeSessionPreview(from url: URL) throws -> ImportPreview {
+        let fileSize = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+        let data = try Data(contentsOf: url)
+        let session = try SessionSerializer.deserialize(from: data)
+        return ImportPreview(
+            fileName: url.lastPathComponent,
+            fileType: .rockxysession,
+            transactionCount: session.transactions.count,
+            logEntryCount: session.logEntries?.count ?? 0,
+            fileSize: fileSize,
+            captureStartDate: session.metadata.captureStartDate,
+            captureEndDate: session.metadata.captureEndDate,
+            rockxyVersion: session.metadata.rockxyVersion,
+            sourceURL: url
+        )
+    }
 
-            importPreview = preview
-            RecentCaptureDocuments.shared.note(url)
-        } catch let error as SessionSerializerError {
-            Self.logger.error("Failed to open session: \(error.localizedDescription)")
+    private func presentSessionPreview(_ preview: ImportPreview, url: URL) {
+        importPreview = preview
+        RecentCaptureDocuments.shared.note(url)
+    }
+
+    /// Unchanged reporting: a serializer error still names the file as unreadable, and anything
+    /// else — a vanished file, a permission failure — still reports as a failed import.
+    private func showSessionPreviewFailure(_ error: Error, url: URL) {
+        Self.logger.error("Failed to open session: \(error.localizedDescription)")
+        if error is SessionSerializerError {
             showImportError(
                 title: String(localized: "Invalid Session File", bundle: RockxyLocalization.bundle),
                 message: String(
@@ -71,16 +104,15 @@ extension MainContentCoordinator {
                     bundle: RockxyLocalization.bundle
                 )
             )
-        } catch {
-            Self.logger.error("Failed to open session: \(error.localizedDescription)")
-            showImportError(
-                title: String(localized: "Session Import Failed", bundle: RockxyLocalization.bundle),
-                message: String(
-                    localized: "Could not read \"\(url.lastPathComponent)\".\n\n\(error.localizedDescription)",
-                    bundle: RockxyLocalization.bundle
-                )
-            )
+            return
         }
+        showImportError(
+            title: String(localized: "Session Import Failed", bundle: RockxyLocalization.bundle),
+            message: String(
+                localized: "Could not read \"\(url.lastPathComponent)\".\n\n\(error.localizedDescription)",
+                bundle: RockxyLocalization.bundle
+            )
+        )
     }
 
     // MARK: - Import HAR

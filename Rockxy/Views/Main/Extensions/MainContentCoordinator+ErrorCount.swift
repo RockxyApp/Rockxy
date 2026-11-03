@@ -16,6 +16,11 @@ extension MainContentCoordinator {
             transactions.lazy.filter(Self.isErrorResponse).map(\.id)
         )
         errorCount = erroredTransactionIDs.count
+        rebuildTLSFailureTransactionIDs()
+        // This is the removal path, so a favourites list cached from the previous
+        // contents of the history may now name a row that is gone. The cache key no
+        // longer carries `transactions.count`, so this is what retires such a list.
+        invalidateSidebarFavoriteCache()
         recomputeTrafficSignalCounts()
     }
 
@@ -33,12 +38,35 @@ extension MainContentCoordinator {
             } else {
                 erroredTransactionIDs.remove(transaction.id)
             }
+            // A row's TLS disposition is stamped on the same deliveries that carry its
+            // response, so the set that the status bar's "available" count subtracts is
+            // maintained here rather than at its own call sites, for the same reason the
+            // signal badges are: separate call sites are what would let them drift.
+            if transaction.isTLSFailure {
+                tlsFailureTransactionIDs.insert(transaction.id)
+            } else {
+                tlsFailureTransactionIDs.remove(transaction.id)
+            }
         }
         errorCount = erroredTransactionIDs.count
         // The signal badges are derived from the retained rows exactly as this count is,
         // so they are maintained from the same two points. Giving them their own call
         // sites is what would let the two drift apart.
         updateTrafficSignalCounts(for: updatedTransactions)
+    }
+
+    /// Rebuilds `tlsFailureTransactionIDs` from the whole retained capture.
+    ///
+    /// Lives beside the error count because it is maintained with it, and is reachable on
+    /// its own for one reason: Clear Session empties the history without going through
+    /// `recomputeErrorCount()` -- it resets the error and signal state inline -- and a set
+    /// left describing cleared rows would be subtracted from a history that no longer
+    /// holds them, under-reporting the status bar's "available" count for the rest of the
+    /// session. `resetTrafficMetrics()` is the point on that path this file can reach.
+    func rebuildTLSFailureTransactionIDs() {
+        tlsFailureTransactionIDs = Set(
+            transactions.lazy.filter(\.isTLSFailure).map(\.id)
+        )
     }
 
     static func isErrorResponse(_ transaction: HTTPTransaction) -> Bool {

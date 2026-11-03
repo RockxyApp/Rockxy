@@ -171,7 +171,16 @@ extension TrafficInsightsEngine {
         var results: [TrafficInsightsFinding] = []
         let serverHosts = index.errorsByHost
             .filter { !$0.value.serverErrors.isEmpty }
-            .sorted { $0.value.serverErrors.count > $1.value.serverErrors.count }
+            .sorted { lhs, rhs in
+                if lhs.value.serverErrors.count != rhs.value.serverErrors.count {
+                    return lhs.value.serverErrors.count > rhs.value.serverErrors.count
+                }
+                // Total ordering: a dictionary iterates in bucket order, so without the key
+                // tiebreak two hosts with the same count swapped places whenever the dictionary
+                // rehashed, and `prefix` silently dropped a different one each rebuild. Same
+                // shape as `repeatedRequestFindings`.
+                return lhs.key < rhs.key
+            }
             .prefix(3)
         for (host, entry) in serverHosts {
             let count = entry.serverErrors.count
@@ -197,7 +206,12 @@ extension TrafficInsightsEngine {
                 entry.value.completed >= hostSampleFloor
                     && Double(entry.value.clientErrors.count) / Double(entry.value.completed) >= 0.2
             }
-            .sorted { $0.value.clientErrors.count > $1.value.clientErrors.count }
+            .sorted { lhs, rhs in
+                if lhs.value.clientErrors.count != rhs.value.clientErrors.count {
+                    return lhs.value.clientErrors.count > rhs.value.clientErrors.count
+                }
+                return lhs.key < rhs.key
+            }
             .prefix(3)
         for (host, entry) in clientHosts {
             let count = entry.clientErrors.count
@@ -270,7 +284,14 @@ extension TrafficInsightsEngine {
                 }
                 return (host, tail, sorted.suffix(evidenceLimit).reversed().map(\.1))
             }
-            .sorted { $0.1 > $1.1 }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 {
+                    return lhs.1 > rhs.1
+                }
+                // The array still carries `timedByHost`'s bucket order, so equal tails need the
+                // host name to settle which one `prefix` keeps.
+                return lhs.0 < rhs.0
+            }
             .prefix(3)
             .map { host, tail, evidence in
                 TrafficInsightsFinding(
@@ -496,7 +517,12 @@ extension TrafficInsightsEngine {
                 let evidence = entries.sorted { $0.0 > $1.0 }.prefix(evidenceLimit).map(\.1)
                 return (host, average, evidence)
             }
-            .sorted { $0.1 > $1.1 }
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 {
+                    return lhs.1 > rhs.1
+                }
+                return lhs.0 < rhs.0
+            }
             .prefix(2)
             .map { host, average, evidence in
                 TrafficInsightsFinding(
