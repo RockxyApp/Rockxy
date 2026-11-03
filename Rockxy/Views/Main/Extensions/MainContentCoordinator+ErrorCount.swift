@@ -16,6 +16,7 @@ extension MainContentCoordinator {
             transactions.lazy.filter(Self.isErrorResponse).map(\.id)
         )
         errorCount = erroredTransactionIDs.count
+        recomputeTrafficSignalCounts()
     }
 
     /// Folds just the rows that arrived or changed into the count.
@@ -34,6 +35,10 @@ extension MainContentCoordinator {
             }
         }
         errorCount = erroredTransactionIDs.count
+        // The signal badges are derived from the retained rows exactly as this count is,
+        // so they are maintained from the same two points. Giving them their own call
+        // sites is what would let the two drift apart.
+        updateTrafficSignalCounts(for: updatedTransactions)
     }
 
     static func isErrorResponse(_ transaction: HTTPTransaction) -> Bool {

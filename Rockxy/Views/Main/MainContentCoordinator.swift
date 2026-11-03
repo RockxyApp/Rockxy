@@ -361,6 +361,18 @@ final class MainContentCoordinator {
     /// an extension in another file, and a private setter does not reach across files.
     @ObservationIgnored var erroredTransactionIDs: Set<UUID> = []
 
+    /// Badge counts for the sidebar's Traffic Signals, read by the sidebar instead of
+    /// being counted in its `body`.
+    var trafficSignalCounts: [TrafficSignal: Int] = [:]
+
+    /// Which signals each retained row is currently counted in, one bit per
+    /// `TrafficSignal.allCases` position. Same role as `erroredTransactionIDs`: it is
+    /// what lets a live refresh adjust the counts from just the rows that changed.
+    ///
+    /// Maintained only by `recomputeTrafficSignalCounts()` and
+    /// `updateTrafficSignalCounts(for:)`.
+    @ObservationIgnored var signalMaskByTransactionID: [UUID: UInt8] = [:]
+
     // MARK: - Breakpoint
 
     var breakpointManager = BreakpointManager.shared

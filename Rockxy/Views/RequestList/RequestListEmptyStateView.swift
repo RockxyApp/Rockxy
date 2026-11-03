@@ -39,7 +39,15 @@ struct RequestListEmptyStateView: View {
     // MARK: Private
 
     private var resolvedState: RequestListEmptyState? {
-        RequestListEmptyState.resolve(
+        // `resolve` returns nil for this case anyway, but reaching it evaluates
+        // `availableTransactionCountForCurrentScope`, which counts the whole retained
+        // capture. This view is mounted as an overlay rather than a replacement, so that
+        // scan ran on every pane render while rows were visible -- for a result that was
+        // always nil.
+        guard !hasVisibleRows else {
+            return nil
+        }
+        return RequestListEmptyState.resolve(
             hasVisibleRows: hasVisibleRows,
             availableCount: coordinator.availableTransactionCountForCurrentScope,
             hasActiveFilters: coordinator.hasActiveWorkspaceFilters,
