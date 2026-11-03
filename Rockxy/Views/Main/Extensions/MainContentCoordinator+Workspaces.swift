@@ -238,27 +238,43 @@ extension MainContentCoordinator {
         swap(&domains, &workspace.domainGroupingIndex)
         swap(&apps, &workspace.appGroupingIndex)
         let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+        var appGroupingChanged = false
         for transaction in updates {
-            reconcileSidebarContribution(
+            if reconcileSidebarContribution(
                 transaction,
                 domains: &domains,
                 apps: &apps,
                 workspace: workspace,
                 unknown: unknown
-            )
+            ) {
+                appGroupingChanged = true
+            }
             workspace.sidebarTransactionRevisions[ObjectIdentifier(transaction)] = transaction.listPresentationRevision
         }
-        apps.reconcileRetainedOrder(transactions)
+        // `reconcileRetainedOrder` is the one piece of full-capture work in an otherwise
+        // batch-sized refresh, and what it produces is a pure function of the retained
+        // order and the stored app memberships. A refresh that changed no membership --
+        // the common case while a WebSocket or SSE stream ticks for hours -- cannot have
+        // changed either input, so the pass would recompute the state the index already
+        // holds. Rows captured since the last pass were appended at the end of both the
+        // history and `insertionOrder`, so skipping it cannot reorder them, and eviction
+        // reconciles on its own path.
+        if appGroupingChanged {
+            apps.reconcileRetainedOrder(transactions)
+        }
         workspace.domainGroupingIndex = domains
         workspace.appGroupingIndex = apps
         refreshDomainTree(for: workspace)
         refreshAppNodes(for: workspace)
     }
 
+    /// Reconciles one row's sidebar contributions and reports whether the app grouping
+    /// changed, so a caller can skip the retained-order pass that depends on it.
+    @discardableResult
     private func reconcileSidebarContribution(
         _ transaction: HTTPTransaction, domains: inout DomainGroupingIndex,
         apps: inout AppGroupingIndex, workspace: WorkspaceState, unknown: String
-    ) {
+    ) -> Bool {
         let criteria = workspace.filterCriteria
         let host = transaction.request.host
         let matchesDomain = criteria.sidebarDomain.map {
@@ -272,10 +288,9 @@ extension MainContentCoordinator {
         }
         let name = transaction.clientApp ?? unknown
         if criteria.sidebarApp == nil || criteria.sidebarApp == name {
-            apps.upsert(transaction, appName: name)
-        } else {
-            apps.remove([transaction])
+            return apps.upsert(transaction, appName: name)
         }
+        return apps.remove([transaction])
     }
 
     func pruneSidebarSelectionIfNeeded(in workspace: WorkspaceState) {

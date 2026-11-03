@@ -477,95 +477,159 @@ extension MainContentCoordinator {
             return
         }
         let smartFilter = SmartTrafficFilter.parse(workspace.filterCriteria.searchText)
-        workspace.filteredTransactions = baseList.filter { transaction in
-            if transaction.isTLSFailure {
+        workspace.filteredTransactions = baseList.filter {
+            matchesActiveWorkspaceFilters($0, in: workspace, activeRules: activeRules, smartFilter: smartFilter)
+        }
+        deriveFilteredRows(for: workspace, reusingRetainedRows: reusingRetainedRows)
+    }
+
+    /// The single membership test behind the visible row set. `recomputeFilteredTransactions`
+    /// folds it over the retained capture; the live-row path evaluates it for the handful of
+    /// rows a flush changed. Sharing one predicate is what makes the cheap path provably
+    /// equivalent -- a second copy of these rules could drift and show the wrong rows.
+    ///
+    /// Every clause reads only the row and the workspace's own filter state, so the result
+    /// for one row never depends on any other row.
+    func matchesActiveWorkspaceFilters(
+        _ transaction: HTTPTransaction,
+        in workspace: WorkspaceState,
+        activeRules: [FilterRule],
+        smartFilter: SmartTrafficFilter
+    ) -> Bool {
+        if transaction.isTLSFailure {
+            return false
+        }
+        if !isVisibleInWorkspaceScope(transaction, workspace: workspace) {
+            return false
+        }
+        if let exactTransactionID = workspace.filterCriteria.exactTransactionID,
+           transaction.id != exactTransactionID
+        {
+            return false
+        }
+        if let sidebarDomain = workspace.filterCriteria.sidebarDomain {
+            guard DomainGrouping.host(transaction.request.host, matchesDomain: sidebarDomain) else {
                 return false
             }
-            if !isVisibleInWorkspaceScope(transaction, workspace: workspace) {
+        }
+        if !DomainGrouping.path(
+            transaction.request.path,
+            matchesPrefix: workspace.filterCriteria.sidebarPathPrefix
+        ) {
+            return false
+        }
+        if let sidebarApp = workspace.filterCriteria.sidebarApp {
+            guard transaction.clientApp == sidebarApp else {
                 return false
             }
-            if let exactTransactionID = workspace.filterCriteria.exactTransactionID,
-               transaction.id != exactTransactionID
+        }
+        if workspace.filterCriteria.isSearchEnabled, !workspace.filterCriteria.searchText.isEmpty {
+            guard smartFilter.matches(transaction) else {
+                return false
+            }
+            let searchText = smartFilter.remainingSearchText.lowercased()
+            if !searchText.isEmpty {
+                let targetValue = fieldValue(for: workspace.filterCriteria.searchField, in: transaction)
+                guard targetValue.lowercased().contains(searchText) else {
+                    return false
+                }
+            }
+        }
+        if !workspace.filterCriteria.methods.isEmpty {
+            guard workspace.filterCriteria.methods.contains(transaction.request.method) else {
+                return false
+            }
+        }
+        if !workspace.filterCriteria.statusCodes.isEmpty {
+            guard let status = transaction.response?.statusCode,
+                  workspace.filterCriteria.statusCodes.contains(status) else
             {
                 return false
             }
-            if let sidebarDomain = workspace.filterCriteria.sidebarDomain {
-                guard DomainGrouping.host(transaction.request.host, matchesDomain: sidebarDomain) else {
-                    return false
-                }
-            }
-            if !DomainGrouping.path(
-                transaction.request.path,
-                matchesPrefix: workspace.filterCriteria.sidebarPathPrefix
-            ) {
-                return false
-            }
-            if let sidebarApp = workspace.filterCriteria.sidebarApp {
-                guard transaction.clientApp == sidebarApp else {
-                    return false
-                }
-            }
-            if workspace.filterCriteria.isSearchEnabled, !workspace.filterCriteria.searchText.isEmpty {
-                guard smartFilter.matches(transaction) else {
-                    return false
-                }
-                let searchText = smartFilter.remainingSearchText.lowercased()
-                if !searchText.isEmpty {
-                    let targetValue = fieldValue(for: workspace.filterCriteria.searchField, in: transaction)
-                    guard targetValue.lowercased().contains(searchText) else {
-                        return false
-                    }
-                }
-            }
-            if !workspace.filterCriteria.methods.isEmpty {
-                guard workspace.filterCriteria.methods.contains(transaction.request.method) else {
-                    return false
-                }
-            }
-            if !workspace.filterCriteria.statusCodes.isEmpty {
-                guard let status = transaction.response?.statusCode,
-                      workspace.filterCriteria.statusCodes.contains(status) else
-                {
-                    return false
-                }
-            }
-            if !workspace.filterCriteria.contentTypes.isEmpty {
-                let requestType = transaction.request.contentType
-                let responseType = transaction.response?.contentType
-                guard requestType.map(workspace.filterCriteria.contentTypes.contains) == true
-                    || responseType.map(workspace.filterCriteria.contentTypes.contains) == true else
-                {
-                    return false
-                }
-            }
-            if !workspace.filterCriteria.domains.isEmpty {
-                guard workspace.filterCriteria.domains.contains(where: {
-                    DomainGrouping.host(transaction.request.host, matchesDomain: $0)
-                }) else {
-                    return false
-                }
-            }
-            if !workspace.filterCriteria.activeProtocolFilters.isEmpty {
-                let contentFilters = workspace.filterCriteria.activeProtocolFilters.filter { !$0.isStatusFilter }
-                let statusFilters = workspace.filterCriteria.activeProtocolFilters.filter(\.isStatusFilter)
-
-                if !contentFilters.isEmpty {
-                    guard contentFilters.contains(where: { $0.matches(transaction) }) else {
-                        return false
-                    }
-                }
-                if !statusFilters.isEmpty {
-                    guard statusFilters.contains(where: { $0.matches(transaction) }) else {
-                        return false
-                    }
-                }
-            }
-            if !activeRules.isEmpty, !FilterRuleEvaluator.matches(transaction, rules: activeRules) {
-                return false
-            }
-            return true
         }
-        deriveFilteredRows(for: workspace, reusingRetainedRows: reusingRetainedRows)
+        if !workspace.filterCriteria.contentTypes.isEmpty {
+            let requestType = transaction.request.contentType
+            let responseType = transaction.response?.contentType
+            guard requestType.map(workspace.filterCriteria.contentTypes.contains) == true
+                || responseType.map(workspace.filterCriteria.contentTypes.contains) == true else
+            {
+                return false
+            }
+        }
+        if !workspace.filterCriteria.domains.isEmpty {
+            guard workspace.filterCriteria.domains.contains(where: {
+                DomainGrouping.host(transaction.request.host, matchesDomain: $0)
+            }) else {
+                return false
+            }
+        }
+        if !workspace.filterCriteria.activeProtocolFilters.isEmpty {
+            let contentFilters = workspace.filterCriteria.activeProtocolFilters.filter { !$0.isStatusFilter }
+            let statusFilters = workspace.filterCriteria.activeProtocolFilters.filter(\.isStatusFilter)
+
+            if !contentFilters.isEmpty {
+                guard contentFilters.contains(where: { $0.matches(transaction) }) else {
+                    return false
+                }
+            }
+            if !statusFilters.isEmpty {
+                guard statusFilters.contains(where: { $0.matches(transaction) }) else {
+                    return false
+                }
+            }
+        }
+        if !activeRules.isEmpty, !FilterRuleEvaluator.matches(transaction, rules: activeRules) {
+            return false
+        }
+        return true
+    }
+
+    /// True when a live flush can be shown by rewriting the changed rows in place: none of
+    /// them crosses the visible-set boundary, and no active sort depends on what changed.
+    ///
+    /// The expensive alternative re-filters the whole retained capture and reprojects every
+    /// surviving row, which at a hundred thousand rows costs tens of milliseconds per flush
+    /// per workspace -- and flushes arrive about ten times a second while a stream is open.
+    /// Anything this cannot prove falls back to that full recompute, so a row that really
+    /// does enter or leave the filter is still placed by the authoritative path.
+    func liveUpdatesPreserveRowMembership(
+        _ updates: [HTTPTransaction],
+        in workspace: WorkspaceState
+    ) -> Bool {
+        // A finished response can change a sort key, and the table draws rows in sorted
+        // order, so these columns need the row set reordered rather than rewritten.
+        if workspace.activeSortDescriptors
+            .contains(where: { RequestListRow.requiresResortAfterLiveUpdate(columnID: $0.key ?? "") })
+        {
+            return false
+        }
+        let activeRules = FilterRuleEvaluator.activeRules(
+            in: workspace.filterRules,
+            isFilterBarVisible: workspace.isFilterBarVisible
+        )
+        let narrowsRows = !workspace.filterCriteria.isEmpty || !activeRules.isEmpty
+            || hasWorkspaceVisibilityRules(workspace)
+        let smartFilter = SmartTrafficFilter.parse(workspace.filterCriteria.searchText)
+        for transaction in updates {
+            // Only `.allTraffic` draws from the retained history. The pinned, saved, and
+            // notes scopes have their own base lists, and absence from those lists is not
+            // something the filter predicate can see, so treat any currently visible row in
+            // those scopes as unprovable and let the recompute decide.
+            let shouldBeVisible = workspace.filterCriteria.sidebarScope == .allTraffic
+                && !transaction.isTLSFailure
+                && (!narrowsRows || matchesActiveWorkspaceFilters(
+                    transaction,
+                    in: workspace,
+                    activeRules: activeRules,
+                    smartFilter: smartFilter
+                ))
+            // `trafficSelectionIndex` holds one entry per derived row, so it answers
+            // "is this row on screen right now" without scanning the row set.
+            guard (workspace.trafficSelectionIndex[transaction.id] != nil) == shouldBeVisible else {
+                return false
+            }
+        }
+        return true
     }
 
     private func hasWorkspaceVisibilityRules(_ workspace: WorkspaceState) -> Bool {
