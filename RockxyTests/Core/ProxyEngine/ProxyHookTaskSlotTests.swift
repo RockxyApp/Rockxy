@@ -38,7 +38,7 @@ struct ProxyHookTaskSlotTests {
     /// continuation, and the forward paths it reaches acquire a `ConnectionLimiter` slot and
     /// open a real origin connection for a client that is no longer there.
     @Test("A hook that resolves after the exchange ended delivers nothing")
-    func dropsOutcomeOnceExchangeEnded() async {
+    func dropsOutcomeOnceExchangeEnded() async throws {
         let loop = HookTestEventLoop()
         defer { loop.shutdown() }
         let slot = ProxyHookTaskSlot()

@@ -67,16 +67,6 @@ actor ScriptRuntime {
 
     // MARK: Internal
 
-    /// How many loads are currently suspended evaluating a plugin's source.
-    ///
-    /// Only the unload-wins regression test reads this. It has to fire its unload while a
-    /// load is actually in flight, and it cannot get there by racing: `loadPlugin` and
-    /// `unloadPlugin` both have to reach this actor, so an unload started right after the
-    /// load can still arrive first, find nothing to supersede, and let the later load
-    /// register itself -- which is correct behavior, and would make the test pass without
-    /// ever exercising the guard it exists to cover.
-    private(set) var inFlightLoadCount = 0
-
     func loadPlugin(_ info: PluginInfo) async throws {
         guard let scriptEntry = info.manifest.entryPoints["script"] else {
             throw ScriptRuntimeError.scriptLoadFailed(
@@ -142,8 +132,6 @@ actor ScriptRuntime {
         // the finishing load register itself, leaving a script the user had switched off
         // still mutating traffic.
         let token = beginLoad(of: info.id)
-        inFlightLoadCount += 1
-        defer { inFlightLoadCount -= 1 }
         let products = try await evaluateSource(
             source,
             in: context,
@@ -197,6 +185,15 @@ actor ScriptRuntime {
     }
 
     #if DEBUG
+    /// Test seam: runs on the plugin's own queue at the start of every source evaluation,
+    /// before any script code. A test uses it to learn the instant a load is evaluating
+    /// and to hold the evaluation there while it unloads, so the interleaving is decided
+    /// by the test rather than by scheduling. Absent in release builds and nil unless a
+    /// test sets it, so the production path is the plain evaluation.
+    func setSourceEvaluationHook(_ hook: (@Sendable () -> Void)?) {
+        sourceEvaluationHook = hook
+    }
+
     /// Test seam: flow states this plugin's store is still holding. A flow that no
     /// response hook will ever end has to leave this at zero.
     func pendingFlowStateCount(pluginID: String) -> Int {
@@ -638,6 +635,9 @@ actor ScriptRuntime {
     /// from `loadGenerations`, which identifies a load that already succeeded so the hook
     /// watchdog can prove it is retiring the load it timed out on.
     private var loadTokens: [String: Int] = [:]
+    #if DEBUG
+    private var sourceEvaluationHook: (@Sendable () -> Void)?
+    #endif
     private var lastLoadToken = 0
     private var queues: [String: DispatchQueue] = [:]
     private var exceptionLocks: [String: OSAllocatedUnfairLock<String?>] = [:]
@@ -770,9 +770,15 @@ actor ScriptRuntime {
     {
         let products = ScriptLoadProducts()
         let gate = ScriptResumeGate()
+        #if DEBUG
+        let evaluationHook = sourceEvaluationHook
+        #endif
 
         return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
+                #if DEBUG
+                evaluationHook?()
+                #endif
                 // CommonJS compatibility: prime `module` and `exports` as globals BEFORE
                 // evaluating user source so scripts that use `module.exports = { ... }`
                 // pick them up. Evaluating the user source at the top level (not inside an
