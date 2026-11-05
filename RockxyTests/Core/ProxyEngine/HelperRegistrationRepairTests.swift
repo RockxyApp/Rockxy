@@ -104,6 +104,153 @@ struct HelperRegistrationRepairTests {
         #expect(await HelperLaunchdProbe.presence(ofMachService: name) == .absent)
     }
 
+    @Test("a launchctl listing yields state, active count and BTM uuid, and ignores job state")
+    func snapshotParsing() {
+        let parsed = Self.snapshot(Self.btmListing)
+        #expect(parsed.presence == .loaded)
+        #expect(parsed.state == "spawn scheduled")
+        #expect(parsed.activeCount == 0)
+        #expect(parsed.btmUUID == "06F53892-A982-446F-8E1E-6B962061223F")
+        #expect(parsed.isSpawnScheduledAndIdle)
+
+        let noUUID = Self
+            .snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 0\n\tstate = spawn scheduled\n}")
+        #expect(noUUID.btmUUID == nil)
+        #expect(noUUID.isSpawnScheduledAndIdle)
+
+        let idle = Self.snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 0\n\tstate = not running\n}")
+        #expect(!idle.isSpawnScheduledAndIdle)
+        let running = Self
+            .snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 1\n\tstate = spawn scheduled\n}")
+        #expect(!running.isSpawnScheduledAndIdle)
+        // `job state` must not be mistaken for `state`.
+        let jobStateOnly = Self
+            .snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 0\n\tjob state = spawn scheduled\n}")
+        #expect(jobStateOnly.state == nil)
+        #expect(!Self.snapshot("Could not find service \"x\"", status: 113).isSpawnScheduledAndIdle)
+    }
+
+    @Test("record identity compares uuids and reports unknown when either cannot be read")
+    func recordIdentity() {
+        let id = "06F53892-A982-446F-8E1E-6B962061223F"
+        #expect(BTMRecordIdentity.compare(before: id, after: id.lowercased()) == .same)
+        #expect(BTMRecordIdentity.compare(before: id, after: "11111111-2222-3333-4444-555555555555") == .different)
+        #expect(BTMRecordIdentity.compare(before: nil, after: id) == .unknown)
+        #expect(BTMRecordIdentity.compare(before: id, after: nil) == .unknown)
+        #expect(BTMRecordIdentity.compare(before: "  ", after: id) == .unknown)
+        #expect(BTMRecordIdentity.compare(before: nil, after: nil) == .unknown)
+    }
+
+    @Test("same record reused after re-register is unresolvable")
+    func sameRecordIsUnresolvable() {
+        let job = Self.snapshot(Self.btmListing)
+        #expect(HelperManager.isUnresolvableRecord(job: job, beforeBTMUUID: job.btmUUID))
+        #expect(
+            HelperManager.registrationRepairOutcome(
+                registerError: nil,
+                serviceStatus: .enabled,
+                helperAnswered: false,
+                jobAfter: job,
+                beforeBTMUUID: job.btmUUID
+            ) == .recordUnresolvable
+        )
+    }
+
+    @Test("an unreadable before-uuid does not block the finding, because launchd had no job to print")
+    func unreadableBeforeUUID() {
+        let job = Self.snapshot(Self.btmListing)
+        #expect(HelperManager.isUnresolvableRecord(job: job, beforeBTMUUID: nil))
+        // Unreadable after as well: the spawn-scheduled shape alone still decides.
+        let noUUID = Self
+            .snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 0\n\tstate = spawn scheduled\n}")
+        #expect(HelperManager.isUnresolvableRecord(job: noUUID, beforeBTMUUID: "06F53892-A982-446F-8E1E-6B962061223F"))
+    }
+
+    @Test("a new record uuid is not unresolvable, so it stays an ordinary failure")
+    func newRecordIsNotUnresolvable() {
+        let job = Self.snapshot(Self.btmListing)
+        #expect(!HelperManager.isUnresolvableRecord(job: job, beforeBTMUUID: "11111111-2222-3333-4444-555555555555"))
+        #expect(
+            HelperManager.registrationRepairOutcome(
+                registerError: nil,
+                serviceStatus: .enabled,
+                helperAnswered: false,
+                jobAfter: job,
+                beforeBTMUUID: "11111111-2222-3333-4444-555555555555"
+            ) == .stillBroken
+        )
+    }
+
+    @Test("a healthy or merely idle job is never reported as unresolvable")
+    func healthyJobIsNotUnresolvable() {
+        let idle = Self.snapshot("system/com.amunx.rockxy.helper = {\n\tactive count = 0\n\tstate = not running\n}")
+        #expect(!HelperManager.isUnresolvableRecord(job: idle, beforeBTMUUID: nil))
+        #expect(
+            HelperManager.registrationRepairOutcome(
+                registerError: nil,
+                serviceStatus: .enabled,
+                helperAnswered: true,
+                jobAfter: Self.snapshot(Self.btmListing),
+                beforeBTMUUID: nil
+            ) == .recovered
+        )
+        #expect(!HelperManager.isUnresolvableRecord(job: .undetermined, beforeBTMUUID: nil))
+    }
+
+    @Test("a later launch recognises the same unresolvable record without repeating the repair")
+    func laterLaunchRecognisesRecord() {
+        let job = Self.snapshot(Self.btmListing)
+        let previous = HelperRegistrationRepairRecord(
+            outcome: .recordUnresolvable,
+            appBuild: Self.build,
+            attemptedAt: Date(timeIntervalSince1970: 0),
+            btmUUID: job.btmUUID
+        )
+        #expect(HelperManager.recordStillUnresolvable(previous: previous, job: job, xpcAnswered: false))
+        // XPC answering, no history, other history, or a different record all clear it.
+        #expect(!HelperManager.recordStillUnresolvable(previous: previous, job: job, xpcAnswered: true))
+        #expect(!HelperManager.recordStillUnresolvable(previous: nil, job: job, xpcAnswered: false))
+        #expect(
+            !HelperManager.recordStillUnresolvable(
+                previous: Self.record(.stillBroken, build: Self.build),
+                job: job,
+                xpcAnswered: false
+            )
+        )
+        var replaced = previous
+        replaced.btmUUID = "11111111-2222-3333-4444-555555555555"
+        #expect(!HelperManager.recordStillUnresolvable(previous: replaced, job: job, xpcAnswered: false))
+    }
+
+    @Test("unresolvable is terminal for the build, maps to a stopped wait, and persists its uuid")
+    func unresolvableIsTerminalAndPersists() {
+        #expect(HelperRegistrationRepairRecord.Outcome.recordUnresolvable.isTerminalForBuild)
+        #expect(HelperManager.registrationRepairResult(for: .recordUnresolvable) == .stillBroken)
+
+        let defaults = IsolatedDefaultsSuite.make(prefix: "Rockxy.HelperRegistrationRepairTests")
+        let withUUID = HelperRegistrationRepairRecord(
+            outcome: .recordUnresolvable,
+            appBuild: Self.build,
+            attemptedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            btmUUID: "06F53892-A982-446F-8E1E-6B962061223F"
+        )
+        HelperRegistrationRepairStore.save(withUUID, defaults: defaults)
+        #expect(HelperRegistrationRepairStore.load(defaults: defaults) == withUUID)
+
+        var withoutUUID = withUUID
+        withoutUUID.btmUUID = nil
+        HelperRegistrationRepairStore.save(withoutUUID, defaults: defaults)
+        #expect(HelperRegistrationRepairStore.load(defaults: defaults) == withoutUUID)
+    }
+
+    @Test("the remedy copy is password-free and never suggests restarting")
+    func remedyCopy() {
+        let message = HelperManager.registrationRecordUnresolvableMessage
+        #expect(message != HelperManager.registrationBrokenMessage)
+        #expect(!message.lowercased().contains("restart"))
+        #expect(!message.lowercased().contains("force reset"))
+    }
+
     // MARK: - Rate limit and record
 
     @Test("a dead registration with no history gets one attempt")
@@ -301,6 +448,20 @@ struct HelperRegistrationRepairTests {
 
     // MARK: Private
 
+    // MARK: - Unresolvable BTM record
+
+    private static let btmListing = """
+    system/com.amunx.rockxy.helper = {
+    \tactive count = 0
+    \ttype = LaunchDaemon
+    \tstate = spawn scheduled
+    \tprogram identifier = Contents/Library/HelperTools/RockxyHelperTool (mode: 2)
+    \tparent bundle identifier = com.amunx.rockxy.community
+    \tBTM uuid = 06F53892-A982-446F-8E1E-6B962061223F
+    \tjob state = uninitialized
+    }
+    """
+
     private static let build = "0.41.0 (62)"
 
     private static let dead = HelperRegistrationEvidence(
@@ -310,6 +471,15 @@ struct HelperRegistrationRepairTests {
         legacyArtifactsPresent: false,
         isLegacyFallbackBundle: false
     )
+
+    private static func snapshot(_ output: String, status: Int32 = 0) -> LaunchdJobSnapshot {
+        HelperLaunchdProbe.makeSnapshot(
+            exitStatus: status,
+            wasSignalled: false,
+            output: output,
+            machService: "com.amunx.rockxy.helper"
+        )
+    }
 
     private static func record(
         _ outcome: HelperRegistrationRepairRecord.Outcome,

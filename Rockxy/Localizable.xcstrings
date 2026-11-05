@@ -18590,6 +18590,16 @@
         }
       }
     },
+    "macOS cannot locate the app that registered Rockxy's helper tool. In System Settings > Login Items & Extensions, remove Rockxy's item, then reopen Rockxy.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 无法找到注册 Rockxy 辅助工具的应用。请在“系统设置 > 登录项与扩展”中移除 Rockxy 的项目，然后重新打开 Rockxy。"
+          }
+        }
+      }
+    },
     "Helper is responding and matches the bundled version.": {
       "localizations": {
         "zh-Hans": {

@@ -18,6 +18,57 @@ enum LaunchdJobPresence: Equatable, Sendable {
     case undetermined
 }
 
+// MARK: - LaunchdJobSnapshot
+
+/// What one `launchctl print system/<name>` told us about the helper's job.
+struct LaunchdJobSnapshot: Equatable, Sendable {
+    static let undetermined = LaunchdJobSnapshot(presence: .undetermined)
+
+    var presence: LaunchdJobPresence
+    /// The top-level `state = …` line, for example "spawn scheduled" or "not running".
+    var state: String?
+    var activeCount: Int?
+    /// The `BTM uuid = …` line: the Background Task Management record that owns the job. Only
+    /// present while the job exists, so it cannot be read for a registration launchd has no job
+    /// for. Not guaranteed on every macOS release; nil means "could not read", never "none".
+    var btmUUID: String?
+
+    /// launchd wants to start the job and has not managed to: the shape of a record whose parent
+    /// bundle cannot be resolved. An on-demand job that simply has not been called is
+    /// "not running", so this is not what a healthy idle helper looks like.
+    var isSpawnScheduledAndIdle: Bool {
+        presence == .loaded && state == "spawn scheduled" && activeCount == 0
+    }
+}
+
+// MARK: - BTMRecordIdentity
+
+/// Whether two readings of the BTM record uuid describe the same record.
+enum BTMRecordIdentity: Equatable, Sendable {
+    case same
+    case different
+    /// At least one side could not be read. Never evidence of either.
+    case unknown
+
+    // MARK: Internal
+
+    static func compare(before: String?, after: String?) -> BTMRecordIdentity {
+        guard let before = normalized(before), let after = normalized(after) else {
+            return .unknown
+        }
+        return before == after ? .same : .different
+    }
+
+    // MARK: Private
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.uppercased()
+    }
+}
+
 // MARK: - HelperLaunchdProbe
 
 /// Asks launchd whether the system domain has a job for a Mach service, using the documented
@@ -27,12 +78,18 @@ enum LaunchdJobPresence: Equatable, Sendable {
 /// only ever runs once the helper is already unreachable. Any outcome that is not an explicit
 /// "Could not find service" or an explicit job listing is `.undetermined`, which never repairs.
 enum HelperLaunchdProbe {
+    // MARK: Internal
+
     static let launchctlURL = URL(fileURLWithPath: "/bin/launchctl")
     static let timeout: TimeInterval = 5
     /// `print` output for a job is a few KB; this only stops a runaway child.
     static let outputLimit = 256 * 1_024
 
     static func presence(ofMachService name: String) async -> LaunchdJobPresence {
+        await snapshot(ofMachService: name).presence
+    }
+
+    static func snapshot(ofMachService name: String) async -> LaunchdJobSnapshot {
         do {
             let result = try await BoundedProcessRun.runDetached(
                 executable: launchctlURL,
@@ -41,7 +98,7 @@ enum HelperLaunchdProbe {
                 outputLimit: outputLimit,
                 mergesStandardError: true
             )
-            return classify(
+            return makeSnapshot(
                 exitStatus: result.status,
                 wasSignalled: result.wasSignalled,
                 output: result.combinedText,
@@ -51,6 +108,38 @@ enum HelperLaunchdProbe {
             // Timeout, overflow, or a launch failure: no evidence either way.
             return .undetermined
         }
+    }
+
+    /// Pure: classification plus the fields of a listing that the unresolvable-record check reads.
+    static func makeSnapshot(
+        exitStatus: Int32,
+        wasSignalled: Bool,
+        output: String,
+        machService: String
+    )
+        -> LaunchdJobSnapshot
+    {
+        let presence = classify(
+            exitStatus: exitStatus,
+            wasSignalled: wasSignalled,
+            output: output,
+            machService: machService
+        )
+        guard presence == .loaded else {
+            return LaunchdJobSnapshot(presence: presence)
+        }
+        var snapshot = LaunchdJobSnapshot(presence: presence)
+        for rawLine in output.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if snapshot.state == nil, let value = value(of: "state", in: line) {
+                snapshot.state = value
+            } else if snapshot.activeCount == nil, let value = value(of: "active count", in: line) {
+                snapshot.activeCount = Int(value)
+            } else if snapshot.btmUUID == nil, let value = value(of: "BTM uuid", in: line) {
+                snapshot.btmUUID = value
+            }
+        }
+        return snapshot
     }
 
     /// Pure mapping from a finished `launchctl print`, so it is testable without launchd.
@@ -69,6 +158,18 @@ enum HelperLaunchdProbe {
             return output.hasPrefix("system/\(machService)") ? .loaded : .undetermined
         }
         return output.contains("Could not find service") ? .absent : .undetermined
+    }
+
+    // MARK: Private
+
+    /// `key = value` for an exact key, so `state` never matches `job state`.
+    private static func value(of key: String, in line: String) -> String? {
+        let prefix = "\(key) = "
+        guard line.hasPrefix(prefix) else {
+            return nil
+        }
+        let value = line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? nil : value
     }
 }
 
@@ -97,12 +198,15 @@ struct HelperRegistrationRepairRecord: Equatable, Sendable {
         case requiresApproval
         case stillBroken
         case registerFailed
+        /// launchd has a job for the helper but its approved BTM record cannot be resolved to the
+        /// app that registered it, so re-registering reuses the same dead record.
+        case recordUnresolvable
 
         // MARK: Internal
 
         /// Outcomes after which repeating the identical repair on the identical build is noise.
         var isTerminalForBuild: Bool {
-            self == .stillBroken || self == .registerFailed
+            self == .stillBroken || self == .registerFailed || self == .recordUnresolvable
         }
     }
 
@@ -110,6 +214,8 @@ struct HelperRegistrationRepairRecord: Equatable, Sendable {
     /// `CFBundleShortVersionString (CFBundleVersion)` of the app that made the attempt.
     var appBuild: String
     var attemptedAt: Date
+    /// The BTM record uuid read after the attempt, when launchd exposed one.
+    var btmUUID: String?
 }
 
 // MARK: - HelperRegistrationRepairStore
@@ -138,7 +244,8 @@ enum HelperRegistrationRepairStore {
         return HelperRegistrationRepairRecord(
             outcome: outcome,
             appBuild: build,
-            attemptedAt: Date(timeIntervalSince1970: timestamp)
+            attemptedAt: Date(timeIntervalSince1970: timestamp),
+            btmUUID: stored[btmField] as? String
         )
     }
 
@@ -147,14 +254,15 @@ enum HelperRegistrationRepairStore {
         defaults: UserDefaults = .standard,
         identity: RockxyIdentity = .current
     ) {
-        defaults.set(
-            [
-                outcomeField: record.outcome.rawValue,
-                buildField: record.appBuild,
-                timeField: record.attemptedAt.timeIntervalSince1970,
-            ],
-            forKey: key(identity: identity)
-        )
+        var stored: [String: Any] = [
+            outcomeField: record.outcome.rawValue,
+            buildField: record.appBuild,
+            timeField: record.attemptedAt.timeIntervalSince1970,
+        ]
+        if let uuid = record.btmUUID {
+            stored[btmField] = uuid
+        }
+        defaults.set(stored, forKey: key(identity: identity))
     }
 
     // MARK: Private
@@ -162,6 +270,7 @@ enum HelperRegistrationRepairStore {
     private static let outcomeField = "outcome"
     private static let buildField = "build"
     private static let timeField = "time"
+    private static let btmField = "btm"
 }
 
 // MARK: - HelperManager registration repair
@@ -225,7 +334,9 @@ extension HelperManager {
     nonisolated static func registrationRepairOutcome(
         registerError: Error?,
         serviceStatus: SMAppService.Status,
-        helperAnswered: Bool
+        helperAnswered: Bool,
+        jobAfter: LaunchdJobSnapshot? = nil,
+        beforeBTMUUID: String? = nil
     )
         -> HelperRegistrationRepairRecord.Outcome
     {
@@ -237,7 +348,36 @@ extension HelperManager {
         if serviceStatus == .requiresApproval {
             return .requiresApproval
         }
-        return helperAnswered ? .recovered : .stillBroken
+        if helperAnswered {
+            return .recovered
+        }
+        if let jobAfter, isUnresolvableRecord(job: jobAfter, beforeBTMUUID: beforeBTMUUID) {
+            return .recordUnresolvable
+        }
+        return .stillBroken
+    }
+
+    /// The registered job exists and launchd is trying to spawn it, yet nothing answers and the
+    /// record is not provably a new one. `beforeBTMUUID` is usually unreadable on the first
+    /// attempt, because launchd had no job to print; `.unknown` therefore does not block the
+    /// finding, but a uuid that demonstrably changed does, since a new record should resolve.
+    nonisolated static func isUnresolvableRecord(job: LaunchdJobSnapshot, beforeBTMUUID: String?) -> Bool {
+        job.isSpawnScheduledAndIdle
+            && BTMRecordIdentity.compare(before: beforeBTMUUID, after: job.btmUUID) != .different
+    }
+
+    /// A later launch finding the same unresolvable record again, with no mutation needed.
+    nonisolated static func recordStillUnresolvable(
+        previous: HelperRegistrationRepairRecord?,
+        job: LaunchdJobSnapshot,
+        xpcAnswered: Bool
+    )
+        -> Bool
+    {
+        guard previous?.outcome == .recordUnresolvable, !xpcAnswered else {
+            return false
+        }
+        return isUnresolvableRecord(job: job, beforeBTMUUID: previous?.btmUUID)
     }
 
     nonisolated static func registrationRepairResult(
@@ -251,7 +391,8 @@ extension HelperManager {
         case .requiresApproval:
             .requiresApproval
         case .stillBroken,
-             .registerFailed:
+             .registerFailed,
+             .recordUnresolvable:
             .stillBroken
         }
     }
@@ -261,6 +402,15 @@ extension HelperManager {
             localized: """
             Rockxy tried to repair the helper tool's macOS registration, but it still does not respond. \
             Restart your Mac, or use Force Reset in Advanced Settings if it stays unreachable.
+            """, bundle: RockxyLocalization.bundle
+        )
+    }
+
+    nonisolated static var registrationRecordUnresolvableMessage: String {
+        String(
+            localized: """
+            macOS cannot locate the app that registered Rockxy's helper tool. \
+            In System Settings > Login Items & Extensions, remove Rockxy's item, then reopen Rockxy.
             """, bundle: RockxyLocalization.bundle
         )
     }
@@ -302,7 +452,21 @@ extension HelperManager {
             setRegistrationRepairRecord(HelperRegistrationRepairStore.load())
         }
 
-        let evidence = await gatherRegistrationEvidence()
+        let (evidence, jobSnapshot) = await gatherRegistrationEvidence()
+
+        // The same dead record seen again: launchd has the job and cannot spawn it. Nothing to
+        // mutate, and the launch wait cannot help, so say what the user can do and stop.
+        if Self.recordStillUnresolvable(
+            previous: registrationRepairRecord,
+            job: jobSnapshot,
+            xpcAnswered: evidence.xpcAnswered
+        ) {
+            Self.registrationRepairLogger
+                .info("Helper registration record is still unresolvable; not repeating the repair")
+            publishRegistrationBroken()
+            return .stillBroken
+        }
+
         let decision = Self.registrationRepairDecision(
             evidence: evidence,
             previous: registrationRepairRecord,
@@ -326,7 +490,11 @@ extension HelperManager {
             return .stillBroken
 
         case .attempt:
-            return await performRegistrationRepair(service: service, reason: reason)
+            return await performRegistrationRepair(
+                service: service,
+                reason: reason,
+                beforeBTMUUID: jobSnapshot.btmUUID
+            )
         }
     }
 
@@ -337,17 +505,19 @@ extension HelperManager {
         category: "HelperRegistrationRepair"
     )
 
-    private func gatherRegistrationEvidence() async -> HelperRegistrationEvidence {
+    private func gatherRegistrationEvidence() async -> (HelperRegistrationEvidence, LaunchdJobSnapshot) {
         let identity = RockxyIdentity.current
         let machService = identity.helperMachServiceName
 
-        var job = await HelperLaunchdProbe.presence(ofMachService: machService)
+        var snapshot = await HelperLaunchdProbe.snapshot(ofMachService: machService)
+        var job = snapshot.presence
         if job == .absent {
             // One more look after a pause, so a job launchd is still loading at login is not
             // mistaken for a missing one. Anything but a second "absent" cancels the finding.
             try? await Task.sleep(for: .seconds(2))
             if await HelperLaunchdProbe.presence(ofMachService: machService) != .absent {
                 job = .undetermined
+                snapshot = .undetermined
             }
         }
 
@@ -364,18 +534,20 @@ extension HelperManager {
         let legacyPresent = fileManager.fileExists(atPath: Self.legacyInstalledHelperPath(identity: identity))
             || fileManager.fileExists(atPath: Self.legacyLaunchDaemonPlistPath(identity: identity))
 
-        return HelperRegistrationEvidence(
+        let evidence = HelperRegistrationEvidence(
             registrationIsEnabled: SMAppService.daemon(plistName: identity.helperPlistName).status == .enabled,
             launchdJob: job,
             xpcAnswered: answered,
             legacyArtifactsPresent: legacyPresent,
             isLegacyFallbackBundle: Self.shouldUseLegacyInstallFallbackForCurrentBundle()
         )
+        return (evidence, snapshot)
     }
 
     private func performRegistrationRepair(
         service: SMAppService,
-        reason: String
+        reason: String,
+        beforeBTMUUID: String?
     )
         async -> RegistrationRepairResult
     {
@@ -417,22 +589,30 @@ extension HelperManager {
 
         let serviceStatus = service.status
         var answered = false
+        var jobAfter: LaunchdJobSnapshot?
         if registerError == nil, serviceStatus == .enabled {
             HelperConnection.shared.invalidateSigningCache()
             HelperConnection.shared.resetConnection()
             await performCheckStatus()
             answered = isReachable
+            if !answered {
+                jobAfter = await HelperLaunchdProbe
+                    .snapshot(ofMachService: RockxyIdentity.current.helperMachServiceName)
+            }
         }
 
         let outcome = Self.registrationRepairOutcome(
             registerError: registerError,
             serviceStatus: serviceStatus,
-            helperAnswered: answered
+            helperAnswered: answered,
+            jobAfter: jobAfter,
+            beforeBTMUUID: beforeBTMUUID
         )
         setRegistrationRepairRecord(HelperRegistrationRepairRecord(
             outcome: outcome,
             appBuild: Self.currentAppBuildIdentifier,
-            attemptedAt: Date()
+            attemptedAt: Date(),
+            btmUUID: jobAfter?.btmUUID
         ))
         if let record = registrationRepairRecord {
             HelperRegistrationRepairStore.save(record)
@@ -468,14 +648,21 @@ extension HelperManager {
             notifyRegistrationRepairChanged()
 
         case .stillBroken,
-             .registerFailed:
+             .registerFailed,
+             .recordUnresolvable:
             publishRegistrationBroken()
         }
     }
 
     private func publishRegistrationBroken() {
         setAutomaticRefreshRecoveryPending(false)
-        setLastErrorMessage(Self.registrationBrokenMessage)
+        // Restarting does not clear an unresolvable record and Force Reset needs a password, so
+        // that state gets the password-free remedy instead of the generic advice.
+        setLastErrorMessage(
+            registrationRepairRecord?.outcome == .recordUnresolvable
+                ? Self.registrationRecordUnresolvableMessage
+                : Self.registrationBrokenMessage
+        )
         notifyRegistrationRepairChanged()
     }
 
