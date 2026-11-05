@@ -613,6 +613,9 @@ extension MainContentCoordinator {
     func deleteTransactions(_ transactionsToDelete: [HTTPTransaction]) {
         let ids = Set(transactionsToDelete.map(\.id))
         transactions.removeAll { ids.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: ids)
         syncActiveProjectHistory()
         rebuildObservedDomainsByApp()
         recomputeErrorCount()

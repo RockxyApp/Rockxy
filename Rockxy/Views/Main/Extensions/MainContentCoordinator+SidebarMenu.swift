@@ -890,6 +890,9 @@ extension MainContentCoordinator {
             }.map(\.id)
         )
         transactions.removeAll { removedIDs.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: removedIDs)
         syncActiveProjectHistory()
         // Rows left the history, which is the one change the count cannot be folded
         // forward from -- the deleted rows are already gone by the time we look.
@@ -927,6 +930,9 @@ extension MainContentCoordinator {
     func removeAppFromSidebar(_ appName: String) {
         let removedIDs = Set(transactions.lazy.filter { $0.clientApp == appName }.map(\.id))
         transactions.removeAll { removedIDs.contains($0.id) }
+        // The user asked for these rows to go for good; their cached AI evidence can never hit
+        // again. Hygiene only -- the cache holds no header, cookie or body material.
+        AITrafficDetector.discardCachedEvidence(for: removedIDs)
         syncActiveProjectHistory()
         // Rows left the history, which is the one change the count cannot be folded
         // forward from -- the deleted rows are already gone by the time we look.

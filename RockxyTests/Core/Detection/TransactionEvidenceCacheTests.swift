@@ -73,6 +73,50 @@ struct TransactionEvidenceCacheTests {
         #expect(cache.entry(for: id) == nil)
     }
 
+    @Test("Concurrent store and discard at the count limit keeps the accounting exact")
+    func concurrentStoreAndDiscardKeepsAccountingExact() {
+        // Fixed counts of work, no timing. Few ids and a small limit force replacement,
+        // re-storing the same object, discard-versus-store races and limit evictions.
+        let ids = (0 ..< 8).map { _ in UUID() }
+        let pool = ids.map { id in (0 ..< 4).map { _ in Entry(id: id) } }
+        let limit = 4
+        for _ in 0 ..< 100 {
+            let cache = TransactionEvidenceCache<Entry>(countLimit: limit)
+            DispatchQueue.concurrentPerform(iterations: 8) { worker in
+                for step in 0 ..< 1_000 {
+                    let slot = (worker * 7 + step * 3) % ids.count
+                    switch step % 5 {
+                    case 0:
+                        cache.discard([ids[slot], ids[(slot + 1) % ids.count]])
+                    case 1:
+                        cache.store(pool[slot][0])
+                    default:
+                        cache.store(pool[slot][(worker + step) % 4])
+                    }
+                }
+            }
+            // Quiescent: every writer has returned. A leaked key makes count exceed the live
+            // entries; a lost key (undercount) makes it fall below them.
+            let live = ids.filter { cache.entry(for: $0) != nil }.count
+            #expect(cache.count == live)
+            #expect(cache.isEmpty == (live == 0))
+            #expect(live <= limit)
+        }
+    }
+
+    @Test("Re-storing the same entry keeps it tracked")
+    func restoringTheSameEntryKeepsItTracked() {
+        let cache = TransactionEvidenceCache<Entry>(countLimit: 100)
+        let entry = Entry()
+        cache.store(entry)
+        cache.store(entry)
+
+        #expect(cache.count == 1)
+        #expect(cache.entry(for: entry.cacheID) === entry)
+        #expect(cache.discard([entry.cacheID]) == 1)
+        #expect(cache.isEmpty)
+    }
+
     @Test("Discarding evicted rows drops their cached signal and filter facts")
     func detectorDiscardDropsBothCaches() {
         let kept = makeTransaction()
