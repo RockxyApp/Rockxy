@@ -130,7 +130,6 @@ struct TrafficPaneView: View {
             appendChainOrigin: pane.appendChainOriginToken,
             rewriteChainOrigin: pane.activeRewriteChain?.originToken,
             rewrittenRowIndexes: pane.activeRewriteChain?.rowIndexes ?? IndexSet(),
-            rowChangeLedger: pane.rowChangeLedger,
             selectionIndex: pane.trafficSelectionIndex,
             revealRequest: pane.trafficRevealRequest,
             selectedIDs: $selectedIDs,

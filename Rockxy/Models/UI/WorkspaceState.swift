@@ -130,9 +130,6 @@ final class WorkspaceState: Identifiable {
     @ObservationIgnored var trafficSelectionIndex: [UUID: TrafficSelectionIndexEntry] = [:]
     var refreshToken: Int = 0
 
-    /// How recent `refreshToken` bumps changed the row set, oldest first. See `recordRowChange`.
-    @ObservationIgnored private(set) var rowChangeLedger: [RowChangeStep] = []
-
     /// Set true only by the genuine append fast-path in appendFilteredTransactions, and
     /// cleared by deriveFilteredRows (and reset) once a full derivation replaces the rows.
     /// The table reads this as the coarse "the last mutation only appended rows" signal.
@@ -209,28 +206,6 @@ final class WorkspaceState: Identifiable {
         }
         refreshToken += 1
         rewriteChainTailToken = refreshToken
-        recordRowChange(removedHead: 0, appended: 0, rewritten: indexes)
-    }
-
-    /// Appends the ledger entry for the mutation that just produced `refreshToken`.
-    ///
-    /// Call it immediately after the token bump. Each entry says how the row set at
-    /// `refreshToken - 1` became the row set at `refreshToken`: rows removed from the head,
-    /// rows added at the tail, and which surviving rows were replaced. A mutation that does
-    /// not record an entry leaves a hole in the sequence, and the table then falls back to a
-    /// full reload rather than guess -- so a new mutation path cannot forget to retire it.
-    func recordRowChange(removedHead: Int, appended: Int, rewritten: IndexSet) {
-        rowChangeLedger.append(
-            RowChangeStep(
-                token: refreshToken,
-                removedHead: removedHead,
-                appended: appended,
-                rewritten: rewritten
-            )
-        )
-        if rowChangeLedger.count > Self.rowChangeLedgerLimit {
-            rowChangeLedger.removeFirst(rowChangeLedger.count - Self.rowChangeLedgerLimit)
-        }
     }
 
     /// Publishes a fresh reveal request for `transactionID`, advancing the monotonic generation so
@@ -294,93 +269,10 @@ final class WorkspaceState: Identifiable {
 
     // MARK: Private
 
-    /// Entries kept for the table to compose. A refresh coalesces a handful of mutations at
-    /// most; a table further behind than this reloads instead.
-    private static let rowChangeLedgerLimit = 32
-
     @ObservationIgnored private var rewriteChainTailToken: Int?
     @ObservationIgnored private var rewrittenRowIndexSet = IndexSet()
 
     /// Monotonic backing counter for `trafficRevealRequest`. Deliberately never reset so reveal
     /// generations stay strictly increasing across the workspace's lifetime.
     @ObservationIgnored private var trafficRevealGeneration = 0
-}
-
-// MARK: - RowChangeStep
-
-/// One row-set mutation, as the table needs it to update without a full reload.
-struct RowChangeStep: Equatable {
-    /// The `refreshToken` this mutation produced.
-    let token: Int
-    /// Rows dropped from the front, in the coordinates of the set before the mutation.
-    let removedHead: Int
-    /// Rows added at the end.
-    let appended: Int
-    /// Surviving rows that were replaced, in the coordinates of the set after the mutation.
-    let rewritten: IndexSet
-}
-
-// MARK: - RowChangeWindow
-
-/// The net effect of a run of consecutive `RowChangeStep`s on the row set a table last drew.
-struct RowChangeWindow: Equatable {
-    /// Rows to drop from the front of the set the table last drew.
-    var removedHead = 0
-    /// Rows to add at the end of the new set.
-    var appended = 0
-    /// Rows of the new set that survived from the old one and were replaced, in new coordinates.
-    var rewritten = IndexSet()
-
-    /// Composes the steps for tokens `oldToken + 1 ... newToken`, or nil when the ledger
-    /// does not cover that run exactly or a step removes rows an earlier step appended
-    /// (the net effect is then no longer a head trim plus a tail append).
-    static func compose(
-        _ ledger: [RowChangeStep],
-        after oldToken: Int,
-        through newToken: Int,
-        startingRowCount: Int
-    )
-        -> RowChangeWindow?
-    {
-        guard newToken > oldToken else {
-            return nil
-        }
-        let steps = ledger.filter { $0.token > oldToken && $0.token <= newToken }
-        guard steps.count == newToken - oldToken,
-              zip(steps, (oldToken + 1) ... newToken).allSatisfy({ $0.token == $1 }) else
-        {
-            return nil
-        }
-        var window = RowChangeWindow()
-        var count = startingRowCount
-        for step in steps {
-            guard step.removedHead >= 0,
-                  step.appended >= 0,
-                  step.removedHead <= count - window.appended else
-            {
-                return nil
-            }
-            if step.removedHead > 0 {
-                window.rewritten.remove(integersIn: 0 ..< step.removedHead)
-                window.rewritten.shift(startingAt: step.removedHead, by: -step.removedHead)
-                window.removedHead += step.removedHead
-            }
-            count += step.appended - step.removedHead
-            window.appended += step.appended
-            window.rewritten.formUnion(step.rewritten)
-        }
-        // AppKit traps on a batch that nets smaller. Inside one
-        // `beginUpdates`/`endUpdates`, `removeRows` followed by `insertRows` is reconciled
-        // against a data source that already reports the final count, and a net shrink fails
-        // that reconciliation -- measured directly against a real `NSTableView`: removing 6
-        // and appending 5 aborts the process, while removing 5 and appending 5 or 6 is
-        // accepted. The steady state at the history cap evicts exactly what it appends, so
-        // the fast path still covers it; a batch that nets smaller reloads instead.
-        guard window.appended >= window.removedHead else {
-            return nil
-        }
-        // Rows in the appended region are inserted from the current set, never reloaded.
-        window.rewritten = window.rewritten.intersection(IndexSet(integersIn: 0 ..< (count - window.appended)))
-        return window
-    }
 }

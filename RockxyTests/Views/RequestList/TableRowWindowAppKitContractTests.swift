@@ -4,15 +4,19 @@ import Testing
 
 // MARK: - TableRowWindowAppKitContractTests
 
-/// Proves the AppKit side of the row-change window the request table applies at the history cap.
+/// The measured AppKit boundary for removing rows from the head of a table and inserting at
+/// its tail in one batch, kept as evidence after the row-window fast path that used it was
+/// removed (see the reload branch in `RequestTableView.updateNSView`).
 ///
-/// `applyRowChangeWindow` calls `removeRows` and `insertRows` inside one
-/// `beginUpdates`/`endUpdates` while the data source already reports the final row count.
-/// AppKit reconciles the batch at `endUpdates` and raises "Invalid update: invalid number of
-/// rows" when the net delta does not match the count change, and a view-based table can
-/// otherwise show a neighbouring row's data without raising anything at all. A GUI walk of
-/// this was blocked, so the contract is pinned here instead: these tests drive a real
-/// `NSTableView` through the exact sequence and then read back what each row resolves to.
+/// With `removeRows` and `insertRows` inside one `beginUpdates`/`endUpdates` while the data
+/// source already reports the final row count, AppKit accepts a batch that nets the same size
+/// or larger and aborts the process on one that nets smaller. Measured on a real
+/// `NSTableView`: removing 140 and appending 100 exits 133, and so does removing 6 and
+/// appending 5; 100/100 and 100/140 are accepted. The refused side is not driven here because
+/// it takes the test host down instead of failing an expectation.
+///
+/// Open experiment: staging the data source's row count across two update transactions might
+/// make a net-shrinking batch legal. Try it in `Harness` before touching the table.
 @MainActor
 @Suite("Table row window AppKit contract")
 struct TableRowWindowAppKitContractTests {
@@ -31,10 +35,7 @@ struct TableRowWindowAppKitContractTests {
 
     @Test("a batch that appends at least what it evicts reconciles")
     func growingAndEvenWindowsReconcile() {
-        // Measured boundary: AppKit accepts a batch that nets the same size or larger and
-        // aborts the process on one that nets smaller. Only the accepted side is driven here;
-        // the refused side is pinned on the composer below, because exercising it would take
-        // the test process down rather than fail an expectation.
+        // Only the accepted side of the boundary is driven; see the suite documentation.
         for (removedHead, appended) in [(100, 100), (100, 140), (0, 1), (0, 10)] {
             let harness = Harness(startingRows: 500)
             harness.applyWindow(removedHead: removedHead, appended: appended)
@@ -42,21 +43,6 @@ struct TableRowWindowAppKitContractTests {
             #expect(harness.tableView.numberOfRows == harness.rows.count)
             harness.expectEveryRowResolvesToItsModel()
         }
-    }
-
-    @Test("a window that nets smaller is refused before it reaches AppKit")
-    func netShrinkingWindowIsRefused() {
-        // `removeRows` 6 then `insertRows` 5 in one batch aborts a real NSTableView, so the
-        // composer must never offer such a window. This is the guard that keeps the fast path
-        // off the shape that crashes.
-        let shrinking = RowChangeStep(token: 1, removedHead: 6, appended: 5, rewritten: IndexSet())
-        #expect(RowChangeWindow.compose([shrinking], after: 0, through: 1, startingRowCount: 50) == nil)
-
-        let even = RowChangeStep(token: 1, removedHead: 5, appended: 5, rewritten: IndexSet())
-        #expect(RowChangeWindow.compose([even], after: 0, through: 1, startingRowCount: 50) != nil)
-
-        let growing = RowChangeStep(token: 1, removedHead: 5, appended: 6, rewritten: IndexSet())
-        #expect(RowChangeWindow.compose([growing], after: 0, through: 1, startingRowCount: 50) != nil)
     }
 
     @Test("rows shift by exactly the removed count, so no row shows its neighbour's data")
@@ -119,8 +105,7 @@ struct TableRowWindowAppKitContractTests {
         }
 
         /// Mutates the model to its final state first, then runs the batch -- the order
-        /// `applyRowChangeWindow` uses, and the one that makes the count already final when
-        /// AppKit sees the insert and remove.
+        /// that makes the count already final when AppKit sees the insert and remove.
         func applyWindow(removedHead: Int, appended: Int) {
             let previousCount = rows.count
             rows.removeFirst(removedHead)

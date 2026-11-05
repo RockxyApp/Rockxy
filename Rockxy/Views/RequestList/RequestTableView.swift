@@ -93,9 +93,6 @@ struct RequestTableView: NSViewRepresentable {
     /// indexes they replaced. Lets the table reload those rows instead of the whole list.
     var rewriteChainOrigin: Int?
     var rewrittenRowIndexes = IndexSet()
-    /// How recent refreshes changed the row set. Lets the table apply a head trim plus a tail
-    /// append (capture at the history cap) as row removals and insertions.
-    var rowChangeLedger: [RowChangeStep] = []
     var selectionIndex: [UUID: TrafficSelectionIndexEntry] = [:]
     var revealRequest: TrafficRevealRequest?
     var displayMetricsOverride: AppUIDisplayMetrics?
@@ -391,22 +388,29 @@ struct RequestTableView: NSViewRepresentable {
                     coordinator.reloadVisibleRows(in: tableView)
                     reloadedVisibleRowsForMetrics = true
                 }
-            } else if let window = coordinator.rowChangeWindow(
-                ledger: rowChangeLedger,
-                lastAppliedToken: oldToken,
-                newToken: newToken,
-                newCount: newCount,
-                workspaceChanged: workspaceChanged,
-                tableRowCount: tableView.numberOfRows,
-                previousRows: previousRows
-            ) {
-                coordinator.applyRowChangeWindow(window, newCount: newCount, in: tableView)
-                if displayChange?.reloadVisibleRows == true {
-                    coordinator.reloadVisibleRows(in: tableView)
-                    reloadedVisibleRowsForMetrics = true
-                }
             } else {
-                coordinator.fullReloadCount += 1
+                // Everything the two incremental branches above cannot prove reloads: a
+                // recompute, a sort, a filter change, a workspace switch, and the eviction
+                // batch at the history cap.
+                //
+                // Eviction is deliberately not applied as `removeRows` + `insertRows`. Inside
+                // one `beginUpdates`/`endUpdates`, with the data source already reporting the
+                // final count, a batch that nets smaller fails AppKit's reconciliation and
+                // aborts the process. Measured on a real NSTableView: removing 140 and
+                // appending 100 exits 133, and so does removing 6 and appending 5, while
+                // 100/100 and 100/140 are accepted (TableRowWindowAppKitContractTests).
+                //
+                // A row-window fast path was built and removed because it does not pay at
+                // the cap. Eviction always trims 100 rows (a tenth of the 1,000 cap), and a
+                // 100 ms flush carries about 9 rows at 92 rps. So about one batch in eleven
+                // nets about 91 smaller and reloads here, and the other ten are pure appends
+                // the append branch already handles. The window would only apply once a
+                // batch appends at least what eviction trims, roughly 1,000 rps. What remains
+                // is about one `reloadData` a second, 2-3% of main-thread samples.
+                //
+                // Untried idea, if that reload ever matters: apply the net-shrink batch as
+                // two update transactions with the data source reporting a staged row count
+                // between them. The experiment belongs in TableRowWindowAppKitContractTests.
                 coordinator.performProgrammaticTableUpdate {
                     tableView.reloadData()
                 }
@@ -623,11 +627,6 @@ extension RequestTableView {
         /// coordinator state back into NSTableView.
         private(set) var isUpdatingSortDescriptors = false
 
-        /// Full `reloadData()` calls issued by `updateNSView`. Counted work for tests.
-        var fullReloadCount = 0
-        /// Refreshes applied as a head removal plus a tail insertion. Counted work for tests.
-        var rowChangeWindowCount = 0
-
         var displayMetrics: AppUIDisplayMetrics {
             parent.displayMetricsOverride ?? environmentDisplayMetrics
         }
@@ -738,65 +737,6 @@ extension RequestTableView {
                 previousRows[index].id == rows[index].id
                     && previousRows[index].highlightColor == rows[index].highlightColor
             }
-        }
-
-        /// The net row change since the table last drew, when it can be applied without a
-        /// full reload: same workspace, AppKit and the coordinator agree on the old count,
-        /// the ledger covers every token since, and the new count is the old one minus the
-        /// head plus the tail. A rewritten survivor that kept its id and highlight can be
-        /// reloaded cell by cell; one whose row view would change falls back.
-        func rowChangeWindow(
-            ledger: [RowChangeStep],
-            lastAppliedToken: Int,
-            newToken: Int,
-            newCount: Int,
-            workspaceChanged: Bool,
-            tableRowCount: Int,
-            previousRows: [RequestListRow]
-        )
-            -> RowChangeWindow?
-        {
-            guard !workspaceChanged,
-                  previousRowCount > 0,
-                  tableRowCount == previousRowCount,
-                  previousRows.count == previousRowCount,
-                  let window = RowChangeWindow.compose(
-                      ledger,
-                      after: lastAppliedToken,
-                      through: newToken,
-                      startingRowCount: previousRowCount
-                  ),
-                  newCount == previousRowCount - window.removedHead + window.appended,
-                  newCount - window.appended > 0,
-                  newCount == rows.count else
-            {
-                return nil
-            }
-            let sameRowViews = window.rewritten.allSatisfy { index in
-                let before = index + window.removedHead
-                return previousRows.indices.contains(before)
-                    && previousRows[before].id == rows[index].id
-                    && previousRows[before].highlightColor == rows[index].highlightColor
-            }
-            return sameRowViews ? window : nil
-        }
-
-        func applyRowChangeWindow(_ window: RowChangeWindow, newCount: Int, in tableView: NSTableView) {
-            rowChangeWindowCount += 1
-            performProgrammaticTableUpdate {
-                tableView.beginUpdates()
-                if window.removedHead > 0 {
-                    tableView.removeRows(at: IndexSet(integersIn: 0 ..< window.removedHead), withAnimation: [])
-                }
-                if window.appended > 0 {
-                    tableView.insertRows(
-                        at: IndexSet(integersIn: (newCount - window.appended) ..< newCount),
-                        withAnimation: []
-                    )
-                }
-                tableView.endUpdates()
-            }
-            reloadRewrittenRows(window.rewritten, in: tableView)
         }
 
         /// Reloads the rewritten rows that are on screen. Rows outside the visible range have
