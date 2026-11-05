@@ -140,6 +140,12 @@ final class HelperManager {
     private(set) var registrationStatus: String = "Unknown"
     private(set) var automaticRefreshRecoveryPending = false
 
+    /// Last automatic registration repair, loaded from defaults the first time launch
+    /// reconciliation needs it. Nil means "never tried" on this machine.
+    private(set) var registrationRepairRecord: HelperRegistrationRepairRecord?
+    private(set) var registrationRepairAttemptedThisLaunch = false
+    private(set) var registrationRepairInFlight = false
+
     private(set) var status: HelperStatus = .notInstalled {
         didSet {
             if status != .signingMismatch {
@@ -440,6 +446,25 @@ final class HelperManager {
         automaticRefreshRecoveryPending = value
     }
 
+    func setRegistrationRepairRecord(_ value: HelperRegistrationRepairRecord?) {
+        registrationRepairRecord = value
+    }
+
+    func markRegistrationRepairAttempted() {
+        registrationRepairAttemptedThisLaunch = true
+    }
+
+    func setRegistrationRepairInFlight(_ value: Bool) {
+        registrationRepairInFlight = value
+    }
+
+    func markAwaitingApprovalAfterRepair() {
+        status = .requiresApproval
+        registrationStatus = "Awaiting Approval"
+        installedInfo = nil
+        isReachable = false
+    }
+
     /// Register the helper daemon via SMAppService.
     ///
     /// On macOS 13+, this uses `SMAppService.daemon(plistName:).register()` which
@@ -531,6 +556,11 @@ final class HelperManager {
         }
         HelperConnection.shared.resetConnection()
         await performCheckStatus()
+        // "Retry Connection" is what Settings offers for an unreachable helper, so it is where a
+        // user who noticed the problem lands. Still bound by the once-per-launch rule inside.
+        if status == .unreachable {
+            _ = await repairDeadRegistrationIfNeeded(reason: "user retry connection")
+        }
     }
 
     /// Reinstall the helper by uninstalling, then installing fresh.

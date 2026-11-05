@@ -18570,6 +18570,26 @@
         }
       }
     },
+    "Rockxy tried to repair the helper tool's macOS registration, but it still does not respond. Restart your Mac, or use Force Reset in Advanced Settings if it stays unreachable.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 已尝试修复辅助工具在 macOS 中的注册，但它仍然没有响应。请重新启动 Mac；如果仍无法访问，请在“高级设置”中使用强制重置。"
+          }
+        }
+      }
+    },
+    "macOS lost Rockxy's helper registration, so Rockxy registered it again. Approve the helper tool in System Settings > Login Items to finish.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 丢失了 Rockxy 的辅助工具注册，因此 Rockxy 已重新注册。请在“系统设置 > 登录项”中批准辅助工具以完成设置。"
+          }
+        }
+      }
+    },
     "Helper is responding and matches the bundled version.": {
       "localizations": {
         "zh-Hans": {
@@ -38386,6 +38406,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法访问辅助工具"
+          }
+        }
+      }
+    },
+    "the helper tool's macOS registration is broken and could not be repaired automatically": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助工具在 macOS 中的注册已损坏，且无法自动修复"
           }
         }
       }

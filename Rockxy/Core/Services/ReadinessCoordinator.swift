@@ -233,6 +233,9 @@ final class ReadinessCoordinator {
     private(set) var certReadiness: CertReadiness = .notGenerated
     private(set) var helperReadiness: HelperManager.HelperStatus = .notInstalled
     private(set) var helperSigningIssue: HelperManager.SigningIssue?
+    /// macOS approved the helper but launchd cannot resolve it, and Rockxy's one automatic
+    /// repair did not fix that. Only meaningful while the helper is `.unreachable`.
+    private(set) var helperRegistrationBroken = false
     private(set) var proxyMode: ProxyMode = .unavailable
     private(set) var systemRoutingReady = false
     private(set) var systemRoutingExpected = true
@@ -391,7 +394,8 @@ final class ReadinessCoordinator {
         isSystemTrustValidated: Bool,
         proxyMode: ProxyMode,
         helperReadiness: HelperManager.HelperStatus,
-        helperSigningIssue: HelperManager.SigningIssue?
+        helperSigningIssue: HelperManager.SigningIssue?,
+        helperRegistrationBroken: Bool = false
     )
         -> ReadinessWarning?
     {
@@ -406,7 +410,8 @@ final class ReadinessCoordinator {
         }
         return directModeWarning(
             helperReadiness: helperReadiness,
-            helperSigningIssue: helperSigningIssue
+            helperSigningIssue: helperSigningIssue,
+            helperRegistrationBroken: helperRegistrationBroken
         )
     }
 
@@ -831,7 +836,8 @@ final class ReadinessCoordinator {
 
     nonisolated private static func directModeWarning(
         helperReadiness: HelperManager.HelperStatus,
-        helperSigningIssue: HelperManager.SigningIssue?
+        helperSigningIssue: HelperManager.SigningIssue?,
+        helperRegistrationBroken: Bool
     )
         -> ReadinessWarning?
     {
@@ -844,6 +850,11 @@ final class ReadinessCoordinator {
             String(localized: "the helper tool needs to be updated", bundle: RockxyLocalization.bundle)
         case .installedIncompatible:
             String(localized: "the helper tool version is incompatible", bundle: RockxyLocalization.bundle)
+        case .unreachable where helperRegistrationBroken:
+            String(
+                localized: "the helper tool's macOS registration is broken and could not be repaired automatically",
+                bundle: RockxyLocalization.bundle
+            )
         case .unreachable:
             String(localized: "the helper tool is unreachable", bundle: RockxyLocalization.bundle)
         case .installedCompatible:
@@ -875,6 +886,8 @@ final class ReadinessCoordinator {
     private func refreshHelperState() {
         helperReadiness = HelperManager.shared.status
         helperSigningIssue = HelperManager.shared.signingIssue
+        helperRegistrationBroken = HelperManager.shared.status == .unreachable
+            && HelperManager.shared.registrationRepairRecord?.outcome.isTerminalForBuild == true
     }
 
     private func refreshHTTPSDecryptionState() {
@@ -1020,7 +1033,8 @@ final class ReadinessCoordinator {
             isSystemTrustValidated: lastCertSnapshot?.isSystemTrustValidated == true,
             proxyMode: proxyMode,
             helperReadiness: helperReadiness,
-            helperSigningIssue: helperSigningIssue
+            helperSigningIssue: helperSigningIssue,
+            helperRegistrationBroken: helperRegistrationBroken
         ) {
             return degradationWarning
         }
