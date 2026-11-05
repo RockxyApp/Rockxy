@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- The request list no longer rebuilds itself from scratch while capturing. Identifying which app a request came from replaces rows in place, and the table now refreshes only those rows instead of re-requesting every cell on screen -- which it had been doing about ten times a second for as long as capture ran.
+
 - Building the request list no longer decodes response bodies on the main thread while capturing. The AI traffic signal for each new row is now worked out as the capture batch is assembled, so a busy capture leaves the window free to respond; previously every request spent main-thread time decompressing and scanning its bodies, which is what progressively starved the UI -- and the toolbar, Stop included -- during a long capture.
 
 - A capture left running for hours with a script enabled no longer grows its memory without bound. Each script's hook now releases the objects a run borrowed from the JavaScript engine as that run returns, instead of holding every one of them until the script happens to go idle -- which, on a script that runs for every request, never happened.
