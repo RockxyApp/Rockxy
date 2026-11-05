@@ -95,7 +95,7 @@ extension AITrafficDetector {
         let facts: AIFilterFacts
     }
 
-    nonisolated(unsafe) private static let factsCache = TransactionEvidenceCache<FactsCacheEntry>(
+    private static let factsCache = TransactionEvidenceCache<FactsCacheEntry>(
         countLimit: 100_000
     )
 

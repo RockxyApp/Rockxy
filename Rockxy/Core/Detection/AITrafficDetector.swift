@@ -669,7 +669,7 @@ nonisolated enum AITrafficDetector {
     /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
     /// it in step with the largest live session buffer. Rows that leave the list are discarded
     /// through `discardCachedEvidence(for:)`, so the limit is a backstop rather than the bound.
-    nonisolated(unsafe) private static let signalCache = TransactionEvidenceCache<SignalCacheEntry>(
+    private static let signalCache = TransactionEvidenceCache<SignalCacheEntry>(
         countLimit: 100_000
     )
 
