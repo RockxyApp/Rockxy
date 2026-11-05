@@ -14,7 +14,8 @@ import os
 ///
 /// The guard only removes capability. It never grants a test an install, never relaxes
 /// `ensureHelperMutationCanProceed()`, and does not touch caller validation on either side of XPC.
-/// A false positive in a shipped app would fail closed (the helper is not modified), never open.
+/// A false positive in a shipped app would fail closed (the helper is not modified), never open,
+/// which is why the decision cannot rest on anything another process can set.
 enum HelperRegistrationGuard {
     // MARK: Internal
 
@@ -27,43 +28,42 @@ enum HelperRegistrationGuard {
         }
     }
 
-    /// Environment variables only the Xcode test runner sets on a test host process.
-    static let testRunnerEnvironmentKeys = [
-        "XCTestConfigurationFilePath",
-        "XCTestBundlePath",
-        "XCTestSessionIdentifier",
-    ]
+    /// Whether this process is a test host, decided once per process.
+    ///
+    /// Latched so every call in one process agrees. `HelperManager+AppUpdate` runs
+    /// `performUninstall()`, a sleep, then `performInstall()`; a guard that answered differently
+    /// between those two calls could leave the helper unregistered.
+    nonisolated static let isCurrentProcessTestHost: Bool = isTestHost(
+        isTestFrameworkLoaded: loadedImagePaths().contains(where: isTestFrameworkImagePath)
+    )
 
-    nonisolated static var isCurrentProcessTestHost: Bool {
-        isTestHost(
-            environment: ProcessInfo.processInfo.environment,
-            isTestFrameworkLoaded: NSClassFromString("XCTestCase") != nil
-                || NSClassFromString("XCTest.XCTestCase") != nil
-                || NSClassFromString("Testing.Test") != nil
-        )
+    /// Whether a loaded Mach-O image path belongs to XCTest or Swift Testing.
+    nonisolated static func isTestFrameworkImagePath(_ path: String) -> Bool {
+        path.contains("/XCTest.framework/") || path.contains("/Testing.framework/")
     }
 
-    /// Whether this process is a test host.
+    /// Whether this process is a test host, decided solely by whether a test framework is loaded.
     ///
-    /// Two independent signals, either sufficient: a test runner exported its configuration into the
-    /// environment, or a test framework class is loaded into the process. A shipped Rockxy neither
-    /// links XCTest or Swift Testing nor is launched by the test runner. Command-line arguments are
-    /// deliberately not consulted: a user can open a file whose name contains "XCTest" in a shipped
-    /// app, and that must never disable the helper.
-    nonisolated static func isTestHost(
-        environment: [String: String],
-        isTestFrameworkLoaded: Bool
-    )
-        -> Bool
-    {
-        if isTestFrameworkLoaded {
-            return true
-        }
-        return testRunnerEnvironmentKeys.contains { key in
-            !(environment[key] ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .isEmpty
-        }
+    /// The loaded-image scan is the only signal, because it is the only one that cannot be set
+    /// from outside the process. A hardened-runtime app with library validation does not load a
+    /// foreign framework, and `DYLD_INSERT_LIBRARIES` is stripped, so a shipped Rockxy cannot have
+    /// `XCTest.framework` or `Testing.framework` in its image list.
+    ///
+    /// Nothing the environment says is consulted, and that is deliberate rather than an omission.
+    /// An earlier version of this guard decided on `XCTestConfigurationFilePath` and its siblings.
+    /// Any process running as the user can plant those for every future app launch with
+    /// `launchctl setenv`; it survives logout, so every Rockxy opened afterwards refused to
+    /// install, uninstall, repair, force-reset or force-remove the privileged daemon, with no way
+    /// for the user to see why. Requiring the environment to *agree* with the image scan fixes the
+    /// denial but buys nothing in exchange: the scan already cannot be faked, while a runner that
+    /// stops setting those keys would make this guard fail open and let a test run re-point the
+    /// user's approved registration again -- the defect it exists to prevent. One unspoofable
+    /// signal is both safer and simpler than two where the weaker one can only do harm.
+    ///
+    /// Command-line arguments are not consulted either: a user can open a file whose name contains
+    /// "XCTest" in a shipped app, and that must never disable the helper.
+    nonisolated static func isTestHost(isTestFrameworkLoaded: Bool) -> Bool {
+        isTestFrameworkLoaded
     }
 
     /// Throws `RefusedUnderTestError` and logs when this process is a test host.
@@ -95,4 +95,10 @@ enum HelperRegistrationGuard {
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "HelperRegistrationGuard"
     )
+
+    private static func loadedImagePaths() -> [String] {
+        (0 ..< _dyld_image_count()).compactMap { index in
+            _dyld_get_image_name(index).map { String(cString: $0) }
+        }
+    }
 }
