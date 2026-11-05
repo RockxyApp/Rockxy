@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 // Defines `HTTPTransaction`, the model for http transaction used by proxy, storage, and
 // inspection flows.
@@ -8,8 +9,17 @@ import Foundation
 
 /// The central model for a proxied HTTP exchange — pairs a request with its response,
 /// lifecycle state, timing breakdown, and optional protocol-specific data (WebSocket, GraphQL, Web3 RPC).
-/// Uses `@Observable` for SwiftUI reactivity; marked `@unchecked Sendable` because mutations
-/// only occur on the main actor after the proxy pipeline delivers completed transactions.
+/// Uses `@Observable` for SwiftUI reactivity.
+///
+/// `@unchecked Sendable` is a promise, not a proof, and it holds only under this contract:
+/// - A *settled* transaction (`isSettledForOffMainRead`) is read off the main actor by the
+///   session actor's delivery warm-up, which claims it via `claimForOffMainRead()`. Nothing may
+///   write its `request` or `response` after that. Debug builds trap if something does.
+/// - Rows that keep changing after delivery — `deliversLiveRow` streams and WebSockets — are
+///   mutated on the main actor, and are never claimed for an off-main read.
+/// - `clientApp` and the Babylon correlation are written after delivery to any row, but they are
+///   distinct stored properties the warm-up never reads.
+/// A producer that hands over a transaction it will still mutate must not make it settled.
 @Observable
 final class HTTPTransaction: Identifiable, @unchecked Sendable {
     // MARK: Lifecycle
@@ -230,6 +240,7 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     var request: HTTPRequestData {
         didSet {
+            assertEvidenceNotClaimedForOffMainRead()
             signalEvidenceRevision &+= 1
             listPresentationRevision &+= 1
         }
@@ -237,9 +248,26 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     var response: HTTPResponseData? {
         didSet {
+            assertEvidenceNotClaimedForOffMainRead()
             signalEvidenceRevision &+= 1
             listPresentationRevision &+= 1
         }
+    }
+
+    /// The single definition of "no longer changing", shared by every off-main-actor reader.
+    /// Open streams and WebSockets keep receiving frames, and TLS failures never get a row.
+    var isSettledForOffMainRead: Bool {
+        !deliversLiveRow
+            && webSocketConnection == nil
+            && !isTLSFailure
+            && state != .active
+            && state != .pending
+    }
+
+    /// Whether `claimForOffMainRead()` has run. Once true, `request` and `response` must not be
+    /// written unless the row is a live row.
+    var isClaimedForOffMainRead: Bool {
+        offMainReadClaim.withLock { $0 }
     }
 
     /// Changes whenever request or response evidence used by cached list signals changes.
@@ -281,6 +309,14 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         state == .active && displayDuration == nil
     }
 
+    /// Declares that this transaction's request and response are about to be read off the main
+    /// actor. Traps in debug builds if the transaction is not settled, so a producer that routes
+    /// a still-changing shape here fails at the call instead of racing a later write.
+    func claimForOffMainRead() {
+        assert(isSettledForOffMainRead, "Only a settled transaction may be read off the main actor")
+        offMainReadClaim.withLock { $0 = true }
+    }
+
     /// The duration a detail surface shows at `now`: the final value once known, otherwise the
     /// running time of a connection or stream that is still open. The request list keeps `—` for
     /// a running row instead — a per-second redraw belongs to the one selected row, not the
@@ -309,6 +345,20 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
             return
         }
         captureContext = context
+    }
+
+    // MARK: Private
+
+    @ObservationIgnored private let offMainReadClaim = OSAllocatedUnfairLock(initialState: false)
+
+    /// Trips in debug builds when evidence is rewritten after an off-main read was claimed — the
+    /// write would race that read on `Data` and `[HTTPHeader]` storage. Live rows are exempt:
+    /// they are never claimed, and their writes happen on the main actor.
+    private func assertEvidenceNotClaimedForOffMainRead() {
+        assert(
+            !offMainReadClaim.withLock { $0 } || deliversLiveRow,
+            "request/response written after the transaction was claimed for off-main reads"
+        )
     }
 }
 

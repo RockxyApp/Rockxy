@@ -280,16 +280,12 @@ actor TrafficSessionManager {
         return context.projectID != nextContext.projectID || context == nextContext
     }
 
-    /// Only transactions whose evidence can no longer change are read off the main actor.
-    /// Open streams and WebSockets keep receiving frames, and TLS failures never get a row.
+    /// Warms the list signal for every settled transaction in the batch. The batch can hold a
+    /// live row's opening delivery, so the filter is `isSettledForOffMainRead`, the one predicate
+    /// that also guards the claim; a row that fails it is left for the main actor to evaluate.
     private static func prewarmListSignals(for batch: [HTTPTransaction]) {
-        for transaction in batch
-            where !transaction.deliversLiveRow
-            && transaction.webSocketConnection == nil
-            && !transaction.isTLSFailure
-            && transaction.state != .active
-            && transaction.state != .pending
-        {
+        for transaction in batch where transaction.isSettledForOffMainRead {
+            transaction.claimForOffMainRead()
             AITrafficDetector.prewarmSignal(for: transaction)
         }
     }

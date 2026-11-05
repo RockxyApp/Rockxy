@@ -56,6 +56,43 @@ struct CaptureDeliveryCostTests {
         #expect(settled.allSatisfy { AITrafficDetector.cachedSignal(transaction: $0) != nil })
     }
 
+    @Test("No transaction that can still change is ever claimed for an off-main read")
+    func changingTransactionsAreNeverClaimedForOffMainReads() async {
+        // The property: whatever shape a producer hands over, a row that is still changing is
+        // never read off the main actor. Each case reaches the warm-up through a different door.
+        let open = TestFixtures.makeTransaction(state: .active)
+        open.deliversLiveRow = true
+        let closedBeforeOpen = TestFixtures.makeTransaction(state: .completed)
+        closedBeforeOpen.deliversLiveRow = true
+        let pendingLive = TestFixtures.makeTransaction(state: .pending)
+        pendingLive.deliversLiveRow = true
+        let tlsFailure = TestFixtures.makeTransaction(state: .completed)
+        tlsFailure.isTLSFailure = true
+        let changing = [open, closedBeforeOpen, pendingLive, tlsFailure]
+        let settled = Self.settled(Self.batchSize - changing.count, prefix: "claim")
+
+        let manager = TrafficSessionManager()
+        let received = LockedBox<[HTTPTransaction]>([])
+        await manager.setOnBatchReady { delivered, _ in received.set(delivered) }
+        for transaction in changing + settled {
+            await manager.addTransaction(transaction)
+        }
+
+        #expect(received.get().count == Self.batchSize)
+        #expect(changing.allSatisfy { !$0.isClaimedForOffMainRead })
+        // Bound outside the macro: #expect decomposes `x.allSatisfy(_:)` into a generated
+        // closure that calls the rethrows overload without `try`, and the formatter rewrites a
+        // closure argument back to a key path, so neither spelling survives inside the macro.
+        let everySettledRowIsClaimed = settled.allSatisfy(\.isClaimedForOffMainRead)
+        let everyClaimedRowIsSettled = received.get()
+            .filter(\.isClaimedForOffMainRead)
+            .allSatisfy(\.isSettledForOffMainRead)
+        #expect(everySettledRowIsClaimed)
+        // The predicate and the claim agree: nothing claimed is something that can change.
+        #expect(everyClaimedRowIsSettled)
+        #expect(received.get().filter(\.deliversLiveRow).allSatisfy { !$0.isClaimedForOffMainRead })
+    }
+
     @Test("Appending a batch at the history cap projects only the new rows")
     func capBatchProjectsOnlyNewRows() {
         let coordinator = MainContentCoordinator()
