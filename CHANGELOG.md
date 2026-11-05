@@ -67,6 +67,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Importing a PKCS#12 certificate no longer leaves a copy of its private key in your login keychain. A P12 using the older encryption that macOS ships by default was also rejected outright and now imports, and a damaged file is no longer reported as a wrong password.
+- Rockxy no longer fails to open when its database claims a schema it does not have. The columns it needs are checked against the database itself and added when missing, so a saved or pinned request can no longer stop the app from launching.
+- A privileged helper whose macOS registration cannot be resolved is now repaired where that is possible, and named where it is not: the app says that the registration is broken and what clears it, instead of reporting that it will try again on the next launch when that attempt could never succeed.
+- Running the test suite can no longer change or remove the installed helper's registration.
+- A body column is named by what it reads rather than by the expression that reads it, in the request table, the column menu and the custom column list. The full expression stays visible beside it and in the tooltip, and searching for it still finds the column.
+- Custom column values no longer resolve on the main thread while scrolling, and a value that arrives after its row has been reused is discarded instead of being shown against another request.
+- Domains no longer disappear from the sidebar while capture is running.
+- A bypass list, an HTTPS decryption list or a custom root certificate that could not be saved or loaded now says so where you edit it, instead of appearing to work until the next launch.
+- A Babylon session evicted by the session cap keeps its replay protection, so a frame it had already accepted can no longer be replayed as new. Correlation identifiers are no longer truncated on their way into storage, which could collapse two of them onto one key.
+- The Add Favorite sheet lists apps and domains by the same rule, so both lists reflect the active sidebar scope.
 - Live rows stay sorted when streams finish, including State and custom response columns.
 - WebSocket inspection refreshes are batched during frame bursts while every accepted frame remains captured and relayed immediately.
 - Response completion and WebSocket capture avoid intermediate byte arrays; oversized WebSocket frames are rejected from capture before unmasking and copying.
