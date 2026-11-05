@@ -67,6 +67,22 @@ actor ScriptRuntime {
 
     // MARK: Internal
 
+    /// The serial queue every hook and the source evaluation of one plugin runs on.
+    ///
+    /// `autoreleaseFrequency: .workItem` is load-bearing. Everything a hook does through
+    /// the JavaScriptCore Objective-C API hands back autoreleased objects: each `JSValue`
+    /// wrapper pins its JS object (`JSValueProtect`) until the wrapper deallocates, and the
+    /// bridged `NSString`/`NSDictionary` copies of headers and bodies sit beside them. A
+    /// plain `DispatchQueue` uses `.inherit`, which pushes no pool per block; the worker
+    /// thread's pool is only popped when the queue runs dry. A plugin that is hit
+    /// continuously never lets it run dry, so wrappers from every call accumulate, JSC
+    /// cannot collect the request and response graphs they pin, and the footprint grows
+    /// with traffic instead of with live flows. One pool per work item releases them as
+    /// each hook returns.
+    nonisolated static func makeHookQueue(label: String) -> DispatchQueue {
+        DispatchQueue(label: label, qos: .userInitiated, autoreleaseFrequency: .workItem)
+    }
+
     func loadPlugin(_ info: PluginInfo) async throws {
         guard let scriptEntry = info.manifest.entryPoints["script"] else {
             throw ScriptRuntimeError.scriptLoadFailed(
@@ -87,9 +103,8 @@ actor ScriptRuntime {
             )
         }
 
-        let queue = DispatchQueue(
-            label: RockxyIdentity.current.pluginRuntimePrefix(pluginID: info.id) + ".queue",
-            qos: .userInitiated
+        let queue = Self.makeHookQueue(
+            label: RockxyIdentity.current.pluginRuntimePrefix(pluginID: info.id) + ".queue"
         )
         guard let context = JSContext() else {
             throw ScriptRuntimeError.scriptLoadFailed(
