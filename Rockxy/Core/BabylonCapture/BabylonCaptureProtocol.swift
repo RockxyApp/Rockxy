@@ -32,6 +32,8 @@ enum BabylonCaptureProtocol {
     /// pinned request must keep loading after the ingress bound is lowered. Never lower this
     /// to follow an ingress change; raising it only widens what storage will read.
     static let maximumStoredIdentifierSize = 512
+    /// FROZEN, like `maximumStoredIdentifierSize`: longest gRPC call type stored evidence carries.
+    static let maximumStoredGRPCCallTypeSize = 128
     static let compression = "gzip"
     static let keySalt = Data("rockxy-babylon-v1".utf8)
 

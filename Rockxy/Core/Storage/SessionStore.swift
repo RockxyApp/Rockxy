@@ -1226,7 +1226,7 @@ private struct SessionStoreCaptureEvidence: Codable {
     /// Bounded by the frozen storage constant, not the ingress bound, so lowering what ingress
     /// accepts can never make an already-saved record unreadable.
     private static func boundedIdentifiers(grpc: String?, correlation: BabylonCorrelation?) -> Bool {
-        guard grpc.map({ $0.utf8.count <= 128 }) ?? true else {
+        guard grpc.map({ $0.utf8.count <= BabylonCaptureProtocol.maximumStoredGRPCCallTypeSize }) ?? true else {
             return false
         }
         guard let correlation else {

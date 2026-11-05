@@ -155,7 +155,22 @@ struct CodableTransaction: Codable {
             BabylonCaptureMetadata.self,
             forKey: .babylonCaptureMetadata
         )
-        babylonGRPCCallType = try container.decodeIfPresent(String.self, forKey: .babylonGRPCCallType)
+        // Over the stored bound the call type is dropped, not the request: the write side
+        // refuses to store it, so keeping it would let the row load and then fail to pin or save.
+        // The nesting is explicit: a mistyped value reads as absent, a present value is bounded.
+        let decodedCallType: String?
+        if let attempt = try? container.decodeIfPresent(String.self, forKey: .babylonGRPCCallType) {
+            decodedCallType = attempt
+        } else {
+            decodedCallType = nil
+        }
+        if let callType = decodedCallType,
+           callType.utf8.count <= BabylonCaptureProtocol.maximumStoredGRPCCallTypeSize
+        {
+            babylonGRPCCallType = callType
+        } else {
+            babylonGRPCCallType = nil
+        }
         babylonCorrelation = try? container.decodeIfPresent(BabylonCorrelation.self, forKey: .babylonCorrelation)
     }
 

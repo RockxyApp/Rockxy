@@ -2696,6 +2696,16 @@
         }
       }
     },
+    "This request could not be saved, so the change was undone.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存此请求，因此已撤销该更改。"
+          }
+        }
+      }
+    },
     "This request took %@.": {
       "localizations": {
         "zh-Hans": {
@@ -4303,6 +4313,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "XPC 调用超时——助手工具可能没有响应"
+          }
+        }
+      }
+    },
+    "Your change to %@ was not saved and will be lost when Rockxy quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您对 %@ 的更改未保存，退出 Rockxy 后将丢失。"
+          }
+        }
+      }
+    },
+    "Your note on %@ was not saved and will be lost when Rockxy quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您对 %@ 的备注未保存，退出 Rockxy 后将丢失。"
           }
         }
       }

@@ -170,6 +170,31 @@ struct SessionStoreCaptureEvidenceTests {
         #expect(BabylonCorrelation(context: context, sourceClientID: long) == nil)
     }
 
+    @Test("A pin on a request imported with over-long evidence persists instead of failing")
+    func pinOnImportedOverLongEvidencePersists() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = try makeCapturedTransaction()
+        var json = try #require(
+            JSONSerialization
+                .jsonObject(with: JSONEncoder().encode(CodableTransaction(from: source))) as? [String: Any]
+        )
+        json["babylonGRPCCallType"] = String(repeating: "g", count: 129)
+        json["babylonCorrelation"] = [
+            "sessionID": "runtime",
+            "traceID": String(repeating: "t", count: BabylonCaptureProtocol.maximumStoredIdentifierSize + 1),
+        ]
+        let imported = try JSONDecoder()
+            .decode(CodableTransaction.self, from: JSONSerialization.data(withJSONObject: json))
+            .toLiveModel()
+        imported.isPinned = true
+
+        let store = try SessionStore(directory: directory)
+        try await store.saveTransaction(imported)
+        let favorites = try await SessionStore(directory: directory).loadPinnedAndSavedTransactions()
+        #expect(favorites.contains { $0.id == source.id })
+    }
+
     @Test("Oversized capture evidence fails before body files or rows are written")
     func oversizedEvidence() async throws {
         let directory = try makeDirectory()

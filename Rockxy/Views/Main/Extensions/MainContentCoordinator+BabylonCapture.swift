@@ -121,19 +121,26 @@ extension MainContentCoordinator {
     )
         -> String
     {
-        var tokens: [String] = []
-        if let sourceClientID {
-            let escapedClientID = sourceClientID
+        // Every value is quoted and escaped. Ingress forbids whitespace and control characters in
+        // these identifiers, but a session imported from a file or a nearby transfer is not
+        // ingress, and an unquoted space would split the filter into extra tokens that select
+        // other traffic.
+        func quoted(_ value: String) -> String {
+            let escaped = value
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
-            tokens.append("source:\"\(escapedClientID)\"")
+            return "\"\(escaped)\""
+        }
+        var tokens: [String] = []
+        if let sourceClientID {
+            tokens.append("source:\(quoted(sourceClientID))")
         }
         if let sessionID {
-            tokens.append("session:\(sessionID)")
+            tokens.append("session:\(quoted(sessionID))")
         }
-        tokens.append("trace:\(traceID)")
+        tokens.append("trace:\(quoted(traceID))")
         if let stepID {
-            tokens.append("step:\(stepID)")
+            tokens.append("step:\(quoted(stepID))")
         }
         return tokens.joined(separator: " ")
     }

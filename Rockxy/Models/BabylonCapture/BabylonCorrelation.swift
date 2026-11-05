@@ -19,7 +19,7 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
     /// means the request was made in the trace but outside any step.
     init?(context: BabylonTrafficPackageDTO.CorrelationContext?, sourceClientID: String? = nil) {
         guard let context,
-              sourceClientID.map(Self.isValidSourceIdentifier) ?? true,
+              sourceClientID.map({ Self.isValidSourceIdentifier($0) }) ?? true,
               Self.isValidIdentifier(context.sessionID),
               Self.isValidIdentifier(context.traceID) else
         {
@@ -37,6 +37,30 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
         )
     }
 
+    /// Decoding applies the same rules as `init?(context:)` so a correlation that arrives through
+    /// an imported session or a nearby transfer is storable exactly when a captured one is. Size
+    /// is checked against the frozen stored bound, not the ingress bound: a record an earlier
+    /// build saved with a 257-512 byte identifier must keep loading. A correlation that fails
+    /// throws; the caller decodes it with `try?`, so the request survives without its trace link.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let source = try container.decodeIfPresent(String.self, forKey: .sourceClientID)
+        let session = try container.decode(String.self, forKey: .sessionID)
+        let trace = try container.decode(String.self, forKey: .traceID)
+        let step = try container.decodeIfPresent(String.self, forKey: .stepID)
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
+        guard source.map({ Self.isValidSourceIdentifier($0, limit: limit) }) ?? true,
+              Self.isValidIdentifier(session, limit: limit),
+              Self.isValidIdentifier(trace, limit: limit),
+              step.map({ Self.isValidIdentifier($0, limit: limit) }) ?? true else
+        {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Invalid Babylon correlation identifier")
+            )
+        }
+        self.init(sourceClientID: source, sessionID: session, traceID: trace, stepID: step)
+    }
+
     // MARK: Internal
 
     let sourceClientID: String?
@@ -46,16 +70,33 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
 
     // MARK: Private
 
-    private static func isValidIdentifier(_ value: String) -> Bool {
+    private enum CodingKeys: String, CodingKey {
+        case sourceClientID
+        case sessionID
+        case traceID
+        case stepID
+    }
+
+    private static func isValidIdentifier(
+        _ value: String,
+        limit: Int = BabylonCaptureProtocol.maximumCorrelationIdentifierSize
+    )
+        -> Bool
+    {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && value.utf8.count <= BabylonCaptureProtocol.maximumCorrelationIdentifierSize
+            && value.utf8.count <= limit
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
             && !value.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
     }
 
-    private static func isValidSourceIdentifier(_ value: String) -> Bool {
+    private static func isValidSourceIdentifier(
+        _ value: String,
+        limit: Int = BabylonRuntimeEvent.maximumIdentifierByteCount
+    )
+        -> Bool
+    {
         !value.isEmpty
-            && value.utf8.count <= BabylonRuntimeEvent.maximumIdentifierByteCount
+            && value.utf8.count <= limit
             && !value.contains(":")
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
     }
