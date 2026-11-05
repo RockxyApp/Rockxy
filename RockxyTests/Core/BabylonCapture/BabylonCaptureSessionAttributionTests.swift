@@ -87,6 +87,91 @@ struct BabylonCaptureSessionAttributionTests {
         receiver.stop()
     }
 
+    @Test("A guard re-admitted with a sequence floor rejects what the released guard already accepted")
+    func replayGuardFloorRejectsPreviouslyAcceptedSequences() throws {
+        var original = BabylonMessageReplayGuard()
+        _ = try original.accept(messageID: "a", sequence: 1)
+        _ = try original.accept(messageID: "b", sequence: 5)
+        var resumed = BabylonMessageReplayGuard(
+            sequenceFloor: original.maximumSequence,
+            remembering: original.recentMessages(limit: 16)
+        )
+
+        #expect(throws: BabylonCaptureProtocolError.replayedSequence) {
+            try resumed.accept(messageID: "never-seen", sequence: 3)
+        }
+        // An idempotent retry of a carried message is still a duplicate, not a replay.
+        #expect(try resumed.accept(messageID: "b", sequence: 5) == .duplicate)
+        #expect(try resumed.accept(messageID: "c", sequence: 6) == .newMessage)
+    }
+
+    @Test("A session released by the cap cannot be replayed into once it is re-admitted")
+    func evictedSessionKeepsItsReplayFloor() async throws {
+        let token = String(repeating: "d", count: 64)
+        let pairingStore = BabylonPairingStore(storage: AttributionPairingStorage(value: token))
+        let probe = try await Self.boundListener()
+        let port = try #require(probe.port?.rawValue)
+        probe.cancel()
+        try await Task.sleep(for: .milliseconds(150))
+
+        let coordinator = MainContentCoordinator()
+        coordinator.configureBabylonCaptureIntake()
+        let suiteName = "BabylonEvictedFloor-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
+        defer {
+            receiver.stop()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        receiver.start(coordinator: coordinator, pairingStore: pairingStore)
+        receiver.setEnabled(true)
+        try await Self.waitUntilReady(receiver)
+
+        let client = try await Self.connect(receiver: receiver)
+        defer { client.cancel() }
+        let ackReader = AttributionAckReader(token: token)
+        let clientID = "com.example.evicted"
+        let heartbeat = Data("{}".utf8)
+
+        // The victim is accepted up to sequence 5, then stops sending while more distinct
+        // sessions than the cap arrive on the same connection and push it out.
+        let victim = try BabylonFrameAccumulator.frame(Self.encoded(
+            type: .heartbeat, content: heartbeat, messageID: "victim-5", sequence: 5,
+            sessionID: "victim", clientID: clientID, token: token
+        ))
+        try await Self.send(victim, on: client)
+        #expect(try await ackReader.next(on: client) == "victim-5")
+        for index in 0 ..< 80 {
+            let filler = try BabylonFrameAccumulator.frame(Self.encoded(
+                type: .heartbeat, content: heartbeat, messageID: "filler-\(index)", sequence: 1,
+                sessionID: "filler-\(index)", clientID: clientID, token: token
+            ))
+            try await Self.send(filler, on: client)
+            #expect(try await ackReader.next(on: client) == "filler-\(index)")
+        }
+
+        // The victim's state was released. A frame below its old high-water mark is a replay;
+        // a fresh window would accept it. The receiver answers by closing the connection.
+        let replay = try BabylonFrameAccumulator.frame(Self.encoded(
+            type: .heartbeat, content: heartbeat, messageID: "victim-replayed", sequence: 3,
+            sessionID: "victim", clientID: clientID, token: token
+        ))
+        try await Self.send(replay, on: client)
+        await #expect(throws: (any Error).self) {
+            try await ackReader.next(on: client)
+        }
+
+        // The legitimate continuation on a new connection is still admitted.
+        let second = try await Self.connect(receiver: receiver)
+        defer { second.cancel() }
+        let next = try BabylonFrameAccumulator.frame(Self.encoded(
+            type: .heartbeat, content: heartbeat, messageID: "victim-6", sequence: 6,
+            sessionID: "victim", clientID: clientID, token: token
+        ))
+        try await Self.send(next, on: second)
+        #expect(try await AttributionAckReader(token: token).next(on: second) == "victim-6")
+    }
+
     // MARK: Private
 
     /// A WebSocket package with a frame but no response or end time, so the row it creates

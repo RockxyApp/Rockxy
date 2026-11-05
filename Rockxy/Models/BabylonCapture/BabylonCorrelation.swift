@@ -48,7 +48,7 @@ struct BabylonCorrelation: Codable, Equatable, Hashable, Sendable {
 
     private static func isValidIdentifier(_ value: String) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && value.utf8.count <= BabylonCaptureProtocol.maximumClientIDSize
+            && value.utf8.count <= BabylonCaptureProtocol.maximumCorrelationIdentifierSize
             && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
             && !value.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
     }

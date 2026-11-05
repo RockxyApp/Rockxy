@@ -44,6 +44,74 @@ struct BabylonTraceCorrelationTests {
         #expect(BabylonCorrelation(context: context) == nil)
     }
 
+    @Test("The client ID bound is 256 bytes: accepted at the limit, rejected one byte over, in every layer")
+    func clientIDBoundary() throws {
+        #expect(BabylonCaptureProtocol.maximumClientIDSize == 256)
+        let context = BabylonTrafficPackageDTO.CorrelationContext(
+            sessionID: "s", traceID: "t", stepID: "a", createdAt: 1
+        )
+        let atLimit = String(repeating: "c", count: BabylonCaptureProtocol.maximumClientIDSize)
+        let overLimit = atLimit + "c"
+        #expect(BabylonCorrelation(context: context, sourceClientID: atLimit) != nil)
+        #expect(BabylonCorrelation(context: context, sourceClientID: overLimit) == nil)
+
+        let payload = BabylonPayloadEnvelope(messageType: .heartbeat, sentAt: 1, content: Data("{}".utf8))
+        func encode(clientID: String) throws -> Data {
+            try BabylonSecureFrameCodec.encodeFrame(
+                payload: payload, sessionID: "session", clientID: clientID, sequence: 1, pairingToken: "token"
+            )
+        }
+        _ = try encode(clientID: atLimit)
+        #expect(throws: BabylonCaptureProtocolError.invalidIdentity) { try encode(clientID: overLimit) }
+    }
+
+    @Test("Persisted metadata with an over-bound client ID is rejected, never truncated")
+    func metadataRejectsOverBoundClientID() throws {
+        let limit = BabylonCaptureProtocol.maximumClientIDSize
+        func decode(_ clientID: String) throws -> BabylonCaptureMetadata {
+            let json = try JSONSerialization.data(withJSONObject: ["clientID": clientID])
+            return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
+        }
+        let atLimit = String(repeating: "c", count: limit)
+        #expect(try decode(atLimit).clientID == atLimit)
+        // Two IDs sharing a 256-byte prefix must not both load as the same identifier.
+        #expect(throws: DecodingError.self) { try decode(atLimit + "a") }
+        #expect(throws: DecodingError.self) { try decode(atLimit + "b") }
+    }
+
+    @Test("Persisted correlation identifiers are bounded like the correlation, and rejected rather than truncated")
+    func metadataRejectsOverBoundCorrelationIdentifiers() throws {
+        let limit = BabylonCaptureProtocol.maximumCorrelationIdentifierSize
+        func decode(_ key: String, _ value: String) throws -> BabylonCaptureMetadata {
+            let json = try JSONSerialization.data(withJSONObject: [key: value])
+            return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
+        }
+        let atLimit = String(repeating: "t", count: limit)
+        // Valid in memory at the limit, so it must survive storage whole (it used to be cut at 128).
+        #expect(BabylonCorrelation(
+            context: .init(sessionID: "s", traceID: atLimit, stepID: "a", createdAt: 1)
+        ) != nil)
+        #expect(try decode("traceID", atLimit).traceID == atLimit)
+        for key in ["runtimeSessionID", "traceID", "stepID"] {
+            // Two values sharing a full-length prefix must never both load as the same key.
+            #expect(throws: DecodingError.self) { try decode(key, atLimit + "a") }
+            #expect(throws: DecodingError.self) { try decode(key, atLimit + "b") }
+        }
+        let encoded = BabylonCaptureMetadata(
+            identity: BabylonCaptureIdentity(
+                clientID: "c", sessionID: "s", projectName: "", bundleIdentifier: "",
+                deviceName: "", deviceModel: ""
+            ),
+            capabilities: nil,
+            correlation: BabylonTrafficPackageDTO.CorrelationContext(
+                sessionID: atLimit, traceID: atLimit, stepID: atLimit, createdAt: 1
+            ),
+            error: nil,
+            compatibilityDiagnostics: []
+        )
+        #expect(encoded.traceID == atLimit)
+    }
+
     @Test("Concurrent traces keep their own requests")
     func concurrentTracesDoNotCrossAttribute() throws {
         let first = try BabylonCaptureMapper.makeTransaction(

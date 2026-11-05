@@ -29,7 +29,7 @@ The encrypted payload uses AES-GCM. Additional authenticated data is UTF-8:
 
 `Data` values use the standard JSON `Codable` base64 representation.
 
-`messageID`, `sessionID`, and `clientID` are non-empty UTF-8 strings capped at 128, 128, and 512 bytes respectively. They cannot contain `:`, ASCII control bytes, or DEL, so the HKDF info and AAD delimiters remain unambiguous.
+`messageID`, `sessionID`, and `clientID` are non-empty UTF-8 strings capped at 128, 128, and 256 bytes respectively. They cannot contain `:`, ASCII control bytes, or DEL, so the HKDF info and AAD delimiters remain unambiguous.
 
 ```json
 {

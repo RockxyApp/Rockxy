@@ -278,12 +278,20 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             sessionKeys.contains(key)
         }
 
-        /// Appends `key` if it is new and returns the key pushed out of the bounded list, if
+        /// Marks `key` most recently used, appending it if new, and returns the key pushed out of the bounded list, if
         /// any. `clientID` and `sessionID` arrive in the frame, so this list has to be
         /// bounded like every other Babylon intake map even though the frame was
         /// authenticated; the caller releases whatever comes back.
         func noteSessionKey(_ key: String, limit: Int) -> String? {
-            guard !carries(key) else {
+            if let index = sessionKeys.firstIndex(of: key) {
+                // Refresh recency. Without this the list is first-seen order, so a session that
+                // keeps sending is pushed out once 64 newer ones appear on the same connection,
+                // stops counting as live, and becomes the preferred eviction victim -- losing its
+                // replay window while it is the most recently used session.
+                if index != sessionKeys.count - 1 {
+                    sessionKeys.remove(at: index)
+                    sessionKeys.append(key)
+                }
                 return nil
             }
             sessionKeys.append(key)
@@ -294,7 +302,35 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         }
     }
 
+    /// The sequence high-water marks of a session the cap released. A session's replay window
+    /// lives and dies with that session's identity: re-admitting the same client and session ID
+    /// resumes from here instead of from zero, so frames it already accepted stay rejected.
+    ///
+    /// The newest few message IDs travel with the floor so an idempotent retry of a frame the
+    /// session already accepted -- a mobile SDK re-sending an unacknowledged frame after a
+    /// reconnect is routine -- is still answered as a duplicate acknowledgement. Without them
+    /// the retry would fall under the floor and be treated as a sequence replay, which closes the
+    /// connection, and the SDK would retry into the same closure indefinitely. Only the newest
+    /// `maximumCarriedMessageIDs` per session are kept, so the whole table stays bounded at
+    /// `maximumEvictedSessionFloors * maximumCarriedMessageIDs` IDs. A replay of an older frame
+    /// is still rejected (fail closed), which is the accepted tradeoff.
+    private struct EvictedSessionFloor {
+        let inboundSequence: UInt64?
+        let outboundSequence: UInt64
+        let recentMessages: [BabylonMessageReplayGuard.RememberedMessage]
+    }
+
     private final class SessionState: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(resuming floor: EvictedSessionFloor? = nil) {
+            replayGuard = BabylonMessageReplayGuard(
+                sequenceFloor: floor?.inboundSequence,
+                remembering: floor?.recentMessages ?? []
+            )
+            outboundSequence = floor?.outboundSequence ?? 0
+        }
+
         // MARK: Internal
 
         var outboundSequence: UInt64 = 0
@@ -310,6 +346,15 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         /// is released with the row it belongs to.
         var frameRefreshCoalescers: [String: WebSocketFrameRefreshCoalescer] = [:]
 
+        /// What must outlive this state if the session is released.
+        var floor: EvictedSessionFloor {
+            EvictedSessionFloor(
+                inboundSequence: replayGuard.maximumSequence,
+                outboundSequence: outboundSequence,
+                recentMessages: replayGuard.recentMessages(limit: BabylonCaptureReceiver.maximumCarriedMessageIDs)
+            )
+        }
+
         func accept(frame: BabylonSecureFrame) throws -> BabylonReplayDisposition {
             try replayGuard.accept(messageID: frame.messageID, sequence: frame.sequence)
         }
@@ -321,11 +366,14 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
         // MARK: Private
 
-        private var replayGuard = BabylonMessageReplayGuard()
+        private var replayGuard: BabylonMessageReplayGuard
     }
 
     private static let maximumConnectionCount = 8
     private static let maximumSessionCount = 64
+    /// Bound on remembered high-water marks (two integers each) for released sessions.
+    private static let maximumEvictedSessionFloors = 4_096
+    private static let maximumCarriedMessageIDs = 16
     private static let maximumTrackedTransactions = 10_000
     private static let authenticationTimeout: TimeInterval = 10
     private static let disconnectReason = "The app disconnected before the WebSocket closed"
@@ -344,6 +392,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private var connections: [UUID: ConnectionContext] = [:]
     private var sessions: [String: SessionState] = [:]
     private var sessionOrder: [String] = []
+    private var evictedSessionFloors: [String: EvictedSessionFloor] = [:]
+    private var evictedSessionFloorOrder: [String] = []
     private var pairingObserver: NSObjectProtocol?
     private var aggregateBufferedByteCount = 0
     private var isListenerStarting = false
@@ -1012,7 +1062,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             }
             forgetSession(evicted)
         }
-        let state = SessionState()
+        let state = SessionState(resuming: takeEvictedFloor(for: key))
         sessions[key] = state
         sessionOrder.append(key)
         return state
@@ -1054,7 +1104,23 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         connections.values.contains { $0.carries(sessionKey) }
     }
 
+    private func takeEvictedFloor(for key: String) -> EvictedSessionFloor? {
+        guard let floor = evictedSessionFloors.removeValue(forKey: key) else {
+            return nil
+        }
+        evictedSessionFloorOrder.removeAll { $0 == key }
+        return floor
+    }
+
     private func forgetSession(_ key: String) {
+        if let state = sessions[key] {
+            evictedSessionFloors[key] = state.floor
+            evictedSessionFloorOrder.removeAll { $0 == key }
+            evictedSessionFloorOrder.append(key)
+            while evictedSessionFloorOrder.count > Self.maximumEvictedSessionFloors {
+                evictedSessionFloors[evictedSessionFloorOrder.removeFirst()] = nil
+            }
+        }
         sessions[key] = nil
         if let index = sessionOrder.firstIndex(of: key) {
             sessionOrder.remove(at: index)
