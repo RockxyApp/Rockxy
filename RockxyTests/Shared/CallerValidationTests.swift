@@ -431,3 +431,59 @@ private func supportsLiveCallerValidationHost() -> Bool {
         allowedIdentifiers: RockxyIdentity.current.allowedCallerIdentifiers
     )
 }
+
+// MARK: - ConnectionCodeSigningRequirementTests
+
+struct ConnectionCodeSigningRequirementTests {
+    // MARK: Internal
+
+    @Test("Team-signed helper yields a compilable requirement naming team and identifiers")
+    func buildsRequirement() throws {
+        let text = try #require(CallerValidation.connectionCodeSigningRequirement(
+            helper: profile(team: "ABCDE12345"),
+            allowedIdentifiers: ["com.example.app", "com.example.app.community"]
+        ))
+        #expect(text.contains("anchor apple generic"))
+        #expect(text.contains("certificate leaf[subject.OU] = \"ABCDE12345\""))
+        #expect(text.contains("identifier \"com.example.app\""))
+        #expect(text.contains("identifier \"com.example.app.community\""))
+        var requirement: SecRequirement?
+        #expect(SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess)
+    }
+
+    @Test("No requirement without a team identifier or helper profile")
+    func noRequirementWithoutTeam() {
+        #expect(CallerValidation.connectionCodeSigningRequirement(
+            helper: profile(team: nil), allowedIdentifiers: ["com.example.app"]
+        ) == nil)
+        #expect(CallerValidation.connectionCodeSigningRequirement(
+            helper: profile(team: ""), allowedIdentifiers: ["com.example.app"]
+        ) == nil)
+        #expect(CallerValidation.connectionCodeSigningRequirement(
+            helper: nil, allowedIdentifiers: ["com.example.app"]
+        ) == nil)
+    }
+
+    @Test("Unsafe or empty identifier input is rejected rather than interpolated")
+    func rejectsUnsafeInput() {
+        let helper = profile(team: "ABCDE12345")
+        #expect(CallerValidation.connectionCodeSigningRequirement(helper: helper, allowedIdentifiers: []) == nil)
+        #expect(CallerValidation.connectionCodeSigningRequirement(
+            helper: helper, allowedIdentifiers: ["a\" or anchor apple"]
+        ) == nil)
+        #expect(CallerValidation.connectionCodeSigningRequirement(
+            helper: profile(team: "ABC\" or true"), allowedIdentifiers: ["com.example.app"]
+        ) == nil)
+    }
+
+    // MARK: Private
+
+    private func profile(team: String?) -> CallerValidation.CodeSigningProfile {
+        CallerValidation.CodeSigningProfile(
+            identifier: "com.example.helper",
+            teamIdentifier: team,
+            certificateDERs: [],
+            executablePath: nil
+        )
+    }
+}

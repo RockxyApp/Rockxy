@@ -16,11 +16,18 @@ import Security
 ///    PID-race-resistant caller identification, then checks against a `SecRequirement`
 ///    string for each allowed bundle identifier.
 ///
-/// Both checks must pass for a connection to be accepted -- EXCEPT that layer 2 is
-/// skipped when the connection's audit token cannot be read, in which case the caller is
-/// accepted on layer 1 alone. See the guard in `validateCaller(pid:auditTokenData:)`:
-/// whether that should instead fail closed is a pending decision, because the token is
-/// reached through an undocumented key.
+/// Both checks must pass, and layer 2 is mandatory UNLESS the XPC runtime is already enforcing
+/// a code-signing requirement on this very connection (`IdentityEnforcement`).
+///
+/// - `.validatorOnly`: the audit token is the only identity check. A token that cannot be read
+///   or resolved REFUSES the connection with a distinct logged `Refusal`.
+/// - `.runtimeRequirementApplied`: `NSXPCConnection.setCodeSigningRequirement(_:)` (macOS 13+)
+///   was applied before `resume()`, so the runtime already enforces the caller's signature
+///   independent of the undocumented KVC key. An unreadable token is then logged at fault and
+///   accepted, so a future macOS renaming that key degrades to "runtime enforces" instead of a
+///   total helper outage. A token that IS readable and mismatches still refuses in both modes.
+///
+/// launchd has no authorized-clients key for `MachServices`, so there is no job-level option.
 ///
 /// References:
 /// - Pearcleaner `CodesignCheck.swift` for certificate chain comparison
@@ -32,19 +39,44 @@ enum ConnectionValidator {
 
     // MARK: - Public API
 
+    /// Why a connection was refused. Each case is logged distinctly so a refusal is diagnosable.
+    enum Refusal: String, Equatable {
+        /// PID-based signing/identity validation failed.
+        case pidValidationFailed
+        /// No audit token could be read from the connection (for example the KVC key is gone).
+        case auditTokenUnavailable
+        /// A token was read but did not resolve to a code object.
+        case auditTokenUnresolvable
+        /// The token resolved but its code does not satisfy an allowed identity.
+        case auditIdentityMismatch
+    }
+
+    /// Whether the XPC runtime is already enforcing a signing requirement on the connection
+    /// being validated. Deliberately has no default: callers must state it.
+    enum IdentityEnforcement: Equatable {
+        /// `setCodeSigningRequirement` was applied to this connection before validation.
+        case runtimeRequirementApplied
+        /// No runtime requirement; the audit-token check is the only identity enforcement.
+        case validatorOnly
+    }
+
     /// Production entrypoint: validates a real incoming XPC connection.
-    static func isValidCaller(_ connection: NSXPCConnection) -> Bool {
+    static func isValidCaller(_ connection: NSXPCConnection, enforcement: IdentityEnforcement) -> Bool {
         let auditTokenData = extractAuditTokenData(from: connection)
         return validateCaller(
             pid: connection.processIdentifier,
-            auditTokenData: auditTokenData
+            auditTokenData: auditTokenData,
+            enforcement: enforcement
         )
     }
 
-    /// Testable entrypoint: validates a caller by PID and optional audit token data.
-    /// The production `isValidCaller(_:)` delegates here after extracting the
-    /// PID and audit token from the connection object.
-    static func validateCaller(pid: pid_t, auditTokenData: Data?) -> Bool {
+    /// Testable entrypoint: validates a caller by PID and audit token data.
+    static func validateCaller(pid: pid_t, auditTokenData: Data?, enforcement: IdentityEnforcement) -> Bool {
+        refusal(pid: pid, auditTokenData: auditTokenData, enforcement: enforcement) == nil
+    }
+
+    /// Returns `nil` when the caller is accepted, otherwise the specific reason it was refused.
+    static func refusal(pid: pid_t, auditTokenData: Data?, enforcement: IdentityEnforcement) -> Refusal? {
         let pidValid = CallerValidation.validateCaller(
             pid: pid,
             allowedIdentifiers: allowedCallerIdentifiers
@@ -52,23 +84,15 @@ enum ConnectionValidator {
 
         guard pidValid else {
             logger.error("SECURITY: Caller validation failed for pid \(pid)")
-            return false
+            return .pidValidationFailed
         }
 
-        // Defense-in-depth: if audit token data is available, recheck identity
-        // via the audit-token-derived SecCode (immune to PID recycling).
-        //
-        // No token means this layer did not run and the caller is accepted on the PID
-        // layer alone. Whether that should instead reject is a pending decision: the
-        // token is read through an undocumented KVC key, so failing closed would take
-        // the helper offline entirely if a future macOS renamed it.
-        guard let tokenData = auditTokenData,
-              let auditCode = CallerValidation.secCodeFromAuditToken(tokenData) else
-        {
-            logger.warning(
-                "SECURITY: audit token unavailable for pid \(pid), accepted on PID validation alone"
-            )
-            return true
+        guard let tokenData = auditTokenData else {
+            return tokenFailure(.auditTokenUnavailable, pid: pid, enforcement: enforcement)
+        }
+
+        guard let auditCode = CallerValidation.secCodeFromAuditToken(tokenData) else {
+            return tokenFailure(.auditTokenUnresolvable, pid: pid, enforcement: enforcement)
         }
 
         let auditSatisfied = CallerValidation.callerSatisfiesAnyIdentifier(
@@ -77,11 +101,11 @@ enum ConnectionValidator {
         )
         guard auditSatisfied else {
             logger.error("SECURITY: PID validation passed but audit token check failed for pid \(pid)")
-            return false
+            return .auditIdentityMismatch
         }
 
         logger.info("SECURITY: Two-layer validation passed for pid \(pid)")
-        return true
+        return nil
     }
 
     /// Extracts raw audit token data from an NSXPCConnection via KVC.
@@ -115,4 +139,27 @@ enum ConnectionValidator {
     )
 
     private static let allowedCallerIdentifiers = RockxyIdentity.current.allowedCallerIdentifiers
+
+    /// Handles a token that could not be read or resolved. Refuses unless the runtime is
+    /// already enforcing identity, in which case it accepts (returns `nil`) and says so.
+    private static func tokenFailure(
+        _ reason: Refusal,
+        pid: pid_t,
+        enforcement: IdentityEnforcement
+    )
+        -> Refusal?
+    {
+        switch enforcement {
+        case .validatorOnly:
+            logger.fault(
+                "SECURITY: refused pid \(pid): \(reason.rawValue), and no runtime signing requirement is applied (the undocumented token key may have changed)"
+            )
+            return reason
+        case .runtimeRequirementApplied:
+            logger.fault(
+                "SECURITY: pid \(pid): \(reason.rawValue); accepted because identity rests on the XPC signing requirement applied to this connection (the undocumented token key may have changed)"
+            )
+            return nil
+        }
+    }
 }
