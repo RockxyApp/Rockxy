@@ -60,10 +60,20 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     /// Runs helper launch recovery under the same system-wide lock used by direct mode.
+    ///
+    /// Settling an owed apply comes first. A previous helper can die after committing proxy
+    /// settings but before `configd` adopts them, which leaves the preferences file reading as
+    /// restored while the live system still routes through a port that is gone. Every reader
+    /// here reads preferences, so nothing downstream can notice; only the debt record can, and
+    /// this is the launch that has to honour it. Doing it before `restoreIfNeeded` also means
+    /// recovery judges a system that matches its own configuration.
     static func performStartupRecovery() -> CrashRecovery.StartupRecoveryOutcome {
         do {
             return try DirectProxySessionLock.withExclusiveAccess(userID: 0) {
-                CrashRecovery.restoreIfNeeded()
+                if ProxyConfigurator.settleOwedApply() == .stillOwed {
+                    logger.error("Proxy settings committed by an earlier helper are still not applied")
+                }
+                return CrashRecovery.restoreIfNeeded()
             }
         } catch {
             logger.error("Could not serialize helper startup recovery: \(error.localizedDescription)")

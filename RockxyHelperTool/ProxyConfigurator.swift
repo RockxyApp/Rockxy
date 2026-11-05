@@ -1,6 +1,7 @@
 import Foundation
 import os
 
+// swiftlint:disable file_length
 // Applies and restores macOS network proxy settings on behalf of the helper tool.
 
 // MARK: - ProxyConfigurator
@@ -37,7 +38,10 @@ enum ProxyConfigurator {
         ownerPID: Int32,
         ownerStartSignature: String,
         ownerUID: uid_t
-    ) throws {
+    )
+        throws
+    {
+        settleOwedApply()
         let services = try detectAllEnabledServices()
         guard !services.isEmpty else {
             throw ProxyConfiguratorError.noActiveService
@@ -50,7 +54,7 @@ enum ProxyConfigurator {
         // attempt: an entry this attempt captures for a service it never touches describes
         // settings nobody overrode, and keeping it is how a later override comes to replay a
         // stale snapshot over a newer user setting.
-        let preAttemptServices = Set(try CrashRecovery.loadBackup()?.services.map(\.service) ?? [])
+        let preAttemptServices = try Set(CrashRecovery.loadBackup()?.services.map(\.service) ?? [])
         var backup = try CrashRecovery.saveOriginalSettings(
             services: services,
             rockxyPort: port,
@@ -116,7 +120,7 @@ enum ProxyConfigurator {
                         reason: "The live settings changed while the recovery record was being committed"
                     )
                 }
-                try applyOverride(service: service, port: port)
+                try applyOverride(service: service, port: port, baseline: baseline)
                 configuredServices.append(service)
                 logger.info("Proxy set on '\(service)' → 127.0.0.1:\(port)")
             } catch {
@@ -181,6 +185,12 @@ enum ProxyConfigurator {
 
     /// Restore proxy settings from CrashRecovery backup. Throws on failure.
     static func restoreProxyOrThrow() throws {
+        guard settleOwedApply() != .stillOwed else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: "apply proxy settings",
+                reason: "Committed proxy settings could not be applied"
+            )
+        }
         guard let sourceBackup = try CrashRecovery.loadBackup() else {
             logger.info("No proxy backup exists, so there is no owned proxy state to restore")
             return
@@ -209,6 +219,7 @@ enum ProxyConfigurator {
     /// on disk and nothing is mutated — losing the restore point is worse than a stranded
     /// override that can still be recovered later.
     static func restoreOwnedServicesOrThrow(ownedServices: [String], port: Int?) throws {
+        settleOwedApply()
         guard let backup = try CrashRecovery.loadBackup() else {
             logger.info("No proxy backup exists, so there is no owned proxy state to restore")
             return
@@ -249,6 +260,7 @@ enum ProxyConfigurator {
     /// Set bypass domains on all enabled network services.
     /// Pass an empty array to clear the bypass list (uses "Empty" per macOS convention).
     static func setBypassDomains(_ domains: [String], services: [String]) throws {
+        settleOwedApply()
         guard !services.isEmpty else {
             throw ProxyConfiguratorError.noActiveService
         }
@@ -317,11 +329,7 @@ enum ProxyConfigurator {
                         continue
                     }
 
-                    if domains.isEmpty {
-                        try runNetworkSetup(["-setproxybypassdomains", service, "Empty"])
-                    } else {
-                        try runNetworkSetup(["-setproxybypassdomains", service] + domains)
-                    }
+                    try writeBypassDomains(service: service, domains: domains, baseline: baseline)
 
                     backup = try CrashRecovery.recordOverrideApplication(
                         backup,
@@ -361,6 +369,7 @@ enum ProxyConfigurator {
 
     /// Returns whether the proxy is currently overridden by Rockxy and the active port.
     static func getCurrentStatus() -> (isOverridden: Bool, port: Int) {
+        settleOwedApply()
         guard let services = try? detectAllEnabledServices(), !services.isEmpty else {
             return (false, 0)
         }
@@ -376,8 +385,8 @@ enum ProxyConfigurator {
                   let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
                   let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
                   let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
-                  let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service])
-            else {
+                  let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
+            {
                 return (false, 0)
             }
 
@@ -396,8 +405,8 @@ enum ProxyConfigurator {
                   !socks.enabled,
                   !pac.enabled,
                   !parseAutoDiscoveryOutput(autoDiscoveryOutput),
-                  !hasGlobalBypass
-            else {
+                  !hasGlobalBypass else
+            {
                 return (false, 0)
             }
             if let matchedPort, matchedPort != http.port {
@@ -475,272 +484,6 @@ enum ProxyConfigurator {
         var failedServices: Set<String> = []
     }
 
-    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyConfigurator")
-    private static let networkSetupPath = "/usr/sbin/networksetup"
-    private static let routePath = "/sbin/route"
-
-    /// Restores the backed-up services a recovery journal still authorizes, one service at a
-    /// time, recording the intent before each step and its completion after.
-    ///
-    /// The journal is what makes a retry safe. Before anything is written, the reduced backup and
-    /// an `inFlight` record for every service about to be touched are persisted, so a process
-    /// that dies part-way through leaves behind both the settings to write and the shape the
-    /// write was expected to produce. A later attempt then compares the live settings against
-    /// that record: settings this restore could have produced are written again, and settings it
-    /// could not are treated as someone else's and dropped from recovery untouched.
-    ///
-    /// `preservedServices` names backup entries this attempt is not authorized to write but must
-    /// keep on disk for its whole run. A rollback that only covers the services one failed
-    /// override touched must never be the moment an untouched service loses the only restore
-    /// point it has, so those entries are never removed and re-added — they are simply never
-    /// dropped.
-    private static func runJournaledRestore(
-        backup: CrashRecovery.ProxyBackup,
-        candidateServices: [String],
-        port: Int?,
-        locallyMutatedServices: Set<String> = [],
-        preservedServices: [String] = [],
-        preAttemptServices: Set<String>? = nil
-    )
-        -> [String]
-    {
-        let retentionOfPreservedOnly = ProxyBackupRetention(
-            authorized: [],
-            preserved: preservedServices,
-            preAttemptServices: preAttemptServices
-        )
-        let candidateEntries = ProxyBackupSubset.select(
-            backup.services,
-            services: Set(candidateServices),
-            serviceName: \.service
-        )
-
-        guard !candidateEntries.isEmpty else {
-            logger.info("No backed-up service is still Rockxy-owned — dropping it from the backup")
-            return finishRestore(
-                backup: backup,
-                unresolvedServices: [],
-                retention: retentionOfPreservedOnly,
-                journal: ProxyBackupSubset.select(
-                    backup.journal,
-                    services: Set(preservedServices),
-                    serviceName: \.service
-                ),
-                port: port,
-                recoveryPending: backup.recoveryPending
-            )
-        }
-
-        // A service with no usable record may only enter recovery when the live settings still
-        // prove Rockxy owns it on the persisted port, or when they are exactly one of the states
-        // this process's own override commands pass through. Anything weaker — a readable but
-        // foreign configuration, or one that could not be read at all — keeps its restore point
-        // for a later attempt instead of being adopted as a starting point.
-        let plan = ProxyRecoveryPlanner.plan(
-            targets: candidateEntries.map(restorationTarget(for:)),
-            journal: backup.journal,
-            liveStates: currentRestorationStates(for: candidateEntries.map(\.service)),
-            ownedPort: port,
-            locallyMutatedServices: locallyMutatedServices
-        )
-
-        if !plan.abandonedServices.isEmpty {
-            logger
-                .warning(
-                    "Leaving \(plan.abandonedServices.count) network service(s) out of automatic recovery — their proxy settings were changed outside this restore"
-                )
-        }
-        if !plan.completedServices.isEmpty {
-            logger.info("\(plan.completedServices.count) network service(s) were already restored")
-        }
-
-        // Entries for services that stay in the backup without being written this time round.
-        let deferredJournal = ProxyBackupSubset.select(
-            backup.journal,
-            services: Set(plan.deferredServices + preservedServices),
-            serviceName: \.service
-        )
-
-        guard !plan.entriesToRestore.isEmpty else {
-            // Nothing is written, so the backup keeps the flag it arrived with: an attempt that
-            // could read nothing must not count as the recovery that already started.
-            return finishRestore(
-                backup: backup,
-                unresolvedServices: plan.deferredServices,
-                retention: retentionOfPreservedOnly,
-                journal: deferredJournal,
-                port: port,
-                recoveryPending: backup.recoveryPending
-            )
-        }
-
-        logger.info("Restoring original proxy settings for \(plan.entriesToRestore.count) service(s)")
-
-        // Persist the intent before the first command runs. Every planned service is recorded at
-        // the stage it was planned at — a service nothing has been issued for stays `pending`, so
-        // a crash while an earlier service is being written cannot make it look half-restored and
-        // hand a later attempt a licence to overwrite a change made in the meantime.
-        var state = JournaledRestoreState(
-            journal: plan.entriesToRestore + deferredJournal,
-            retention: ProxyBackupRetention(
-                authorized: plan.servicesKeepingBackup,
-                preserved: preservedServices,
-                preAttemptServices: preAttemptServices
-            ),
-            deferredServices: plan.deferredServices
-        )
-        var workingBackup: CrashRecovery.ProxyBackup
-        do {
-            workingBackup = try CrashRecovery.reduceBackup(
-                backup,
-                to: state.retention.services,
-                rockxyPort: port,
-                journal: state.journal
-            )
-        } catch {
-            // Nothing has been written, and nothing may be: the record that would let a later
-            // attempt reason about a command is exactly what could not be stored.
-            logger
-                .error(
-                    "Could not persist the reduced proxy backup — leaving settings untouched: \(error.localizedDescription)"
-                )
-            return plan.entriesToRestore.map(\.service) + plan.deferredServices
-        }
-
-        for entry in plan.entriesToRestore {
-            guard let serviceBackup = candidateEntries.first(where: { $0.service == entry.service }) else {
-                continue
-            }
-
-            // The plan was made for every service at once, but the services are written one after
-            // another. Re-read this one immediately before its first command so a change made
-            // while an earlier service was being restored is seen before anything is overwritten.
-            guard preflightAllowsRestore(entry: entry, state: &state, backup: &workingBackup, port: port) else {
-                continue
-            }
-
-            // Only now, and only for this one service, does the record advance to `inFlight`.
-            // The commit is the permission to issue a command: if it cannot be written, not a
-            // single command is sent for this service, because an unrecorded write is exactly the
-            // case a later attempt has no way to reason about.
-            let inFlightEntry = entry.advanced(to: .inFlight)
-            let inFlightJournal = replacing(state.journal, entry: inFlightEntry)
-            var committedBackup: CrashRecovery.ProxyBackup?
-            let attempt = ProxyJournaledServiceRestore.run(
-                commitInFlight: {
-                    committedBackup = try CrashRecovery.reduceBackup(
-                        workingBackup,
-                        to: state.retention.services,
-                        rockxyPort: port,
-                        journal: inFlightJournal
-                    )
-                    logger.info("Restoring proxy settings for '\(entry.service)'")
-                },
-                restore: {
-                    switch ProxyServiceRecoveryPolicy.continuation(
-                        for: inFlightEntry,
-                        live: readRestorationState(for: entry.service)
-                    ) {
-                    case .restore:
-                        break
-                    case .complete:
-                        return .restored
-                    case .abandon, .retryLater:
-                        return .failed(
-                            step: .proxyState,
-                            error: ProxyRecoveryRevalidationError.stateChangedAfterCommit(
-                                service: entry.service
-                            )
-                        )
-                    }
-                    // The bypass list is the last thing written, and it is not written at all when
-                    // a proxy-state command failed: a restored bypass list beside a half-written
-                    // proxy state is a shape no prefix of the sequence produces.
-                    return ProxyServiceRestoreExecution.run(
-                        proxyState: {
-                            try disableProxyStates(for: entry.service)
-                            try applyServiceProxyState(serviceBackup)
-                        },
-                        bypassDomains: {
-                            try restoreBypassDomains(
-                                service: entry.service,
-                                domains: serviceBackup.bypassDomains
-                            )
-                        }
-                    )
-                }
-            )
-
-            guard case let .issued(outcome) = attempt else {
-                if case let .notIssued(commitError) = attempt {
-                    logger
-                        .error(
-                            "Could not record the restore of '\(entry.service)' — issuing no command for it: \(commitError.localizedDescription)"
-                        )
-                }
-                state.deferredServices.append(entry.service)
-                continue
-            }
-
-            state.journal = inFlightJournal
-            workingBackup = committedBackup ?? workingBackup
-            state.attemptedServices.append(entry.service)
-
-            if let failedStep = outcome.failedStep {
-                state.failedServices.insert(entry.service)
-                logger
-                    .error(
-                        "Stopped restoring '\(entry.service)' at the \(failedStep.rawValue) step: \(outcome.error?.localizedDescription ?? "unknown error")"
-                    )
-                continue
-            }
-
-            // Every command for this service returned. Recording that now is what keeps a death
-            // from this point on from looking like a command that never ran.
-            state.journal = advanced(state.journal, service: entry.service, to: .restored)
-            do {
-                workingBackup = try CrashRecovery.reduceBackup(
-                    workingBackup,
-                    to: state.retention.services,
-                    rockxyPort: port,
-                    journal: state.journal
-                )
-            } catch {
-                // The commands already landed, so a lost journal update costs nothing: the next
-                // attempt reads the live settings as the finished shape and stops there.
-                logger
-                    .error(
-                        "Could not record the completed restore for '\(entry.service)': \(error.localizedDescription)"
-                    )
-            }
-        }
-
-        let stillOwnedServices = Set(port.map { ownedPort in
-            ProxyOverrideOwnership.residualOwnedServices(
-                in: currentOverrideStates(for: state.attemptedServices),
-                port: ownedPort
-            )
-        } ?? [])
-        let unresolvedServices = ProxyBackupSubset.unresolvedEntries(
-            state.attemptedServices,
-            failedServices: state.failedServices,
-            stillOwnedServices: stillOwnedServices,
-            serviceName: { $0 }
-        ) + state.deferredServices
-
-        // Only a service this attempt could not resolve leaves the file mid-recovery. Entries it
-        // was never authorized to write keep the flag they arrived with: claiming a recovery had
-        // started for them would keep them in play at every later launch.
-        return finishRestore(
-            backup: workingBackup,
-            unresolvedServices: unresolvedServices,
-            retention: state.retention,
-            journal: state.journal,
-            port: port,
-            recoveryPending: !unresolvedServices.isEmpty || backup.recoveryPending
-        )
-    }
-
     /// Re-checks one service against its record immediately before its first command, and acts on
     /// the answer without writing a single setting.
     ///
@@ -762,7 +505,8 @@ enum ProxyConfigurator {
         ) {
         case .restore:
             return true
-        case .complete, .abandon:
+        case .complete,
+             .abandon:
             logger
                 .warning(
                     "Dropping '\(entry.service)' from this restore — its proxy settings are no longer the ones this recovery planned for"
@@ -884,6 +628,12 @@ enum ProxyConfigurator {
         )
     }
 
+    // The read path stays on `networksetup` on purpose. A read measured about 20 ms, so the six
+    // reads of a service are not where Stop's time goes; the writes were. Moving reads to
+    // SystemConfiguration as well would put the journal's authoritative comparison on a second
+    // parser for no measurable gain. The one place this layer reads a stored dictionary is the
+    // in-lock admission check, and there a disagreement only declines the fast path.
+
     /// Reads every proxy field of one service. Any read that fails makes the whole state nil:
     /// a partially read service cannot be compared against a journal without inventing values
     /// for the fields that were not read.
@@ -893,8 +643,8 @@ enum ProxyConfigurator {
               let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
               let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
               let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
-              let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service])
-        else {
+              let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
+        {
             return nil
         }
 
@@ -913,17 +663,6 @@ enum ProxyConfigurator {
             autoDiscoveryEnabled: parseAutoDiscoveryOutput(autoDiscoveryOutput),
             bypassDomains: ProxyBypassDomainOutput.parse(bypassOutput)
         )
-    }
-
-    /// Writes Rockxy's loopback override onto one service, in a fixed order.
-    private static func applyOverride(service: String, port: Int) throws {
-        try runNetworkSetup(["-setwebproxy", service, "127.0.0.1", String(port)])
-        try runNetworkSetup(["-setwebproxystate", service, "on"])
-        try runNetworkSetup(["-setsecurewebproxy", service, "127.0.0.1", String(port)])
-        try runNetworkSetup(["-setsecurewebproxystate", service, "on"])
-        try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
-        try runNetworkSetup(["-setautoproxystate", service, "off"])
-        try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
     }
 
     /// Puts back every service a failed override attempt touched, then reports the failure.
@@ -1298,6 +1037,551 @@ enum ProxyConfigurator {
         }
 
         return stdout
+    }
+}
+
+// MARK: - Single-transaction writes
+
+extension ProxyConfigurator {
+    private enum ClearedStep {
+        /// Nothing may be written for this service this time round; its record says why.
+        case skipped
+        /// Committed and revalidated: waiting only for the write.
+        case cleared(PendingServiceRestore)
+        /// Already settled without a write, successfully or not.
+        case finished(ProxyServiceRestoreOutcome)
+    }
+
+    /// Phase one for one service: the re-read, the `inFlight` commit, and the revalidation after
+    /// it. Nothing here writes a setting.
+    private static func commitAndRevalidate(
+        entry: ProxyServiceRecoveryJournalEntry,
+        serviceBackup: CrashRecovery.ServiceProxyBackup,
+        state: inout JournaledRestoreState,
+        backup workingBackup: inout CrashRecovery.ProxyBackup,
+        port: Int?
+    )
+        -> ClearedStep
+    {
+        // The plan was made for every service at once. Re-read this one immediately before it is
+        // committed so a change made since the plan is seen before anything is written.
+        guard preflightAllowsRestore(entry: entry, state: &state, backup: &workingBackup, port: port) else {
+            return .skipped
+        }
+
+        // Only now, and only for this one service, does the record advance to `inFlight`. The
+        // commit is the permission to write: if it cannot be recorded, nothing is sent for this
+        // service, because an unrecorded write is exactly the case a later attempt has no way to
+        // reason about.
+        let inFlightEntry = entry.advanced(to: .inFlight)
+        let inFlightJournal = replacing(state.journal, entry: inFlightEntry)
+        var committedBackup: CrashRecovery.ProxyBackup?
+        var cleared: PendingServiceRestore?
+        let attempt = ProxyJournaledServiceRestore.run(
+            commitInFlight: {
+                committedBackup = try CrashRecovery.reduceBackup(
+                    workingBackup,
+                    to: state.retention.services,
+                    rockxyPort: port,
+                    journal: inFlightJournal
+                )
+                logger.info("Restoring proxy settings for '\(entry.service)'")
+            },
+            restore: {
+                switch ProxyServiceRecoveryPolicy.continuation(
+                    for: inFlightEntry,
+                    live: readRestorationState(for: entry.service)
+                ) {
+                case .restore:
+                    break
+                case .complete:
+                    return .restored
+                case .abandon,
+                     .retryLater:
+                    return .failed(
+                        step: .proxyState,
+                        error: ProxyRecoveryRevalidationError.stateChangedAfterCommit(service: entry.service)
+                    )
+                }
+                // Cleared to write. The write waits for phase two; this return value is not used
+                // for a service that reaches it.
+                cleared = PendingServiceRestore(entry: inFlightEntry, backup: serviceBackup)
+                return .restored
+            }
+        )
+
+        guard case let .issued(outcome) = attempt else {
+            if case let .notIssued(commitError) = attempt {
+                logger
+                    .error(
+                        "Could not record the restore of '\(entry.service)' — issuing no command for it: \(commitError.localizedDescription)"
+                    )
+            }
+            state.deferredServices.append(entry.service)
+            return .skipped
+        }
+
+        state.journal = inFlightJournal
+        workingBackup = committedBackup ?? workingBackup
+        state.attemptedServices.append(entry.service)
+        return cleared.map(ClearedStep.cleared) ?? .finished(outcome)
+    }
+
+    /// A service that has passed every check short of the write: its `inFlight` record is
+    /// committed and the live settings were revalidated against it.
+    private struct PendingServiceRestore {
+        let entry: ProxyServiceRecoveryJournalEntry
+        let backup: CrashRecovery.ServiceProxyBackup
+    }
+
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ProxyConfigurator")
+    private static let networkSetupPath = "/usr/sbin/networksetup"
+    private static let routePath = "/sbin/route"
+
+    /// Restores the backed-up services a recovery journal still authorizes, one service at a
+    /// time, recording the intent before each step and its completion after.
+    ///
+    /// The journal is what makes a retry safe. Before anything is written, the reduced backup and
+    /// an `inFlight` record for every service about to be touched are persisted, so a process
+    /// that dies part-way through leaves behind both the settings to write and the shape the
+    /// write was expected to produce. A later attempt then compares the live settings against
+    /// that record: settings this restore could have produced are written again, and settings it
+    /// could not are treated as someone else's and dropped from recovery untouched.
+    ///
+    /// `preservedServices` names backup entries this attempt is not authorized to write but must
+    /// keep on disk for its whole run. A rollback that only covers the services one failed
+    /// override touched must never be the moment an untouched service loses the only restore
+    /// point it has, so those entries are never removed and re-added — they are simply never
+    /// dropped.
+    private static func runJournaledRestore(
+        backup: CrashRecovery.ProxyBackup,
+        candidateServices: [String],
+        port: Int?,
+        locallyMutatedServices: Set<String> = [],
+        preservedServices: [String] = [],
+        preAttemptServices: Set<String>? = nil
+    )
+        -> [String]
+    {
+        let retentionOfPreservedOnly = ProxyBackupRetention(
+            authorized: [],
+            preserved: preservedServices,
+            preAttemptServices: preAttemptServices
+        )
+        let candidateEntries = ProxyBackupSubset.select(
+            backup.services,
+            services: Set(candidateServices),
+            serviceName: \.service
+        )
+
+        guard !candidateEntries.isEmpty else {
+            logger.info("No backed-up service is still Rockxy-owned — dropping it from the backup")
+            return finishRestore(
+                backup: backup,
+                unresolvedServices: [],
+                retention: retentionOfPreservedOnly,
+                journal: ProxyBackupSubset.select(
+                    backup.journal,
+                    services: Set(preservedServices),
+                    serviceName: \.service
+                ),
+                port: port,
+                recoveryPending: backup.recoveryPending
+            )
+        }
+
+        // A service with no usable record may only enter recovery when the live settings still
+        // prove Rockxy owns it on the persisted port, or when they are exactly one of the states
+        // this process's own override commands pass through. Anything weaker — a readable but
+        // foreign configuration, or one that could not be read at all — keeps its restore point
+        // for a later attempt instead of being adopted as a starting point.
+        let plan = ProxyRecoveryPlanner.plan(
+            targets: candidateEntries.map(restorationTarget(for:)),
+            journal: backup.journal,
+            liveStates: currentRestorationStates(for: candidateEntries.map(\.service)),
+            ownedPort: port,
+            locallyMutatedServices: locallyMutatedServices
+        )
+
+        if !plan.abandonedServices.isEmpty {
+            logger
+                .warning(
+                    "Leaving \(plan.abandonedServices.count) network service(s) out of automatic recovery — their proxy settings were changed outside this restore"
+                )
+        }
+        if !plan.completedServices.isEmpty {
+            logger.info("\(plan.completedServices.count) network service(s) were already restored")
+        }
+
+        // Entries for services that stay in the backup without being written this time round.
+        let deferredJournal = ProxyBackupSubset.select(
+            backup.journal,
+            services: Set(plan.deferredServices + preservedServices),
+            serviceName: \.service
+        )
+
+        guard !plan.entriesToRestore.isEmpty else {
+            // Nothing is written, so the backup keeps the flag it arrived with: an attempt that
+            // could read nothing must not count as the recovery that already started.
+            return finishRestore(
+                backup: backup,
+                unresolvedServices: plan.deferredServices,
+                retention: retentionOfPreservedOnly,
+                journal: deferredJournal,
+                port: port,
+                recoveryPending: backup.recoveryPending
+            )
+        }
+
+        logger.info("Restoring original proxy settings for \(plan.entriesToRestore.count) service(s)")
+
+        // Persist the intent before the first command runs. Every planned service is recorded at
+        // the stage it was planned at — a service nothing has been issued for stays `pending`, so
+        // a crash while an earlier service is being written cannot make it look half-restored and
+        // hand a later attempt a licence to overwrite a change made in the meantime.
+        var state = JournaledRestoreState(
+            journal: plan.entriesToRestore + deferredJournal,
+            retention: ProxyBackupRetention(
+                authorized: plan.servicesKeepingBackup,
+                preserved: preservedServices,
+                preAttemptServices: preAttemptServices
+            ),
+            deferredServices: plan.deferredServices
+        )
+        var workingBackup: CrashRecovery.ProxyBackup
+        do {
+            workingBackup = try CrashRecovery.reduceBackup(
+                backup,
+                to: state.retention.services,
+                rockxyPort: port,
+                journal: state.journal
+            )
+        } catch {
+            // Nothing has been written, and nothing may be: the record that would let a later
+            // attempt reason about a command is exactly what could not be stored.
+            logger
+                .error(
+                    "Could not persist the reduced proxy backup — leaving settings untouched: \(error.localizedDescription)"
+                )
+            return plan.entriesToRestore.map(\.service) + plan.deferredServices
+        }
+
+        // The services are restored in three phases. Phase one is everything that only reads or
+        // only records: the re-read, the `inFlight` commit, and the revalidation after it, one
+        // service at a time exactly as before. Phase two is the write, once, for every service
+        // phase one cleared. Phase three records each outcome. Services are independent, so
+        // reading all of them before writing any changes nothing about what each one sees.
+        var queued: [PendingServiceRestore] = []
+        for entry in plan.entriesToRestore {
+            guard let serviceBackup = candidateEntries.first(where: { $0.service == entry.service }) else {
+                continue
+            }
+            switch commitAndRevalidate(
+                entry: entry,
+                serviceBackup: serviceBackup,
+                state: &state,
+                backup: &workingBackup,
+                port: port
+            ) {
+            case .skipped:
+                continue
+            case let .cleared(pending):
+                queued.append(pending)
+            case let .finished(outcome):
+                recordRestoreOutcome(
+                    outcome,
+                    service: entry.service,
+                    state: &state,
+                    backup: &workingBackup,
+                    port: port
+                )
+            }
+        }
+
+        if !queued.isEmpty {
+            let outcomes = writeQueuedRestores(queued, port: port)
+            for pending in queued {
+                recordRestoreOutcome(
+                    outcomes[pending.entry.service] ?? .failed(
+                        step: .proxyState,
+                        error: ProxyRecoveryRevalidationError.stateChangedAfterCommit(
+                            service: pending.entry.service
+                        )
+                    ),
+                    service: pending.entry.service,
+                    state: &state,
+                    backup: &workingBackup,
+                    port: port
+                )
+            }
+        }
+
+        let stillOwnedServices = Set(port.map { ownedPort in
+            ProxyOverrideOwnership.residualOwnedServices(
+                in: currentOverrideStates(for: state.attemptedServices),
+                port: ownedPort
+            )
+        } ?? [])
+        let unresolvedServices = ProxyBackupSubset.unresolvedEntries(
+            state.attemptedServices,
+            failedServices: state.failedServices,
+            stillOwnedServices: stillOwnedServices,
+            serviceName: { $0 }
+        ) + state.deferredServices
+
+        // Only a service this attempt could not resolve leaves the file mid-recovery. Entries it
+        // was never authorized to write keep the flag they arrived with: claiming a recovery had
+        // started for them would keep them in play at every later launch.
+        return finishRestore(
+            backup: workingBackup,
+            unresolvedServices: unresolvedServices,
+            retention: state.retention,
+            journal: state.journal,
+            port: port,
+            recoveryPending: !unresolvedServices.isEmpty || backup.recoveryPending
+        )
+    }
+
+    /// Records how one service's restore ended: a failure is remembered for the report, a success
+    /// is written to the journal as `restored`.
+    private static func recordRestoreOutcome(
+        _ outcome: ProxyServiceRestoreOutcome,
+        service: String,
+        state: inout JournaledRestoreState,
+        backup workingBackup: inout CrashRecovery.ProxyBackup,
+        port: Int?
+    ) {
+        if let failedStep = outcome.failedStep {
+            state.failedServices.insert(service)
+            logger
+                .error(
+                    "Stopped restoring '\(service)' at the \(failedStep.rawValue) step: \(outcome.error?.localizedDescription ?? "unknown error")"
+                )
+            return
+        }
+
+        // Every write for this service has landed. Recording that now is what keeps a death from
+        // this point on from looking like a write that never ran.
+        state.journal = advanced(state.journal, service: service, to: .restored)
+        do {
+            workingBackup = try CrashRecovery.reduceBackup(
+                workingBackup,
+                to: state.retention.services,
+                rockxyPort: port,
+                journal: state.journal
+            )
+        } catch {
+            // The writes already landed, so a lost journal update costs nothing: the next
+            // attempt reads the live settings as the finished shape and stops there.
+            logger
+                .error("Could not record the completed restore for '\(service)': \(error.localizedDescription)")
+        }
+    }
+
+    /// Writes every cleared service's captured settings, the bypass list included, in a single
+    /// SystemConfiguration transaction, and hands back to `networksetup` whatever that
+    /// transaction did not write.
+    ///
+    /// Crash analysis, since the journal protocol is unchanged and this is why it still holds. The
+    /// `inFlight` record for every service in `queued` is already on disk, and the writer records
+    /// that an apply is owed (`ProxyApplyDebt`) before it commits. The commit replaces the
+    /// preferences file atomically, so a process that dies:
+    /// - before the commit leaves every service exactly as it was, which `inFlight` explains as
+    ///   the state before the step, so a later attempt writes again;
+    /// - during the commit leaves either all of the batch or none of it, never a mixture;
+    /// - after the commit, before the apply is confirmed, leaves the FILE finished and the LIVE
+    ///   SYSTEM not. Every reader here reads preferences, so the next attempt reads `complete`
+    ///   and would drop the service. What stops that is the debt record: `settleOwedApply` runs
+    ///   first at every entry point and applies again before anything is read or journaled.
+    /// - after the apply, before a `restored` record, leaves everything finished and applied; the
+    ///   next attempt reads `complete` and drops the service.
+    /// The shapes in between that the per-command sequence used to leave are no longer reachable
+    /// by this path; they stay modelled because the fallback still produces them.
+    private static func writeQueuedRestores(
+        _ queued: [PendingServiceRestore],
+        port: Int?
+    )
+        -> [String: ProxyServiceRestoreOutcome]
+    {
+        let items = queued.map { pending in
+            ProxyTransactionItem(
+                service: pending.entry.service,
+                writes: ProxyWritePlan.restore(to: restorationTarget(for: pending.backup)),
+                admission: .restoreContinuation(pending.entry)
+            )
+        }
+        let outcome = ProxySystemConfigurationWriter.commit(items, ownedPort: port)
+        let resolution = ProxyFallbackPolicy.resolve(requested: queued.map(\.entry.service), outcome: outcome)
+
+        var outcomes: [String: ProxyServiceRestoreOutcome] = [:]
+        for service in resolution.written {
+            outcomes[service] = .restored
+        }
+        if !resolution.written.isEmpty {
+            logger.info("Restored \(resolution.written.count) network service(s) in one transaction")
+        }
+        for (service, reason) in resolution.fallback {
+            guard let pending = queued.first(where: { $0.entry.service == service }) else {
+                continue
+            }
+            logger.warning("Restoring '\(service)' with networksetup instead: \(String(describing: reason))")
+            outcomes[service] = restoreWithNetworkSetup(
+                pending,
+                rewritingFinishedSettings: ProxyFallbackPolicy.rewritesFinishedSettings(after: reason),
+                ownedPort: port
+            )
+        }
+        return outcomes
+    }
+
+    /// The per-command restore, one process per setting. Used only for a service the
+    /// SystemConfiguration transaction did not write, and it revalidates first because time has
+    /// passed since phase one.
+    private static func restoreWithNetworkSetup(
+        _ pending: PendingServiceRestore,
+        rewritingFinishedSettings: Bool,
+        ownedPort: Int?
+    )
+        -> ProxyServiceRestoreOutcome
+    {
+        let service = pending.entry.service
+        switch ProxyServiceRecoveryPolicy.continuation(
+            for: pending.entry,
+            live: readRestorationState(for: service)
+        ) {
+        case .restore:
+            break
+        case .complete:
+            // The preferences read as finished. They would read the same if a commit landed and
+            // was never applied, so finished settings are left alone only when no reason suggests
+            // an unconfirmed apply and `configd` is not still enforcing the override.
+            guard rewritingFinishedSettings || effectiveSettingsStillOverridden(port: ownedPort) else {
+                return .restored
+            }
+        case .abandon,
+             .retryLater:
+            return .failed(
+                step: .proxyState,
+                error: ProxyRecoveryRevalidationError.stateChangedAfterCommit(service: service)
+            )
+        }
+        // The bypass list is the last thing written, and it is not written at all when a
+        // proxy-state command failed: a restored bypass list beside a half-written proxy state is
+        // a shape no prefix of the sequence produces.
+        return ProxyServiceRestoreExecution.run(
+            proxyState: {
+                try disableProxyStates(for: service)
+                try applyServiceProxyState(pending.backup)
+            },
+            bypassDomains: {
+                try restoreBypassDomains(service: service, domains: pending.backup.bypassDomains)
+            }
+        )
+    }
+
+    /// Writes Rockxy's loopback override onto one service: in one SystemConfiguration
+    /// transaction when it can, with the per-command sequence as the fallback.
+    private static func applyOverride(service: String, port: Int, baseline: ProxyServiceRestorationState) throws {
+        try writeInOneTransaction(
+            service: service,
+            writes: ProxyWritePlan.override(port: port),
+            baseline: baseline,
+            ownedPort: port
+        ) {
+            try applyOverrideWithNetworkSetup(service: service, port: port)
+        }
+    }
+
+    /// Writes one service's bypass list the same way: one transaction, `networksetup` as fallback.
+    private static func writeBypassDomains(
+        service: String,
+        domains: [String],
+        baseline: ProxyServiceRestorationState
+    )
+        throws
+    {
+        try writeInOneTransaction(
+            service: service,
+            writes: ProxyWritePlan.bypass(domains),
+            baseline: baseline,
+            ownedPort: nil
+        ) {
+            try restoreBypassDomains(service: service, domains: domains)
+        }
+    }
+
+    private static func writeInOneTransaction(
+        service: String,
+        writes: [ProxyKeyWrite],
+        baseline: ProxyServiceRestorationState,
+        ownedPort: Int?,
+        fallback: () throws -> Void
+    )
+        throws
+    {
+        let outcome = ProxySystemConfigurationWriter.commit(
+            [ProxyTransactionItem(service: service, writes: writes, admission: .equals(baseline))],
+            ownedPort: ownedPort
+        )
+        guard let reason = ProxyFallbackPolicy.resolve(requested: [service], outcome: outcome).fallback.first?.reason else {
+            return
+        }
+        logger.warning("Writing '\(service)' with networksetup instead: \(String(describing: reason))")
+        // The in-lock check may have declined because the settings changed, or because this layer
+        // read them differently. The authoritative read decides, as it did before the first write.
+        // After a refused apply or a deadline the write may already have landed: the settings then
+        // equal what it produces, and re-issuing it is what applies it, not a change to guard.
+        guard ProxyFallbackPolicy.mayWriteOver(
+            live: readRestorationState(for: service),
+            baseline: baseline,
+            writes: writes,
+            after: reason
+        ) else {
+            throw ProxyConfiguratorError.executionFailed(
+                command: "proxy preflight",
+                reason: "The live settings changed before they could be written"
+            )
+        }
+        try fallback()
+    }
+
+    /// Applies preferences an earlier transaction committed but never confirmed applying. Call it
+    /// first at every privileged entry point, and once at helper launch: it is one file read when
+    /// nothing is owed. A process that died between a commit and its apply is the case it exists
+    /// for, because preferences alone then read as a finished restore.
+    @discardableResult
+    static func settleOwedApply() -> ProxyApplySettlement {
+        let settlement = ProxySystemConfigurationWriter.settleOwedApply()
+        switch settlement {
+        case .nothingOwed:
+            break
+        case .settled:
+            logger.info("Applied proxy settings an earlier transaction had committed but not applied")
+        case .stillOwed:
+            logger.error("Committed proxy settings are still waiting to be applied")
+        }
+        return settlement
+    }
+
+    /// Whether `configd` is still enforcing a loopback override on `port`. A read of what is in
+    /// force, which preferences cannot say. It describes the primary service only, so a hit can
+    /// cost one redundant rewrite but a miss never proves anything.
+    private static func effectiveSettingsStillOverridden(port: Int?) -> Bool {
+        guard let port, let effective = ProxySystemConfigurationWriter.effectiveProxies() else {
+            return false
+        }
+        return ProxyEffectiveSettings.pointsAtLoopback(port: port, effective: effective)
+    }
+
+    /// The per-command override sequence, in a fixed order.
+    private static func applyOverrideWithNetworkSetup(service: String, port: Int) throws {
+        try runNetworkSetup(["-setwebproxy", service, "127.0.0.1", String(port)])
+        try runNetworkSetup(["-setwebproxystate", service, "on"])
+        try runNetworkSetup(["-setsecurewebproxy", service, "127.0.0.1", String(port)])
+        try runNetworkSetup(["-setsecurewebproxystate", service, "on"])
+        try runNetworkSetup(["-setsocksfirewallproxystate", service, "off"])
+        try runNetworkSetup(["-setautoproxystate", service, "off"])
+        try runNetworkSetup(["-setproxyautodiscovery", service, "off"])
     }
 }
 
