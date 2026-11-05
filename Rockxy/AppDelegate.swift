@@ -1,6 +1,8 @@
 import AppKit
 import os
 
+// MARK: - AppDelegate
+
 /// Application delegate handling lifecycle events. Keeps the app running when the
 /// last window closes (dock-icon behavior) and will restore system proxy settings
 /// on termination once `SystemProxyManager` is implemented.
@@ -214,20 +216,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
         // watchdog could kill the app mid-restore — leaving the user's system proxy pointed at a
         // port that no longer listens. Returning the main thread promptly makes that *less*
         // likely, not more.
-        let finishedInBudget = TerminationCleanupBarrier.wait {
-            SystemProxyManager.shared.performEmergencyTerminationCleanup(
-                reason: "applicationWillTerminate"
-            )
-            if !fallbackManager.flushPassthroughPersistence() {
-                terminationLogger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
-            }
-        }
-        if !finishedInBudget {
-            Self.logger
-                .error(
-                    "applicationWillTerminate: cleanup is past its budget — it continues on its own thread, and the narrowed direct backup lets startup recovery finish it"
+        // Independent steps run side by side against one shared deadline, so a slow proxy restore
+        // can neither starve the fallback-state flush nor stretch Quit past the budget. Anything
+        // unfinished at the deadline is logged by name inside the barrier.
+        TerminationCleanupBarrier.wait(steps: [
+            .init(name: "system proxy restore") {
+                SystemProxyManager.shared.performEmergencyTerminationCleanup(
+                    reason: "applicationWillTerminate"
                 )
-        }
+            },
+            .init(name: "HTTPS fallback state flush") {
+                if !fallbackManager.flushPassthroughPersistence(timeout: .seconds(2)) {
+                    terminationLogger.error("applicationWillTerminate: timed out flushing HTTPS fallback state")
+                }
+            },
+        ])
         MCPHandshakeStore.delete()
         CommandLineControlCoordinator.shared.stop()
     }
@@ -286,31 +289,101 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSUserInterfaceValidat
 enum TerminationCleanupBarrier {
     // MARK: Internal
 
-    /// The complete main-thread budget for the final termination cleanup.
-    ///
-    /// Not derived from a documented OS limit — macOS publishes no number for how long
-    /// `applicationWillTerminate` may take, and by the time it runs the system has already been
-    /// waiting through the `.terminateLater` reply. It is instead twice `DirectProxySessionLock`'s
-    /// own 5 s acquisition timeout, so a cleanup that arrives while another process holds the
-    /// shared flock still gets one full acquisition attempt and about as long again to do its
-    /// restore writes, while the user sees a short pause rather than a beachball. **This number is
-    /// Stephen's to change** — it trades how often the restore finishes inside the quit against
-    /// how long Quit can appear to hang.
-    static let budget: TimeInterval = 10
+    /// One independent piece of final cleanup, named so an overrun can say what it gave up on.
+    struct Step: Sendable {
+        let name: String
+        let work: @Sendable () -> Void
+    }
 
-    /// Runs `work` off the caller's thread and waits for it for at most `budget`, reporting
-    /// whether it finished.
+    /// The complete main-thread budget for the final termination cleanup, shared by all steps.
     ///
-    /// A detached thread rather than a global queue: this work holds a recursive lock and a
+    /// What it waits on: this runs in `applicationWillTerminate`, after the `.terminateLater`
+    /// path in `applicationShouldTerminate` has already restored the proxy, flushed project
+    /// state and stopped MCP. In the normal case the direct backup is already cleared, so the
+    /// system-proxy step is a lock acquisition plus a file read (milliseconds) and the fallback
+    /// flush is one queue hop. The only time it has real work is when the earlier restore
+    /// failed or was skipped (force quit paths, signals): then it is a flock attempt (5 s
+    /// timeout), then one `networksetup` write set per service. A handful of services restores
+    /// in well under a second, so 3 s covers every case that can plausibly finish while the
+    /// user is still looking at Quit.
+    ///
+    /// The unbounded tails — a held flock, a 10 s `networksetup` command, a 3 s helper
+    /// semaphore, waiting on an in-flight enable — are exactly what the budget refuses to wait
+    /// for. macOS publishes no hard number for `applicationWillTerminate`, but 10 s on Cmd-Q
+    /// reads as a hang, and the recovery record described above makes giving up at 3 s safe.
+    /// **This number is Stephen's to change.**
+    static let budget: TimeInterval = 3
+
+    /// Runs every step on its own detached thread and waits until all finish or `budget`
+    /// elapses, whichever is first. The deadline is shared, so the total wait is at most
+    /// `budget` regardless of step count. Returns the names of steps still running at expiry
+    /// (empty when everything finished); the unfinished work is not cancelled.
+    ///
+    /// Detached threads rather than a global queue: this work holds a recursive lock and a
     /// cross-process advisory lock for its whole duration, which is not something to park on a
     /// shared queue worker during shutdown.
     @discardableResult
-    static func wait(budget: TimeInterval = budget, for work: @escaping @Sendable () -> Void) -> Bool {
-        let finished = DispatchSemaphore(value: 0)
-        Thread.detachNewThread {
-            work()
-            finished.signal()
+    static func wait(budget: TimeInterval = budget, steps: [Step]) -> [String] {
+        let group = DispatchGroup()
+        let pending = PendingSteps(steps.map(\.name))
+        for step in steps {
+            group.enter()
+            Thread.detachNewThread {
+                step.work()
+                pending.finish(step.name)
+                group.leave()
+            }
         }
-        return finished.wait(timeout: .now() + budget) == .success
+        guard group.wait(timeout: .now() + budget) != .success else {
+            return []
+        }
+        let unfinished = pending.names
+        let gaveUpOn = unfinished.joined(separator: ", ")
+        logger.error(
+            "Termination cleanup passed its \(budget, privacy: .public)s budget; terminating without: \(gaveUpOn, privacy: .public)"
+        )
+        return unfinished
     }
+
+    /// Single-step convenience; returns whether the work finished inside the budget.
+    @discardableResult
+    static func wait(budget: TimeInterval = budget, for work: @escaping @Sendable () -> Void) -> Bool {
+        wait(budget: budget, steps: [Step(name: "cleanup", work: work)]).isEmpty
+    }
+
+    // MARK: Private
+
+    private final class PendingSteps: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(_ names: [String]) {
+            remaining = names
+        }
+
+        // MARK: Internal
+
+        var names: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return remaining
+        }
+
+        func finish(_ name: String) {
+            lock.lock()
+            defer { lock.unlock() }
+            if let index = remaining.firstIndex(of: name) {
+                remaining.remove(at: index)
+            }
+        }
+
+        // MARK: Private
+
+        private let lock = NSLock()
+        private var remaining: [String]
+    }
+
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "TerminationCleanupBarrier"
+    )
 }

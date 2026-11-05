@@ -26,10 +26,39 @@ struct TerminationCleanupBarrierTests {
         #expect(completed.wait(timeout: .now() + 10) == .success)
     }
 
-    @Test("the shipped budget is the documented ten seconds")
+    @Test("the total wait is one shared deadline and names every step it gave up on")
+    func sharedDeadlineAcrossStuckSteps() {
+        // Three stuck steps must cost one budget, not three, and the quick step must not be
+        // reported. The budget here is tiny so the test never sleeps for the real one.
+        let release = DispatchSemaphore(value: 0)
+        let started = Date()
+        let unfinished = TerminationCleanupBarrier.wait(budget: 0.15, steps: [
+            .init(name: "stuck-a") { release.wait() },
+            .init(name: "quick") {},
+            .init(name: "stuck-b") { release.wait() },
+            .init(name: "stuck-c") { release.wait() },
+        ])
+        let waited = Date().timeIntervalSince(started)
+
+        #expect(Set(unfinished) == ["stuck-a", "stuck-b", "stuck-c"])
+        #expect(waited < 1)
+        for _ in 0 ..< 3 {
+            release.signal()
+        }
+    }
+
+    @Test("every step finishing inside the budget reports nothing unfinished")
+    func allStepsFinish() {
+        #expect(TerminationCleanupBarrier.wait(budget: 5, steps: [
+            .init(name: "a") {},
+            .init(name: "b") {},
+        ]).isEmpty)
+    }
+
+    @Test("the shipped budget is three seconds and well under the old ten")
     func budgetIsPinned() {
         // Pinned deliberately: this number is a product decision about how long Quit may appear
         // to hang, not an implementation detail, so a silent change should fail here.
-        #expect(TerminationCleanupBarrier.budget == 10)
+        #expect(TerminationCleanupBarrier.budget == 3)
     }
 }
