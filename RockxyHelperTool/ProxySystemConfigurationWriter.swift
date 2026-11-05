@@ -41,6 +41,14 @@ enum ProxySystemConfigurationWriter {
     /// How long the preferences lock is retried before another writer is given up on.
     static let lockBudget: TimeInterval = 3
 
+    /// How long a read waits before it is abandoned. A read that takes this long is not a read
+    /// worth waiting for: the caller asks `networksetup` instead.
+    static let readDeadline: TimeInterval = 2
+
+    /// After a read times out, reads are not attempted for this long. Without it every call in a
+    /// restore would wait out its own deadline behind the same stuck `configd`.
+    static let readSuspension: TimeInterval = 60
+
     static func commit(
         _ items: [ProxyTransactionItem],
         ownedPort: Int? = nil,
@@ -109,6 +117,46 @@ enum ProxySystemConfigurationWriter {
     /// What `configd` has adopted (not what preferences hold), or nil when it cannot be read.
     static func effectiveProxies() -> [String: Any]? {
         SCDynamicStoreCopyProxies(nil) as? [String: Any]
+    }
+
+    /// The stored `Proxies` dictionary of each named service, read from ONE preferences session.
+    ///
+    /// Nothing is locked or written. A session reads the preferences file when it is created, so
+    /// each call is a fresh view of what is on disk, which is the same file `networksetup` reads.
+    /// A name that does not resolve to exactly one service in the current set, or whose
+    /// dictionary has an unexpected shape, is left out of the result rather than guessed at; the
+    /// caller then asks `networksetup` about that service. `nil` means no read was possible at
+    /// all (no session, a timeout, or reads suspended after one).
+    static func storedConfigurations(
+        for names: [String],
+        now: Date = Date()
+    )
+        -> [String: [String: Any]]?
+    {
+        guard !names.isEmpty else {
+            return [:]
+        }
+        guard readsSuspendedUntil.withLock({ ($0 ?? .distantPast) <= now }) else {
+            return nil
+        }
+
+        let box = ReadBox()
+        let done = DispatchSemaphore(value: 0)
+        let thread = Thread {
+            box.store(readStoredConfigurations(for: names))
+            done.signal()
+        }
+        thread.name = "com.rockxy.helper.proxy-read"
+        thread.start()
+
+        guard done.wait(timeout: .now() + readDeadline) == .success else {
+            readsSuspendedUntil.withLock { $0 = now.addingTimeInterval(readSuspension) }
+            logger.error(
+                "Reading proxy preferences passed its \(readDeadline, privacy: .public)s deadline; using networksetup for \(readSuspension, privacy: .public)s"
+            )
+            return nil
+        }
+        return box.value
     }
 
     // MARK: Private
@@ -183,24 +231,12 @@ enum ProxySystemConfigurationWriter {
 
             // The current set, not every service in the file: it is the list `networksetup`
             // names services from, so the names the rest of the helper holds resolve against it.
-            guard let currentSet = SCNetworkSetCopyCurrent(preferences),
-                  let services = SCNetworkSetCopyServices(currentSet) as? [SCNetworkService] else
-            {
+            guard let directory = copyCurrentSetServices(preferences) else {
                 return .notCommitted(reason: .unexpectedSchema)
             }
-            var servicesByID: [String: SCNetworkService] = [:]
-            var candidates: [ProxyServiceCandidate] = []
-            for service in services {
-                guard let id = SCNetworkServiceGetServiceID(service) as String?,
-                      let name = SCNetworkServiceGetName(service) as String? else
-                {
-                    continue
-                }
-                servicesByID[id] = service
-                candidates.append(ProxyServiceCandidate(id: id, name: name))
-            }
+            let servicesByID = directory.servicesByID
 
-            let plan = ProxyTransactionPlan.prepare(items: items, candidates: candidates)
+            let plan = ProxyTransactionPlan.prepare(items: items, candidates: directory.candidates)
             var declined = plan.declined
             var written: [String] = []
 
@@ -302,10 +338,89 @@ enum ProxySystemConfigurationWriter {
         }
     }
 
+    /// Hands the result of a read from its thread to the caller that waited for it.
+    private final class ReadBox: @unchecked Sendable {
+        // MARK: Internal
+
+        var value: [String: [String: Any]]? {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+
+        func store(_ value: [String: [String: Any]]?) {
+            lock.lock()
+            stored = value
+            lock.unlock()
+        }
+
+        // MARK: Private
+
+        private let lock = NSLock()
+        private var stored: [String: [String: Any]]?
+    }
+
+    private static let readsSuspendedUntil = OSAllocatedUnfairLock<Date?>(initialState: nil)
+
     private static let logger = Logger(
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "ProxySystemConfigurationWriter"
     )
+
+    private static func readStoredConfigurations(for names: [String]) -> [String: [String: Any]]? {
+        guard let preferences = SCPreferencesCreate(nil, "Rockxy Helper" as CFString, nil),
+              let directory = copyCurrentSetServices(preferences) else
+        {
+            return nil
+        }
+        var result: [String: [String: Any]] = [:]
+        for name in names {
+            guard case let .resolved(id) = ProxyServiceResolution.resolve(name, among: directory.candidates),
+                  let service = directory.servicesByID[id],
+                  let proxies = SCNetworkServiceCopyProtocol(service, kSCNetworkProtocolTypeProxies) else
+            {
+                continue
+            }
+            if let configuration = SCNetworkProtocolGetConfiguration(proxies) {
+                guard let dictionary = configuration as? [String: Any] else {
+                    continue
+                }
+                result[name] = dictionary
+            } else {
+                // A service with no stored proxy settings reads as every mode off, as it does
+                // inside the write transaction.
+                result[name] = [:]
+            }
+        }
+        return result
+    }
+}
+
+// MARK: - ServiceDirectory
+
+/// The services of the current set, by identifier, with the names they are listed under.
+private struct ServiceDirectory {
+    var candidates: [ProxyServiceCandidate] = []
+    var servicesByID: [String: SCNetworkService] = [:]
+}
+
+private func copyCurrentSetServices(_ preferences: SCPreferences) -> ServiceDirectory? {
+    guard let currentSet = SCNetworkSetCopyCurrent(preferences),
+          let services = SCNetworkSetCopyServices(currentSet) as? [SCNetworkService] else
+    {
+        return nil
+    }
+    var directory = ServiceDirectory()
+    for service in services {
+        guard let id = SCNetworkServiceGetServiceID(service) as String?,
+              let name = SCNetworkServiceGetName(service) as String? else
+        {
+            continue
+        }
+        directory.servicesByID[id] = service
+        directory.candidates.append(ProxyServiceCandidate(id: id, name: name))
+    }
+    return directory
 }
 
 private func lastSystemConfigurationError() -> String {

@@ -196,15 +196,18 @@ enum ProxyConfigurator {
             return
         }
         let backedUpServices = sourceBackup.services.map(\.service)
-        let inferredPort = ProxyOverrideOwnership.inferredOwnedPort(
-            in: currentOverrideStates(for: backedUpServices)
+        // Only a backup written before the port was recorded needs the live settings to say which
+        // port it was overriding. Reading every service to compute a value the recorded port
+        // makes unused was a quarter of a Stop's reads.
+        let ownedPort = sourceBackup.rockxyPort ?? ProxyOverrideOwnership.inferredOwnedPort(
+            in: overrideStatesPreferringSystemConfiguration(for: backedUpServices)
         )
 
         try failIfUnresolved(
             runJournaledRestore(
                 backup: sourceBackup,
                 candidateServices: backedUpServices,
-                port: sourceBackup.rockxyPort ?? inferredPort
+                port: ownedPort
             ),
             command: "restore proxy"
         )
@@ -501,7 +504,7 @@ enum ProxyConfigurator {
     {
         switch ProxyServiceRecoveryPolicy.continuation(
             for: entry,
-            live: readRestorationState(for: entry.service)
+            live: liveStateForRestore(of: entry)
         ) {
         case .restore:
             return true
@@ -628,11 +631,55 @@ enum ProxyConfigurator {
         )
     }
 
-    // The read path stays on `networksetup` on purpose. A read measured about 20 ms, so the six
-    // reads of a service are not where Stop's time goes; the writes were. Moving reads to
-    // SystemConfiguration as well would put the journal's authoritative comparison on a second
-    // parser for no measurable gain. The one place this layer reads a stored dictionary is the
-    // in-lock admission check, and there a disagreement only declines the fast path.
+    // Two readers, one rule. `networksetup` is the authoritative reader: every answer that is not
+    // "this restore may proceed" is given on it. SystemConfiguration is the fast one: it reads
+    // the same preferences file in one session instead of six processes per service (about 45 ms
+    // each on a working helper, 120 of them in a four-service Stop), and it may only confirm that
+    // a restore can proceed, which the write then checks again under the preferences lock. A
+    // service the fast reader cannot read is simply absent from its answer.
+
+    /// The fast reading of every named service from one preferences session. A service that
+    /// could not be read, or whose stored settings are not in a shape the reader accepts, is
+    /// missing from the result.
+    private static func systemConfigurationStates(
+        for services: [String]
+    )
+        -> [String: ProxyServiceRestorationState]
+    {
+        guard let stored = ProxySystemConfigurationWriter.storedConfigurations(for: services) else {
+            return [:]
+        }
+        return ProxyFastRead.states(from: stored)
+    }
+
+    /// The state one journaled service is judged by: the fast reading when it lets the restore
+    /// proceed, the `networksetup` reading otherwise.
+    private static func liveStateForRestore(
+        of entry: ProxyServiceRecoveryJournalEntry
+    )
+        -> ProxyServiceRestorationState?
+    {
+        ProxyFastRead.liveState(
+            for: entry,
+            fast: { systemConfigurationStates(for: [entry.service])[entry.service] },
+            authoritative: { readRestorationState(for: entry.service) }
+        )
+    }
+
+    /// Ownership-relevant state of each service for the residual check and the port inference:
+    /// from one fast session, with `networksetup` for any service that session could not read.
+    /// An unreadable service still reports as not overridden, as `currentOverrideStates` does.
+    private static func overrideStatesPreferringSystemConfiguration(
+        for services: [String]
+    )
+        -> [ProxyServiceOverrideState]
+    {
+        let fast = systemConfigurationStates(for: services)
+        return services.map { service in
+            (fast[service] ?? readRestorationState(for: service))?.overrideState
+                ?? ProxyServiceOverrideState.unreadable(service: service)
+        }
+    }
 
     /// Reads every proxy field of one service. Any read that fails makes the whole state nil:
     /// a partially read service cannot be compared against a journal without inventing values
@@ -1090,7 +1137,7 @@ extension ProxyConfigurator {
             restore: {
                 switch ProxyServiceRecoveryPolicy.continuation(
                     for: inFlightEntry,
-                    live: readRestorationState(for: entry.service)
+                    live: liveStateForRestore(of: inFlightEntry)
                 ) {
                 case .restore:
                     break
@@ -1195,12 +1242,13 @@ extension ProxyConfigurator {
         // this process's own override commands pass through. Anything weaker — a readable but
         // foreign configuration, or one that could not be read at all — keeps its restore point
         // for a later attempt instead of being adopted as a starting point.
-        let plan = ProxyRecoveryPlanner.plan(
+        let plan = ProxyFastRead.plan(
             targets: candidateEntries.map(restorationTarget(for:)),
             journal: backup.journal,
-            liveStates: currentRestorationStates(for: candidateEntries.map(\.service)),
+            fastStates: systemConfigurationStates(for: candidateEntries.map(\.service)),
             ownedPort: port,
-            locallyMutatedServices: locallyMutatedServices
+            locallyMutatedServices: locallyMutatedServices,
+            authoritative: currentRestorationStates(for:)
         )
 
         if !plan.abandonedServices.isEmpty {
@@ -1318,7 +1366,7 @@ extension ProxyConfigurator {
 
         let stillOwnedServices = Set(port.map { ownedPort in
             ProxyOverrideOwnership.residualOwnedServices(
-                in: currentOverrideStates(for: state.attemptedServices),
+                in: overrideStatesPreferringSystemConfiguration(for: state.attemptedServices),
                 port: ownedPort
             )
         } ?? [])

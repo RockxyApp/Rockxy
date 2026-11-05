@@ -529,6 +529,90 @@ struct ProxyTransactionPlan {
     }
 }
 
+// MARK: - ProxyFastRead
+
+/// How a reading taken from SystemConfiguration is allowed to stand in for a `networksetup` one.
+///
+/// Both read the same preferences file, so for a shape `ProxyDictionaryReader` accepts they agree.
+/// What this layer adds is a rule about which answers may rest on the faster reading alone: it
+/// may confirm that a restore can PROCEED, because the write that follows checks the same settings
+/// again under the preferences lock. Any other answer (already restored, changed by somebody
+/// else, unreadable) drops a service from recovery or leaves it stranded, so it is only ever
+/// given on the authoritative reading.
+enum ProxyFastRead {
+    /// Parses each stored dictionary; a service whose dictionary is not understood is absent.
+    static func states(
+        from stored: [String: [String: Any]]
+    )
+        -> [String: ProxyServiceRestorationState]
+    {
+        var states: [String: ProxyServiceRestorationState] = [:]
+        for (service, dictionary) in stored {
+            if let state = ProxyDictionaryReader.restorationState(service: service, from: dictionary) {
+                states[service] = state
+            }
+        }
+        return states
+    }
+
+    /// The live state one journaled service is judged by immediately before it is committed, and
+    /// again after. The fast reading is used only when it lets the restore proceed; otherwise the
+    /// authoritative one is read and its answer, whatever it is, stands.
+    static func liveState(
+        for entry: ProxyServiceRecoveryJournalEntry,
+        fast: () -> ProxyServiceRestorationState?,
+        authoritative: () -> ProxyServiceRestorationState?
+    )
+        -> ProxyServiceRestorationState?
+    {
+        if let reading = fast(),
+           ProxyServiceRecoveryPolicy.continuation(for: entry, live: reading) == .restore
+        {
+            return reading
+        }
+        return authoritative()
+    }
+
+    /// Plans a recovery from fast readings, then asks the authoritative reader about every
+    /// service the fast plan did not send to a restore and plans those again from its answer.
+    /// The plan is per service, so a service that proceeds on the fast reading is unaffected.
+    static func plan(
+        targets: [ProxyServiceRestorationState],
+        journal: [ProxyServiceRecoveryJournalEntry],
+        fastStates: [String: ProxyServiceRestorationState],
+        ownedPort: Int?,
+        locallyMutatedServices: Set<String> = [],
+        authoritative: ([String]) -> [String: ProxyServiceRestorationState]
+    )
+        -> ProxyRecoveryPlan
+    {
+        let first = ProxyRecoveryPlanner.plan(
+            targets: targets,
+            journal: journal,
+            liveStates: fastStates,
+            ownedPort: ownedPort,
+            locallyMutatedServices: locallyMutatedServices
+        )
+        let proceeding = Set(first.entriesToRestore.map(\.service))
+        let doubtful = targets.map(\.service).filter { !proceeding.contains($0) }
+        guard !doubtful.isEmpty else {
+            return first
+        }
+
+        var live = fastStates.filter { proceeding.contains($0.key) }
+        for (service, state) in authoritative(doubtful) {
+            live[service] = state
+        }
+        return ProxyRecoveryPlanner.plan(
+            targets: targets,
+            journal: journal,
+            liveStates: live,
+            ownedPort: ownedPort,
+            locallyMutatedServices: locallyMutatedServices
+        )
+    }
+}
+
 // MARK: - ProxyTransactionOutcome
 
 /// What the SystemConfiguration shell reports.

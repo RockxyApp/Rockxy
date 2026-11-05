@@ -815,3 +815,214 @@ struct ProxyEffectiveSettingsTests {
         ]
     }
 }
+
+// MARK: - ProxyFastReadTests
+
+/// The rule that lets the restore read through SystemConfiguration: the fast reading may confirm
+/// that a restore proceeds, and nothing else. Every other answer is the `networksetup` reader's.
+struct ProxyFastReadTests {
+    // MARK: Internal
+
+    typealias Fixtures = ProxyRecoveryJournalFixtures
+    typealias Support = ProxySettingsTransactionFixtures
+
+    @Test("Stored dictionaries parse to the states the networksetup reader would give, and an unreadable one is absent")
+    func statesFromStored() {
+        var broken = Support.dictionary(for: Fixtures.rockxyOverride)
+        broken[ProxySettingsKey.httpPort] = "9090"
+        let states = ProxyFastRead.states(from: [
+            "Wi-Fi": Support.dictionary(for: Fixtures.rockxyOverride),
+            "Broken": broken,
+        ])
+        #expect(states["Wi-Fi"] == Fixtures.rockxyOverride)
+        #expect(states["Broken"] == nil)
+    }
+
+    @Test("A fast reading that lets the restore proceed is used and networksetup is never run")
+    func fastProceedSkipsTheAuthoritativeRead() {
+        var authoritativeReads = 0
+        let live = ProxyFastRead.liveState(
+            for: inFlight,
+            fast: { Fixtures.rockxyOverride },
+            authoritative: {
+                authoritativeReads += 1
+                return nil
+            }
+        )
+        #expect(live == Fixtures.rockxyOverride)
+        #expect(authoritativeReads == 0)
+    }
+
+    @Test("A fast reading that says finished is confirmed by networksetup, whose answer stands")
+    func fastFinishedIsConfirmed() {
+        var authoritativeReads = 0
+        let live = ProxyFastRead.liveState(
+            for: inFlight,
+            fast: { inFlight.expectedPostStepState },
+            authoritative: {
+                authoritativeReads += 1
+                return Fixtures.rockxyOverride
+            }
+        )
+        #expect(authoritativeReads == 1)
+        #expect(live == Fixtures.rockxyOverride)
+    }
+
+    @Test("A fast reading that disagrees with the plan hands the decision to networksetup, even to say nothing")
+    func fastDisagreementDefers() {
+        var foreign = Support.dictionary(for: Fixtures.rockxyOverride)
+        foreign[ProxySettingsKey.httpHost] = "someone.else.example"
+        var authoritativeReads = 0
+        let live = ProxyFastRead.liveState(
+            for: inFlight,
+            fast: { Support.read(foreign) },
+            authoritative: {
+                authoritativeReads += 1
+                return nil
+            }
+        )
+        #expect(authoritativeReads == 1)
+        #expect(live == nil)
+        #expect(ProxyServiceRecoveryPolicy.continuation(for: inFlight, live: live) == .retryLater)
+    }
+
+    @Test("A service the fast reader could not read is read by networksetup")
+    func fastUnreadableFallsBack() {
+        let live = ProxyFastRead.liveState(
+            for: inFlight,
+            fast: { nil },
+            authoritative: { Fixtures.rockxyOverride }
+        )
+        #expect(live == Fixtures.rockxyOverride)
+    }
+
+    @Test("When every service proceeds on the fast reading, networksetup is not asked about any")
+    func planWithoutFallbackReads() {
+        var asked: [[String]] = []
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: overridden(targets),
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: {
+                asked.append($0)
+                return [:]
+            }
+        )
+        #expect(plan.entriesToRestore.map(\.service) == names)
+        #expect(asked.isEmpty)
+    }
+
+    @Test("The fast plan is the plan the authoritative readings would have produced")
+    func planMatchesTheAuthoritativePlan() {
+        let live = overridden(targets)
+        let expected = ProxyRecoveryPlanner.plan(
+            targets: targets,
+            journal: [],
+            liveStates: live,
+            ownedPort: Fixtures.rockxyPort
+        )
+        let fast = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: live,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { _ in [:] }
+        )
+        #expect(fast == expected)
+    }
+
+    @Test("A service whose fast reading disagrees is asked about alone, and the authoritative reading decides")
+    func disagreeingServiceIsConfirmed() {
+        let disputed = names[2]
+        var fast = overridden(targets)
+        fast[disputed] = Fixtures.renamed(Fixtures.capturedSettings, to: disputed)
+        var asked: [[String]] = []
+
+        // networksetup says the service is still Rockxy's: the fast reading was wrong, and the
+        // restore proceeds for it.
+        let confirmedOwned = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                asked.append(requested)
+                return requested.reduce(into: [:]) { $0[$1] = overridden(targets)[$1] }
+            }
+        )
+        #expect(asked == [[disputed]])
+        #expect(confirmedOwned.entriesToRestore.map(\.service) == names)
+
+        // networksetup agrees the service is not Rockxy's: it is left out, never written.
+        let confirmedForeign = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                requested.reduce(into: [:]) { $0[$1] = fast[$1] }
+            }
+        )
+        #expect(confirmedForeign.entriesToRestore.map(\.service) == names.filter { $0 != disputed })
+        #expect(confirmedForeign.deferredServices == [disputed])
+    }
+
+    @Test("A service neither reader can read is deferred, not restored")
+    func unreadableEverywhere() {
+        let missing = names[1]
+        var fast = overridden(targets)
+        fast[missing] = nil
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { _ in [:] }
+        )
+        #expect(plan.entriesToRestore.map(\.service) == names.filter { $0 != missing })
+        #expect(plan.deferredServices == [missing])
+    }
+
+    @Test("A service the fast reader sees as already restored is confirmed before it is called complete")
+    func restoredIsConfirmed() {
+        let done = names[0]
+        var fast = overridden(targets)
+        fast[done] = Fixtures.renamed(Fixtures.capturedSettings, to: done)
+        var asked: [[String]] = []
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: {
+                asked.append($0)
+                return [:]
+            }
+        )
+        #expect(asked == [[done]])
+        #expect(!plan.entriesToRestore.map(\.service).contains(done))
+    }
+
+    // MARK: Private
+
+    private let names = ["Wi-Fi", "Ethernet", "Thunderbolt Bridge", "USB 10/100/1000 LAN"]
+
+    private var targets: [ProxyServiceRestorationState] {
+        names.map { Fixtures.renamed(Fixtures.capturedSettings, to: $0) }
+    }
+
+    private var inFlight: ProxyServiceRecoveryJournalEntry {
+        Fixtures.entry(stage: .inFlight)
+    }
+
+    /// Each target as it reads while Rockxy's override is on it.
+    private func overridden(_ targets: [ProxyServiceRestorationState]) -> [String: ProxyServiceRestorationState] {
+        targets.reduce(into: [:]) { states, target in
+            states[target.service] = ProxyOverrideTransition.reachableStates(
+                from: target,
+                port: Fixtures.rockxyPort
+            ).last
+        }
+    }
+}
