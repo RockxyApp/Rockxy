@@ -19,6 +19,9 @@ actor TrafficSessionManager {
         case babylon
     }
 
+    /// How many times a batch callback has been installed. Delivery wiring belongs to start-up,
+    /// so this stays flat while batches flow; a rise during capture means it moved onto a hot path.
+    private(set) var batchCallbackInstallCount = 0
     var onBatchReady: (@Sendable ([HTTPTransaction], _ generation: UInt) -> Void)?
     var onClientAppEnriched: (@Sendable ([HTTPTransaction]) -> Void)?
     var onLiveTransactionUpdated: (@Sendable ([HTTPTransaction]) -> Void)?
@@ -28,9 +31,19 @@ actor TrafficSessionManager {
         generation
     }
 
+    // MARK: - Batch Timer
+
+    /// Whether the flush loop is running. Readers are tests: nothing in the app decides
+    /// anything from it, and the whole point of the ownership below is that no caller has
+    /// to know.
+    var isBatchTimerRunning: Bool {
+        batchTimerTask != nil
+    }
+
     // MARK: - Configuration
 
     func setOnBatchReady(_ callback: @escaping @Sendable ([HTTPTransaction], _ generation: UInt) -> Void) {
+        batchCallbackInstallCount += 1
         onBatchReady = callback
     }
 
@@ -119,15 +132,6 @@ actor TrafficSessionManager {
         let updates = pendingUpdates
         pendingUpdates.removeAll()
         return updates
-    }
-
-    // MARK: - Batch Timer
-
-    /// Whether the flush loop is running. Readers are tests: nothing in the app decides
-    /// anything from it, and the whole point of the ownership below is that no caller has
-    /// to know.
-    var isBatchTimerRunning: Bool {
-        batchTimerTask != nil
     }
 
     /// Registers `producer` as a continuous source that needs the flush loop running even
@@ -276,6 +280,20 @@ actor TrafficSessionManager {
         return context.projectID != nextContext.projectID || context == nextContext
     }
 
+    /// Only transactions whose evidence can no longer change are read off the main actor.
+    /// Open streams and WebSockets keep receiving frames, and TLS failures never get a row.
+    private static func prewarmListSignals(for batch: [HTTPTransaction]) {
+        for transaction in batch
+            where !transaction.deliversLiveRow
+            && transaction.webSocketConnection == nil
+            && !transaction.isTLSFailure
+            && transaction.state != .active
+            && transaction.state != .pending
+        {
+            AITrafficDetector.prewarmSignal(for: transaction)
+        }
+    }
+
     // MARK: - Flush and Deliver
 
     /// Arms the flush loop for buffered work from a source that declares no lifetime.
@@ -329,6 +347,12 @@ actor TrafficSessionManager {
         let batchGeneration = generation
         pendingUpdates.removeAll()
 
+        // The main actor builds one list row per delivered transaction, and the row reads the
+        // AI traffic signal, whose first evaluation decodes the response body and scans both
+        // bodies. That ran on the main thread for every request. It is a pure function of
+        // evidence that is already final here, so evaluate it on this actor and let the row
+        // find it cached.
+        Self.prewarmListSignals(for: batch)
         onBatchReady?(batch, batchGeneration)
 
         let port = proxyPort

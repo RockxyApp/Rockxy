@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - AITrafficDetector
 
@@ -12,15 +13,29 @@ import Foundation
 /// including OpenAI chat/Responses, Anthropic Messages, Gemini, and Ollama shapes, in both
 /// their JSON and streamed (SSE / NDJSON) forms.
 nonisolated enum AITrafficDetector {
+    // MARK: Internal
+
     struct ParsedStreamEvent {
         let event: AIStreamEvent
         let json: [String: Any]?
+    }
+
+    /// Uncached evaluations of `signal(transaction:)`: one decodes the response body and scans
+    /// bounded prefixes of both bodies, which is real work on a busy capture. The split shows
+    /// whether that work ran on the main thread, where it competes with the UI, or elsewhere.
+    struct SignalEvaluationCounts: Equatable, Sendable {
+        var total = 0
+        var onMainThread = 0
     }
 
     static let maxBodyBytes = 256 * 1_024
     static let maxQuickScanBytes = 16 * 1_024
     static let maxStreamEvents = 400
     static let maxAssembledOutputCharacters = 20_000
+
+    static var signalEvaluationCounts: SignalEvaluationCounts {
+        evaluationCounts.withLock { $0 }
+    }
 
     static func isLikelyAI(transaction: HTTPTransaction) -> Bool {
         isLikelyAI(snapshot: AITrafficSnapshot(transaction: transaction))
@@ -38,7 +53,33 @@ nonisolated enum AITrafficDetector {
         }
         let signal = signal(snapshot: AITrafficSnapshot(transaction: transaction))
         signalCache.setObject(SignalCacheEntry(transaction: transaction, signal: signal), forKey: cacheKey)
+        let onMainThread = Thread.isMainThread
+        evaluationCounts.withLock { counts in
+            counts.total += 1
+            if onMainThread {
+                counts.onMainThread += 1
+            }
+        }
         return signal
+    }
+
+    /// Evaluates and caches the signal for a settled transaction, so the main-actor row
+    /// projection that follows reads the cache. Safe to call off the main actor: it only reads
+    /// request and response evidence and writes the thread-safe cache, never the transaction.
+    /// Callers must pass a transaction that is no longer being mutated.
+    static func prewarmSignal(for transaction: HTTPTransaction) {
+        _ = signal(transaction: transaction)
+    }
+
+    /// The cached signal when it is still valid for the transaction's current evidence.
+    static func cachedSignal(transaction: HTTPTransaction) -> AITrafficSignal? {
+        let cacheKey = transaction.id as NSUUID
+        guard let cached = signalCache.object(forKey: cacheKey),
+              cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision else
+        {
+            return nil
+        }
+        return cached.signal
     }
 
     static func signal(snapshot: AITrafficSnapshot) -> AITrafficSignal {
@@ -187,32 +228,6 @@ nonisolated enum AITrafficDetector {
 
     static func lowercasedPrefix(of data: Data?) -> String {
         data.flatMap { String(bytes: $0.prefix(maxQuickScanBytes), encoding: .utf8)?.lowercased() } ?? ""
-    }
-
-    private final class SignalCacheEntry {
-        weak var transaction: HTTPTransaction?
-        let revision: UInt64
-        let signal: AITrafficSignal
-
-        init(transaction: HTTPTransaction, signal: AITrafficSignal) {
-            self.transaction = transaction
-            revision = transaction.signalEvidenceRevision
-            self.signal = signal
-        }
-    }
-
-    /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
-    /// it in step with the largest live session buffer.
-    nonisolated(unsafe) private static let signalCache: NSCache<NSUUID, SignalCacheEntry> = {
-        let cache = NSCache<NSUUID, SignalCacheEntry>()
-        cache.countLimit = 100_000
-        return cache
-    }()
-
-    /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
-    /// locale-aware comparison and dominated request-list derivation on busy sessions.
-    private static func contains(_ text: String, _ needle: String) -> Bool {
-        text.utf8.firstRange(of: needle.utf8) != nil
     }
 
     // MARK: Provider
@@ -609,5 +624,39 @@ nonisolated enum AITrafficDetector {
 
     static func headerValue(named name: String, in headers: [HTTPHeader]) -> String? {
         headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
+    // MARK: Private
+
+    private final class SignalCacheEntry {
+        // MARK: Lifecycle
+
+        init(transaction: HTTPTransaction, signal: AITrafficSignal) {
+            self.transaction = transaction
+            revision = transaction.signalEvidenceRevision
+            self.signal = signal
+        }
+
+        // MARK: Internal
+
+        weak var transaction: HTTPTransaction?
+        let revision: UInt64
+        let signal: AITrafficSignal
+    }
+
+    private static let evaluationCounts = OSAllocatedUnfairLock(initialState: SignalEvaluationCounts())
+
+    /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
+    /// it in step with the largest live session buffer.
+    nonisolated(unsafe) private static let signalCache: NSCache<NSUUID, SignalCacheEntry> = {
+        let cache = NSCache<NSUUID, SignalCacheEntry>()
+        cache.countLimit = 100_000
+        return cache
+    }()
+
+    /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
+    /// locale-aware comparison and dominated request-list derivation on busy sessions.
+    private static func contains(_ text: String, _ needle: String) -> Bool {
+        text.utf8.firstRange(of: needle.utf8) != nil
     }
 }

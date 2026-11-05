@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - RequestListRow
 
@@ -73,6 +74,9 @@ struct RequestListRow: Identifiable {
             scheme: scheme
         )
         listPresentationRevision = transaction.listPresentationRevision
+        if Thread.isMainThread {
+            Self.mainThreadProjections.withLock { $0 += 1 }
+        }
     }
 
     // MARK: Internal
@@ -81,6 +85,13 @@ struct RequestListRow: Identifiable {
         case insecure
         case secureTunneled
         case secureIntercepted
+    }
+
+    /// Rows projected on the main thread since launch. A capture batch should cost one
+    /// projection per new row, so a diagnostic or test can compare this across a batch and
+    /// see whether retained rows were rebuilt. Rows built elsewhere are not counted.
+    static var mainThreadProjectionCount: Int {
+        mainThreadProjections.withLock { $0 }
     }
 
     let id: UUID
@@ -259,6 +270,8 @@ extension RequestListRow {
     }
 
     // MARK: Private
+
+    private static let mainThreadProjections = OSAllocatedUnfairLock(initialState: 0)
 
     private static func compareField(
         _ lhs: RequestListRow,
