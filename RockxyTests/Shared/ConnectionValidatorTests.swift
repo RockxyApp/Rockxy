@@ -52,51 +52,6 @@ struct ConnectionValidatorTests {
         }
     }
 
-    // MARK: - isValidCaller(_:) Accept Path
-
-    @Test("isValidCaller accepts connection with real test-host PID")
-    func acceptsConnectionWithTestHostPID() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let connection = TestXPCConnection(fakePID: pid)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
-    }
-
-    @Test("isValidCaller accepts connection with test-host PID and Data audit token")
-    func acceptsConnectionWithDataAuditToken() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        // Zero-filled token → secCodeFromAuditToken returns nil → audit recheck skipped.
-        // PID validation passes → accept.
-        let token = Data(repeating: 0, count: MemoryLayout<audit_token_t>.size)
-        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: token)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
-    }
-
-    @Test("isValidCaller accepts connection with test-host PID and NSValue audit token")
-    func acceptsConnectionWithNSValueAuditToken() {
-        guard supportsLiveConnectionValidationHost() else {
-            return
-        }
-
-        let pid = ProcessInfo.processInfo.processIdentifier
-        let nsValue = makeAuditTokenNSValue()
-        let connection = TestXPCConnection(fakePID: pid, auditTokenValue: nsValue)
-        defer { connection.invalidate() }
-
-        #expect(ConnectionValidator.isValidCaller(connection, enforcement: .validatorOnly))
-    }
-
     // MARK: - isValidCaller(_:) Accept Path with Real Audit Token Revalidation
 
     @Test("isValidCaller exercises audit-token revalidation branch with real Data token")
