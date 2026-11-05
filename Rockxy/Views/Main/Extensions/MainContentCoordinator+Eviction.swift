@@ -24,7 +24,7 @@ extension MainContentCoordinator {
         // Evicted rows have to leave the byte total as well, or the footer keeps
         // counting traffic the user can no longer see.
         rebuildTrafficTotals(from: transactions)
-        evictFromAllWorkspaces(removedIDs: removedIDs)
+        evictFromAllWorkspaces(removedIDs: removedIDs, removed: removed)
 
         Self.logger.info("Evicted \(removeCount) oldest transactions (remaining: \(self.transactions.count))")
     }

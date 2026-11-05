@@ -77,7 +77,7 @@ struct DomainGroupingIndex {
         rootIDs.removeAll(keepingCapacity: true)
         parentIDs.removeAll(keepingCapacity: true)
         methodCounts.removeAll(keepingCapacity: true)
-        sequenceCounts.removeAll(keepingCapacity: true)
+        sequenceLedgers.removeAll(keepingCapacity: true)
         contributions.removeAll(keepingCapacity: true)
         projectedNodesByID.removeAll(keepingCapacity: true)
         projectedTree.removeAll(keepingCapacity: true)
@@ -117,7 +117,7 @@ struct DomainGroupingIndex {
             node.firstSeenSequence = min(node.firstSeenSequence, sequence)
             nodesByID[spec.id] = node
             methodCounts[spec.id, default: [:]][method, default: 0] += 1
-            sequenceCounts[spec.id, default: [:]][sequence, default: 0] += 1
+            sequenceLedgers[spec.id, default: SequenceLedger()].add(sequence)
             nodeIDs.append(node.id)
             if spec.parentID == nil {
                 rootRequestTotal += 1
@@ -247,6 +247,69 @@ struct DomainGroupingIndex {
 
     // MARK: Private
 
+    /// Reference-counted sequences kept in ascending order.
+    ///
+    /// Eviction removes the oldest rows, so the sequence a node was positioned by is the one
+    /// that leaves, and the replacement used to be found with `keys.min()` -- a scan of every
+    /// distinct sequence under the node, which for a busy root domain is most of the
+    /// retained history. The distinct values are kept sorted instead, so the earliest is
+    /// `first` and losing it is a removal at the front. `Int` order is total and the values
+    /// are distinct, which is what makes the binary search safe.
+    private struct SequenceLedger {
+        // MARK: Internal
+
+        private(set) var sorted: [Int] = []
+
+        var earliest: Int? {
+            sorted.first
+        }
+
+        mutating func add(_ sequence: Int) {
+            let count = counts[sequence] ?? 0
+            counts[sequence] = count + 1
+            guard count == 0 else {
+                return
+            }
+            sorted.insert(sequence, at: lowerBound(of: sequence))
+        }
+
+        /// Returns `true` when this was the last row carrying `sequence`.
+        @discardableResult
+        mutating func remove(_ sequence: Int) -> Bool {
+            guard let count = counts[sequence] else {
+                return false
+            }
+            guard count <= 1 else {
+                counts[sequence] = count - 1
+                return false
+            }
+            counts.removeValue(forKey: sequence)
+            let index = lowerBound(of: sequence)
+            if index < sorted.count, sorted[index] == sequence {
+                sorted.remove(at: index)
+            }
+            return true
+        }
+
+        // MARK: Private
+
+        private var counts: [Int: Int] = [:]
+
+        private func lowerBound(of sequence: Int) -> Int {
+            var low = 0
+            var high = sorted.count
+            while low < high {
+                let middle = low + (high - low) / 2
+                if sorted[middle] < sequence {
+                    low = middle + 1
+                } else {
+                    high = middle
+                }
+            }
+            return low
+        }
+    }
+
     private struct Contribution {
         let url: URL
         let nodeIDs: [String]
@@ -261,7 +324,9 @@ struct DomainGroupingIndex {
     private var rootIDs: [String] = []
     private var parentIDs: [String: String] = [:]
     private var methodCounts: [String: [String: Int]] = [:]
-    private var sequenceCounts: [String: [Int: Int]] = [:]
+    /// Per node, the sequences of the rows filed under it, with the earliest kept at hand so
+    /// a node that loses its earliest row learns its next one without scanning the rest.
+    private var sequenceLedgers: [String: SequenceLedger] = [:]
     private var contributions: [ObjectIdentifier: Contribution] = [:]
 
     /// The last published form of each node, children attached. Kept so a batch rebuilds
@@ -308,19 +373,15 @@ struct DomainGroupingIndex {
             } else {
                 methodCounts[id]?[contribution.method] = methods - 1
             }
-            let sequences = sequenceCounts[id]?[contribution.sequence] ?? 0
-            if sequences <= 1 {
-                sequenceCounts[id]?.removeValue(forKey: contribution.sequence)
-                if node.firstSeenSequence == contribution.sequence {
-                    dirtyOrdering.insert(id)
-                }
-            } else {
-                sequenceCounts[id]?[contribution.sequence] = sequences - 1
+            if sequenceLedgers[id]?.remove(contribution.sequence) == true,
+               node.firstSeenSequence == contribution.sequence
+            {
+                dirtyOrdering.insert(id)
             }
             if node.requestCount == 0 {
                 nodesByID.removeValue(forKey: id)
                 methodCounts.removeValue(forKey: id)
-                sequenceCounts.removeValue(forKey: id)
+                sequenceLedgers.removeValue(forKey: id)
                 dirtyOrdering.remove(id)
                 projectedNodesByID.removeValue(forKey: id)
                 dirtyNodeIDs.remove(id)
@@ -329,7 +390,14 @@ struct DomainGroupingIndex {
                 }
                 if let parent = parentIDs.removeValue(forKey: id) {
                     remove(id, fromChildrenOf: parent)
-                    markDirty(parent)
+                    // Nodes are subtracted root first, so the parent may already be gone.
+                    // Marking a dead id leaves it in the dirty set, and `markDirty` stops
+                    // at the first node already in the set: when that id is later recreated
+                    // in the same cycle, its ancestors are never marked and their cached
+                    // projection keeps omitting the new branch.
+                    if nodesByID[parent] != nil {
+                        markDirty(parent)
+                    }
                 } else {
                     removeRoot(id)
                 }
@@ -346,7 +414,7 @@ struct DomainGroupingIndex {
             guard let node = nodesByID[id] else {
                 continue
             }
-            let firstSeen = sequenceCounts[id]?.keys.min() ?? .max
+            let firstSeen = sequenceLedgers[id]?.earliest ?? .max
             guard firstSeen != node.firstSeenSequence else {
                 continue
             }
@@ -687,6 +755,8 @@ struct AppGroupingIndex {
     // MARK: Private
 
     private struct Entry {
+        // MARK: Internal
+
         let name: String
         var requestCount = 0
         var domainCounts: [String: Int] = [:]
@@ -712,6 +782,8 @@ struct AppGroupingIndex {
             }
             sortedDomains.remove(at: index)
         }
+
+        // MARK: Private
 
         private static func insertionIndex(of domain: String, in domains: [String]) -> Int {
             var low = 0
@@ -860,11 +932,11 @@ enum DomainGrouping {
     static func isOrderedBefore(domain lhs: String, _ rhs: String) -> Bool {
         switch lhs.localizedCaseInsensitiveCompare(rhs) {
         case .orderedAscending:
-            return true
+            true
         case .orderedDescending:
-            return false
+            false
         case .orderedSame:
-            return lhs < rhs
+            lhs < rhs
         }
     }
 

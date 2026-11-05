@@ -2,6 +2,8 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - SidebarProjectionEquivalenceTests
+
 // Equivalence tests for the patched sidebar projections: after any mutation, what the
 // index publishes must be exactly what a full rebuild from the retained history produces,
 // including order. The pre-existing retention tests compare a sorted digest, so they
@@ -19,7 +21,7 @@ struct SidebarProjectionEquivalenceTests {
     /// mutations against an authoritative rebuild covers that space.
     @Test("Patched sidebar projections match a full rebuild across randomized mutations")
     func patchedProjectionsMatchRebuild() {
-        var generator = SeededGenerator(seed: 0x5EED_1234)
+        var generator = SeededGenerator(seed: 0x5EED1234)
         let coordinator = MainContentCoordinator()
         coordinator.liveHistoryLimit = 60
         TrafficDomainSnapshot.shared.reset()
@@ -112,19 +114,36 @@ struct SidebarProjectionEquivalenceTests {
     /// Evicting the row a node was positioned by has to move the node, not leave it where
     /// its departed earliest sequence put it. A re-sort could not get this wrong; an
     /// order maintained by insertion can, which is why it is covered on its own.
+    ///
+    /// The tree roots at the registrable domain, so the nodes that move are the hosts among
+    /// `example.com`'s children. With a cap of 4 the fifth row overflows by one and the
+    /// headroom (`min(4, max(2, (4 + 9) / 10))` = 2) evicts the two oldest rows: `zulu`
+    /// loses the row it was positioned by and `bravo` loses its only row, so `alpha` --
+    /// first seen after `zulu` before -- now precedes it.
     @Test("Evicting a branch's earliest row repositions it like a rebuild")
     func evictionRepositionsByEarliestRemainingRow() {
         let coordinator = MainContentCoordinator()
-        coordinator.liveHistoryLimit = 3
-        let early = TestFixtures.makeTransaction(url: "https://zulu.example.com/early")
-        let middle = TestFixtures.makeTransaction(url: "https://alpha.example.com/mid")
-        let late = TestFixtures.makeTransaction(url: "https://zulu.example.com/late")
-        coordinator.processActiveProjectTestBatch([early, middle, late])
-        #expect(coordinator.domainTree.map(\.domain) == ["zulu.example.com", "alpha.example.com"])
+        coordinator.liveHistoryLimit = 4
+        coordinator.processActiveProjectTestBatch([
+            TestFixtures.makeTransaction(url: "https://zulu.example.com/early"),
+            TestFixtures.makeTransaction(url: "https://bravo.example.com/only"),
+            TestFixtures.makeTransaction(url: "https://alpha.example.com/mid"),
+            TestFixtures.makeTransaction(url: "https://zulu.example.com/late")
+        ])
+        #expect(coordinator.domainTree.map(\.domain) == ["example.com"])
+        #expect(
+            coordinator.domainTree.first?.children.map(\.domain)
+                == ["zulu.example.com", "bravo.example.com", "alpha.example.com"]
+        )
 
         coordinator.processActiveProjectTestBatch([
-            TestFixtures.makeTransaction(url: "https://bravo.example.com/new")
+            TestFixtures.makeTransaction(url: "https://charlie.example.com/new")
         ])
+        #expect(coordinator.transactions.count == 3)
+        #expect(
+            coordinator.domainTree.first?.children.map(\.domain)
+                == ["alpha.example.com", "zulu.example.com", "charlie.example.com"]
+        )
         let patched = orderedDigest(coordinator.domainTree)
         coordinator.rebuildSidebarIndexes()
         #expect(patched == orderedDigest(coordinator.domainTree))
@@ -144,15 +163,18 @@ struct SidebarProjectionEquivalenceTests {
         let first = coordinator.workspaceStore.workspaces[0]
         coordinator.workspaceStore.selectWorkspace(id: first.id)
 
-        var evictedIDs: Set<UUID> = []
+        // Eviction takes the oldest rows, never the batch just added, so the evicted set is
+        // every id seen earlier that is no longer retained.
+        var seenIDs: Set<UUID> = []
         for round in 0 ..< 10 {
             let batch = [
                 TestFixtures.makeTransaction(url: "https://keep.example.com/v\(round)/item"),
                 TestFixtures.makeTransaction(url: "https://other.example.com/v\(round)/item")
             ]
             coordinator.processActiveProjectTestBatch(batch)
+            seenIDs.formUnion(batch.map(\.id))
             let retained = Set(coordinator.transactions.map(\.id))
-            evictedIDs.formUnion(batch.map(\.id).filter { !retained.contains($0) })
+            let evictedIDs = seenIDs.subtracting(retained)
 
             for workspace in [first, second] {
                 let tree = orderedDigest(workspace.domainTree)
@@ -161,12 +183,16 @@ struct SidebarProjectionEquivalenceTests {
                 #expect(tree == orderedDigest(workspace.domainTree), "round \(round)")
                 #expect(apps == appDigest(workspace.appNodes), "round \(round)")
                 #expect(workspace.filteredTransactions.allSatisfy { !evictedIDs.contains($0.id) })
+                #expect(workspace.filteredRows.allSatisfy { !evictedIDs.contains($0.id) })
             }
         }
-        #expect(!evictedIDs.isEmpty)
-        // The scoped tab never saw the other host, so the two projections really do differ.
-        #expect(second.domainTree.map(\.domain) == ["keep.example.com"])
-        #expect(first.domainTree.count == 2)
+        #expect(seenIDs.count > coordinator.transactions.count)
+        // The scoped tab never saw the other host, so the two projections really do differ:
+        // both share the `example.com` root, but only the unscoped tab has both hosts under it.
+        #expect(second.domainTree.map(\.domain) == ["example.com"])
+        #expect(second.domainTree.first?.children.map(\.domain) == ["keep.example.com"])
+        #expect(first.domainTree.map(\.domain) == ["example.com"])
+        #expect(first.domainTree.first?.children.count == 2)
     }
 
     /// The one-shot alphabetical sort publishes an order the index does not maintain, so it
@@ -175,22 +201,23 @@ struct SidebarProjectionEquivalenceTests {
     @Test("The alphabetical sort does not poison the maintained projection")
     func alphabeticalSortLeavesProjectionIntact() {
         let coordinator = MainContentCoordinator()
+        // Two registrable domains, so there are two roots to order.
         coordinator.processActiveProjectTestBatch([
-            TestFixtures.makeTransaction(url: "https://zulu.example.com/one"),
-            TestFixtures.makeTransaction(url: "https://alpha.example.com/two")
+            TestFixtures.makeTransaction(url: "https://zulu.test/one"),
+            TestFixtures.makeTransaction(url: "https://alpha.test/two")
         ])
         let captureOrder = coordinator.domainTree.map(\.domain)
-        #expect(captureOrder == ["zulu.example.com", "alpha.example.com"])
+        #expect(captureOrder == ["zulu.test", "alpha.test"])
 
         coordinator.sortDomainTreeAlphabetically()
-        #expect(coordinator.domainTree.map(\.domain) == ["alpha.example.com", "zulu.example.com"])
-        #expect(coordinator.activeWorkspace.domainIndexMap["alpha.example.com"] == 0)
+        #expect(coordinator.domainTree.map(\.domain) == ["alpha.test", "zulu.test"])
+        #expect(coordinator.activeWorkspace.domainIndexMap["alpha.test"] == 0)
 
         coordinator.processActiveProjectTestBatch([
-            TestFixtures.makeTransaction(url: "https://zulu.example.com/three")
+            TestFixtures.makeTransaction(url: "https://zulu.test/three")
         ])
         #expect(coordinator.domainTree.map(\.domain) == captureOrder)
-        #expect(coordinator.activeWorkspace.domainIndexMap["zulu.example.com"] == 0)
+        #expect(coordinator.activeWorkspace.domainIndexMap["zulu.test"] == 0)
         let patched = orderedDigest(coordinator.domainTree)
         coordinator.rebuildSidebarIndexes()
         #expect(patched == orderedDigest(coordinator.domainTree))
@@ -199,16 +226,23 @@ struct SidebarProjectionEquivalenceTests {
     /// An app's contacted-host list is published from a maintained order now instead of
     /// being sorted on every batch, so it has to lose a host when the last row naming it
     /// leaves -- and keep the comparator the sort used.
+    ///
+    /// With a cap of 4 the fifth row overflows by one and the headroom evicts the two oldest
+    /// (`min(4, max(2, (4 + 9) / 10))` = 2): the only `zulu` row goes, so that host leaves
+    /// the list, while `alpha` survives through its second row.
     @Test("An app's domain list is maintained through arrival and eviction")
     func appDomainListTracksRetention() {
         let coordinator = MainContentCoordinator()
-        coordinator.liveHistoryLimit = 2
-        for host in ["zulu.example.com", "alpha.example.com", "mike.example.com"] {
+        coordinator.liveHistoryLimit = 4
+        for host in ["zulu", "alpha", "mike", "alpha", "bravo"].map({ "\($0).example.com" }) {
             let row = TestFixtures.makeTransaction(url: "https://\(host)/item")
             row.clientApp = "Safari"
             coordinator.processActiveProjectTestBatch([row])
         }
-        #expect(coordinator.appNodes.first?.domains == ["alpha.example.com", "mike.example.com"])
+        #expect(coordinator.transactions.count == 3)
+        #expect(
+            coordinator.appNodes.first?.domains == ["alpha.example.com", "bravo.example.com", "mike.example.com"]
+        )
         let patched = appDigest(coordinator.appNodes)
         coordinator.rebuildSidebarIndexes()
         #expect(patched == appDigest(coordinator.appNodes))

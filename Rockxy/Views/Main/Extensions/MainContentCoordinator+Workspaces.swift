@@ -202,56 +202,75 @@ extension MainContentCoordinator {
     func retainAllWorkspaces(removing removed: [HTTPTransaction], appending batch: [HTTPTransaction]) {
         for workspace in workspaceStore.allWorkspaces {
             CaptureRetentionProfiler.measure(.sidebarIndexes) {
-                let oldCount = transactions.count + removed.count - batch.count
-                guard workspace.sidebarIndexSignature == sidebarIndexSignature(for: workspace),
-                      workspace.sidebarTransactionRevisions.count == oldCount,
-                      workspace.domainGroupingIndex.supportsIncrementalRemoval,
-                      workspace.appGroupingIndex.supportsIncrementalRemoval else
-                {
-                    rebuildSidebarIndexes(for: workspace)
-                    return
-                }
-                var domains = DomainGroupingIndex()
-                var apps = AppGroupingIndex()
-                swap(&domains, &workspace.domainGroupingIndex)
-                swap(&apps, &workspace.appGroupingIndex)
-                domains.remove(removed)
-                apps.remove(removed)
-                var revisions = workspace.sidebarTransactionRevisions
-                for transaction in removed {
-                    revisions.removeValue(forKey: ObjectIdentifier(transaction))
-                }
-                let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
-                for transaction in transactions {
-                    let id = ObjectIdentifier(transaction)
-                    guard revisions[id] != transaction.listPresentationRevision else {
-                        continue
-                    }
-                    reconcileSidebarContribution(
-                        transaction,
-                        domains: &domains,
-                        apps: &apps,
-                        workspace: workspace,
-                        unknown: unknown
-                    )
-                    revisions[id] = transaction.listPresentationRevision
-                }
-                apps.reconcileRetainedOrder(transactions)
-                workspace.domainGroupingIndex = domains
-                workspace.appGroupingIndex = apps
-                workspace.sidebarTransactionRevisions = revisions
-                refreshDomainTree(for: workspace)
-                refreshAppNodes(for: workspace)
-                pruneSidebarSelectionIfNeeded(in: workspace)
-                if workspace.sidebarIndexSignature != sidebarIndexSignature(for: workspace) {
-                    rebuildSidebarIndexes(for: workspace)
-                }
+                patchSidebarIndexes(
+                    for: workspace,
+                    removing: removed,
+                    previousTransactionCount: transactions.count + removed.count - batch.count
+                )
             }
             CaptureRetentionProfiler.measure(.filteredRows) {
                 recomputeFilteredTransactions(for: workspace, reusingRetainedRows: true)
             }
         }
         publishTrafficDomainSnapshot()
+    }
+
+    /// Brings one workspace's sidebar indexes up to date with a history that lost `removed`
+    /// (and may have gained rows the index has not seen), without rebuilding them.
+    ///
+    /// The patch is only sound when the index describes exactly the history as it was a
+    /// moment ago, so every precondition is checked and any miss falls back to the
+    /// authoritative rebuild: a different sidebar scope or language, a revision ledger
+    /// whose size is not the previous history's, or an index that saw a duplicate object.
+    /// Shared by capture retention and by eviction, which are the same operation.
+    private func patchSidebarIndexes(
+        for workspace: WorkspaceState,
+        removing removed: [HTTPTransaction],
+        previousTransactionCount oldCount: Int
+    ) {
+        guard workspace.sidebarIndexSignature == sidebarIndexSignature(for: workspace),
+              workspace.sidebarTransactionRevisions.count == oldCount,
+              workspace.domainGroupingIndex.supportsIncrementalRemoval,
+              workspace.appGroupingIndex.supportsIncrementalRemoval else
+        {
+            rebuildSidebarIndexes(for: workspace)
+            return
+        }
+        var domains = DomainGroupingIndex()
+        var apps = AppGroupingIndex()
+        swap(&domains, &workspace.domainGroupingIndex)
+        swap(&apps, &workspace.appGroupingIndex)
+        domains.remove(removed)
+        apps.remove(removed)
+        var revisions = workspace.sidebarTransactionRevisions
+        for transaction in removed {
+            revisions.removeValue(forKey: ObjectIdentifier(transaction))
+        }
+        let unknown = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
+        for transaction in transactions {
+            let id = ObjectIdentifier(transaction)
+            guard revisions[id] != transaction.listPresentationRevision else {
+                continue
+            }
+            reconcileSidebarContribution(
+                transaction,
+                domains: &domains,
+                apps: &apps,
+                workspace: workspace,
+                unknown: unknown
+            )
+            revisions[id] = transaction.listPresentationRevision
+        }
+        apps.reconcileRetainedOrder(transactions)
+        workspace.domainGroupingIndex = domains
+        workspace.appGroupingIndex = apps
+        workspace.sidebarTransactionRevisions = revisions
+        refreshDomainTree(for: workspace)
+        refreshAppNodes(for: workspace)
+        pruneSidebarSelectionIfNeeded(in: workspace)
+        if workspace.sidebarIndexSignature != sidebarIndexSignature(for: workspace) {
+            rebuildSidebarIndexes(for: workspace)
+        }
     }
 
     func refreshSidebarContributions(_ updates: [HTTPTransaction], in workspace: WorkspaceState) {
@@ -295,6 +314,12 @@ extension MainContentCoordinator {
         workspace.appGroupingIndex = apps
         refreshDomainTree(for: workspace)
         refreshAppNodes(for: workspace)
+        // A refresh can move a row to another host or app, which adds and retires nodes.
+        // The snapshot secondary windows read is a projection of the active tab's index, so
+        // leaving it alone served the previous batch's domains until the next capture batch.
+        if workspace === activeWorkspace {
+            publishTrafficDomainSnapshot()
+        }
     }
 
     /// Reconciles one row's sidebar contributions and reports whether the app grouping
@@ -303,7 +328,9 @@ extension MainContentCoordinator {
     private func reconcileSidebarContribution(
         _ transaction: HTTPTransaction, domains: inout DomainGroupingIndex,
         apps: inout AppGroupingIndex, workspace: WorkspaceState, unknown: String
-    ) -> Bool {
+    )
+        -> Bool
+    {
         let criteria = workspace.filterCriteria
         let host = transaction.request.host
         let matchesDomain = criteria.sidebarDomain.map {
@@ -389,16 +416,41 @@ extension MainContentCoordinator {
 
     // MARK: - Eviction Across Workspaces
 
-    func evictFromAllWorkspaces(removedIDs: Set<UUID>) {
+    /// Drops evicted rows from every Traffic Tab.
+    ///
+    /// `removed` is the rows themselves, already taken out of `transactions`: the sidebar
+    /// indexes are keyed by object identity, so subtracting them needs the objects and not
+    /// only their ids. With it, each tab patches its domain and app trees and reuses the
+    /// row projections it already holds. Without it (callers that only kept ids) a tab
+    /// falls back to the authoritative rebuild, which is what this always did.
+    func evictFromAllWorkspaces(removedIDs: Set<UUID>, removed: [HTTPTransaction]? = nil) {
         for workspace in workspaceStore.allWorkspaces {
             workspace.filteredTransactions.removeAll { removedIDs.contains($0.id) }
             workspace.selectedTransactionIDs.subtract(removedIDs)
             if workspace.selectedTransaction.map({ removedIDs.contains($0.id) }) == true {
                 workspace.selectedTransaction = nil
             }
-            rebuildSidebarIndexes(for: workspace)
-            workspace.lastDeriveWasAppendOnly = false
-            deriveFilteredRows(for: workspace)
+            guard let removed else {
+                rebuildSidebarIndexes(for: workspace)
+                workspace.lastDeriveWasAppendOnly = false
+                deriveFilteredRows(for: workspace)
+                continue
+            }
+            let selectionBefore = workspace.sidebarSelection
+            patchSidebarIndexes(
+                for: workspace,
+                removing: removed,
+                previousTransactionCount: transactions.count + removed.count
+            )
+            if workspace.sidebarSelection != selectionBefore {
+                // Pruning widened the tab's scope, so its row set is no longer the one
+                // the criteria describe.
+                recomputeFilteredTransactions(for: workspace, reusingRetainedRows: true)
+            } else {
+                workspace.lastDeriveWasAppendOnly = false
+                deriveFilteredRows(for: workspace, reusingRetainedRows: true)
+            }
         }
+        publishTrafficDomainSnapshot()
     }
 }
