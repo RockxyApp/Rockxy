@@ -351,6 +351,52 @@ actor SessionStore {
     private static let wsCloseOrigin = SQLite.Expression<String?>("close_origin")
     private static let wsIsAbnormal = SQLite.Expression<Int>("is_abnormal")
 
+    private static let schemaMigrations: [(version: Int32, statements: [String])] = [
+        (1, [
+            "ALTER TABLE transactions ADD COLUMN is_pinned INTEGER DEFAULT 0",
+            "ALTER TABLE transactions ADD COLUMN is_saved INTEGER DEFAULT 0",
+            "ALTER TABLE transactions ADD COLUMN comment TEXT",
+            "ALTER TABLE transactions ADD COLUMN highlight_color TEXT",
+            "ALTER TABLE transactions ADD COLUMN client_app TEXT",
+        ]),
+        (2, [
+            "ALTER TABLE transactions ADD COLUMN web3_family TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_provider_host TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_method TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_request_id TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_batch_request_count INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_batch_rpc_request_count INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_batch_response_count INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_batch_error_count INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_batch_methods TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_error_code INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_error_message TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_chain_id TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_transaction_hash TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_block_identifier TEXT",
+            "ALTER TABLE transactions ADD COLUMN web3_request_payload_size INTEGER",
+            "ALTER TABLE transactions ADD COLUMN web3_response_payload_size INTEGER",
+        ]),
+        (3, [
+            "ALTER TABLE transactions ADD COLUMN is_websocket INTEGER NOT NULL DEFAULT 0",
+        ]),
+        // v3 introduced the identity column but did not backfill zero-frame handshakes.
+        // Keep this as a distinct migration so databases that already reached v3 are repaired.
+        (4, []),
+        (5, [
+            "ALTER TABLE transactions ADD COLUMN is_struck_through INTEGER NOT NULL DEFAULT 0",
+        ]),
+        (6, [
+            "ALTER TABLE websocket_frames ADD COLUMN close_code INTEGER",
+            "ALTER TABLE websocket_frames ADD COLUMN close_reason TEXT",
+            "ALTER TABLE websocket_frames ADD COLUMN close_origin TEXT",
+            "ALTER TABLE websocket_frames ADD COLUMN is_abnormal INTEGER NOT NULL DEFAULT 0",
+        ]),
+        (7, [
+            "ALTER TABLE transactions ADD COLUMN capture_evidence BLOB",
+        ]),
+    ]
+
     private let db: Connection
 
     // MARK: - Paths
@@ -375,6 +421,30 @@ actor SessionStore {
             }
         }
         return tokens
+    }
+
+    private static func parseAddColumn(_ sql: String) -> (table: String, column: String)? {
+        guard sql.contains("ADD COLUMN "),
+              let table = sql.components(separatedBy: "ALTER TABLE ").last?.split(separator: " ").first,
+              let column = sql.components(separatedBy: "ADD COLUMN ").last?.split(separator: " ").first else
+        {
+            return nil
+        }
+        return (String(table), String(column))
+    }
+
+    // MARK: - Tolerant Column Reads
+
+    /// `Row`'s subscript traps (`swift_unexpectedError`) when a column is absent from the
+    /// result, which kills the process. Columns added by migrations can be absent from a
+    /// database whose version stamp was trusted, so they are read through `get`, which throws,
+    /// and a missing column degrades to `nil` / `false`.
+    private static func optionalValue<V: Value>(_ row: Row, _ column: SQLite.Expression<V?>) -> V? {
+        (try? row.get(column)) ?? nil
+    }
+
+    private static func flag(_ row: Row, _ column: SQLite.Expression<Int>) -> Bool {
+        ((try? row.get(column)) ?? 0) != 0
     }
 
     // MARK: - Schema
@@ -478,71 +548,12 @@ actor SessionStore {
             }
         }
 
-        let migrations: [(version: Int32, statements: [String])] = [
-            (1, [
-                "ALTER TABLE transactions ADD COLUMN is_pinned INTEGER DEFAULT 0",
-                "ALTER TABLE transactions ADD COLUMN is_saved INTEGER DEFAULT 0",
-                "ALTER TABLE transactions ADD COLUMN comment TEXT",
-                "ALTER TABLE transactions ADD COLUMN highlight_color TEXT",
-                "ALTER TABLE transactions ADD COLUMN client_app TEXT",
-            ]),
-            (2, [
-                "ALTER TABLE transactions ADD COLUMN web3_family TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_provider_host TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_method TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_request_id TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_batch_request_count INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_batch_rpc_request_count INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_batch_response_count INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_batch_error_count INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_batch_methods TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_error_code INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_error_message TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_chain_id TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_transaction_hash TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_block_identifier TEXT",
-                "ALTER TABLE transactions ADD COLUMN web3_request_payload_size INTEGER",
-                "ALTER TABLE transactions ADD COLUMN web3_response_payload_size INTEGER",
-            ]),
-            (3, [
-                "ALTER TABLE transactions ADD COLUMN is_websocket INTEGER NOT NULL DEFAULT 0",
-            ]),
-            // v3 introduced the identity column but did not backfill zero-frame handshakes.
-            // Keep this as a distinct migration so databases that already reached v3 are repaired.
-            (4, []),
-            (5, [
-                "ALTER TABLE transactions ADD COLUMN is_struck_through INTEGER NOT NULL DEFAULT 0",
-            ]),
-            (6, [
-                "ALTER TABLE websocket_frames ADD COLUMN close_code INTEGER",
-                "ALTER TABLE websocket_frames ADD COLUMN close_reason TEXT",
-                "ALTER TABLE websocket_frames ADD COLUMN close_origin TEXT",
-                "ALTER TABLE websocket_frames ADD COLUMN is_abnormal INTEGER NOT NULL DEFAULT 0",
-            ]),
-            (7, [
-                "ALTER TABLE transactions ADD COLUMN capture_evidence BLOB",
-            ]),
-        ]
-
-        let pending = migrations.filter { $0.version > currentVersion }
-        guard !pending.isEmpty else {
-            Self.logger.debug("Schema up to date (v\(currentVersion))")
-            return
-        }
-
+        let pending = Self.schemaMigrations.filter { $0.version > currentVersion }
         for migration in pending {
             // A database created by this build already has every column, so re-adding one
             // (a seeded downgrade, an interrupted upgrade) must not fail the whole open.
             for sql in migration.statements {
-                let tableName = sql.components(separatedBy: "ALTER TABLE ").last?
-                    .split(separator: " ").first.map(String.init)
-                let existing = try tableName.map { try existingColumnNames(table: $0) } ?? []
-                if let column = sql.components(separatedBy: "ADD COLUMN ").last?.split(separator: " ").first,
-                   sql.contains("ADD COLUMN "), existing.contains(String(column))
-                {
-                    continue
-                }
-                try db.run(sql)
+                _ = try addColumnIfMissing(sql)
             }
             if migration.version == 4 {
                 try backfillLegacyWebSocketIdentity()
@@ -552,6 +563,64 @@ actor SessionStore {
 
         if let newVersion = pending.last?.version {
             Self.logger.info("Schema migrated from v\(currentVersion) to v\(newVersion)")
+        } else {
+            Self.logger.debug("Schema up to date (v\(currentVersion))")
+        }
+
+        // `user_version` is only a claim: another build or branch can stamp a version without
+        // applying this build's columns. Verify the real schema on every open, independent of
+        // the stamp, so a mis-stamped database is repaired rather than trusted.
+        try reconcileSchemaColumns()
+    }
+
+    /// Adds every column this build reads that the database lacks. Purely additive and
+    /// idempotent: it never drops, rewrites, or re-stamps anything, and a database that already
+    /// has every column is left untouched (one `PRAGMA table_info` per table, no writes).
+    private func reconcileSchemaColumns() throws {
+        let missing = try Self.schemaMigrations
+            .flatMap(\.statements)
+            .filter { try !columnExists(forAddColumn: $0) }
+        guard !missing.isEmpty else {
+            return
+        }
+
+        var restoredWebSocketColumn = false
+        try db.transaction {
+            for sql in missing {
+                let added = try addColumnIfMissing(sql)
+                if added, Self.parseAddColumn(sql)?.column == "is_websocket" {
+                    restoredWebSocketColumn = true
+                }
+            }
+            // Rows whose identity column was absent never got the v4 backfill.
+            if restoredWebSocketColumn {
+                try backfillLegacyWebSocketIdentity()
+            }
+        }
+        Self.logger.warning("Repaired \(missing.count) missing column(s) despite the stored schema version")
+    }
+
+    private func columnExists(forAddColumn sql: String) throws -> Bool {
+        guard let target = Self.parseAddColumn(sql) else {
+            return true
+        }
+        return try existingColumnNames(table: target.table).contains(target.column)
+    }
+
+    /// Runs an `ADD COLUMN` statement unless the column is already there. Returns whether it
+    /// added one. A concurrent opener that adds the same column first is not an error.
+    private func addColumnIfMissing(_ sql: String) throws -> Bool {
+        if try columnExists(forAddColumn: sql) {
+            return false
+        }
+        do {
+            try db.run(sql)
+            return true
+        } catch {
+            if "\(error)".contains("duplicate column name") {
+                return false
+            }
+            throw error
         }
     }
 
@@ -634,10 +703,10 @@ actor SessionStore {
                 opcode: opcode,
                 payload: row[Self.wsPayload],
                 isFinal: row[Self.wsIsFinal] != 0,
-                closeCode: row[Self.wsCloseCode],
-                closeReason: row[Self.wsCloseReason],
-                closeOrigin: row[Self.wsCloseOrigin],
-                isAbnormalTermination: row[Self.wsIsAbnormal] != 0
+                closeCode: Self.optionalValue(row, Self.wsCloseCode),
+                closeReason: Self.optionalValue(row, Self.wsCloseReason),
+                closeOrigin: Self.optionalValue(row, Self.wsCloseOrigin),
+                isAbnormalTermination: Self.flag(row, Self.wsIsAbnormal)
             )
             frames.append(frame)
         }
@@ -716,7 +785,7 @@ actor SessionStore {
         }
 
         let captureEvidence: SessionStoreCaptureEvidence?
-        if let data = row[Self.txCaptureEvidence] {
+        if let data = Self.optionalValue(row, Self.txCaptureEvidence) {
             guard let decoded = try? SessionStoreCaptureEvidence.decode(data) else {
                 // Retain the row on disk, but do not present partial bodies as complete
                 // when their saved capture evidence cannot be interpreted.
@@ -800,16 +869,17 @@ actor SessionStore {
         transaction.timingInfo = timingInfo
         transaction.graphQLInfo = graphQLInfo
         transaction.web3RPCInfo = web3RPCInfo
-        transaction.isPinned = row[Self.txIsPinned] != 0
-        transaction.isSaved = row[Self.txIsSaved] != 0
-        transaction.isStruckThrough = row[Self.txIsStruckThrough] != 0
-        transaction.comment = row[Self.txComment]
-        transaction.highlightColor = row[Self.txHighlightColor].flatMap { HighlightColor(rawValue: $0) }
-        transaction.clientApp = row[Self.txClientApp]
+        transaction.isPinned = Self.flag(row, Self.txIsPinned)
+        transaction.isSaved = Self.flag(row, Self.txIsSaved)
+        transaction.isStruckThrough = Self.flag(row, Self.txIsStruckThrough)
+        transaction.comment = Self.optionalValue(row, Self.txComment)
+        transaction.highlightColor = Self.optionalValue(row, Self.txHighlightColor)
+            .flatMap { HighlightColor(rawValue: $0) }
+        transaction.clientApp = Self.optionalValue(row, Self.txClientApp)
         captureEvidence?.apply(to: transaction)
 
         let wsFrames = try loadWebSocketFrameDatas(transactionId: id)
-        if row[Self.txIsWebSocket] != 0 || !wsFrames.isEmpty {
+        if Self.flag(row, Self.txIsWebSocket) || !wsFrames.isEmpty {
             transaction.webSocketConnection = WebSocketConnection(
                 upgradeRequest: transaction.request,
                 frames: wsFrames
@@ -820,36 +890,36 @@ actor SessionStore {
     }
 
     private func deserializeWeb3RPCInfo(from row: Row) -> Web3RPCInfo? {
-        guard let familyValue = row[Self.txWeb3Family],
+        guard let familyValue = Self.optionalValue(row, Self.txWeb3Family),
               let family = Web3RPCFamily(rawValue: familyValue),
-              let providerHost = row[Self.txWeb3ProviderHost] else
+              let providerHost = Self.optionalValue(row, Self.txWeb3ProviderHost) else
         {
             return nil
         }
 
         let batch = deserializeWeb3BatchSummary(from: row)
         let error = deserializeWeb3Error(from: row)
-        let chainHint = row[Self.txWeb3ChainId].map { Web3RPCChainHint(chainID: $0) }
+        let chainHint = Self.optionalValue(row, Self.txWeb3ChainId).map { Web3RPCChainHint(chainID: $0) }
 
         return Web3RPCInfo(
             family: family,
             providerHost: providerHost,
-            method: row[Self.txWeb3Method],
-            requestID: row[Self.txWeb3RequestId],
+            method: Self.optionalValue(row, Self.txWeb3Method),
+            requestID: Self.optionalValue(row, Self.txWeb3RequestId),
             batch: batch,
             error: error,
             chainHint: chainHint,
-            transactionHash: row[Self.txWeb3TransactionHash],
-            blockIdentifier: row[Self.txWeb3BlockIdentifier],
-            requestPayloadSize: row[Self.txWeb3RequestPayloadSize],
-            responsePayloadSize: row[Self.txWeb3ResponsePayloadSize]
+            transactionHash: Self.optionalValue(row, Self.txWeb3TransactionHash),
+            blockIdentifier: Self.optionalValue(row, Self.txWeb3BlockIdentifier),
+            requestPayloadSize: Self.optionalValue(row, Self.txWeb3RequestPayloadSize),
+            responsePayloadSize: Self.optionalValue(row, Self.txWeb3ResponsePayloadSize)
         )
     }
 
     private func deserializeWeb3BatchSummary(from row: Row) -> Web3RPCBatchSummary? {
-        guard let requestCount = row[Self.txWeb3BatchRequestCount],
-              let web3RequestCount = row[Self.txWeb3BatchRPCRequestCount],
-              let errorCount = row[Self.txWeb3BatchErrorCount] else
+        guard let requestCount = Self.optionalValue(row, Self.txWeb3BatchRequestCount),
+              let web3RequestCount = Self.optionalValue(row, Self.txWeb3BatchRPCRequestCount),
+              let errorCount = Self.optionalValue(row, Self.txWeb3BatchErrorCount) else
         {
             return nil
         }
@@ -857,15 +927,15 @@ actor SessionStore {
         return Web3RPCBatchSummary(
             requestCount: requestCount,
             web3RequestCount: web3RequestCount,
-            responseCount: row[Self.txWeb3BatchResponseCount],
+            responseCount: Self.optionalValue(row, Self.txWeb3BatchResponseCount),
             errorCount: errorCount,
-            methods: decodeWeb3BatchMethods(row[Self.txWeb3BatchMethods])
+            methods: decodeWeb3BatchMethods(Self.optionalValue(row, Self.txWeb3BatchMethods))
         )
     }
 
     private func deserializeWeb3Error(from row: Row) -> Web3RPCError? {
-        let code = row[Self.txWeb3ErrorCode]
-        let message = row[Self.txWeb3ErrorMessage]
+        let code = Self.optionalValue(row, Self.txWeb3ErrorCode)
+        let message = Self.optionalValue(row, Self.txWeb3ErrorMessage)
         guard code != nil || message != nil else {
             return nil
         }
