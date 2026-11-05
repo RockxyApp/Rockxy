@@ -440,6 +440,9 @@ extension HelperManager {
         guard status == .unreachable, !registrationRepairInFlight else {
             return .notApplicable
         }
+        guard !HelperRegistrationGuard.refusesCurrentProcess(operation: "registration repair") else {
+            return .notApplicable
+        }
         let service = SMAppService.daemon(plistName: RockxyIdentity.current.helperPlistName)
         guard service.status == .enabled else {
             return .notApplicable

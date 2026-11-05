@@ -761,6 +761,7 @@ final class HelperManager {
 
     /// Core install logic without busy/error wrapper.
     func performInstall() async throws {
+        try HelperRegistrationGuard.refuseIfTestHost(operation: "install")
         Self.logger.info("Installing helper tool")
         do {
             try Self.validateBundledHelperInstallResources()
@@ -833,6 +834,7 @@ final class HelperManager {
 
     /// Core uninstall logic without busy/error wrapper.
     func performUninstall() async throws {
+        try HelperRegistrationGuard.refuseIfTestHost(operation: "uninstall")
         Self.logger.info("Uninstalling helper tool")
 
         do {
@@ -904,6 +906,8 @@ final class HelperManager {
     /// the app bundle on disk. The helper's caller validation is expected to reject
     /// that process, so only reopening Rockxy can recover it safely.
     func ensureHelperMutationCanProceed() async throws {
+        // First, before any signing evaluation: a test host must never reach a registration change.
+        try HelperRegistrationGuard.refuseIfTestHost(operation: "helper mutation")
         HelperConnection.shared.invalidateSigningCache()
         let result = await HelperConnection.shared.signingCache.evaluate()
         switch result {
@@ -1009,55 +1013,6 @@ final class HelperManager {
         return infoDictionary
     }
 
-    nonisolated private static func helperPreflightFailureReason(_ error: HelperInstallPreflightError) -> String {
-        switch error {
-        case let .missingBundledHelperBinary(path):
-            "Missing helper binary at \(path)"
-        case let .missingBundledLaunchdPlist(path):
-            "Missing helper launchd plist at \(path)"
-        case let .unreadableBundledLaunchdPlist(path):
-            "Unreadable helper launchd plist at \(path)"
-        case let .invalidBundledLaunchdPlist(validationError):
-            switch validationError {
-            case .malformedPlist:
-                "Helper launchd plist is malformed"
-            case .missingLabel:
-                "Helper launchd plist is missing Label"
-            case let .unexpectedLabel(label):
-                "Helper launchd plist has unexpected Label '\(label)'"
-            case .missingBundleProgram:
-                "Helper launchd plist is missing BundleProgram"
-            case let .unexpectedBundleProgram(bundleProgram):
-                "Helper launchd plist has unexpected BundleProgram '\(bundleProgram)'"
-            case .missingMachServices:
-                "Helper launchd plist is missing MachServices"
-            case let .missingMachService(machServiceName):
-                "Helper launchd plist is missing MachServices.\(machServiceName) = true"
-            case let .disabledMachService(machServiceName):
-                "Helper launchd plist has disabled MachServices.\(machServiceName)"
-            case .missingAssociatedBundleIdentifiers:
-                "Helper launchd plist is missing AssociatedBundleIdentifiers"
-            case let .unexpectedAssociatedBundleIdentifiers(associatedBundleIdentifiers):
-                "Helper launchd plist has unexpected AssociatedBundleIdentifiers \(associatedBundleIdentifiers.joined(separator: ", "))"
-            case let .unknown(error):
-                "Helper launchd plist validation failed: \(String(describing: error))"
-            }
-        case let .invalidBundledHelperMetadata(validationError):
-            switch validationError {
-            case .missingInfoDictionary:
-                "Bundled helper executable is missing embedded or sidecar Info.plist metadata"
-            case let .missingValue(key):
-                "Bundled helper metadata is missing \(key)"
-            case let .unexpectedValue(key, value):
-                "Bundled helper metadata has unexpected \(key) '\(value)'"
-            case let .unexpectedAllowedCallerIdentifiers(allowedCallerIdentifiers):
-                "Bundled helper metadata has unexpected RockxyAllowedCallerIdentifiers \(allowedCallerIdentifiers.joined(separator: ", "))"
-            }
-        case .invalidBundledHelperSignature:
-            "Bundled helper code signature is invalid or does not match the running app"
-        }
-    }
-
     nonisolated private static func normalizedIdentifiers(_ identifiers: [String]) -> [String] {
         Array(
             Set(
@@ -1131,6 +1086,7 @@ final class HelperManager {
     /// service becomes usable. For that development-only case, install the same helper identity
     /// into the traditional privileged helper location.
     private func installLegacyHelperForXcode(service: SMAppService, reason: String) async throws {
+        try HelperRegistrationGuard.refuseIfTestHost(operation: "legacy launchd install")
         Self.logger.warning("Repairing Xcode helper registration via legacy launchd install: \(reason)")
 
         do {
@@ -1327,6 +1283,59 @@ final class HelperManager {
 }
 
 // MARK: - HelperManager.HelperStatus + HelperCompatibilityDecision
+
+// MARK: - HelperManager + preflight diagnostics
+
+extension HelperManager {
+    nonisolated private static func helperPreflightFailureReason(_ error: HelperInstallPreflightError) -> String {
+        switch error {
+        case let .missingBundledHelperBinary(path):
+            "Missing helper binary at \(path)"
+        case let .missingBundledLaunchdPlist(path):
+            "Missing helper launchd plist at \(path)"
+        case let .unreadableBundledLaunchdPlist(path):
+            "Unreadable helper launchd plist at \(path)"
+        case let .invalidBundledLaunchdPlist(validationError):
+            switch validationError {
+            case .malformedPlist:
+                "Helper launchd plist is malformed"
+            case .missingLabel:
+                "Helper launchd plist is missing Label"
+            case let .unexpectedLabel(label):
+                "Helper launchd plist has unexpected Label '\(label)'"
+            case .missingBundleProgram:
+                "Helper launchd plist is missing BundleProgram"
+            case let .unexpectedBundleProgram(bundleProgram):
+                "Helper launchd plist has unexpected BundleProgram '\(bundleProgram)'"
+            case .missingMachServices:
+                "Helper launchd plist is missing MachServices"
+            case let .missingMachService(machServiceName):
+                "Helper launchd plist is missing MachServices.\(machServiceName) = true"
+            case let .disabledMachService(machServiceName):
+                "Helper launchd plist has disabled MachServices.\(machServiceName)"
+            case .missingAssociatedBundleIdentifiers:
+                "Helper launchd plist is missing AssociatedBundleIdentifiers"
+            case let .unexpectedAssociatedBundleIdentifiers(associatedBundleIdentifiers):
+                "Helper launchd plist has unexpected AssociatedBundleIdentifiers \(associatedBundleIdentifiers.joined(separator: ", "))"
+            case let .unknown(error):
+                "Helper launchd plist validation failed: \(String(describing: error))"
+            }
+        case let .invalidBundledHelperMetadata(validationError):
+            switch validationError {
+            case .missingInfoDictionary:
+                "Bundled helper executable is missing embedded or sidecar Info.plist metadata"
+            case let .missingValue(key):
+                "Bundled helper metadata is missing \(key)"
+            case let .unexpectedValue(key, value):
+                "Bundled helper metadata has unexpected \(key) '\(value)'"
+            case let .unexpectedAllowedCallerIdentifiers(allowedCallerIdentifiers):
+                "Bundled helper metadata has unexpected RockxyAllowedCallerIdentifiers \(allowedCallerIdentifiers.joined(separator: ", "))"
+            }
+        case .invalidBundledHelperSignature:
+            "Bundled helper code signature is invalid or does not match the running app"
+        }
+    }
+}
 
 extension HelperManager.HelperStatus {
     /// Maps the shared, protocol-first compatibility decision onto the status this manager
