@@ -99,29 +99,32 @@ struct CustomCertificateImportIdentity: Equatable {
     }
 
     private static func fromSecurityPKCS12(data: Data, displayName: String, passphrase: String) throws -> Self {
-        let identity = try secItemImportIdentity(data: data, passphrase: passphrase)
-        // Report a short RSA key plainly; the X509 parser below would reject it with a
-        // low-level size error.
-        if let key = SecCertificateCopyKey(identity.certificate),
-           let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
-           (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String),
-           let bits = attributes[kSecAttrKeySizeInBits] as? Int, bits < 2_048
-        {
-            throw CustomCertificateError.rootWeakKey(bits: bits)
-        }
-        let certificate = try certificate(from: identity.certificate)
-        let privateKey: Certificate.PrivateKey
-        do {
-            privateKey = try Certificate.PrivateKey(identity.privateKey)
-        } catch {
-            throw CustomCertificateImportError.invalidPrivateKey
-        }
+        // Everything that needs the Security.framework key runs inside the closure: the identity
+        // is only valid until the import scope ends (a temporary keychain is destroyed there).
+        try withSecurityIdentity(data: data, passphrase: passphrase) { secCertificate, secKey in
+            // Report a short RSA key plainly; the X509 parser below would reject it with a
+            // low-level size error.
+            if let key = SecCertificateCopyKey(secCertificate),
+               let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
+               (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String),
+               let bits = attributes[kSecAttrKeySizeInBits] as? Int, bits < 2_048
+            {
+                throw CustomCertificateError.rootWeakKey(bits: bits)
+            }
+            let certificate = try certificate(from: secCertificate)
+            let privateKey: Certificate.PrivateKey
+            do {
+                privateKey = try Certificate.PrivateKey(secKey)
+            } catch {
+                throw CustomCertificateImportError.invalidPrivateKey
+            }
 
-        return try Self(
-            displayName: displayName,
-            certificatePEM: pem(certificate),
-            privateKeyPEM: privateKey.serializeAsPEM().pemString
-        )
+            return try Self(
+                displayName: displayName,
+                certificatePEM: pem(certificate),
+                privateKeyPEM: privateKey.serializeAsPEM().pemString
+            )
+        }
     }
 
     private static func pkcs12Bundle(data: Data, passphrase: String) throws -> NIOSSLPKCS12Bundle {
@@ -136,11 +139,85 @@ struct CustomCertificateImportIdentity: Equatable {
         return try NIOSSLPKCS12Bundle(buffer: bytes, passphrase: Array(passphrase.utf8))
     }
 
-    private static func secItemImportIdentity(
+    /// Unwraps a PKCS#12 identity for `body` without leaving anything behind in the user's keychains.
+    ///
+    /// `SecPKCS12Import` with no destination writes the unwrapped identity into the DEFAULT
+    /// keychain (measured: two items in `login.keychain-db` per import), a copy the user never
+    /// asked for and Rockxy's own delete path would never remove. Rockxy stores the key itself, so
+    /// the Security import must stay private to this call.
+    /// - macOS 15 and later: `kSecImportToMemoryOnly`, no keychain involved at all. Measured to
+    ///   yield an exportable key for both legacy (3DES/RC2) and AES-encrypted files.
+    /// - macOS 14: an owned temporary keychain, deleted unconditionally when `body` returns or
+    ///   throws. `SecItemImport` is tried first because it marks the key extractable; a plain
+    ///   `SecPKCS12Import` into a keychain yields a key that cannot be exported (measured), so
+    ///   files only that path can read fail as `invalidPrivateKey` on macOS 14 instead of leaking.
+    ///   Not measured on macOS 14 itself.
+    private static func withSecurityIdentity<T>(
         data: Data,
-        passphrase: String
+        passphrase: String,
+        _ body: (SecCertificate, SecKey) throws -> T
     )
-        throws -> (certificate: SecCertificate, privateKey: SecKey)
+        throws -> T
+    {
+        if #available(macOS 15.0, *) {
+            let identity = try pkcs12Identity(
+                data: data,
+                passphrase: passphrase,
+                options: [kSecImportToMemoryOnly as String: true]
+            )
+            return try body(identity.certificate, identity.privateKey)
+        }
+        return try withTemporaryKeychain { keychain in
+            if let identity = try itemImportIdentity(data: data, passphrase: passphrase, keychain: keychain) {
+                return try body(identity.certificate, identity.privateKey)
+            }
+            let identity = try pkcs12Identity(
+                data: data,
+                passphrase: passphrase,
+                options: [kSecImportExportKeychain as String: keychain]
+            )
+            return try body(identity.certificate, identity.privateKey)
+        }
+    }
+
+    /// Creates a private keychain, runs `body`, and always deletes the keychain and its folder.
+    private static func withTemporaryKeychain<T>(_ body: (SecKeychain) throws -> T) throws -> T {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RockxyP12Import-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var password = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, password.count, &password) == errSecSuccess else {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        var created: SecKeychain?
+        let path = directory.appendingPathComponent("import.keychain").path
+        guard SecKeychainCreate(path, UInt32(password.count), password, false, nil, &created) == errSecSuccess,
+              let keychain = created else
+        {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        defer { SecKeychainDelete(keychain) }
+        return try body(keychain)
+    }
+
+    /// `SecItemImport` into `keychain`, or `nil` when it could not produce an identity (it fails
+    /// outright for some encryptions, which `SecPKCS12Import` can read).
+    private static func itemImportIdentity(
+        data: Data,
+        passphrase: String,
+        keychain: SecKeychain
+    )
+        throws -> (certificate: SecCertificate, privateKey: SecKey)?
     {
         var format = SecExternalFormat.formatPKCS12
         var itemType = SecExternalItemType.itemTypeAggregate
@@ -158,30 +235,52 @@ struct CustomCertificateImportIdentity: Equatable {
             &itemType,
             SecItemImportExportFlags(),
             &keyParams,
-            nil,
+            keychain,
             &importedItems
         )
         guard status == errSecSuccess, let importedItems else {
-            return try secPKCS12Identity(data: data, passphrase: passphrase)
+            return nil
         }
-        return try identity(from: importedItems)
+        do {
+            return try identity(from: importedItems)
+        } catch CustomCertificateImportError.invalidPKCS12, CustomCertificateImportError.missingCertificate {
+            return nil
+        }
     }
 
-    private static func secPKCS12Identity(
+    private static func pkcs12Identity(
         data: Data,
-        passphrase: String
+        passphrase: String,
+        options extraOptions: [String: Any]
     )
         throws -> (certificate: SecCertificate, privateKey: SecKey)
     {
         var importedItems: CFArray?
-        let options = [kSecImportExportPassphrase as String: passphrase] as CFDictionary
-        let status = SecPKCS12Import(data as CFData, options, &importedItems)
+        var options = extraOptions
+        options[kSecImportExportPassphrase as String] = passphrase
+        let status = SecPKCS12Import(data as CFData, options as CFDictionary, &importedItems)
         guard status == errSecSuccess, let importedItems else {
-            throw status == errSecAuthFailed
-                ? CustomCertificateImportError.incorrectPassword
-                : CustomCertificateImportError.invalidPKCS12
+            throw importError(forSecurityStatus: status)
         }
         return try identity(from: importedItems)
+    }
+
+    /// Measured on macOS: a wrong password and a tampered file give the same statuses
+    /// (`errSecAuthFailed` from `SecPKCS12Import`, `errSecPkcs12VerifyFailure` from `SecItemImport`),
+    /// so they cannot be told apart and `incorrectPassword` words both. A
+    /// truncated or non-PKCS#12 file is `errSecDecode` / `errSecUnknownFormat`.
+    private static func importError(forSecurityStatus status: OSStatus) -> CustomCertificateImportError {
+        switch status {
+        case errSecAuthFailed,
+             errSecPkcs12VerifyFailure:
+            .incorrectPassword
+        case errSecInteractionNotAllowed,
+             errSecDuplicateItem,
+             errSecNoDefaultKeychain:
+            .keychainUnavailable
+        default:
+            .invalidPKCS12
+        }
     }
 
     private static func identity(from importedItems: CFArray) throws
@@ -954,6 +1053,7 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
     case invalidPKCS12
     case incorrectPassword
     case missingCertificate
+    case keychainUnavailable
 
     // MARK: Internal
 
@@ -961,7 +1061,12 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
         switch self {
         case .incorrectPassword:
             String(
-                localized: "The password for this P12 file is incorrect.",
+                localized: "The P12 file could not be opened. The password may be incorrect, or the file may be damaged.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .keychainUnavailable:
+            String(
+                localized: "macOS could not use the keychain to read this P12 file. Unlock the keychain and try again.",
                 bundle: RockxyLocalization.bundle
             )
         case .invalidCertificate:
