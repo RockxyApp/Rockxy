@@ -382,15 +382,12 @@ final class NativeBottomInspectorSplitViewController: NSSplitViewController {
         }
 
         if animated, view.window != nil {
-            NSAnimationContext.runAnimationGroup(
-                { context in
-                    context.duration = 0.18
-                    inspectorItem.animator().isCollapsed = !isPresented
-                },
-                completionHandler: { [weak self] in
-                    self?.applyDefaultDividerAfterPresentationIfNeeded(isPresented)
-                }
-            )
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.18
+                inspectorItem.animator().isCollapsed = !isPresented
+            } completionHandler: { [weak self] in
+                self?.applyDefaultDividerAfterPresentationIfNeeded(isPresented)
+            }
         } else {
             inspectorItem.isCollapsed = !isPresented
             applyDefaultDividerAfterPresentationIfNeeded(isPresented)
