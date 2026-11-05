@@ -31,11 +31,11 @@ struct AdvancedFilterBar: View {
             // keeps clear of the main menu's New and Delete shortcuts.
             Group {
                 Button(String(localized: "Add filter below", bundle: RockxyLocalization.bundle)) {
-                    addRule(afterID: focusedRuleID ?? rules.last?.id)
+                    addRule(afterID: FilterRuleListEditor.resolve(focusedRuleID, in: rules))
                 }
                 .keyboardShortcut("=", modifiers: [.command, .option])
                 Button(String(localized: "Remove filter", bundle: RockxyLocalization.bundle)) {
-                    removeRule(id: focusedRuleID ?? rules.last?.id)
+                    removeRule(id: FilterRuleListEditor.resolve(focusedRuleID, in: rules))
                 }
                 .keyboardShortcut("-", modifiers: [.command, .option])
             }
@@ -259,6 +259,31 @@ struct AdvancedFilterBar: View {
     }
 
     private func addRule(afterID id: FilterRule.ID?) {
+        FilterRuleListEditor.addRule(afterID: id, to: &rules)
+    }
+
+    private func removeRule(id: FilterRule.ID?) {
+        FilterRuleListEditor.removeRule(id: id, from: &rules)
+    }
+}
+
+// MARK: - FilterRuleListEditor
+
+/// Row add/remove rules for the filter bar, kept free of view state so tests can drive them.
+///
+/// Rows are addressed by id, never by index: "Clear All" and preset selection replace the whole
+/// array while the old rows are still on screen, so an index captured earlier can be out of range.
+enum FilterRuleListEditor {
+    /// The id a keyboard shortcut should act on: the focused row if it still exists, else the last.
+    /// `@FocusState` can briefly hold an id that a preset or "Clear All" has just replaced.
+    static func resolve(_ focusedID: FilterRule.ID?, in rules: [FilterRule]) -> FilterRule.ID? {
+        if let focusedID, rules.contains(where: { $0.id == focusedID }) {
+            return focusedID
+        }
+        return rules.last?.id
+    }
+
+    static func addRule(afterID id: FilterRule.ID?, to rules: inout [FilterRule]) {
         let newRule = FilterRule()
         guard let id, let index = rules.firstIndex(where: { $0.id == id }) else {
             rules.append(newRule)
@@ -267,7 +292,7 @@ struct AdvancedFilterBar: View {
         rules.insert(newRule, at: index + 1)
     }
 
-    private func removeRule(id: FilterRule.ID?) {
+    static func removeRule(id: FilterRule.ID?, from rules: inout [FilterRule]) {
         // A row the user is acting on can already be gone -- "Clear All" replaces the whole
         // array while its rows are still on screen -- so an unknown id does nothing.
         guard let id, let index = rules.firstIndex(where: { $0.id == id }) else {
