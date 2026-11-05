@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- Building the request list no longer decodes response bodies on the main thread while capturing. The AI traffic signal for each new row is now worked out as the capture batch is assembled, so a busy capture leaves the window free to respond; previously every request spent main-thread time decompressing and scanning its bodies, which is what progressively starved the UI -- and the toolbar, Stop included -- during a long capture.
+
+- A capture left running for hours with a script enabled no longer grows its memory without bound. Each script's hook now releases the objects a run borrowed from the JavaScript engine as that run returns, instead of holding every one of them until the script happens to go idle -- which, on a script that runs for every request, never happened.
+
+- Clearing every filter no longer crashes the app when more than one advanced filter row is showing.
+
 - Stopping capture no longer waits indefinitely for a wedged connection or a paused breakpoint to finish closing. Both shutdown waits now have a deadline and report what outlived it, so Stop stays responsive; a request paused at a breakpoint is still never forwarded to the origin after a stop.
 
 - Sidebar counts and errors refresh when existing domain or path nodes change, including live failures that keep the same tree IDs.
