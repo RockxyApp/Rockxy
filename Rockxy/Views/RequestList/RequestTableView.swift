@@ -591,7 +591,6 @@ extension RequestTableView {
         /// selection from SwiftUI state, we suppress the delegate callback that would
         /// re-propagate the change back to SwiftUI.
         private(set) var isUpdatingSelection = false
-
         /// Guard flag to prevent feedback loops when syncing sort descriptors from
         /// coordinator state back into NSTableView.
         private(set) var isUpdatingSortDescriptors = false
@@ -1008,7 +1007,9 @@ extension RequestTableView {
                     font = metrics.appKitFont()
                 default:
                     if HeaderColumn.isCustomColumnID(columnID) {
-                        text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
+                        // Sizing must not evaluate a JSON body on the main thread; an unresolved
+                        // value measures as its placeholder.
+                        text = CustomColumnCellResolution.value(columnID: columnID, row: rowData).displayText
                         font = metrics.appKitFont(monospaced: true)
                     } else {
                         text = ""
@@ -1703,6 +1704,8 @@ extension RequestTableView {
             "Opera": "com.operasoftware.Opera",
         ]
 
+        private var customColumnSchedulerStorage: CustomColumnCellScheduler?
+
         private var autosizeGeneration = 0
         private var lastAppliedRequestTableMetrics: RequestTableAppliedMetrics?
         private var pendingContextSelectionIDs: Set<UUID>?
@@ -1712,6 +1715,23 @@ extension RequestTableView {
 
         private var lastSyncedSelectionIDs: Set<UUID> = []
         private var visibleMetricsRefreshGeneration = 0
+
+        /// Reads the scheduler lazily so the table only pays for it once a body column is shown.
+        @MainActor private var customColumnScheduler: CustomColumnCellScheduler {
+            if let existing = customColumnSchedulerStorage {
+                return existing
+            }
+            let scheduler = CustomColumnCellScheduler(
+                isStillWanted: { [weak self] key in
+                    self?.currentRowIndex(for: key) != nil
+                },
+                deliver: { [weak self] key, value in
+                    self?.fillResolvedCell(key: key, value: value)
+                }
+            )
+            customColumnSchedulerStorage = scheduler
+            return scheduler
+        }
 
         private static func colorFromHex(_ hex: UInt32) -> NSColor {
             let red = CGFloat((hex >> 16) & 0xFF) / 255.0
@@ -1731,6 +1751,60 @@ extension RequestTableView {
                 range: NSRange(location: 0, length: text.length)
             )
             field.attributedStringValue = text
+        }
+
+        /// Thin consumer of `CustomColumnCellValue`: paints a state, decides nothing.
+        private func applyCustomColumn(_ state: CustomColumnCellValue, to cell: NSTextField) {
+            cell.stringValue = state.displayText
+            cell.font = displayMetrics.appKitFont(monospaced: true)
+            switch state {
+            case let .resolved(text):
+                cell.toolTip = text.isEmpty ? nil : text
+                cell.textColor = .secondaryLabelColor
+                // Back to the text field's own value; a recycled cell must not keep "Calculating".
+                cell.setAccessibilityValue(nil)
+            case .pending:
+                cell.toolTip = nil
+                cell.textColor = .tertiaryLabelColor
+                cell.setAccessibilityValue(CustomColumnCellValue.pendingAccessibilityValue)
+            }
+        }
+
+        /// Row index showing `key` now, searched among visible rows by identity. Never a stored index.
+        private func currentRowIndex(for key: CustomColumnCellKey) -> Int? {
+            guard let tableView else {
+                return nil
+            }
+            let range = tableView.rows(in: tableView.visibleRect)
+            guard range.length > 0 else {
+                return nil
+            }
+            let visible = range.location ..< (range.location + range.length)
+            return CustomColumnCellResolution.visibleRowIndex(of: key.rowID, among: visible) { [rows] index in
+                rows.indices.contains(index) ? rows[index].id : nil
+            }
+        }
+
+        /// Writes a late value into the one cell that still shows the row it was resolved for.
+        /// A recycled cell, a removed row, or a hidden column is left alone; the value is in the
+        /// transaction's cache, so the next population of that row reads it directly.
+        private func fillResolvedCell(key: CustomColumnCellKey, value: String) {
+            guard let tableView,
+                  let rowIndex = currentRowIndex(for: key) else
+            {
+                return
+            }
+            let columnIndex = tableView.column(withIdentifier: NSUserInterfaceItemIdentifier(key.columnID))
+            guard columnIndex >= 0,
+                  let cellView = tableView.view(atColumn: columnIndex, row: rowIndex, makeIfNecessary: false),
+                  let field = cellView.subviews.first as? NSTextField else
+            {
+                return
+            }
+            applyCustomColumn(.resolved(value), to: field)
+            if rows[rowIndex].isStruckThrough {
+                Self.applyStrikethrough(to: field)
+            }
         }
 
         // MARK: - Menu Building
@@ -3013,11 +3087,13 @@ extension RequestTableView {
 
             default:
                 if HeaderColumn.isCustomColumnID(column) {
-                    let headerValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
-                    cell.stringValue = headerValue
-                    cell.toolTip = headerValue.isEmpty ? nil : headerValue
-                    cell.font = metrics.appKitFont(monospaced: true)
-                    cell.textColor = .secondaryLabelColor
+                    let state = CustomColumnCellResolution.value(columnID: column, row: rowData)
+                    applyCustomColumn(state, to: cell)
+                    if state == .pending {
+                        MainActor.assumeIsolated {
+                            customColumnScheduler.request(columnID: column, row: rowData)
+                        }
+                    }
                 } else {
                     cell.stringValue = ""
                 }
