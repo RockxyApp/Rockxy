@@ -37,6 +37,11 @@ nonisolated enum AITrafficDetector {
         evaluationCounts.withLock { $0 }
     }
 
+    /// Entries the signal cache currently holds, as an upper bound.
+    static var cachedSignalCount: Int {
+        signalCache.count
+    }
+
     static func isLikelyAI(transaction: HTTPTransaction) -> Bool {
         isLikelyAI(snapshot: AITrafficSnapshot(transaction: transaction))
     }
@@ -45,14 +50,13 @@ nonisolated enum AITrafficDetector {
     /// a body scan per row per batch made that quadratic. The entry is reused only while the
     /// same transaction's request and response evidence is unchanged.
     static func signal(transaction: HTTPTransaction) -> AITrafficSignal {
-        let cacheKey = transaction.id as NSUUID
-        if let cached = signalCache.object(forKey: cacheKey),
+        if let cached = signalCache.entry(for: transaction.id),
            cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision
         {
             return cached.signal
         }
         let signal = signal(snapshot: AITrafficSnapshot(transaction: transaction))
-        signalCache.setObject(SignalCacheEntry(transaction: transaction, signal: signal), forKey: cacheKey)
+        signalCache.store(SignalCacheEntry(transaction: transaction, signal: signal))
         let onMainThread = Thread.isMainThread
         evaluationCounts.withLock { counts in
             counts.total += 1
@@ -71,10 +75,24 @@ nonisolated enum AITrafficDetector {
         _ = signal(transaction: transaction)
     }
 
+    /// Drops the cached signal and filter facts for transactions that have left the list. Their
+    /// entries hold only a weak reference to the transaction, so once it is gone they can never
+    /// hit again and would otherwise occupy the cache until the count limit evicts them.
+    /// Takes a collection because eviction removes rows in batches. Ids that were never cached
+    /// are ignored.
+    static func discardCachedEvidence(for ids: some Collection<UUID>) {
+        guard !ids.isEmpty else {
+            return
+        }
+        signalCache.discard(ids)
+        // `factsCache` is private to the extension file that owns it, so the discard goes
+        // through that file rather than widening the cache's access.
+        discardCachedFilterFacts(for: ids)
+    }
+
     /// The cached signal when it is still valid for the transaction's current evidence.
     static func cachedSignal(transaction: HTTPTransaction) -> AITrafficSignal? {
-        let cacheKey = transaction.id as NSUUID
-        guard let cached = signalCache.object(forKey: cacheKey),
+        guard let cached = signalCache.entry(for: transaction.id),
               cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision else
         {
             return nil
@@ -628,17 +646,19 @@ nonisolated enum AITrafficDetector {
 
     // MARK: Private
 
-    private final class SignalCacheEntry {
+    private final class SignalCacheEntry: TransactionCacheEntry {
         // MARK: Lifecycle
 
         init(transaction: HTTPTransaction, signal: AITrafficSignal) {
             self.transaction = transaction
+            cacheID = transaction.id
             revision = transaction.signalEvidenceRevision
             self.signal = signal
         }
 
         // MARK: Internal
 
+        let cacheID: UUID
         weak var transaction: HTTPTransaction?
         let revision: UInt64
         let signal: AITrafficSignal
@@ -647,12 +667,11 @@ nonisolated enum AITrafficDetector {
     private static let evaluationCounts = OSAllocatedUnfairLock(initialState: SignalEvaluationCounts())
 
     /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
-    /// it in step with the largest live session buffer.
-    nonisolated(unsafe) private static let signalCache: NSCache<NSUUID, SignalCacheEntry> = {
-        let cache = NSCache<NSUUID, SignalCacheEntry>()
-        cache.countLimit = 100_000
-        return cache
-    }()
+    /// it in step with the largest live session buffer. Rows that leave the list are discarded
+    /// through `discardCachedEvidence(for:)`, so the limit is a backstop rather than the bound.
+    nonisolated(unsafe) private static let signalCache = TransactionEvidenceCache<SignalCacheEntry>(
+        countLimit: 100_000
+    )
 
     /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
     /// locale-aware comparison and dominated request-list derivation on busy sessions.

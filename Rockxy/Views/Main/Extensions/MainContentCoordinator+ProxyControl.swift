@@ -893,6 +893,11 @@ extension MainContentCoordinator {
         // identity check as a second line of defense so a future direct store
         // mutation cannot clear another Project's active projection.
         if projectStore.activeProjectID == activeProjectID {
+            // Clearing the session kills every row, so every cached AI evidence entry is
+            // dead on the same terms as an eviction: the cache revalidates identity against
+            // a weak reference that is about to go nil. Discard by id here, while the ids
+            // are still at hand, or they sit until the count limit sheds them.
+            AITrafficDetector.discardCachedEvidence(for: transactions.lazy.map(\.id))
             transactions.removeAll()
             rebuildObservedDomainsByApp()
             logEntries.removeAll()

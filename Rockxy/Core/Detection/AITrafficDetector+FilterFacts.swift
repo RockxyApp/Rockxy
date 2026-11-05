@@ -23,18 +23,35 @@ extension AITrafficDetector {
     /// Memoized like `signal(transaction:)`: reused only while the transaction's request and
     /// response evidence is unchanged.
     static func filterFacts(transaction: HTTPTransaction) -> AIFilterFacts {
-        let cacheKey = transaction.id as NSUUID
-        if let cached = factsCache.object(forKey: cacheKey),
+        if let cached = factsCache.entry(for: transaction.id),
            cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision
         {
             return cached.facts
         }
         let facts = filterFacts(snapshot: AITrafficSnapshot(transaction: transaction))
-        factsCache.setObject(
-            FactsCacheEntry(transaction: transaction, facts: facts),
-            forKey: cacheKey
-        )
+        factsCache.store(FactsCacheEntry(transaction: transaction, facts: facts))
         return facts
+    }
+
+    /// Entries the filter-facts cache currently holds, as an upper bound.
+    static var cachedFilterFactsCount: Int {
+        factsCache.count
+    }
+
+    /// Drops filter facts for rows that have gone. Lives here because `factsCache` is private
+    /// to this file; `discardCachedEvidence(for:)` calls it alongside the signal cache.
+    static func discardCachedFilterFacts(for ids: some Collection<UUID>) {
+        factsCache.discard(ids)
+    }
+
+    /// The cached filter facts when they are still valid for the transaction's current evidence.
+    static func cachedFilterFacts(transaction: HTTPTransaction) -> AIFilterFacts? {
+        guard let cached = factsCache.entry(for: transaction.id),
+              cached.transaction === transaction, cached.revision == transaction.signalEvidenceRevision else
+        {
+            return nil
+        }
+        return cached.facts
     }
 
     static func filterFacts(snapshot: AITrafficSnapshot) -> AIFilterFacts {
@@ -60,27 +77,27 @@ extension AITrafficDetector {
 
     // MARK: Private
 
-    private final class FactsCacheEntry {
+    private final class FactsCacheEntry: TransactionCacheEntry {
         // MARK: Lifecycle
 
         init(transaction: HTTPTransaction, facts: AIFilterFacts) {
             self.transaction = transaction
+            cacheID = transaction.id
             revision = transaction.signalEvidenceRevision
             self.facts = facts
         }
 
         // MARK: Internal
 
+        let cacheID: UUID
         weak var transaction: HTTPTransaction?
         let revision: UInt64
         let facts: AIFilterFacts
     }
 
-    nonisolated(unsafe) private static let factsCache: NSCache<NSUUID, FactsCacheEntry> = {
-        let cache = NSCache<NSUUID, FactsCacheEntry>()
-        cache.countLimit = 100_000
-        return cache
-    }()
+    nonisolated(unsafe) private static let factsCache = TransactionEvidenceCache<FactsCacheEntry>(
+        countLimit: 100_000
+    )
 
     /// Field names that only appear when a tool is called or answered, across the
     /// OpenAI, Anthropic, and Gemini wire formats.
