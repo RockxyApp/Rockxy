@@ -281,9 +281,12 @@ struct RequestTableView: NSViewRepresentable {
             tableView.addTableColumn(column)
         }
 
-        for headerCol in headerColumns.filter(\.isEnabled) {
+        let enabled = headerColumns.filter(\.isEnabled)
+        let titles = HeaderColumn.displayTitles(for: enabled)
+        for headerCol in enabled {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(headerCol.columnIdentifier))
-            col.title = headerCol.headerName
+            col.title = titles[headerCol.id] ?? headerCol.headerName
+            col.headerToolTip = headerCol.headerName
             col.width = 100
             col.minWidth = 50
             col.resizingMask = .userResizingMask
@@ -1553,7 +1556,7 @@ extension RequestTableView {
                     let col = NSTableColumn(
                         identifier: NSUserInterfaceItemIdentifier(headerCol.columnIdentifier)
                     )
-                    col.title = headerCol.headerName
+                    col.headerToolTip = headerCol.headerName
                     col.width = 100
                     col.minWidth = 50
                     col.resizingMask = .userResizingMask
@@ -1562,6 +1565,16 @@ extension RequestTableView {
                     )
                     tableView.addTableColumn(col)
                     columnsChanged = true
+                }
+
+                // Re-title every custom column, not just the ones just added: a title that
+                // collides falls back to the full expression, so adding or removing one
+                // column can change what another column should be called.
+                let titles = HeaderColumn.displayTitles(for: enabledColumns)
+                for headerCol in enabledColumns {
+                    tableView.tableColumns
+                        .first { $0.identifier.rawValue == headerCol.columnIdentifier }?
+                        .title = titles[headerCol.id] ?? headerCol.headerName
                 }
 
                 if columnsChanged {
@@ -2374,12 +2387,14 @@ extension RequestTableView {
             menu.addItem(.separator())
 
             let reqSubmenu = NSMenu()
+            let reqTitles = HeaderColumn.displayTitles(for: store.requestColumns)
             for col in store.requestColumns {
                 let item = NSMenuItem(
-                    title: col.headerName,
+                    title: reqTitles[col.id] ?? col.headerName,
                     action: #selector(handleToggleHeaderColumn(_:)),
                     keyEquivalent: ""
                 )
+                item.toolTip = col.headerName
                 item.target = self
                 item.representedObject = col.id
                 item.state = col.isEnabled ? .on : .off
@@ -2420,12 +2435,14 @@ extension RequestTableView {
             menu.addItem(reqItem)
 
             let resSubmenu = NSMenu()
+            let resTitles = HeaderColumn.displayTitles(for: store.responseColumns)
             for col in store.responseColumns {
                 let item = NSMenuItem(
-                    title: col.headerName,
+                    title: resTitles[col.id] ?? col.headerName,
                     action: #selector(handleToggleHeaderColumn(_:)),
                     keyEquivalent: ""
                 )
+                item.toolTip = col.headerName
                 item.target = self
                 item.representedObject = col.id
                 item.state = col.isEnabled ? .on : .off
