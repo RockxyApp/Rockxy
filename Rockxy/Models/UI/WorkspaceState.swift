@@ -369,6 +369,16 @@ struct RowChangeWindow: Equatable {
             window.appended += step.appended
             window.rewritten.formUnion(step.rewritten)
         }
+        // AppKit traps on a batch that nets smaller. Inside one
+        // `beginUpdates`/`endUpdates`, `removeRows` followed by `insertRows` is reconciled
+        // against a data source that already reports the final count, and a net shrink fails
+        // that reconciliation -- measured directly against a real `NSTableView`: removing 6
+        // and appending 5 aborts the process, while removing 5 and appending 5 or 6 is
+        // accepted. The steady state at the history cap evicts exactly what it appends, so
+        // the fast path still covers it; a batch that nets smaller reloads instead.
+        guard window.appended >= window.removedHead else {
+            return nil
+        }
         // Rows in the appended region are inserted from the current set, never reloaded.
         window.rewritten = window.rewritten.intersection(IndexSet(integersIn: 0 ..< (count - window.appended)))
         return window
