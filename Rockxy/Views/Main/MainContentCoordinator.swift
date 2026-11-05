@@ -325,6 +325,8 @@ final class MainContentCoordinator {
     /// current host would leave the evicted row in the index holding the last strong
     /// reference to it.
     @ObservationIgnored var debugAssistantIndexedHostByID: [UUID: String] = [:]
+    /// Rows examined while evicting from the Assistant host index. Counted work for tests.
+    @ObservationIgnored var debugAssistantIndexRemovalScans = 0
     @ObservationIgnored var debugAssistantIndexedLiveCount = 0
     @ObservationIgnored var debugAssistantIndexedFavoriteCount = 0
     @ObservationIgnored var debugAssistantTrafficIndexGeneration: UInt = 0

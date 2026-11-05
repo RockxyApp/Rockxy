@@ -20,14 +20,31 @@ extension MainContentCoordinator {
         let canReuse = reusingRetainedRows && workspace.rowProjectionLocale == locale
         let previousRows = canReuse ? workspace.filteredRows : []
         let previousIndex = canReuse ? workspace.trafficSelectionIndex : [:]
-        var rows = workspace.filteredTransactions.map { transaction in
-            if let entry = previousIndex[transaction.id], previousRows.indices.contains(entry.rowIndex) {
+        var rows: [RequestListRow] = []
+        rows.reserveCapacity(workspace.filteredTransactions.count)
+        // A retention step trims the oldest rows and appends new ones. The table can apply
+        // that as a head removal and a tail insert instead of reloading every row, but only
+        // if the new set really is the old one shifted: each surviving row must sit exactly
+        // `removedHead` places earlier than before, with only new rows after them.
+        var shift = RowShiftProof(
+            isEligible: canReuse && workspace.activeSortDescriptors.isEmpty && !previousRows.isEmpty
+        )
+        for (position, transaction) in workspace.filteredTransactions.enumerated() {
+            var previousPosition: Int?
+            if let entry = previousIndex[transaction.id],
+               previousRows.indices.contains(entry.rowIndex),
+               previousRows[entry.rowIndex].id == transaction.id
+            {
+                previousPosition = entry.rowIndex
                 let row = previousRows[entry.rowIndex]
                 if row.canReuseProjection(of: transaction) {
-                    return row
+                    rows.append(row)
+                    shift.note(position: position, previousPosition: entry.rowIndex, reprojected: false)
+                    continue
                 }
             }
-            return RequestListRow(from: transaction, sslState: sslState(for: transaction))
+            rows.append(RequestListRow(from: transaction, sslState: sslState(for: transaction)))
+            shift.note(position: position, previousPosition: previousPosition, reprojected: true)
         }
         workspace.rowProjectionLocale = locale
         if !workspace.activeSortDescriptors.isEmpty {
@@ -76,6 +93,13 @@ extension MainContentCoordinator {
         workspace.lastDeriveWasAppendOnly = false
         workspace.appendChainOriginToken = nil
         workspace.refreshToken += 1
+        if let change = shift.result(previousRowCount: previousRows.count, rowCount: rows.count) {
+            workspace.recordRowChange(
+                removedHead: change.removedHead,
+                appended: change.appended,
+                rewritten: change.rewritten
+            )
+        }
         reconcileFollowLiveSelection(for: workspace)
     }
 
@@ -107,6 +131,7 @@ extension MainContentCoordinator {
             )
         }
         workspace.refreshToken += 1
+        workspace.recordRowChange(removedHead: 0, appended: appendedRows.count, rewritten: IndexSet())
     }
 
     func sslState(for transaction: HTTPTransaction) -> RequestListRow.SSLState {
@@ -504,7 +529,9 @@ extension MainContentCoordinator {
         in workspace: WorkspaceState,
         activeRules: [FilterRule],
         smartFilter: SmartTrafficFilter
-    ) -> Bool {
+    )
+        -> Bool
+    {
         if transaction.isTLSFailure {
             return false
         }
@@ -604,7 +631,9 @@ extension MainContentCoordinator {
     func liveUpdatesPreserveRowMembership(
         _ updates: [HTTPTransaction],
         in workspace: WorkspaceState
-    ) -> Bool {
+    )
+        -> Bool
+    {
         // A finished response can change a sort key, and the table draws rows in sorted
         // order, so these columns need the row set reordered rather than rewritten.
         if workspace.activeSortDescriptors
@@ -657,4 +686,74 @@ extension MainContentCoordinator {
         }
         return true
     }
+}
+
+// MARK: - RowShiftProof
+
+/// Decides, while rows are being projected, whether the result is the previous row set with
+/// its head trimmed and new rows appended -- the only shape the table can apply incrementally.
+///
+/// It costs a constant amount per row on a pass that already visits every row, and it proves
+/// the shape rather than assuming it: position 0 names where the survivors start, every
+/// survivor must sit at that offset plus its position, no survivor may follow a new row, and
+/// the survivors must run to the end of the previous set. Anything else -- a row filtered
+/// out of the middle, a reorder, a duplicate id -- returns nil and the table reloads.
+struct RowShiftProof {
+    // MARK: Lifecycle
+
+    init(isEligible: Bool) {
+        isValid = isEligible
+    }
+
+    // MARK: Internal
+
+    struct Change {
+        let removedHead: Int
+        let appended: Int
+        let rewritten: IndexSet
+    }
+
+    mutating func note(position: Int, previousPosition: Int?, reprojected: Bool) {
+        guard isValid else {
+            return
+        }
+        guard let previousPosition else {
+            // The first row being new means no survivors; there is no head to anchor on.
+            if position == 0 {
+                isValid = false
+            }
+            firstNewPosition = firstNewPosition ?? position
+            return
+        }
+        if position == 0 {
+            removedHead = previousPosition
+        }
+        guard firstNewPosition == nil, previousPosition == removedHead + position else {
+            isValid = false
+            return
+        }
+        if reprojected {
+            rewritten.insert(position)
+        }
+        survivors += 1
+    }
+
+    func result(previousRowCount: Int, rowCount: Int) -> Change? {
+        guard isValid,
+              survivors > 0,
+              removedHead + survivors == previousRowCount,
+              survivors <= rowCount else
+        {
+            return nil
+        }
+        return Change(removedHead: removedHead, appended: rowCount - survivors, rewritten: rewritten)
+    }
+
+    // MARK: Private
+
+    private var isValid: Bool
+    private var removedHead = 0
+    private var survivors = 0
+    private var firstNewPosition: Int?
+    private var rewritten = IndexSet()
 }

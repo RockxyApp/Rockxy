@@ -74,6 +74,11 @@ extension MainContentCoordinator {
             persistedFavorites.map { ($0.id, $0) },
             uniquingKeysWith: { _, latest in latest }
         )
+        // Group by bucket first: removing row by row ran one scan of the whole bucket per
+        // evicted row (K x bucket), which for a capture dominated by one host is the entire
+        // history on every batch.
+        var removedIDsByHost: [String: Set<UUID>] = [:]
+        var favoritesToReindex: [HTTPTransaction] = []
         for transaction in removed {
             let id = transaction.id
             // The bucket the row was filed under, not the one its request names now: a
@@ -83,26 +88,57 @@ extension MainContentCoordinator {
             guard let host = debugAssistantIndexedHostByID.removeValue(forKey: id) else {
                 continue
             }
-            debugAssistantTransactionsByHost[host]?.removeAll { $0.id == id }
-            if debugAssistantTransactionsByHost[host]?.isEmpty == true {
-                debugAssistantTransactionsByHost.removeValue(forKey: host)
-            }
+            removedIDsByHost[host, default: []].insert(id)
             debugAssistantIndexedTransactionIDs.remove(id)
             // A saved request keeps its place when the live row behind it is evicted,
             // because a rebuild indexes `transactions + persistedFavorites` and would
             // still find it -- under the saved copy rather than the evicted object.
-            guard let favorite = favoritesByID[id] else {
+            if let favorite = favoritesByID[id] {
+                favoritesToReindex.append(favorite)
+            }
+        }
+        for (host, ids) in removedIDsByHost {
+            guard var bucket = debugAssistantTransactionsByHost.removeValue(forKey: host) else {
                 continue
             }
+            debugAssistantIndexRemovalScans += removeEntries(withIDs: ids, from: &bucket)
+            if !bucket.isEmpty {
+                debugAssistantTransactionsByHost[host] = bucket
+            }
+        }
+        for favorite in favoritesToReindex {
             let favoriteHost = favorite.request.host
             debugAssistantTransactionsByHost[favoriteHost, default: []].append(favorite)
-            debugAssistantIndexedHostByID[id] = favoriteHost
-            debugAssistantIndexedTransactionIDs.insert(id)
+            debugAssistantIndexedHostByID[favorite.id] = favoriteHost
+            debugAssistantIndexedTransactionIDs.insert(favorite.id)
         }
         debugAssistantIndexedLiveCount = transactions.count
         debugAssistantIndexedFavoriteCount = persistedFavorites.count
         debugAssistantTrafficIndexGeneration &+= 1
         debugAssistantRelatedCache = nil
+    }
+
+    /// Drops every row whose id is in `ids` and returns how many rows were examined.
+    ///
+    /// Eviction takes the oldest rows and a bucket is in arrival order, so the evicted rows
+    /// are normally a leading run: that costs the run's length, then one block move. Only
+    /// a bucket whose evicted rows are not a prefix (an open row skipped over, a saved
+    /// copy re-filed at the tail) falls back to a single pass over the rest.
+    private func removeEntries(withIDs ids: Set<UUID>, from bucket: inout [HTTPTransaction]) -> Int {
+        var scanned = 0
+        var prefix = 0
+        while prefix < bucket.count, ids.contains(bucket[prefix].id) {
+            prefix += 1
+            scanned += 1
+        }
+        if prefix > 0 {
+            bucket.removeFirst(prefix)
+        }
+        if prefix < ids.count {
+            scanned += bucket.count
+            bucket.removeAll { ids.contains($0.id) }
+        }
+        return scanned
     }
 
     /// Folds one retention step into the error count, the TLS-failure set, and the
@@ -129,6 +165,11 @@ extension MainContentCoordinator {
         guard !removed.isEmpty else {
             return
         }
+        // An evicted row's cached AI evidence can never be served again -- the cache
+        // revalidates identity against a weak reference that is now nil -- so it would sit
+        // there until the count limit happened to shed it. In a session whose history is
+        // capped far below that limit, almost everything the cache holds is already dead.
+        AITrafficDetector.discardCachedEvidence(for: removed.lazy.map(\.id))
         var counts = trafficSignalCounts
         for transaction in removed {
             let id = transaction.id
