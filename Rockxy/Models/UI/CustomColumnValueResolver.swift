@@ -7,6 +7,58 @@ import Foundation
 enum CustomColumnValueResolver {
     // MARK: Internal
 
+    /// What an evaluation needs from a transaction, copied out of it in one step so that nothing
+    /// reads the transaction once the work has left the actor that owns it. `HTTPTransaction` is
+    /// `@unchecked Sendable` only because its mutations happen on the main actor; a read from any
+    /// other thread races them, and `response` is a multi-word struct that can tear.
+    ///
+    /// Cost: the `Data` fields are copy-on-write, so capturing one is a retain, not a copy of up
+    /// to 2 MB; `Content-Encoding` is one linear scan of a header array of a few dozen entries.
+    /// Nothing is copied unless the transaction is mutated afterwards, which then copies once and
+    /// leaves this snapshot intact. That is `O(headers)` per cell at scroll rate. Decoding and
+    /// parsing, the expensive part, stay off the main actor.
+    struct BodySnapshot: Sendable {
+        // MARK: Lifecycle
+
+        /// Call on the actor that owns `transaction`.
+        init(response: Bool, transaction: HTTPTransaction) {
+            if response {
+                let captured = transaction.response
+                body = captured?.body
+                contentEncoding = captured?.headers.first { $0.name.lowercased() == "content-encoding" }?.value
+                hasBodySource = captured != nil
+            } else {
+                body = transaction.request.body
+                contentEncoding = nil
+                hasBodySource = true
+            }
+            isResponse = response
+        }
+
+        // MARK: Internal
+
+        let body: Data?
+        let contentEncoding: String?
+        let isResponse: Bool
+        let hasBodySource: Bool
+
+        /// The bytes to parse. Safe off the main actor: it reads only this value. Mirrors
+        /// `HTTPResponseData.decodedBody(limit:)`, falling back to the captured body.
+        func decodedBody() -> Data? {
+            guard hasBodySource else {
+                return nil
+            }
+            guard isResponse, let body, !body.isEmpty, body.count <= CustomColumnValueResolver.maxBodySize else {
+                return body
+            }
+            return BodyDecoder.decode(
+                body,
+                encoding: contentEncoding,
+                maxOutputSize: CustomColumnValueResolver.maxBodySize
+            )
+        }
+    }
+
     /// Bodies larger than this are not parsed for a column.
     static let maxBodySize = 2 * 1_024 * 1_024
     /// Longest text shown in a cell.
@@ -52,7 +104,7 @@ enum CustomColumnValueResolver {
         if let cached = transaction.customColumnValueCache.value(for: cacheKey) {
             return cached
         }
-        let value = bodyData(response: response, transaction: transaction)
+        let value = BodySnapshot(response: response, transaction: transaction).decodedBody()
             .map { evaluate(expression, on: $0) } ?? ""
         transaction.customColumnValueCache.store(value, for: cacheKey)
         return value
@@ -68,9 +120,13 @@ enum CustomColumnValueResolver {
         transaction.customColumnValueCache.value(for: cacheKey(expression: expression, response: response))
     }
 
-    /// Evaluates the column off the caller's actor and caches the result, returning it. A column
+    /// Evaluates the column off the main actor and caches the result, returning it. A column
     /// that is already cached returns without reaching the interpreter, so a caller may call this
     /// for every visible row without rationing it.
+    ///
+    /// Isolated to the main actor on purpose: the transaction is read here, in `BodySnapshot`,
+    /// and only plain values cross into the detached task.
+    @MainActor
     @discardableResult
     static func resolveBodyValue(
         expression: String,
@@ -85,15 +141,15 @@ enum CustomColumnValueResolver {
             return cached
         }
         // A table cell trusts the cache, so a value computed from evidence that has since
-        // changed must never be stored. The generation is read before the body is, the store is
-        // refused if it moved, and the evaluation then starts over against the new evidence.
+        // changed must never be stored. The generation is read before the snapshot, the store is
+        // refused if it moved, and the evaluation then starts over from a fresh snapshot.
         var value = ""
         for _ in 0 ..< maxStaleRetries {
             let generation = transaction.customColumnValueCache.generation
-            // Body decoding is itself unbounded work on a 2 MB cap, so it stays off the caller
-            // alongside the evaluation rather than being read here first.
+            let snapshot = BodySnapshot(response: response, transaction: transaction)
+            // Decoding is itself unbounded work on a 2 MB cap, so it runs off the main actor too.
             value = await Task.detached(priority: .userInitiated) {
-                guard let body = bodyData(response: response, transaction: transaction) else {
+                guard let body = snapshot.decodedBody() else {
                     return ""
                 }
                 return await evaluator(expression, body)
@@ -152,12 +208,6 @@ enum CustomColumnValueResolver {
 
     private static func cacheKey(expression: String, response: Bool) -> String {
         (response ? "res:" : "req:") + expression
-    }
-
-    private static func bodyData(response: Bool, transaction: HTTPTransaction) -> Data? {
-        response
-            ? transaction.response.flatMap { $0.decodedBody(limit: maxBodySize) ?? $0.body }
-            : transaction.request.body
     }
 
     private static func jsonPathValue(_ expression: String, on data: Data) -> String {

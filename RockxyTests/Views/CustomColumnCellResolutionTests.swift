@@ -263,6 +263,63 @@ struct CustomColumnCellResolutionTests {
         #expect(CustomColumnCellResolution.value(columnID: Self.column, row: row) == .resolved("NEW"))
     }
 
+    @Test("The evaluation input is captured before detached work starts and a later mutation cannot change it")
+    func evaluationInputIsCapturedBeforeDetachedWork() {
+        let (transaction, _) = Self.makeRow(body: "OLD")
+        transaction.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [HTTPHeader(name: "Content-Encoding", value: "identity")],
+            body: Data("OLD-RES".utf8)
+        )
+
+        let request = CustomColumnValueResolver.BodySnapshot(response: false, transaction: transaction)
+        let response = CustomColumnValueResolver.BodySnapshot(response: true, transaction: transaction)
+        transaction.request.body = Data("NEW".utf8)
+        transaction.response = nil
+
+        #expect(request.decodedBody() == Data("OLD".utf8))
+        #expect(response.decodedBody() == Data("OLD-RES".utf8))
+        #expect(response.contentEncoding == "identity")
+        #expect(CustomColumnValueResolver.BodySnapshot(response: true, transaction: transaction).decodedBody() == nil)
+    }
+
+    @Test("The evaluator receives the snapshot, and a value from since-changed evidence is discarded and redone")
+    func evaluatorSeesSnapshotAndStaleValueIsDiscarded() async {
+        let (transaction, _) = Self.makeRow(body: "OLD")
+        let gate = Gate()
+        let seen = SeenInputs()
+
+        let resolving = Task { @MainActor in
+            await CustomColumnValueResolver.resolveBodyValue(
+                expression: ".id",
+                response: false,
+                transaction: transaction,
+                evaluator: { _, data in
+                    let text = String(data: data, encoding: .utf8) ?? ""
+                    if await seen.append(text) == 1 {
+                        await gate.wait()
+                    }
+                    return text
+                }
+            )
+        }
+        for _ in 0 ..< 500 where await seen.inputs.isEmpty {
+            await Task.yield()
+        }
+        #expect(await seen.inputs.count == 1, "the first evaluation never started")
+
+        transaction.request.body = Data("NEW".utf8) // mutated after the snapshot was taken
+        await gate.open()
+        let resolved = await resolving.value
+
+        let inputs = await seen.inputs
+        #expect(inputs.first == "OLD", "the evaluator read live state instead of the snapshot")
+        #expect(inputs.last == "NEW", "the stale result was not recomputed from fresh evidence")
+        #expect(resolved == "NEW")
+        #expect(transaction.customColumnValueCache.value(for: "req:.id") == "NEW")
+    }
+
     @Test("A pending cell has a spoken value, and the glyph is not it")
     func pendingCellHasAccessibilityValue() {
         let spoken = CustomColumnCellValue.pendingAccessibilityValue
@@ -334,6 +391,17 @@ private actor Gate {
 
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
+}
+
+// MARK: - SeenInputs
+
+private actor SeenInputs {
+    private(set) var inputs: [String] = []
+
+    func append(_ input: String) -> Int {
+        inputs.append(input)
+        return inputs.count
+    }
 }
 
 // MARK: - Counter
