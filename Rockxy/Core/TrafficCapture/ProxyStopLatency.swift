@@ -133,3 +133,106 @@ final class ProxyEnableSupersession: @unchecked Sendable {
     private let lock = NSLock()
     private var stopRequests: UInt64 = 0
 }
+
+// MARK: - ProxyPrimedRead
+
+/// A read taken moments ago that may stand in for exactly one later read of the same subject.
+///
+/// A direct-mode restore plans against a read of every service, then the recovery loop reads the
+/// first service again immediately before its first command. For the first service nothing has
+/// been written in between (only the narrowed backup file, a local rename), so that second read
+/// repeats the first and only adds a `networksetup` round trip before the first write. Standing
+/// the planner's read in for it removes that round trip.
+///
+/// The narrow terms are the safety argument:
+/// - **One subject, one use.** Only the named service is served, and only once. Every later
+///   service, and the post-commit revalidation of this one, are live reads: those are the reads
+///   that follow another service's writes or the record that licenses this one's.
+/// - **Bounded age.** A primed value older than `maxAge` is refused, so a stalled backup write
+///   between the two reads falls back to a live read instead of vouching for old state.
+final class ProxyPrimedRead<Value>: @unchecked Sendable {
+    // MARK: Lifecycle
+
+    init(
+        subject: String,
+        value: Value,
+        maxAge: Duration = .seconds(1),
+        now: @escaping @Sendable () -> ContinuousClock.Instant = { .now }
+    ) {
+        self.subject = subject
+        self.value = value
+        self.maxAge = maxAge
+        self.now = now
+        capturedAt = now()
+    }
+
+    // MARK: Internal
+
+    /// The value for `subject` if it is still unspent and young enough; `nil` otherwise. A call
+    /// for the right subject spends the value whether or not it was young enough to serve.
+    func take(for requested: String) -> Value? {
+        lock.withLock { () -> Value? in
+            guard requested == subject, !spent else {
+                return nil
+            }
+            spent = true
+            return capturedAt.duration(to: now()) <= maxAge ? value : nil
+        }
+    }
+
+    // MARK: Private
+
+    private let subject: String
+    private let value: Value
+    private let maxAge: Duration
+    private let now: @Sendable () -> ContinuousClock.Instant
+    private let capturedAt: ContinuousClock.Instant
+    private let lock = NSLock()
+    private var spent = false
+}
+
+// MARK: - ProxyPhaseTimer
+
+/// Splits one operation into named phases so a measured Stop can be attributed to the part that
+/// cost the time instead of to the operation as a whole. Durations only: no service names, no
+/// settings, nothing captured.
+struct ProxyPhaseTimer {
+    // MARK: Lifecycle
+
+    init(now: @escaping () -> ContinuousClock.Instant = { .now }) {
+        self.now = now
+        last = now()
+    }
+
+    // MARK: Internal
+
+    /// Each phase's elapsed seconds, in the order they ended.
+    private(set) var phases: [(name: String, seconds: TimeInterval)] = []
+
+    /// "plan 120ms, publish 3ms": the phases in order.
+    var summary: String {
+        phases
+            .map { "\($0.name) \(DurationFormatter.format(seconds: $0.seconds))" }
+            .joined(separator: ", ")
+    }
+
+    /// Ends the phase that began at the previous mark (or at creation).
+    mutating func mark(_ name: String) {
+        let current = now()
+        let elapsed = last.duration(to: current)
+        phases.append((name, elapsed.proxyLatencySeconds))
+        last = current
+    }
+
+    // MARK: Private
+
+    private let now: () -> ContinuousClock.Instant
+    private var last: ContinuousClock.Instant
+}
+
+extension Duration {
+    /// Whole and fractional seconds, for the shared duration formatter.
+    var proxyLatencySeconds: TimeInterval {
+        Double(components.seconds) + Double(components.attoseconds) / 1e18
+    }
+}

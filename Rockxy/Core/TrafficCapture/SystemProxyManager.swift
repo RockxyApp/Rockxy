@@ -497,10 +497,28 @@ final class SystemProxyManager: @unchecked Sendable {
             && !hasGlobalBypass
     }
 
-    /// Only an installed helper can hold a proxy override worth restoring; without one the XPC
-    /// status probe can only time out.
+    /// Only an installed, answerable helper can hold a proxy override worth restoring; otherwise
+    /// the XPC status probe can only time out, and a timeout costs the Stop path its full probe
+    /// budget for an answer that was never coming.
+    ///
+    /// Measured on a machine whose helper logged "registered but not reachable: XPC call timed
+    /// out": every override check that found no direct backup waited the whole probe budget,
+    /// because this gate only excluded a helper that was absent. A helper that is unreachable,
+    /// or whose signature does not match this app, cannot serve the call either.
     nonisolated static func shouldProbeHelperForOverride(helperStatus: HelperManager.HelperStatus) -> Bool {
-        helperStatus != .notInstalled
+        switch helperStatus {
+        case .notInstalled,
+             .unreachable:
+            false
+        case .signingMismatch:
+            // Our own caller validation refuses a mismatched peer, so the probe cannot succeed.
+            false
+        case .installedCompatible,
+             .installedIncompatible,
+             .installedOutdated,
+             .requiresApproval:
+            true
+        }
     }
 
     nonisolated static func confirmHelperRestoreAfterTimeout(
@@ -613,8 +631,13 @@ final class SystemProxyManager: @unchecked Sendable {
         // Recorded before waiting, so an enable still in flight can see it and give way instead
         // of finishing first and being undone afterwards.
         Self.supersession.noteStopRequested()
+        let requestedAt = ContinuousClock.now
         return try await Self.lifecycleGate.withBackgroundOperation { [self] in
-            try await disableSystemProxyLocked()
+            let waited = requestedAt.duration(to: .now)
+            Self.logger.info(
+                "Stop waited \(DurationFormatter.format(seconds: waited.proxyLatencySeconds), privacy: .public) for the lifecycle gate"
+            )
+            return try await disableSystemProxyLocked()
         }
     }
 
@@ -2733,13 +2756,17 @@ extension SystemProxyManager {
         // Rockxy owns it on the persisted port — or when they are exactly one of the states this
         // process's own override commands pass through. Anything else keeps its restore point
         // rather than being adopted as the state a restore begins from.
+        var timer = ProxyPhaseTimer()
+        let liveStates = currentRestorationStates(for: authorizedEntries.map(\.service))
+        timer.mark("read")
         let plan = ProxyRecoveryPlanner.plan(
             targets: authorizedEntries.map(\.restorationTarget),
             journal: sourceBackup.journal,
-            liveStates: currentRestorationStates(for: authorizedEntries.map(\.service)),
+            liveStates: liveStates,
             ownedPort: sourceBackup.rockxyPort,
             locallyMutatedServices: locallyMutatedServices
         )
+        timer.mark("plan")
 
         if !plan.abandonedServices.isEmpty {
             Self.logger
@@ -2808,6 +2835,14 @@ extension SystemProxyManager {
                 )
             return false
         }
+        timer.mark("publish")
+
+        // The first service to be written was read a moment ago for the plan, with only the
+        // backup file renamed since. That read stands in for the loop's own pre-read of that one
+        // service; every later service and the post-commit revalidation are still live reads.
+        let primedFirstRead = plan.entriesToRestore.first.flatMap { first in
+            liveStates[first.service].map { ProxyPrimedRead(subject: first.service, value: $0) }
+        }
 
         // The loop below is the one the watchdog binary runs too. It is shared rather than
         // reimplemented because the state it leaves behind is only ever observed after a crash,
@@ -2818,8 +2853,10 @@ extension SystemProxyManager {
             journal: plannedJournal,
             retention: retention,
             deferredServices: plan.deferredServices,
-            effects: directRecoveryEffects()
+            effects: directRecoveryEffects(primedFirstRead: primedFirstRead)
         )
+        timer.mark("loop")
+        Self.logger.info("Direct restore phases: \(timer.summary, privacy: .public)")
 
         // Any service still pointing at Rockxy keeps the backup alive, even when the others
         // restored cleanly — that service has no other restore point.
@@ -2852,9 +2889,15 @@ extension SystemProxyManager {
     }
 
     /// How the app reaches `networksetup` and the direct backup file during a recovery run.
-    private func directRecoveryEffects() -> DirectProxyRecoveryEffects {
+    private func directRecoveryEffects(
+        primedFirstRead: ProxyPrimedRead<ProxyServiceRestorationState>? = nil
+    )
+        -> DirectProxyRecoveryEffects
+    {
         DirectProxyRecoveryEffects(
-            readState: { [weak self] service in self?.restorationState(for: service) },
+            readState: { [weak self] service in
+                primedFirstRead?.take(for: service) ?? self?.restorationState(for: service)
+            },
             publishBackup: { [weak self] backup in
                 guard let self else {
                     throw SystemProxyError.proxyRestoreFailed

@@ -246,6 +246,70 @@ struct ProxyStopLatencyTests {
         }
     }
 
+    // MARK: Primed first read
+
+    @Test("A primed read serves the named subject once and then steps aside")
+    func primedReadServesOnce() {
+        let clock = ManualClock()
+        let primed = ProxyPrimedRead(subject: "Wi-Fi", value: 7, now: { clock.now })
+
+        #expect(primed.take(for: "Wi-Fi") == 7)
+        #expect(primed.take(for: "Wi-Fi") == nil)
+    }
+
+    @Test("A primed read never answers for a different subject, and a miss does not spend it")
+    func primedReadIsPerSubject() {
+        let clock = ManualClock()
+        let primed = ProxyPrimedRead(subject: "Wi-Fi", value: 7, now: { clock.now })
+
+        #expect(primed.take(for: "Ethernet") == nil)
+        #expect(primed.take(for: "Wi-Fi") == 7)
+    }
+
+    @Test("A primed read older than its bound is refused, so a stall falls back to a live read")
+    func primedReadExpires() {
+        let clock = ManualClock()
+        let primed = ProxyPrimedRead(subject: "Wi-Fi", value: 7, maxAge: .seconds(1), now: { clock.now })
+
+        clock.advance(.milliseconds(1_500))
+
+        #expect(primed.take(for: "Wi-Fi") == nil)
+        // Spent even though it was refused: it must not become servable again later.
+        clock.advance(.seconds(-1))
+        #expect(primed.take(for: "Wi-Fi") == nil)
+    }
+
+    @Test("Priming the first service removes exactly one live read and none of the later ones")
+    func primingSavesOnlyTheFirstServicePreRead() {
+        let withoutPriming = liveReadsPerService(primeFirst: false)
+        let withPriming = liveReadsPerService(primeFirst: true)
+
+        // Pre-read plus post-commit revalidation for each service.
+        #expect(withoutPriming == ["Wi-Fi": 2, "Ethernet": 2])
+        // The first service's pre-read is served from the plan; its revalidation, and both of
+        // the second service's reads, are still live.
+        #expect(withPriming == ["Wi-Fi": 1, "Ethernet": 2])
+    }
+
+    // MARK: Phase timer
+
+    @Test("Phases are measured between marks and reported in order")
+    func phaseTimerSplitsBetweenMarks() {
+        let clock = ManualClock()
+        var timer = ProxyPhaseTimer(now: { clock.now })
+
+        clock.advance(.milliseconds(250))
+        timer.mark("read")
+        clock.advance(.seconds(2))
+        timer.mark("loop")
+
+        #expect(timer.phases.map(\.name) == ["read", "loop"])
+        #expect(abs(timer.phases[0].seconds - 0.25) < 0.001)
+        #expect(abs(timer.phases[1].seconds - 2) < 0.001)
+        #expect(timer.summary.hasPrefix("read "))
+        #expect(timer.summary.contains(", loop "))
+    }
+
     // MARK: Private
 
     private enum FakeFailure: Error {
@@ -269,6 +333,79 @@ struct ProxyStopLatencyTests {
         default:
             ""
         }
+    }
+
+    /// Runs the real recovery loop over two services with a counting live reader, and returns how
+    /// many live reads each service cost.
+    private func overridden(_ service: String) -> ProxyServiceRestorationState {
+        ProxyRecoveryJournalFixtures.renamed(ProxyRecoveryJournalFixtures.rockxyOverride, to: service)
+    }
+
+    private func liveReadsPerService(primeFirst: Bool) -> [String: Int] {
+        let services = ["Wi-Fi", "Ethernet"]
+        let live = Dictionary(uniqueKeysWithValues: services.map { ($0, overridden($0)) })
+        let entries = services.map { name in
+            ProxyServiceRecoveryJournalEntry(
+                service: name,
+                stage: .pending,
+                expectedPreStepState: overridden(name),
+                target: ProxyRecoveryJournalFixtures.renamed(ProxyRecoveryJournalFixtures.capturedSettings, to: name)
+            )
+        }
+        let backup = DirectProxyBackup(
+            services: services.map { name in
+                let captured = ProxyRecoveryJournalFixtures.renamed(
+                    ProxyRecoveryJournalFixtures.capturedSettings,
+                    to: name
+                )
+                return DirectServiceBackup(
+                    service: name,
+                    httpEnabled: captured.http.enabled,
+                    httpHost: captured.http.host,
+                    httpPort: captured.http.port,
+                    httpsEnabled: captured.https.enabled,
+                    httpsHost: captured.https.host,
+                    httpsPort: captured.https.port,
+                    socksEnabled: captured.socks.enabled,
+                    socksHost: captured.socks.host,
+                    socksPort: captured.socks.port,
+                    pacEnabled: captured.pacEnabled,
+                    pacURL: captured.pacURL,
+                    autoDiscoveryEnabled: captured.autoDiscoveryEnabled,
+                    bypassDomains: captured.bypassDomains
+                )
+            },
+            timestamp: Date(timeIntervalSince1970: 0),
+            rockxyPort: ProxyRecoveryJournalFixtures.rockxyPort,
+            recoveryPending: true,
+            journal: entries
+        )
+        let counter = ReadCounter()
+        let primed = primeFirst ? ProxyPrimedRead(subject: "Wi-Fi", value: overridden("Wi-Fi")) : nil
+
+        let result = DirectProxyRecoveryRunner.run(
+            entriesToRestore: entries,
+            backup: backup,
+            journal: entries,
+            retention: ProxyBackupRetention(authorized: services, preserved: []),
+            deferredServices: [],
+            effects: DirectProxyRecoveryEffects(
+                readState: { service in
+                    if let value = primed?.take(for: service) {
+                        return value
+                    }
+                    counter.record(service)
+                    return live[service]
+                },
+                publishBackup: { _ in },
+                restoreProxyState: { _ in },
+                restoreBypassDomains: { _ in },
+                log: { _ in }
+            )
+        )
+        #expect(result.allSucceeded)
+        #expect(result.attemptedServices == services)
+        return counter.counts
     }
 }
 
@@ -348,4 +485,43 @@ private final class Recorder: @unchecked Sendable {
 
     private let lock = NSLock()
     private var stored: [[String]] = []
+}
+
+// MARK: - ManualClock
+
+private final class ManualClock: @unchecked Sendable {
+    // MARK: Internal
+
+    var now: ContinuousClock.Instant {
+        lock.withLock { base.advanced(by: offset) }
+    }
+
+    func advance(_ amount: Duration) {
+        lock.withLock { offset += amount }
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private let base = ContinuousClock.now
+    private var offset: Duration = .zero
+}
+
+// MARK: - ReadCounter
+
+private final class ReadCounter: @unchecked Sendable {
+    // MARK: Internal
+
+    var counts: [String: Int] {
+        lock.withLock { stored }
+    }
+
+    func record(_ service: String) {
+        lock.withLock { stored[service, default: 0] += 1 }
+    }
+
+    // MARK: Private
+
+    private let lock = NSLock()
+    private var stored: [String: Int] = [:]
 }
