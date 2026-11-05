@@ -896,12 +896,12 @@ struct ProxyFastReadTests {
         #expect(live == Fixtures.rockxyOverride)
     }
 
-    @Test("When every service proceeds on the fast reading, networksetup is not asked about any")
+    @Test("A service that proceeds on an already-recorded baseline is not read on networksetup")
     func planWithoutFallbackReads() {
         var asked: [[String]] = []
         let plan = ProxyFastRead.plan(
             targets: targets,
-            journal: [],
+            journal: recordedEntries,
             fastStates: overridden(targets),
             ownedPort: Fixtures.rockxyPort,
             authoritative: {
@@ -911,6 +911,30 @@ struct ProxyFastReadTests {
         )
         #expect(plan.entriesToRestore.map(\.service) == names)
         #expect(asked.isEmpty)
+    }
+
+    @Test("With no journal, every baseline is read on networksetup, never taken from the fast reading")
+    func freshBaselineIsReadAuthoritatively() {
+        let live = overridden(targets)
+        // The fast reader disagrees in a way that would still pass the ownership proof, so a
+        // baseline built from it would differ from what networksetup reports.
+        var fast = live
+        fast[names[0]] = live[names[0]].map {
+            Fixtures.replacing($0, bypassDomains: ["*.corp.internal", "localhost", "extra.example"])
+        }
+        var asked: [[String]] = []
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                asked.append(requested)
+                return requested.reduce(into: [:]) { $0[$1] = live[$1] }
+            }
+        )
+        #expect(asked == [names])
+        #expect(plan.entriesToRestore.map(\.expectedPreStepState) == names.compactMap { live[$0] })
     }
 
     @Test("The fast plan is the plan the authoritative readings would have produced")
@@ -927,7 +951,7 @@ struct ProxyFastReadTests {
             journal: [],
             fastStates: live,
             ownedPort: Fixtures.rockxyPort,
-            authoritative: { _ in [:] }
+            authoritative: { requested in requested.reduce(into: [:]) { $0[$1] = live[$1] } }
         )
         #expect(fast == expected)
     }
@@ -951,7 +975,7 @@ struct ProxyFastReadTests {
                 return requested.reduce(into: [:]) { $0[$1] = overridden(targets)[$1] }
             }
         )
-        #expect(asked == [[disputed]])
+        #expect(asked == [names])
         #expect(confirmedOwned.entriesToRestore.map(\.service) == names)
 
         // networksetup agrees the service is not Rockxy's: it is left out, never written.
@@ -968,6 +992,26 @@ struct ProxyFastReadTests {
         #expect(confirmedForeign.deferredServices == [disputed])
     }
 
+    @Test("With a recorded baseline, only the service whose fast reading disagrees is asked about")
+    func recordedDisagreeingServiceIsAskedAlone() {
+        let disputed = names[2]
+        var fast = overridden(targets)
+        fast[disputed] = Fixtures.renamed(Fixtures.capturedSettings, to: disputed)
+        var asked: [[String]] = []
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: recordedEntries,
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                asked.append(requested)
+                return requested.reduce(into: [:]) { $0[$1] = overridden(targets)[$1] }
+            }
+        )
+        #expect(asked == [[disputed]])
+        #expect(plan.entriesToRestore.map(\.service) == names)
+    }
+
     @Test("A service neither reader can read is deferred, not restored")
     func unreadableEverywhere() {
         let missing = names[1]
@@ -978,7 +1022,7 @@ struct ProxyFastReadTests {
             journal: [],
             fastStates: fast,
             ownedPort: Fixtures.rockxyPort,
-            authoritative: { _ in [:] }
+            authoritative: { requested in requested.reduce(into: [:]) { $0[$1] = fast[$1] } }
         )
         #expect(plan.entriesToRestore.map(\.service) == names.filter { $0 != missing })
         #expect(plan.deferredServices == [missing])
@@ -995,13 +1039,163 @@ struct ProxyFastReadTests {
             journal: [],
             fastStates: fast,
             ownedPort: Fixtures.rockxyPort,
-            authoritative: {
-                asked.append($0)
-                return [:]
+            authoritative: { requested in
+                asked.append(requested)
+                return requested.reduce(into: [:]) { $0[$1] = fast[$1] }
             }
         )
-        #expect(asked == [[done]])
+        #expect(asked.flatMap { $0 }.contains(done))
         #expect(!plan.entriesToRestore.map(\.service).contains(done))
+    }
+
+    @Test("A rollback baseline is never taken from a fast reading")
+    func rollBackBaselineIsReadAuthoritatively() {
+        let rolledBack = names[1]
+        let target = Fixtures.renamed(Fixtures.capturedSettings, to: rolledBack)
+        let fast = overridden(targets)
+        let midway = ProxyOverrideTransition.reachableStates(from: target, port: Fixtures.rockxyPort)
+            .dropFirst().first
+        let record = ProxyServiceRecoveryJournalEntry(
+            overrideApplicationFor: target,
+            stage: .applying,
+            port: Fixtures.rockxyPort
+        )
+        var asked: [[String]] = []
+
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [record],
+            fastStates: fast,
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                asked.append(requested)
+                return requested.reduce(into: [:]) {
+                    $0[$1] = $1 == rolledBack ? midway : fast[$1]
+                }
+            }
+        )
+
+        // The fast reading would have sent this service to a rollback from the fully applied
+        // state. The baseline that was persisted is the one networksetup reported instead.
+        #expect(asked.flatMap { $0 }.contains(rolledBack))
+        let entry = plan.entriesToRestore.first { $0.service == rolledBack }
+        #expect(entry?.expectedPreStepState == midway)
+        #expect(entry?.expectedPreStepState != fast[rolledBack])
+        #expect(plan.entriesToRestore.map(\.service).sorted() == names.sorted())
+    }
+
+    @Test("A rollback service the authoritative reader cannot read is deferred, not baselined from the fast one")
+    func rollBackWithoutAuthoritativeReadingIsDeferred() {
+        let rolledBack = names[1]
+        let target = Fixtures.renamed(Fixtures.capturedSettings, to: rolledBack)
+        let record = ProxyServiceRecoveryJournalEntry(
+            overrideApplicationFor: target,
+            stage: .applying,
+            port: Fixtures.rockxyPort
+        )
+        let plan = ProxyFastRead.plan(
+            targets: targets,
+            journal: [record],
+            fastStates: overridden(targets),
+            ownedPort: Fixtures.rockxyPort,
+            authoritative: { requested in
+                requested.filter { $0 != rolledBack }.reduce(into: [:]) { $0[$1] = overridden(targets)[$1] }
+            }
+        )
+        #expect(plan.deferredServices == [rolledBack])
+        #expect(!plan.entriesToRestore.map(\.service).contains(rolledBack))
+    }
+
+    @Test("A fast reading that under-reports ownership is confirmed and cannot shrink the owned set")
+    func underReportedOwnershipIsConfirmed() {
+        let hidden = names[2]
+        var fast = overridden(targets)
+        fast[hidden] = Fixtures.renamed(Fixtures.capturedSettings, to: hidden)
+        var confirmed: [String] = []
+
+        let states = ProxyFastRead.overrideStates(
+            for: names,
+            fast: fast,
+            isOwned: { ProxyOverrideOwnership.isOwnedByRockxy($0, port: Fixtures.rockxyPort) },
+            authoritative: { service in
+                confirmed.append(service)
+                return overridden(targets)[service]
+            }
+        )
+
+        // Every service the fast reader called not-owned was asked about, and the one it was
+        // wrong about is still owned.
+        #expect(confirmed == [hidden])
+        #expect(
+            ProxyOverrideOwnership.residualOwnedServices(in: states, port: Fixtures.rockxyPort) == names
+        )
+    }
+
+    @Test("A service the fast reader cannot read is confirmed, and an unreadable one stays unowned")
+    func missingFastReadingIsConfirmed() {
+        let missing = names[0]
+        var fast = overridden(targets)
+        fast[missing] = nil
+        let states = ProxyFastRead.overrideStates(
+            for: names,
+            fast: fast,
+            isOwned: { ProxyOverrideOwnership.isOwnedByRockxy($0, port: Fixtures.rockxyPort) },
+            authoritative: { _ in nil }
+        )
+        #expect(states.map(\.service) == names)
+        #expect(
+            ProxyOverrideOwnership.residualOwnedServices(in: states, port: Fixtures.rockxyPort)
+                == names.filter { $0 != missing }
+        )
+    }
+
+    @Test("Services the fast reader reports as owned are not read again")
+    func ownedFastReadingStands() {
+        var confirmed = 0
+        let states = ProxyFastRead.overrideStates(
+            for: names,
+            fast: overridden(targets),
+            isOwned: { ProxyOverrideOwnership.isOwnedByRockxy($0, port: Fixtures.rockxyPort) },
+            authoritative: { _ in
+                confirmed += 1
+                return nil
+            }
+        )
+        #expect(confirmed == 0)
+        #expect(states.count == names.count)
+    }
+
+    @Test("Port inference, as the helper calls it, finds the port an under-reporting fast reader hid")
+    func portInferenceConfirmsUnderReports() {
+        var fast = overridden(targets)
+        fast[names[0]] = Fixtures.renamed(Fixtures.capturedSettings, to: names[0])
+        var confirmed: [String] = []
+
+        let states = ProxyFastRead.portInferenceStates(
+            for: [names[0]],
+            fast: fast,
+            authoritative: { service in
+                confirmed.append(service)
+                return overridden(targets)[service]
+            }
+        )
+
+        #expect(confirmed == [names[0]])
+        #expect(ProxyOverrideOwnership.inferredOwnedPort(in: states) == Fixtures.rockxyPort)
+    }
+
+    @Test("Port inference never reads an unreadable service as owned")
+    func portInferenceIgnoresUnreadable() {
+        let states = ProxyFastRead.portInferenceStates(
+            for: names,
+            fast: [:],
+            authoritative: { _ in nil }
+        )
+        #expect(ProxyOverrideOwnership.inferredOwnedPort(in: states) == nil)
+        #expect(ProxyOverrideOwnership.residualOwnedServices(in: states, port: Fixtures.rockxyPort).isEmpty)
+        let unreadable = ProxyServiceOverrideState.unreadable(service: names[0])
+        #expect(!ProxyOverrideOwnership.isOwnedByRockxy(unreadable, port: Fixtures.rockxyPort))
+        #expect(!ProxyOverrideOwnership.isOwnedByRockxy(unreadable, port: 0))
     }
 
     // MARK: Private
@@ -1010,6 +1204,21 @@ struct ProxyFastReadTests {
 
     private var targets: [ProxyServiceRestorationState] {
         names.map { Fixtures.renamed(Fixtures.capturedSettings, to: $0) }
+    }
+
+    /// What an earlier attempt would have persisted: each target pending at the override state.
+    private var recordedEntries: [ProxyServiceRecoveryJournalEntry] {
+        let live = overridden(targets)
+        return targets.compactMap { target in
+            live[target.service].map {
+                ProxyServiceRecoveryJournalEntry(
+                    service: target.service,
+                    stage: .pending,
+                    expectedPreStepState: $0,
+                    target: target
+                )
+            }
+        }
     }
 
     private var inFlight: ProxyServiceRecoveryJournalEntry {

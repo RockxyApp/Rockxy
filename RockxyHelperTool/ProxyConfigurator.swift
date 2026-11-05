@@ -200,7 +200,7 @@ enum ProxyConfigurator {
         // port it was overriding. Reading every service to compute a value the recorded port
         // makes unused was a quarter of a Stop's reads.
         let ownedPort = sourceBackup.rockxyPort ?? ProxyOverrideOwnership.inferredOwnedPort(
-            in: overrideStatesPreferringSystemConfiguration(for: backedUpServices)
+            in: overrideStatesForPortInference(for: backedUpServices)
         )
 
         try failIfUnresolved(
@@ -631,12 +631,29 @@ enum ProxyConfigurator {
         )
     }
 
-    // Two readers, one rule. `networksetup` is the authoritative reader: every answer that is not
-    // "this restore may proceed" is given on it. SystemConfiguration is the fast one: it reads
-    // the same preferences file in one session instead of six processes per service (about 45 ms
-    // each on a working helper, 120 of them in a four-service Stop), and it may only confirm that
-    // a restore can proceed, which the write then checks again under the preferences lock. A
-    // service the fast reader cannot read is simply absent from its answer.
+    // Two readers. `networksetup` is the authoritative one. SystemConfiguration is the fast one:
+    // it reads the same preferences file in one session instead of six processes per service
+    // (about 45 ms each on a working helper, 120 of them in a four-service Stop). A service the
+    // fast reader cannot read is simply absent from its answer.
+    //
+    // What the fast reading is allowed to decide, exactly:
+    //   - Whether a journaled service may be restored (`liveStateForRestore`): only when it lets
+    //     the restore proceed; every other answer is read again on `networksetup`.
+    //   - Whether a service proceeds on an ALREADY-RECORDED journal entry (`ProxyFastRead.plan`):
+    //     proceed on the fast reading, everything else on `networksetup`.
+    //   - The port of a legacy backup (`inferredOwnedPort`): a service counts only if the fast
+    //     reading shows it owned; a not-owned or unreadable answer is confirmed on `networksetup`.
+    // A persisted baseline never comes from the fast reading. The baseline written into the
+    // journal decides, on a later attempt, whether the restore proceeds or the service is
+    // abandoned and its restore point discarded. So the ordinary first Stop, which has no journal,
+    // still pays one `networksetup` read per service to plan. Trading that for speed was rejected
+    // while the speed is unmeasured on a working helper; if you come back with a stopwatch, the
+    // alternative is persisting the baseline's provenance, which needs a new journal field, a new
+    // `ProxyRecoveryContinuation` outcome and planner re-baselining rules.
+    // What it is NOT allowed to decide: the residual-ownership check after a restore. That reads
+    // `networksetup` outright, because in the ordinary success case every service reads as not
+    // owned and so every answer would need confirming anyway.
+    // The fast-path restore write still re-checks the state under the preferences lock.
 
     /// The fast reading of every named service from one preferences session. A service that
     /// could not be read, or whose stored settings are not in a shape the reader accepts, is
@@ -666,19 +683,19 @@ enum ProxyConfigurator {
         )
     }
 
-    /// Ownership-relevant state of each service for the residual check and the port inference:
-    /// from one fast session, with `networksetup` for any service that session could not read.
-    /// An unreadable service still reports as not overridden, as `currentOverrideStates` does.
-    private static func overrideStatesPreferringSystemConfiguration(
+    /// Ownership-relevant state of each service for port inference. A service counts as owned
+    /// on the fast reading alone; every other answer is confirmed on `networksetup`, so an
+    /// under-reporting fast reader can only cost a read, never hide an override.
+    private static func overrideStatesForPortInference(
         for services: [String]
     )
         -> [ProxyServiceOverrideState]
     {
-        let fast = systemConfigurationStates(for: services)
-        return services.map { service in
-            (fast[service] ?? readRestorationState(for: service))?.overrideState
-                ?? ProxyServiceOverrideState.unreadable(service: service)
-        }
+        ProxyFastRead.portInferenceStates(
+            for: services,
+            fast: systemConfigurationStates(for: services),
+            authoritative: readRestorationState(for:)
+        )
     }
 
     /// Reads every proxy field of one service. Any read that fails makes the whole state nil:
@@ -1366,7 +1383,7 @@ extension ProxyConfigurator {
 
         let stillOwnedServices = Set(port.map { ownedPort in
             ProxyOverrideOwnership.residualOwnedServices(
-                in: overrideStatesPreferringSystemConfiguration(for: state.attemptedServices),
+                in: currentOverrideStates(for: state.attemptedServices),
                 port: ownedPort
             )
         } ?? [])

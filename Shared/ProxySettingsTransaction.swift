@@ -573,9 +573,73 @@ enum ProxyFastRead {
         return authoritative()
     }
 
+    /// The ownership-relevant state of each service, where only a positive answer may rest on the
+    /// fast reading. A service the fast reader reports as owned (by `isOwned`) is taken from it;
+    /// every other answer, including "not owned" and "unreadable", is read on `authoritative`
+    /// and that reading stands.
+    ///
+    /// The direction matters. Under-reporting ownership is the dangerous error: it makes a
+    /// service that still points at Rockxy's port look resolved, and the restore point that
+    /// could undo it is then dropped. Over-reporting only keeps a restore point a little longer.
+    /// In the ordinary success case every service reads as not owned, so a caller that asks the
+    /// question after a restore pays the full authoritative cost; this is for questions where
+    /// most services are expected to answer positively.
+    static func overrideStates(
+        for services: [String],
+        fast: [String: ProxyServiceRestorationState],
+        isOwned: (ProxyServiceOverrideState) -> Bool,
+        authoritative: (String) -> ProxyServiceRestorationState?
+    )
+        -> [ProxyServiceOverrideState]
+    {
+        services.map { service in
+            if let reading = fast[service]?.overrideState, isOwned(reading) {
+                return reading
+            }
+            return authoritative(service)?.overrideState
+                ?? ProxyServiceOverrideState.unreadable(service: service)
+        }
+    }
+
+    /// The states a legacy backup's owned port is inferred from. This is the one call the helper
+    /// makes, with the predicate fixed here so a caller cannot weaken it: a service counts on the
+    /// fast reading only when that reading is itself a complete loopback override, and every other
+    /// answer is read on `authoritative`.
+    static func portInferenceStates(
+        for services: [String],
+        fast: [String: ProxyServiceRestorationState],
+        authoritative: (String) -> ProxyServiceRestorationState?
+    )
+        -> [ProxyServiceOverrideState]
+    {
+        overrideStates(
+            for: services,
+            fast: fast,
+            isOwned: { ProxyOverrideOwnership.inferredOwnedPort(in: [$0]) != nil },
+            authoritative: authoritative
+        )
+    }
+
     /// Plans a recovery from fast readings, then asks the authoritative reader about every
     /// service the fast plan did not send to a restore and plans those again from its answer.
-    /// The plan is per service, so a service that proceeds on the fast reading is unaffected.
+    ///
+    /// A persisted baseline always comes from the authoritative reading. When a service has no
+    /// usable journal record, the planner writes `expectedPreStepState` from the live state (and
+    /// a rollback does the same from an override-application record). That record is durable: on
+    /// a later attempt `ProxyServiceRecoveryPolicy.continuation` restores only while live equals
+    /// it and abandons the service, discarding its restore point, otherwise. A baseline taken
+    /// from a fast reading that `networksetup` would have read differently would therefore
+    /// strand the user's proxy.
+    ///
+    /// So the fast reading is kept only for what has no durable consequence: a service that
+    /// proceeds on an already-recorded journal entry. Its baseline was fixed by an earlier
+    /// attempt, and the fast reading merely confirms the restore may go on. Every other service
+    /// is read on `authoritative` before it is planned.
+    ///
+    /// Cost, stated plainly: the ordinary first Stop has no journal, so it pays one authoritative
+    /// read per service here, the same as before the fast reader existed. Trading that for speed
+    /// was rejected while the speed is unmeasured on a working helper. Persisting provenance with
+    /// the baseline would avoid the read, but needs a new journal field and a new continuation.
     static func plan(
         targets: [ProxyServiceRestorationState],
         journal: [ProxyServiceRecoveryJournalEntry],
@@ -593,7 +657,9 @@ enum ProxyFastRead {
             ownedPort: ownedPort,
             locallyMutatedServices: locallyMutatedServices
         )
-        let proceeding = Set(first.entriesToRestore.map(\.service))
+        // An entry the planner took from the journal is returned unchanged; one it built from the
+        // live state is not in the journal, whatever its stage.
+        let proceeding = Set(first.entriesToRestore.filter { journal.contains($0) }.map(\.service))
         let doubtful = targets.map(\.service).filter { !proceeding.contains($0) }
         guard !doubtful.isEmpty else {
             return first
