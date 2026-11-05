@@ -2386,6 +2386,16 @@
         }
       }
     },
+    "System proxy setup was cancelled because capture was stopped": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于已停止捕获，系统代理设置已取消"
+          }
+        }
+      }
+    },
     "That is in line with other captured requests to this endpoint.": {
       "localizations": {
         "zh-Hans": {

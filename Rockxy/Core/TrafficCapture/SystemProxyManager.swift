@@ -30,6 +30,10 @@ enum SystemProxyError: LocalizedError {
     /// An override attempt failed and could not put every service it had already changed back on
     /// its captured settings. The restore point survives, and the failure says so.
     case overrideRollbackIncomplete(reason: String)
+    /// A Stop was requested while this enable was still running, so the enable gave way to it.
+    /// Not a fault: whatever the enable had already written is undone by its own rollback or by
+    /// the Stop that follows it.
+    case enableSupersededByStop
 
     // MARK: Internal
 
@@ -81,6 +85,11 @@ enum SystemProxyError: LocalizedError {
         case let .directProxyWatchdogUnavailable(reason):
             String(
                 localized: "Rockxy could not arm the watchdog that restores your proxy settings, so the system proxy was left unchanged: \(reason)",
+                bundle: RockxyLocalization.bundle
+            )
+        case .enableSupersededByStop:
+            String(
+                localized: "System proxy setup was cancelled because capture was stopped",
                 bundle: RockxyLocalization.bundle
             )
         case let .overrideRollbackIncomplete(reason):
@@ -277,6 +286,22 @@ final class SystemProxyManager: @unchecked Sendable {
 
     /// Upper bound on a single `networksetup` invocation.
     static let networkSetupTimeout: TimeInterval = 10
+
+    /// How long the ownership check on the Stop path waits for the helper's status answer. It
+    /// was the helper connection's general 10 s window. That window exists so a routing check
+    /// does not report a false loss when SystemConfiguration is briefly busy; here an unanswered
+    /// probe already means "no helper-owned override is proven", the same outcome 10 s later,
+    /// so a Stop should not wait it out.
+    static let helperOwnerProbeTimeout: Duration = .seconds(2)
+
+    /// The same bound for the read-only probe that confirms a helper restore whose reply timed
+    /// out. It was 10 s per attempt over four attempts; a probe that does not answer counts as
+    /// "not confirmed", which keeps the failure reported, so only the waiting is shortened.
+    static let helperRestoreConfirmationProbeTimeout: Duration = .seconds(3)
+
+    /// Most read-only `networksetup` children alive at once during a batched read. Reads of
+    /// different services, and of different fields of one service, are independent.
+    nonisolated static let readFanoutWidth = 8
 
     nonisolated static var directWatchdogLabel: String {
         "\(RockxyIdentity.current.appBundleIdentifier).direct-proxy-watchdog"
@@ -490,6 +515,78 @@ final class SystemProxyManager: @unchecked Sendable {
         )
     }
 
+    /// Reads the proxy snapshot of each service with the reads of all services run concurrently.
+    ///
+    /// The reads are independent of each other and take no SystemConfiguration lock, so unlike
+    /// the writes they do not need an order. All-or-nothing per service is kept: one failed
+    /// read drops that service from the result instead of inventing the fields it did not read.
+    /// `run` is the command seam, so a test never reaches a real `networksetup`.
+    nonisolated static func readProxySnapshots(
+        services: [String],
+        maxConcurrent: Int = readFanoutWidth,
+        run: @escaping @Sendable ([String]) throws -> String
+    )
+        -> [String: ServiceProxySnapshot]
+    {
+        let width = proxySnapshotReadFlags.count
+        let commands = services.flatMap { service in proxySnapshotReadFlags.map { [$0, service] } }
+        let results = ProxyReadFanout.run(commands, maxConcurrent: maxConcurrent, run)
+        var snapshots: [String: ServiceProxySnapshot] = [:]
+        for (index, service) in services.enumerated() {
+            let outputs = results[index * width ..< (index + 1) * width].compactMap { try? $0.get() }
+            guard outputs.count == width else {
+                continue
+            }
+            snapshots[service] = proxySnapshot(from: outputs)
+        }
+        return snapshots
+    }
+
+    /// Reads the full restoration state of each service, concurrently across every field of
+    /// every service, with the same all-or-nothing rule per service.
+    nonisolated static func readRestorationStates(
+        services: [String],
+        maxConcurrent: Int = readFanoutWidth,
+        run: @escaping @Sendable ([String]) throws -> String
+    )
+        -> [String: ProxyServiceRestorationState]
+    {
+        let width = restorationStateReadFlags.count
+        let commands = services.flatMap { service in restorationStateReadFlags.map { [$0, service] } }
+        let results = ProxyReadFanout.run(commands, maxConcurrent: maxConcurrent, run)
+        var states: [String: ProxyServiceRestorationState] = [:]
+        for (index, service) in services.enumerated() {
+            let outputs = results[index * width ..< (index + 1) * width].compactMap { try? $0.get() }
+            guard outputs.count == width else {
+                continue
+            }
+            let snapshot = proxySnapshot(from: Array(outputs.prefix(proxySnapshotReadFlags.count)))
+            states[service] = ProxyServiceRestorationState(
+                service: service,
+                http: ProxyEndpointState(
+                    enabled: snapshot.httpEnabled,
+                    host: snapshot.httpHost,
+                    port: snapshot.httpPort
+                ),
+                https: ProxyEndpointState(
+                    enabled: snapshot.httpsEnabled,
+                    host: snapshot.httpsHost,
+                    port: snapshot.httpsPort
+                ),
+                socks: ProxyEndpointState(
+                    enabled: snapshot.socksEnabled,
+                    host: snapshot.socksHost,
+                    port: snapshot.socksPort
+                ),
+                pacEnabled: snapshot.pacEnabled,
+                pacURL: snapshot.pacURL,
+                autoDiscoveryEnabled: snapshot.autoDiscoveryEnabled,
+                bypassDomains: ProxyBypassDomainOutput.parse(outputs[width - 1])
+            )
+        }
+        return states
+    }
+
     /// Starts one process-wide observer for the live macOS proxy dictionary. Unlike
     /// `.systemProxyDidChange`, this also detects changes made by System Settings,
     /// VPN software, or another debugging proxy while Rockxy's listener is running.
@@ -500,8 +597,11 @@ final class SystemProxyManager: @unchecked Sendable {
     // MARK: - Public API
 
     func enableSystemProxy(port: Int) async throws {
+        // Taken now, before waiting for the gate: a Stop requested from this point on is ordered
+        // after this enable and makes it stale, whether it is queued or already running.
+        let requestMark = Self.supersession.mark()
         try await Self.lifecycleGate.withBackgroundOperation { [self] in
-            try await enableSystemProxyLocked(port: port)
+            try await enableSystemProxyLocked(port: port, requestMark: requestMark)
         }
     }
 
@@ -510,7 +610,10 @@ final class SystemProxyManager: @unchecked Sendable {
     /// they are; the caller asks the user whether to put the previous settings back.
     @discardableResult
     func disableSystemProxy() async throws -> SystemProxyRestoreReport {
-        try await Self.lifecycleGate.withBackgroundOperation { [self] in
+        // Recorded before waiting, so an enable still in flight can see it and give way instead
+        // of finishing first and being undone afterwards.
+        Self.supersession.noteStopRequested()
+        return try await Self.lifecycleGate.withBackgroundOperation { [self] in
             try await disableSystemProxyLocked()
         }
     }
@@ -684,9 +787,10 @@ final class SystemProxyManager: @unchecked Sendable {
         } else {
             backedUpServices
         }
+        let readable = captureReadableProxySnapshots(for: servicesToCheck)
         return Self.proxySnapshotsMatchRockxy(
             port: port,
-            snapshots: servicesToCheck.map(captureProxySnapshot)
+            snapshots: servicesToCheck.map { readable[$0] ?? Self.emptyProxySnapshot }
         )
     }
 
@@ -709,6 +813,9 @@ final class SystemProxyManager: @unchecked Sendable {
     /// still has proxy commands left to write would put the settings back, delete the restore
     /// point, and then let the loop re-apply the override with nothing on disk to undo it.
     func performEmergencyTerminationCleanup(reason: String) {
+        // The gate wait below is for the enable to reach a safe point; telling it a stop is
+        // coming lets it reach one sooner instead of running to completion first.
+        Self.supersession.noteStopRequested()
         Self.operationGate.withOperation {
             performEmergencyTerminationCleanupLocked(reason: reason)
         }
@@ -779,6 +886,36 @@ final class SystemProxyManager: @unchecked Sendable {
     /// points. The blocking gate above still guards synchronous direct-mode mutations and signal
     /// cleanup, while this one prevents an older async continuation from ending a newer session.
     private static let lifecycleGate = ProxyAsyncOperationGate()
+    /// Lets a Stop overtake an enable that has not finished.
+    private static let supersession = ProxyEnableSupersession()
+
+    private static let emptyProxySnapshot = ServiceProxySnapshot(
+        httpEnabled: false,
+        httpHost: "",
+        httpPort: 0,
+        httpsEnabled: false,
+        httpsHost: "",
+        httpsPort: 0,
+        socksEnabled: false,
+        socksHost: "",
+        socksPort: 0,
+        pacEnabled: false,
+        pacURL: "",
+        autoDiscoveryEnabled: false
+    )
+
+    nonisolated private static let proxySnapshotReadFlags = [
+        "-getwebproxy",
+        "-getsecurewebproxy",
+        "-getsocksfirewallproxy",
+        "-getautoproxyurl",
+        "-getproxyautodiscovery",
+    ]
+
+    /// The reads behind a restoration state: the snapshot's five plus the bypass list.
+    nonisolated private static let restorationStateReadFlags = proxySnapshotReadFlags + [
+        "-getproxybypassdomains",
+    ]
 
     // MARK: - Direct Backup Persistence
 
@@ -884,6 +1021,50 @@ final class SystemProxyManager: @unchecked Sendable {
         )
     }
 
+    /// Parses `-getwebproxy` or `-getsecurewebproxy` output into (enabled, host, port).
+    nonisolated private static func parseProxyOutput(_ output: String) -> (enabled: Bool, host: String, port: Int) {
+        var enabled = false
+        var host = ""
+        var port = 0
+
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("Enabled:") {
+                let value = trimmed.replacingOccurrences(of: "Enabled:", with: "").trimmingCharacters(in: .whitespaces)
+                enabled = value.lowercased() == "yes"
+            } else if trimmed.hasPrefix("Server:") {
+                host = trimmed.replacingOccurrences(of: "Server:", with: "").trimmingCharacters(in: .whitespaces)
+            } else if trimmed.hasPrefix("Port:") {
+                let portStr = trimmed.replacingOccurrences(of: "Port:", with: "").trimmingCharacters(in: .whitespaces)
+                port = Int(portStr) ?? 0
+            }
+        }
+
+        return (enabled, host, port)
+    }
+
+    /// `outputs` is in `proxySnapshotReadFlags` order.
+    nonisolated private static func proxySnapshot(from outputs: [String]) -> ServiceProxySnapshot {
+        let http = parseProxyOutput(outputs[0])
+        let https = parseProxyOutput(outputs[1])
+        let socks = parseProxyOutput(outputs[2])
+        let pac = ProxyRestoreCommandBuilder.parsePACOutput(outputs[3])
+        return ServiceProxySnapshot(
+            httpEnabled: http.enabled,
+            httpHost: http.host,
+            httpPort: http.port,
+            httpsEnabled: https.enabled,
+            httpsHost: https.host,
+            httpsPort: https.port,
+            socksEnabled: socks.enabled,
+            socksHost: socks.host,
+            socksPort: socks.port,
+            pacEnabled: pac.enabled,
+            pacURL: pac.url,
+            autoDiscoveryEnabled: ProxyRestoreCommandBuilder.parseAutoDiscoveryOutput(outputs[4])
+        )
+    }
+
     private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
         // In-memory ownership is only a hint. The proxy can be changed outside
         // Rockxy, or a helper watchdog can restore it after an app restart.
@@ -906,7 +1087,9 @@ final class SystemProxyManager: @unchecked Sendable {
         // would only return after its 10 s timeout — which is what made quitting and readiness
         // checks stall on machines that never installed the helper.
         if await Self.shouldProbeHelperForOverride(helperStatus: HelperManager.shared.status),
-           let helperStatus = try? await HelperConnection.shared.getProxyStatus(),
+           let helperStatus = try? await HelperConnection.shared.getProxyStatus(
+               timeout: Self.helperOwnerProbeTimeout
+           ),
            helperStatus.isOverridden,
            effectiveSystemProxyMatchesRockxy(port: helperStatus.port)
         {
@@ -920,8 +1103,23 @@ final class SystemProxyManager: @unchecked Sendable {
         return .none
     }
 
-    private func enableSystemProxyLocked(port: Int) async throws {
+    private func throwIfSuperseded(_ requestMark: ProxyEnableSupersession.Mark) throws {
+        if Self.supersession.isSuperseded(since: requestMark) {
+            Self.logger.info("Enable superseded by a Stop — giving way")
+            throw SystemProxyError.enableSupersededByStop
+        }
+    }
+
+    private func enableSystemProxyLocked(
+        port: Int,
+        requestMark: ProxyEnableSupersession.Mark
+    )
+        async throws
+    {
         Self.logger.info("enableSystemProxy called for port \(port)")
+        // Nothing has been touched yet, so a Stop that arrived while this waited for the gate
+        // costs nothing to honour.
+        try throwIfSuperseded(requestMark)
 
         let backupAtStart = loadDirectBackup()
         if directBackupFileExists, backupAtStart == nil {
@@ -959,6 +1157,7 @@ final class SystemProxyManager: @unchecked Sendable {
         // A reclaim must retain the snapshot from before Rockxy's first override. Capturing
         // again here would turn the foreign takeover into the state restored on quit.
         if !reclaimingDirectSession, !reclaimingHelperSession {
+            try throwIfSuperseded(requestMark)
             saveOriginalState(port: port)
         }
 
@@ -988,9 +1187,12 @@ final class SystemProxyManager: @unchecked Sendable {
             Self.logger.info("Helper status after lazy check: \(String(describing: helperStatus))")
         }
 
+        // Still before the first write of this attempt (the helper probes above are reads).
+        try throwIfSuperseded(requestMark)
+
         if reclaimingDirectSession {
             Self.logger.info("Reclaiming direct-mode system routing with the existing backup")
-            try enableSystemProxyViaNetworkSetup(port: port)
+            try enableSystemProxyViaNetworkSetup(port: port, requestMark: requestMark)
         } else if reclaimingHelperSession {
             let info = try await HelperConnection.shared.getHelperInfo()
             guard HelperCompatibilityPolicy.supportsSafeProxyRouting(
@@ -1029,12 +1231,19 @@ final class SystemProxyManager: @unchecked Sendable {
             Self.logger.warning(
                 "Helper requires approval in System Settings — falling back to networksetup"
             )
-            try enableSystemProxyViaNetworkSetup(port: port)
+            try enableSystemProxyViaNetworkSetup(port: port, requestMark: requestMark)
         } else {
             Self.logger
                 .info("Helper not installed (status: \(String(describing: helperStatus))), using networksetup directly")
-            try enableSystemProxyViaNetworkSetup(port: port)
+            try enableSystemProxyViaNetworkSetup(port: port, requestMark: requestMark)
         }
+
+        // The override is applied and owned (`isEnabled`, and the backup or the helper's
+        // snapshot, are in place), so the Stop queued behind this enable restores it in one
+        // pass. Applying the bypass list and then polling for confirmation would only add
+        // writes the Stop immediately has to undo. Nothing is rolled back here: that would be
+        // a second restore of the same services, in front of the one that is already coming.
+        try throwIfSuperseded(requestMark)
 
         // Bypass settings are part of effective routing. Apply Rockxy's bounded list before
         // confirmation so a foreign catch-all exception can be repaired instead of deadlocking
@@ -1169,10 +1378,9 @@ final class SystemProxyManager: @unchecked Sendable {
         guard !candidates.isEmpty else {
             return .empty
         }
-        var current: [String: ServiceProxySnapshot] = [:]
-        for service in candidates.keys {
-            current[service] = captureReadableProxySnapshot(for: service)
-        }
+        // A service that could not be read is simply absent, which the policy already treats as
+        // "leave it out" rather than as empty settings.
+        let current = captureReadableProxySnapshots(for: Array(candidates.keys))
         let unrestored = PreviousProxyRestorePolicy.unrestoredServices(
             previous: candidates,
             previousBypassDomains: previousBypassDomains,
@@ -1329,23 +1537,38 @@ final class SystemProxyManager: @unchecked Sendable {
 
     // MARK: - NetworkSetup — Enable on ALL Enabled Services
 
-    private func enableSystemProxyViaNetworkSetup(port: Int) throws {
+    private func enableSystemProxyViaNetworkSetup(
+        port: Int,
+        requestMark: ProxyEnableSupersession.Mark
+    )
+        throws
+    {
         // The whole enable runs as one operation. A termination cleanup arriving on the signal
         // thread has to wait for it: restoring and clearing the backup while this loop still has
         // proxy commands to write would leave the user overridden with no restore point at all.
         try Self.operationGate.withOperation {
-            try applyDirectOverride(port: port)
+            try applyDirectOverride(port: port, requestMark: requestMark)
         }
     }
 
-    private func applyDirectOverride(port: Int) throws {
+    private func applyDirectOverride(
+        port: Int,
+        requestMark: ProxyEnableSupersession.Mark
+    )
+        throws
+    {
         try DirectProxySessionLock.withExclusiveAccess(backupURL: Self.directBackupURL) {
-            try applyDirectOverrideLocked(port: port)
+            try applyDirectOverrideLocked(port: port, requestMark: requestMark)
         }
     }
 
     /// The complete ownership claim and mutation sequence, held under the cross-process lock.
-    private func applyDirectOverrideLocked(port: Int) throws {
+    private func applyDirectOverrideLocked(
+        port: Int,
+        requestMark: ProxyEnableSupersession.Mark
+    )
+        throws
+    {
         // Never use another Rockxy session's loopback override as the restoration baseline. This
         // also closes the cross-mode race where a helper-backed session becomes visible while
         // direct fallback is being considered but before a direct restore point is published.
@@ -1394,6 +1617,10 @@ final class SystemProxyManager: @unchecked Sendable {
             armWatchdog: { try armDirectProxyWatchdog(arming, hadBackupBefore: hadBackupBefore) },
             mutateServices: {
                 for service in services {
+                    // Between services, never inside one: a service stopped half-way is exactly
+                    // the shape recovery has to reason about. Throwing here takes the ordinary
+                    // mutation-failure path, which puts every service already touched back.
+                    try throwIfSuperseded(requestMark)
                     // The capture this backup holds was taken earlier — moments ago for a service
                     // just added, a whole session ago for one being reclaimed. What the override
                     // is about to start from is a fact about the machine now, so the settings are
@@ -1601,18 +1828,18 @@ final class SystemProxyManager: @unchecked Sendable {
         var bypassMap: [String: [String]] = [:]
         var proxyMap: [String: ServiceProxySnapshot] = [:]
 
+        // Every read is independent, so the whole capture is one concurrent batch rather than
+        // six commands per service in a row. Nothing is written until it has all returned.
+        let bypassOutputs = readBypassOutputs(for: services)
+        let snapshots = captureReadableProxySnapshots(for: services)
         for service in services {
             // Save bypass domains per service
-            if let output = try? runNetworkSetup(["-getproxybypassdomains", service]) {
-                let domains = output.components(separatedBy: "\n")
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty && !$0.hasPrefix("There aren't any bypass domains") }
-                bypassMap[service] = domains
+            if let output = bypassOutputs[service] {
+                bypassMap[service] = parseBypassDomains(output)
             }
 
             // Save proxy state per service
-            let snapshot = captureProxySnapshot(for: service)
-            proxyMap[service] = snapshot
+            proxyMap[service] = snapshots[service] ?? Self.emptyProxySnapshot
         }
 
         lock.lock()
@@ -1624,77 +1851,21 @@ final class SystemProxyManager: @unchecked Sendable {
         Self.logger.info("Saved original state for \(services.count) service(s)")
     }
 
-    /// Parses `-getwebproxy` or `-getsecurewebproxy` output into (enabled, host, port).
-    private func parseProxyOutput(_ output: String) -> (enabled: Bool, host: String, port: Int) {
-        var enabled = false
-        var host = ""
-        var port = 0
-
-        for line in output.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("Enabled:") {
-                let value = trimmed.replacingOccurrences(of: "Enabled:", with: "").trimmingCharacters(in: .whitespaces)
-                enabled = value.lowercased() == "yes"
-            } else if trimmed.hasPrefix("Server:") {
-                host = trimmed.replacingOccurrences(of: "Server:", with: "").trimmingCharacters(in: .whitespaces)
-            } else if trimmed.hasPrefix("Port:") {
-                let portStr = trimmed.replacingOccurrences(of: "Port:", with: "").trimmingCharacters(in: .whitespaces)
-                port = Int(portStr) ?? 0
-            }
-        }
-
-        return (enabled, host, port)
-    }
-
     /// Captures the current HTTP and HTTPS proxy settings for a single service.
     private func captureProxySnapshot(for service: String) -> ServiceProxySnapshot {
-        captureReadableProxySnapshot(for: service) ?? ServiceProxySnapshot(
-            httpEnabled: false,
-            httpHost: "",
-            httpPort: 0,
-            httpsEnabled: false,
-            httpsHost: "",
-            httpsPort: 0,
-            socksEnabled: false,
-            socksHost: "",
-            socksPort: 0,
-            pacEnabled: false,
-            pacURL: "",
-            autoDiscoveryEnabled: false
-        )
+        captureReadableProxySnapshot(for: service) ?? Self.emptyProxySnapshot
     }
 
     /// Unlike the ordinary best-effort snapshot, restore reconciliation must distinguish an
     /// unreadable service from one whose proxy fields are genuinely empty.
     private func captureReadableProxySnapshot(for service: String) -> ServiceProxySnapshot? {
-        guard let httpOutput = try? runNetworkSetup(["-getwebproxy", service]),
-              let httpsOutput = try? runNetworkSetup(["-getsecurewebproxy", service]),
-              let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
-              let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
-              let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]) else
-        {
-            return nil
-        }
+        captureReadableProxySnapshots(for: [service])[service]
+    }
 
-        let http = parseProxyOutput(httpOutput)
-        let https = parseProxyOutput(httpsOutput)
-        let socks = parseProxyOutput(socksOutput)
-        let pac = ProxyRestoreCommandBuilder.parsePACOutput(pacOutput)
-
-        return ServiceProxySnapshot(
-            httpEnabled: http.enabled,
-            httpHost: http.host,
-            httpPort: http.port,
-            httpsEnabled: https.enabled,
-            httpsHost: https.host,
-            httpsPort: https.port,
-            socksEnabled: socks.enabled,
-            socksHost: socks.host,
-            socksPort: socks.port,
-            pacEnabled: pac.enabled,
-            pacURL: pac.url,
-            autoDiscoveryEnabled: ProxyRestoreCommandBuilder.parseAutoDiscoveryOutput(autoDiscoveryOutput)
-        )
+    /// Reads several services in one concurrent batch. A service is present in the result only
+    /// if every one of its five reads succeeded.
+    private func captureReadableProxySnapshots(for services: [String]) -> [String: ServiceProxySnapshot] {
+        Self.readProxySnapshots(services: services) { [self] in try runNetworkSetup($0) }
     }
 
     private func helperRestoreCompletedAfterTransportTimeout() async -> Bool {
@@ -1708,8 +1879,10 @@ final class SystemProxyManager: @unchecked Sendable {
     }
 
     private func helperRestoreStateMatchesCurrentSnapshot() async -> Bool {
-        guard let status = try? await HelperConnection.shared.getProxyStatus(),
-              !status.isOverridden else
+        guard let status = try? await HelperConnection.shared.getProxyStatus(
+            timeout: Self.helperRestoreConfirmationProbeTimeout
+        ),
+            !status.isOverridden else
         {
             return false
         }
@@ -1725,12 +1898,12 @@ final class SystemProxyManager: @unchecked Sendable {
             return false
         }
 
+        let proxies = captureReadableProxySnapshots(for: captured.services)
+        let bypassOutputs = readBypassOutputs(for: captured.services)
         var currentProxyState: [String: ServiceProxySnapshot] = [:]
         var currentBypassDomains: [String: [String]] = [:]
         for service in captured.services {
-            guard let proxy = captureReadableProxySnapshot(for: service),
-                  let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
-            {
+            guard let proxy = proxies[service], let bypassOutput = bypassOutputs[service] else {
                 return false
             }
             currentProxyState[service] = proxy
@@ -1743,6 +1916,21 @@ final class SystemProxyManager: @unchecked Sendable {
             currentProxyState: currentProxyState,
             currentBypassDomains: currentBypassDomains
         )
+    }
+
+    /// The bypass-list output of each service that answered, read concurrently.
+    private func readBypassOutputs(for services: [String]) -> [String: String] {
+        let results = ProxyReadFanout.run(
+            services.map { ["-getproxybypassdomains", $0] },
+            maxConcurrent: Self.readFanoutWidth
+        ) { [self] in try runNetworkSetup($0) }
+        var outputs: [String: String] = [:]
+        for (service, result) in zip(services, results) {
+            if let output = try? result.get() {
+                outputs[service] = output
+            }
+        }
+        return outputs
     }
 
     private func parseBypassDomains(_ output: String) -> [String] {
@@ -2044,7 +2232,9 @@ final class SystemProxyManager: @unchecked Sendable {
     /// at all). Ports are checked one by one, so a Clash-style endpoint on 127.0.0.1:7890 is kept
     /// as the restore point while another Rockxy session on its own port still blocks.
     private func ensureLoopbackBaselineBelongsToAnotherApp() throws {
-        let snapshots = ((try? detectAllEnabledServices()) ?? []).map(captureProxySnapshot(for:))
+        let enabledServices = (try? detectAllEnabledServices()) ?? []
+        let readable = captureReadableProxySnapshots(for: enabledServices)
+        let snapshots = enabledServices.map { readable[$0] ?? Self.emptyProxySnapshot }
         let ports = LoopbackProxyOwnershipPolicy.enabledLoopbackPorts(in: snapshots)
         guard !ports.isEmpty else {
             return
@@ -2111,9 +2301,9 @@ final class SystemProxyManager: @unchecked Sendable {
 
 extension SystemProxyManager {
     private func captureDirectServiceBackup(service: String) throws -> DirectServiceBackup {
-        let http = try parseProxyOutput(runNetworkSetup(["-getwebproxy", service]))
-        let https = try parseProxyOutput(runNetworkSetup(["-getsecurewebproxy", service]))
-        let socks = try parseProxyOutput(runNetworkSetup(["-getsocksfirewallproxy", service]))
+        let http = try Self.parseProxyOutput(runNetworkSetup(["-getwebproxy", service]))
+        let https = try Self.parseProxyOutput(runNetworkSetup(["-getsecurewebproxy", service]))
+        let socks = try Self.parseProxyOutput(runNetworkSetup(["-getsocksfirewallproxy", service]))
         let pac = try ProxyRestoreCommandBuilder.parsePACOutput(
             runNetworkSetup(["-getautoproxyurl", service])
         )
@@ -2903,8 +3093,11 @@ extension SystemProxyManager {
     /// which backed-up services are still pointing at Rockxy and therefore still need their
     /// restore point. One service the user re-pointed must not make the rest look unowned.
     func residualRockxyOwnedServices(port: Int, backedUpServices: [String]) -> [String] {
-        ProxyOverrideOwnership.residualOwnedServices(
-            in: backedUpServices.map(currentOverrideState(for:)),
+        let states = currentRestorationStates(for: backedUpServices)
+        return ProxyOverrideOwnership.residualOwnedServices(
+            in: backedUpServices.map {
+                states[$0]?.overrideState ?? ProxyServiceOverrideState.unreadable(service: $0)
+            },
             port: port
         )
     }
@@ -2932,14 +3125,6 @@ extension SystemProxyManager {
         )
     }
 
-    /// Reads only the fields ownership depends on for one service. A service whose settings
-    /// cannot be read reports as not overridden, which keeps recovery from claiming ownership it
-    /// cannot prove.
-    private func currentOverrideState(for service: String) -> ProxyServiceOverrideState {
-        restorationState(for: service)?.overrideState
-            ?? ProxyServiceOverrideState.unreadable(service: service)
-    }
-
     /// The full restoration-relevant shape of each service, keyed by service name.
     ///
     /// A service whose settings cannot be read is left out rather than reported as empty: an
@@ -2951,42 +3136,15 @@ extension SystemProxyManager {
     )
         -> [String: ProxyServiceRestorationState]
     {
-        var states: [String: ProxyServiceRestorationState] = [:]
-        for service in services {
-            states[service] = restorationState(for: service)
-        }
-        return states
+        Self.readRestorationStates(services: services) { [self] in try runNetworkSetup($0) }
     }
 
     /// Reads every proxy field of one service, or nothing at all. A single failed `networksetup`
     /// read makes the whole state nil: a partially read service cannot be compared against a
-    /// journal without inventing values for the fields that were not read.
+    /// journal without inventing values for the fields that were not read. The six reads run
+    /// concurrently; they are independent.
     private func restorationState(for service: String) -> ProxyServiceRestorationState? {
-        guard let httpOutput = try? runNetworkSetup(["-getwebproxy", service]),
-              let httpsOutput = try? runNetworkSetup(["-getsecurewebproxy", service]),
-              let socksOutput = try? runNetworkSetup(["-getsocksfirewallproxy", service]),
-              let pacOutput = try? runNetworkSetup(["-getautoproxyurl", service]),
-              let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
-              let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
-        {
-            return nil
-        }
-
-        let http = parseProxyOutput(httpOutput)
-        let https = parseProxyOutput(httpsOutput)
-        let socks = parseProxyOutput(socksOutput)
-        let pac = ProxyRestoreCommandBuilder.parsePACOutput(pacOutput)
-
-        return ProxyServiceRestorationState(
-            service: service,
-            http: ProxyEndpointState(enabled: http.enabled, host: http.host, port: http.port),
-            https: ProxyEndpointState(enabled: https.enabled, host: https.host, port: https.port),
-            socks: ProxyEndpointState(enabled: socks.enabled, host: socks.host, port: socks.port),
-            pacEnabled: pac.enabled,
-            pacURL: pac.url,
-            autoDiscoveryEnabled: ProxyRestoreCommandBuilder.parseAutoDiscoveryOutput(autoDiscoveryOutput),
-            bypassDomains: ProxyBypassDomainOutput.parse(bypassOutput)
-        )
+        currentRestorationStates(for: [service])[service]
     }
 
     /// Narrows the on-disk backup to the services recovery still owns, then restores exactly

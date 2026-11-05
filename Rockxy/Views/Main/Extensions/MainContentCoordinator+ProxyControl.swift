@@ -103,6 +103,15 @@ final class CaptureProbeTracker: @unchecked Sendable {
 /// flow through `TrafficSessionManager` which batches updates (every 100ms or 50
 /// transactions) before delivering them to the main actor to avoid UI churn.
 extension MainContentCoordinator {
+    /// A Stop that superseded an in-flight enable is the user getting what they asked
+    /// for, so it must not surface as an enable failure. Everything else still does.
+    private func reportEnableFailure(_ error: Error) {
+        if let proxyError = error as? SystemProxyError, case .enableSupersededByStop = proxyError {
+            Self.logger.info("System proxy enable gave way to Stop")
+            return
+        }
+        readiness.setProxyEnableFailed(message: error.localizedDescription)
+    }
     // MARK: - Proxy Lifecycle
 
     /// Revalidates the active Root CA before removing protected TLS fallbacks. Clearing
@@ -302,7 +311,7 @@ extension MainContentCoordinator {
                     isSystemProxyConfigured = false
                     isProxyOverridden = false
                     readiness.setSystemRoutingReady(false)
-                    readiness.setProxyEnableFailed(message: error.localizedDescription)
+                    reportEnableFailure(error)
                     Self.logger.warning(
                         "System proxy not configured: \(error.localizedDescription). Proxy listener remains available"
                     )
@@ -424,7 +433,7 @@ extension MainContentCoordinator {
             isSystemProxyConfigured = false
             isProxyOverridden = false
             readiness.setSystemRoutingReady(false)
-            readiness.setProxyEnableFailed(message: error.localizedDescription)
+            reportEnableFailure(error)
             throw error
         }
     }
@@ -697,7 +706,7 @@ extension MainContentCoordinator {
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
                 readiness.setSystemRoutingReady(false)
-                readiness.setProxyEnableFailed(message: error.localizedDescription)
+                reportEnableFailure(error)
                 Self.logger.warning("System proxy retry failed: \(error.localizedDescription)")
             }
         }
@@ -812,7 +821,7 @@ extension MainContentCoordinator {
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
                 readiness.setSystemRoutingReady(false)
-                readiness.setProxyEnableFailed(message: error.localizedDescription)
+                reportEnableFailure(error)
                 Self.logger.error("Failed to switch on system proxy override: \(error.localizedDescription)")
             }
         }
