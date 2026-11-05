@@ -51229,6 +51229,36 @@
           }
         }
       }
+    },
+    "Restored from a saved session whose capture evidence could not be read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从已保存会话还原，其捕获证据无法读取"
+          }
+        }
+      }
+    },
+    "Request body may be incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求正文可能不完整"
+          }
+        }
+      }
+    },
+    "Response body may be incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应正文可能不完整"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

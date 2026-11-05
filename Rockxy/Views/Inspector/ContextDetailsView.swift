@@ -325,36 +325,41 @@ struct ContextDetailsView: View {
             if transaction.request.isBodyIncomplete {
                 Divider()
                 bodyOmissionNotice(
-                    title: String(
-                        localized: "Request body was omitted or truncated during capture",
-                        bundle: RockxyLocalization.bundle
-                    ),
+                    completeness: BodyCompleteness(transaction.request),
+                    isRequest: true,
                     metadata: transaction.request.bodyOmission
                 )
             }
             if transaction.response?.isBodyIncomplete == true {
                 Divider()
                 bodyOmissionNotice(
-                    title: String(
-                        localized: "Response body was omitted or truncated during capture",
-                        bundle: RockxyLocalization.bundle
-                    ),
+                    completeness: transaction.response.map { BodyCompleteness($0) } ?? .complete,
+                    isRequest: false,
                     metadata: transaction.response?.bodyOmission
                 )
             }
         }
     }
 
-    private func bodyOmissionNotice(title: String, metadata: BodyOmissionMetadata?) -> some View {
+    private func bodyOmissionNotice(
+        completeness: BodyCompleteness,
+        isRequest: Bool,
+        metadata: BodyOmissionMetadata?
+    )
+        -> some View
+    {
         ContextInspectorFullRow {
             VStack(alignment: .leading, spacing: 4) {
-                Label(title, systemImage: "scissors")
-                    .font(.system(size: metrics.metadataFontSize))
-                    .foregroundStyle(.orange)
+                Label(
+                    BodyCompleteness.detailsTitle(forRequest: isRequest, completeness: completeness),
+                    systemImage: completeness.isUnknown ? "questionmark.circle" : "scissors"
+                )
+                .font(.system(size: metrics.metadataFontSize))
+                .foregroundStyle(completeness.isUnknown ? Color.secondary : Color.orange)
                 if let metadata {
                     LabeledContent(
                         String(localized: "Body omission reason", bundle: RockxyLocalization.bundle),
-                        value: metadata.reason
+                        value: BodyCompleteness.reasonDescription(metadata.reason)
                     )
                     LabeledContent(
                         String(localized: "Observed bytes", bundle: RockxyLocalization.bundle),
