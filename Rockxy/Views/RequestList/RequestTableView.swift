@@ -89,6 +89,10 @@ struct RequestTableView: NSViewRepresentable {
     let refreshToken: Int
     let isAppendOnly: Bool
     var appendChainOrigin: Int?
+    /// Set while the only mutations since this token were in-place row rewrites, with the
+    /// indexes they replaced. Lets the table reload those rows instead of the whole list.
+    var rewriteChainOrigin: Int?
+    var rewrittenRowIndexes = IndexSet()
     var selectionIndex: [UUID: TrafficSelectionIndexEntry] = [:]
     var revealRequest: TrafficRevealRequest?
     var displayMetricsOverride: AppUIDisplayMetrics?
@@ -345,6 +349,7 @@ struct RequestTableView: NSViewRepresentable {
         let oldWorkspaceID = coordinator.lastWorkspaceID
         let workspaceChanged = oldWorkspaceID != workspaceID
 
+        let previousRows = coordinator.rows
         coordinator.parent = self
         coordinator.environmentDisplayMetrics = context.environment.appUIDisplayMetrics
         (tableView as? NavigableRequestTableView)?.onActivate = onActivate
@@ -372,6 +377,23 @@ struct RequestTableView: NSViewRepresentable {
                 coordinator.performProgrammaticTableUpdate {
                     tableView.insertRows(at: newIndexes, withAnimation: [])
                 }
+                if displayChange?.reloadVisibleRows == true {
+                    coordinator.reloadVisibleRows(in: tableView)
+                    reloadedVisibleRowsForMetrics = true
+                }
+            } else if coordinator.canReloadRewrittenRows(
+                newCount: newCount,
+                rewriteChainOrigin: rewriteChainOrigin,
+                rewrittenRowIndexes: rewrittenRowIndexes,
+                lastAppliedToken: oldToken,
+                workspaceChanged: workspaceChanged,
+                tableRowCount: tableView.numberOfRows,
+                previousRows: previousRows
+            ) {
+                // Enrichment and live-stream refreshes replace rows in place. Reloading the
+                // rows they named costs those rows; reloadData() re-requests every cell on
+                // screen, and it ran once per delivery batch for as long as capture did.
+                coordinator.reloadRewrittenRows(rewrittenRowIndexes, in: tableView)
                 if displayChange?.reloadVisibleRows == true {
                     coordinator.reloadVisibleRows(in: tableView)
                     reloadedVisibleRowsForMetrics = true
@@ -674,6 +696,59 @@ extension RequestTableView {
                 && tableRowCount == previousRowCount
                 && appendChainOrigin <= lastAppliedToken
                 && newCount > previousRowCount
+        }
+
+        /// Row-targeted reload is valid only when nothing but in-place rewrites happened since
+        /// a state this table already applied: same workspace, same row count on both sides,
+        /// and a rewrite chain whose base the table has reached. Row views are not re-requested
+        /// by a cell reload, so a rewrite that changed a row's highlight also falls back.
+        func canReloadRewrittenRows(
+            newCount: Int,
+            rewriteChainOrigin: Int?,
+            rewrittenRowIndexes: IndexSet,
+            lastAppliedToken: Int,
+            workspaceChanged: Bool,
+            tableRowCount: Int,
+            previousRows: [RequestListRow]
+        )
+            -> Bool
+        {
+            guard let rewriteChainOrigin,
+                  !workspaceChanged,
+                  !rewrittenRowIndexes.isEmpty,
+                  previousRowCount > 0,
+                  newCount == previousRowCount,
+                  tableRowCount == previousRowCount,
+                  previousRows.count == newCount,
+                  rewriteChainOrigin <= lastAppliedToken,
+                  rewrittenRowIndexes.last.map({ $0 < newCount }) == true else
+            {
+                return false
+            }
+            return rewrittenRowIndexes.allSatisfy { index in
+                previousRows[index].id == rows[index].id
+                    && previousRows[index].highlightColor == rows[index].highlightColor
+            }
+        }
+
+        /// Reloads the rewritten rows that are on screen. Rows outside the visible range have
+        /// no view to refresh and are configured from `rows` when they scroll in.
+        func reloadRewrittenRows(_ indexes: IndexSet, in tableView: NSTableView) {
+            let visibleRange = tableView.rows(in: tableView.visibleRect)
+            guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
+                return
+            }
+            let visible = IndexSet(integersIn: visibleRange.location ..< visibleRange.location + visibleRange.length)
+            let onScreen = indexes.intersection(visible)
+            guard !onScreen.isEmpty else {
+                return
+            }
+            performProgrammaticTableUpdate {
+                tableView.reloadData(
+                    forRowIndexes: onScreen,
+                    columnIndexes: IndexSet(integersIn: 0 ..< tableView.numberOfColumns)
+                )
+            }
         }
 
         /// AppKit may emit selection notifications while rows are inserted or reloaded. Treat the

@@ -112,6 +112,7 @@ extension MainContentCoordinator {
         }
         readiness.setProxyEnableFailed(message: error.localizedDescription)
     }
+
     // MARK: - Proxy Lifecycle
 
     /// Revalidates the active Root CA before removing protected TLS fallbacks. Clearing
@@ -1300,11 +1301,16 @@ extension MainContentCoordinator {
     }
 
     /// Rewrites the `RequestListRow` snapshots of already-visible rows without a full derive.
+    ///
+    /// Costs the rows the update names, not the rows on screen, and publishes exactly which
+    /// indexes it replaced so the table can reload those rows alone. A row whose projection
+    /// is still current is left as it is: `canReuseProjection(of:)` is the same guard the
+    /// full derive trusts, and a pass that rewrote nothing must not invalidate the table.
     private func rewriteVisibleRowsInPlace(
         from transactionsByID: [UUID: HTTPTransaction],
         in workspace: WorkspaceState
     ) {
-        var didUpdateRows = false
+        var rewritten = IndexSet()
         for (id, transaction) in transactionsByID {
             guard let entry = workspace.trafficSelectionIndex[id],
                   workspace.filteredRows.indices.contains(entry.rowIndex),
@@ -1312,21 +1318,22 @@ extension MainContentCoordinator {
             {
                 continue
             }
+            if workspace.filteredRows[entry.rowIndex].canReuseProjection(of: transaction) {
+                continue
+            }
             workspace.filteredRows[entry.rowIndex] = RequestListRow(
                 from: transaction,
                 sslState: sslState(for: transaction)
             )
-            didUpdateRows = true
+            rewritten.insert(entry.rowIndex)
         }
-        guard didUpdateRows else {
+        guard !rewritten.isEmpty else {
             return
         }
         // In-place rewrites change existing rows without a full derive, so they must
         // invalidate the append provenance themselves — otherwise a later coalesced append
         // could insert against a prefix this update already mutated.
-        workspace.lastDeriveWasAppendOnly = false
-        workspace.appendChainOriginToken = nil
-        workspace.refreshToken += 1
+        workspace.recordInPlaceRowRewrite(at: rewritten)
     }
 
     private func workspaceUsesStateDependentOrderingOrFiltering(_ workspace: WorkspaceState) -> Bool {
