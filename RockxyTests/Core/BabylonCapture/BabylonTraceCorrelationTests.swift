@@ -67,30 +67,33 @@ struct BabylonTraceCorrelationTests {
 
     @Test("Persisted metadata with an over-bound client ID is rejected, never truncated")
     func metadataRejectsOverBoundClientID() throws {
-        let limit = BabylonCaptureProtocol.maximumClientIDSize
+        // Decoding reads stored records, so it uses the frozen storage bound (512), not ingress (256).
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
         func decode(_ clientID: String) throws -> BabylonCaptureMetadata {
             let json = try JSONSerialization.data(withJSONObject: ["clientID": clientID])
             return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
         }
         let atLimit = String(repeating: "c", count: limit)
         #expect(try decode(atLimit).clientID == atLimit)
-        // Two IDs sharing a 256-byte prefix must not both load as the same identifier.
+        // Two IDs sharing a full-length prefix must not both load as the same identifier.
         #expect(throws: DecodingError.self) { try decode(atLimit + "a") }
         #expect(throws: DecodingError.self) { try decode(atLimit + "b") }
     }
 
     @Test("Persisted correlation identifiers are bounded like the correlation, and rejected rather than truncated")
     func metadataRejectsOverBoundCorrelationIdentifiers() throws {
-        let limit = BabylonCaptureProtocol.maximumCorrelationIdentifierSize
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
         func decode(_ key: String, _ value: String) throws -> BabylonCaptureMetadata {
             let json = try JSONSerialization.data(withJSONObject: [key: value])
             return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
         }
         let atLimit = String(repeating: "t", count: limit)
-        // Valid in memory at the limit, so it must survive storage whole (it used to be cut at 128).
+        let atIngressLimit = String(repeating: "t", count: BabylonCaptureProtocol.maximumCorrelationIdentifierSize)
+        // Valid in memory at the ingress limit, so it must survive storage whole (it used to be cut at 128).
         #expect(BabylonCorrelation(
-            context: .init(sessionID: "s", traceID: atLimit, stepID: "a", createdAt: 1)
+            context: .init(sessionID: "s", traceID: atIngressLimit, stepID: "a", createdAt: 1)
         ) != nil)
+        #expect(try decode("traceID", atIngressLimit).traceID == atIngressLimit)
         #expect(try decode("traceID", atLimit).traceID == atLimit)
         for key in ["runtimeSessionID", "traceID", "stepID"] {
             // Two values sharing a full-length prefix must never both load as the same key.
@@ -104,12 +107,12 @@ struct BabylonTraceCorrelationTests {
             ),
             capabilities: nil,
             correlation: BabylonTrafficPackageDTO.CorrelationContext(
-                sessionID: atLimit, traceID: atLimit, stepID: atLimit, createdAt: 1
+                sessionID: atIngressLimit, traceID: atIngressLimit, stepID: atIngressLimit, createdAt: 1
             ),
             error: nil,
             compatibilityDiagnostics: []
         )
-        #expect(encoded.traceID == atLimit)
+        #expect(encoded.traceID == atIngressLimit)
     }
 
     @Test("Concurrent traces keep their own requests")

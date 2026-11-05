@@ -32,6 +32,10 @@ actor SessionStore {
 
         let dbPath = directory.appendingPathComponent("rockxy.sqlite3").path
         self.db = try Connection(dbPath)
+        // Wait for a competing opener instead of failing with SQLITE_BUSY at once (the SQLite.swift
+        // default is 0). Five seconds comfortably covers a reconcile or migration by another
+        // process, yet still surfaces a genuinely wedged database instead of hanging the launch.
+        db.busyTimeout = Self.openBusyTimeout
 
         try createTablesIfNeeded()
         try migrateSchemaIfNeeded()
@@ -39,6 +43,11 @@ actor SessionStore {
     }
 
     // MARK: Internal
+
+    // MARK: - Transaction Deserialization
+
+    /// Reason recorded in `BodyOmissionMetadata` when saved capture evidence was unreadable.
+    static let unreadableEvidenceOmissionReason = "captureEvidenceUnreadable"
 
     // MARK: - Save Transaction
 
@@ -269,6 +278,9 @@ actor SessionStore {
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "SessionStore")
 
+    /// Seconds a second opener waits for a competing writer before SQLITE_BUSY surfaces.
+    private static let openBusyTimeout: TimeInterval = 5
+
     // MARK: - Transaction Table
 
     private static let transactions = Table("transactions")
@@ -447,6 +459,25 @@ actor SessionStore {
         ((try? row.get(column)) ?? 0) != 0
     }
 
+    /// Flags request and response bodies as possibly incomplete. `observedBytes` is what is held
+    /// now; `originalBytes` stays nil because the true size is unknown.
+    private static func markCompletenessUnknown(_ transaction: HTTPTransaction) {
+        transaction.request.bodyTruncated = true
+        transaction.request.bodyOmission = BodyOmissionMetadata(
+            reason: unreadableEvidenceOmissionReason,
+            observedBytes: transaction.request.body?.count ?? 0,
+            originalBytes: nil
+        )
+        if let responseBodySize = transaction.response.map({ $0.body?.count ?? 0 }) {
+            transaction.response?.bodyTruncated = true
+            transaction.response?.bodyOmission = BodyOmissionMetadata(
+                reason: unreadableEvidenceOmissionReason,
+                observedBytes: responseBodySize,
+                originalBytes: nil
+            )
+        }
+    }
+
     // MARK: - Schema
 
     private func createTablesIfNeeded() throws {
@@ -585,7 +616,9 @@ actor SessionStore {
         }
 
         var restoredWebSocketColumn = false
-        try db.transaction {
+        // IMMEDIATE takes the write lock up front, so under contention the busy timeout applies
+        // at BEGIN and a second opener waits, rather than failing midway on lock upgrade.
+        try db.transaction(.immediate) {
             for sql in missing {
                 let added = try addColumnIfMissing(sql)
                 if added, Self.parseAddColumn(sql)?.column == "is_websocket" {
@@ -773,8 +806,6 @@ actor SessionStore {
         }
     }
 
-    // MARK: - Transaction Deserialization
-
     private func deserializeTransaction(from row: Row) throws -> HTTPTransaction? {
         guard let id = UUID(uuidString: row[Self.txId]),
               let url = URL(string: row[Self.txUrl]),
@@ -784,18 +815,27 @@ actor SessionStore {
             return nil
         }
 
-        let captureEvidence: SessionStoreCaptureEvidence?
+        // Capture evidence is supplementary. If it cannot be read, the request itself still
+        // loads (headers, bodies, notes, pin/save state) without Babylon metadata, flagged as possibly incomplete; the
+        // row on
+        // disk is never altered. A bound change must never be able to erase a saved request.
+        // The blob also holds the truncation and omission markers, so when it cannot be read the
+        // bodies' completeness is UNKNOWN, not "complete". Mark both bodies truncated with an
+        // explicit reason so every surface and export that already honours `bodyTruncated` /
+        // `bodyOmission` (inspector notice, HAR `_rockxyBodyOmission`, assistant, redactor,
+        // OpenAPI export) refuses to present them as the full payload.
+        var captureEvidence: SessionStoreCaptureEvidence?
+        var evidenceUnreadable = false
         if let data = Self.optionalValue(row, Self.txCaptureEvidence) {
-            guard let decoded = try? SessionStoreCaptureEvidence.decode(data) else {
-                // Retain the row on disk, but do not present partial bodies as complete
-                // when their saved capture evidence cannot be interpreted.
-                Self.logger.warning("Skipped a saved request with invalid capture evidence")
-                return nil
+            do {
+                captureEvidence = try SessionStoreCaptureEvidence.decode(data)
+            } catch {
+                evidenceUnreadable = true
+                Self.logger.error(
+                    "Saved request \(id.uuidString, privacy: .public) has unreadable capture evidence; loaded without it and bodies marked completeness-unknown (Babylon metadata and correlation dropped, request kept)"
+                )
             }
-            captureEvidence = decoded
-        } else {
-            captureEvidence = nil // Legacy rows remain readable without invented metadata.
-        }
+        } // Legacy rows remain readable without invented metadata.
 
         let requestHeaders = decodeHeaders(row[Self.txRequestHeaders])
         let requestBody = loadBody(inlineData: row[Self.txRequestBody], diskPath: row[Self.txRequestBodyPath])
@@ -877,6 +917,9 @@ actor SessionStore {
             .flatMap { HighlightColor(rawValue: $0) }
         transaction.clientApp = Self.optionalValue(row, Self.txClientApp)
         captureEvidence?.apply(to: transaction)
+        if evidenceUnreadable {
+            Self.markCompletenessUnknown(transaction)
+        }
 
         let wsFrames = try loadWebSocketFrameDatas(transactionId: id)
         if Self.flag(row, Self.txIsWebSocket) || !wsFrames.isEmpty {
@@ -1180,6 +1223,8 @@ private struct SessionStoreCaptureEvidence: Codable {
 
     private enum EvidenceError: Error { case invalid }
 
+    /// Bounded by the frozen storage constant, not the ingress bound, so lowering what ingress
+    /// accepts can never make an already-saved record unreadable.
     private static func boundedIdentifiers(grpc: String?, correlation: BabylonCorrelation?) -> Bool {
         guard grpc.map({ $0.utf8.count <= 128 }) ?? true else {
             return false
@@ -1188,6 +1233,6 @@ private struct SessionStoreCaptureEvidence: Codable {
             return true
         }
         return [correlation.sourceClientID, correlation.sessionID, correlation.traceID, correlation.stepID]
-            .compactMap { $0 }.allSatisfy { $0.utf8.count <= BabylonCaptureProtocol.maximumClientIDSize }
+            .compactMap { $0 }.allSatisfy { $0.utf8.count <= BabylonCaptureProtocol.maximumStoredIdentifierSize }
     }
 }

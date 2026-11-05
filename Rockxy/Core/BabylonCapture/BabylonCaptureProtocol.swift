@@ -26,6 +26,12 @@ enum BabylonCaptureProtocol {
     /// is valid in memory is never shortened on its way to disk (a truncated trace ID no longer
     /// matches the trace it came from, and two IDs sharing a prefix would collapse together).
     static let maximumCorrelationIdentifierSize = BabylonRuntimeEvent.maximumIdentifierByteCount
+    /// FROZEN. Longest identifier that STORED capture evidence may carry. This is deliberately
+    /// not `maximumClientIDSize`: ingress rejects new over-long identifiers (256), but a build
+    /// that shipped earlier accepted and saved identifiers of 257-512 bytes, and a saved or
+    /// pinned request must keep loading after the ingress bound is lowered. Never lower this
+    /// to follow an ingress change; raising it only widens what storage will read.
+    static let maximumStoredIdentifierSize = 512
     static let compression = "gzip"
     static let keySalt = Data("rockxy-babylon-v1".utf8)
 

@@ -65,13 +65,14 @@ struct SessionStoreCaptureEvidenceTests {
     }
 
     @Test(
-        "Corrupt or newer saved capture evidence cannot turn a partial body into complete content",
+        "Corrupt or newer saved capture evidence drops the evidence, never the saved request",
         arguments: [0, 1, 2, 3]
     )
     func corruptEvidenceIsIsolated(variant: Int) async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let transaction = try makeCapturedTransaction()
+        transaction.isPinned = true
         let healthy = TestFixtures.makeTransaction()
         let store = try SessionStore(directory: directory)
         try await store.saveTransaction(transaction)
@@ -91,11 +92,82 @@ struct SessionStoreCaptureEvidenceTests {
             "UPDATE transactions SET capture_evidence = \(blob) WHERE id = '\(transaction.id.uuidString)'",
             in: directory
         )
-        #expect(try await store.loadTransaction(byID: transaction.id) == nil)
-        let loaded = try await store.loadTransactions()
-        #expect(loaded.map(\.id) == [healthy.id])
-        // The unusable row stays on disk for recovery; reading never deletes it.
+        let restored = try #require(try await store.loadTransaction(byID: transaction.id))
+        #expect(restored.isPinned)
+        #expect(restored.request.url == transaction.request.url)
+        #expect(restored.request.body == Data("partial".utf8))
+        #expect(restored.babylonCaptureMetadata == nil)
+        #expect(restored.babylonCorrelation == nil)
+        // Completeness is unknown, so neither body may read as complete.
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.request.bodyOmission?.reason == SessionStore.unreadableEvidenceOmissionReason)
+        #expect(restored.request.bodyOmission?.originalBytes == nil)
+        #expect(restored.response?.bodyTruncated == true)
+        #expect(restored.response?.bodyOmission?.reason == SessionStore.unreadableEvidenceOmissionReason)
+        #expect(try await store.loadPinnedAndSavedTransactions().map(\.id) == [transaction.id])
+        #expect(Set(try await store.loadTransactions().map(\.id)) == [transaction.id, healthy.id])
+        // Reading never deletes or rewrites the row.
         #expect(try rowCount(in: directory) == 2)
+    }
+
+    @Test("A healthy request without any evidence is not flagged, and unreadable evidence is exported as truncated")
+    func unreadableEvidenceIsNotReportedComplete() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let plain = TestFixtures.makeTransaction()
+        let damaged = TestFixtures.makeTransaction()
+        damaged.request.body = Data("complete?".utf8)
+        let store = try SessionStore(directory: directory)
+        try await store.saveTransaction(plain)
+        try await store.saveTransaction(damaged)
+        try execute(
+            "UPDATE transactions SET capture_evidence = X'7B' WHERE id = '\(damaged.id.uuidString)'",
+            in: directory
+        )
+        let restoredPlain = try #require(try await store.loadTransaction(byID: plain.id))
+        #expect(!restoredPlain.request.bodyTruncated)
+        #expect(restoredPlain.request.bodyOmission == nil)
+        let restored = try #require(try await store.loadTransaction(byID: damaged.id))
+        #expect(restored.request.body == Data("complete?".utf8))
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.request.bodyOmission?.observedBytes == 9)
+    }
+
+    @Test("Stored 257-512 byte identifiers saved by earlier builds still load with their request intact")
+    func legacyLongIdentifiersStillLoad() async throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // Ingress is 256; storage is frozen at 512 so lowering ingress cannot erase saved rows.
+        #expect(BabylonCaptureProtocol.maximumClientIDSize == 256)
+        #expect(BabylonCaptureProtocol.maximumStoredIdentifierSize == 512)
+        let long = String(repeating: "L", count: 400)
+        let atStoredLimit = String(repeating: "M", count: BabylonCaptureProtocol.maximumStoredIdentifierSize)
+
+        let transaction = try makeCapturedTransaction()
+        transaction.isSaved = true
+        transaction.babylonCorrelation = .init(
+            sourceClientID: long,
+            sessionID: atStoredLimit,
+            traceID: long,
+            stepID: long
+        )
+        let metadataJSON = Data(#"{"clientID":"\#(long)","traceID":"\#(long)","runtimeSessionID":"\#(long)"}"#.utf8)
+        transaction.babylonCaptureMetadata = try JSONDecoder().decode(BabylonCaptureMetadata.self, from: metadataJSON)
+        let store = try SessionStore(directory: directory)
+        try await store.saveTransaction(transaction)
+
+        let reopened = try SessionStore(directory: directory)
+        let restored = try #require(try await reopened.loadPinnedAndSavedTransactions().first)
+        #expect(restored.id == transaction.id)
+        #expect(restored.babylonCorrelation == transaction.babylonCorrelation)
+        #expect(restored.babylonCaptureMetadata?.clientID == long)
+        #expect(restored.request.bodyTruncated)
+
+        // Ingress still refuses a new identifier over 256 bytes.
+        let context = BabylonTrafficPackageDTO.CorrelationContext(
+            sessionID: "s", traceID: "t", stepID: "a", createdAt: 1
+        )
+        #expect(BabylonCorrelation(context: context, sourceClientID: long) == nil)
     }
 
     @Test("Oversized capture evidence fails before body files or rows are written")

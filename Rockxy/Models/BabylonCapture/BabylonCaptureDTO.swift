@@ -393,7 +393,9 @@ struct BabylonCaptureMetadata: Codable, Equatable {
         // key. Throwing is safe because `SessionCodable` decodes this field with `try?`, so an
         // over-bound record loses only its metadata, never the transaction or the session.
         let decodedClientID = try container.decodeIfPresent(String.self, forKey: .clientID) ?? ""
-        guard decodedClientID.utf8.count <= BabylonCaptureProtocol.maximumClientIDSize else {
+        // Decoding reads stored records, so it uses the frozen storage bound, not the (lower)
+        // ingress bound: an earlier build may have saved a 257-512 byte identifier.
+        guard decodedClientID.utf8.count <= BabylonCaptureProtocol.maximumStoredIdentifierSize else {
             throw DecodingError.dataCorruptedError(
                 forKey: .clientID,
                 in: container,
@@ -420,13 +422,15 @@ struct BabylonCaptureMetadata: Codable, Equatable {
             container.decodeIfPresent(String.self, forKey: .transportSessionID) ?? "", bytes: 128
         )
         /// Rejected rather than truncated, for the same reason as the client ID: these are the
-        /// keys correlation matches on. `SessionCodable` decodes this record with `try?`, so an
-        /// over-bound value costs the transaction its Babylon metadata, never the transaction.
+        /// keys correlation matches on. The bound is the frozen storage bound, not the ingress one.
+        /// An over-bound value costs the transaction its Babylon metadata, never the transaction:
+        /// `SessionCodable` decodes this record with `try?`, and the SQLite store degrades an
+        /// unreadable evidence blob to a request without evidence (bodies flagged incomplete).
         func correlationIdentifier(_ key: CodingKeys) throws -> String? {
             guard let value = try container.decodeIfPresent(String.self, forKey: key) else {
                 return nil
             }
-            guard value.utf8.count <= BabylonCaptureProtocol.maximumCorrelationIdentifierSize else {
+            guard value.utf8.count <= BabylonCaptureProtocol.maximumStoredIdentifierSize else {
                 throw DecodingError.dataCorruptedError(
                     forKey: key,
                     in: container,

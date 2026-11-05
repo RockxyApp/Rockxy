@@ -103,6 +103,40 @@ struct SessionStoreSchemaRepairTests {
         #expect(Set(loaded.map(\.id)) == [first.id, second.id])
     }
 
+    @Test("Two stores opening the same mis-stamped database concurrently both succeed")
+    func concurrentOpensOfMisstampedDatabaseSucceed() async throws {
+        for _ in 0 ..< 5 {
+            let dir = try makeTempDir()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let transaction = try await seedPinnedTransaction(at: dir)
+            try dropTrackedColumns(at: dir)
+
+            let loadedCounts = try await withThrowingTaskGroup(of: [UUID].self) { group in
+                for _ in 0 ..< 2 {
+                    group.addTask {
+                        let store = try SessionStore(directory: dir)
+                        return try await store.loadPinnedAndSavedTransactions().map(\.id)
+                    }
+                }
+                var results: [[UUID]] = []
+                for try await ids in group {
+                    results.append(ids)
+                }
+                return results
+            }
+            #expect(loadedCounts.count == 2)
+            #expect(loadedCounts.allSatisfy { $0 == [transaction.id] })
+            let names = try columns("transactions", at: dir)
+            #expect(names.filter { $0 == "capture_evidence" }.count == 1)
+            #expect(Set(names).count == names.count)
+            let frameNames = try columns("websocket_frames", at: dir)
+            #expect(Set(frameNames).count == frameNames.count)
+            for name in ["close_code", "close_reason", "close_origin", "is_abnormal"] {
+                #expect(frameNames.filter { $0 == name }.count == 1)
+            }
+        }
+    }
+
     // MARK: Private
 
     private func seedPinnedTransaction(at dir: URL) async throws -> HTTPTransaction {
