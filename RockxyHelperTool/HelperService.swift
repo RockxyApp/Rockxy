@@ -291,8 +291,11 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
     func getProxyStatus(withReply reply: @escaping (Bool, Int) -> Void) {
         IdleExitMonitor.resetIdleTimer()
-        let status = ProxyConfigurator.getCurrentStatus()
-        reply(status.isOverridden, status.port)
+        // The reply carries "cannot tell" as (true, -1) rather than the (false, 0) that means a
+        // clean machine; see `HelperProxyStatusReading`.
+        let reading = ProxyConfigurator.currentStatusReading()
+        let wire = reading.wire
+        reply(wire.isOverridden, wire.port)
     }
 
     func getHelperInfo(withReply reply: @escaping (String, Int, Int) -> Void) {

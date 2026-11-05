@@ -155,6 +155,77 @@ struct DirectProxyWatchdogRuntimeTests {
         #expect(restores == 0)
     }
 
+    @Test("A backup refused on consecutive polls ends the watch as refused instead of polling forever")
+    func aRefusedBackupEndsTheWatchLoudly() {
+        var waits = 0
+        var restores = 0
+        let outcome = DirectProxyWatchdogRuntime.watch(
+            parentIsLive: { false },
+            backupExists: { true },
+            backupIsRefused: { true },
+            restore: { restores += 1 },
+            waitBeforeNextPoll: { waits += 1 }
+        )
+
+        #expect(outcome == .refused)
+        #expect(restores == 0)
+        #expect(waits == DirectProxyWatchdogRuntime.refusalPollLimit - 1)
+    }
+
+    @Test("A refusal that clears between polls is a race with the writer, not a verdict")
+    func aTransientRefusalDoesNotEndTheWatch() {
+        var polls = 0
+        var restores = 0
+        let outcome = DirectProxyWatchdogRuntime.watch(
+            parentIsLive: { false },
+            backupExists: { restores == 0 },
+            backupIsRefused: { polls < 2 },
+            restore: { restores += 1 },
+            waitBeforeNextPoll: { polls += 1 }
+        )
+
+        #expect(outcome == .restore)
+        #expect(restores == 1)
+    }
+
+    @Test("Refusals must be consecutive to count")
+    func refusalsAreCountedConsecutively() {
+        var poll = 0
+        var restores = 0
+        // Refused, clean, refused, clean, ... never reaches the limit, so the owner is still
+        // restored once it goes.
+        let outcome = DirectProxyWatchdogRuntime.watch(
+            parentIsLive: { poll < 8 },
+            backupExists: { restores == 0 },
+            backupIsRefused: { poll % 2 == 0 && poll < 8 },
+            restore: { restores += 1 },
+            waitBeforeNextPoll: { poll += 1 }
+        )
+
+        #expect(outcome == .restore)
+    }
+
+    @Test("A refusal is reported as its own exit status, which launchd keeps for the job")
+    func refusedLabelsAreReadFromTheJobTable() {
+        let base = "app.test.direct-proxy-watchdog"
+        let refused = "\(base).\(UUID().uuidString)"
+        let resolved = "\(base).\(UUID().uuidString)"
+        let running = "\(base).\(UUID().uuidString)"
+        let output = """
+        PID\tStatus\tLabel
+        -\t\(DirectProxyWatchdogExit.refusedBackup)\t\(refused)
+        -\t0\t\(resolved)
+        4242\t0\t\(running)
+        -\t\(DirectProxyWatchdogExit.refusedBackup)\tcom.apple.unrelated
+        -\t\(DirectProxyWatchdogExit.refusedBackup)\t\(base).not-a-uuid
+        """
+
+        #expect(DirectProxyWatchdogJobDiscovery.refusedLabels(in: output, baseLabel: base) == [refused])
+        // Discovery of owned jobs is unchanged by the status column.
+        #expect(Set(DirectProxyWatchdogJobDiscovery.labels(in: output, baseLabel: base)) == [refused, resolved, running])
+        #expect(DirectProxyWatchdogExit.refusedBackup != 0)
+    }
+
     @Test("The backup is what decides, not the parent")
     func theActionPolicyChecksTheBackupFirst() {
         #expect(DirectProxyWatchdogPolicy.action(parentAlive: true, backupExists: false) == .exit)

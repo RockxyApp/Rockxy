@@ -178,25 +178,68 @@ enum DirectProxyWatchdogInstallation {
 /// merely share a textual prefix.
 enum DirectProxyWatchdogJobDiscovery {
     static func labels(in launchctlListOutput: String, baseLabel: String) -> [String] {
-        let prefix = "\(baseLabel)."
         let labels = launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line -> String? in
-            guard let candidate = line.split(whereSeparator: \.isWhitespace).last.map(String.init) else {
-                return nil
-            }
-            if candidate == baseLabel {
-                return candidate
-            }
-            guard candidate.hasPrefix(prefix) else {
-                return nil
-            }
-            let suffix = String(candidate.dropFirst(prefix.count))
-            guard UUID(uuidString: suffix) != nil else {
-                return nil
-            }
-            return candidate
+            line.split(whereSeparator: \.isWhitespace).last.flatMap { ownedLabel(String($0), baseLabel: baseLabel) }
         }
         return Array(Set(labels)).sorted()
     }
+
+    /// The Rockxy watchdog jobs whose last exit was a refusal to trust their own backup.
+    ///
+    /// `launchctl submit` leaves the job registered after it exits, and `launchctl list` prints
+    /// its last exit status in the middle column (`PID  Status  Label`). That is the channel a
+    /// watchdog uses to say "I would not act on this record": there is no process left to ask and
+    /// no connection to it, but the app already lists these jobs to retire them, so the answer is
+    /// there to be read before they are removed.
+    static func refusedLabels(in launchctlListOutput: String, baseLabel: String) -> [String] {
+        let refused = launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+            let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard fields.count >= 3,
+                  fields[1] == String(DirectProxyWatchdogExit.refusedBackup) else
+            {
+                return nil
+            }
+            return ownedLabel(fields[fields.count - 1], baseLabel: baseLabel)
+        }
+        return Array(Set(refused)).sorted()
+    }
+
+    private static func ownedLabel(_ candidate: String, baseLabel: String) -> String? {
+        if candidate == baseLabel {
+            return candidate
+        }
+        let prefix = "\(baseLabel)."
+        guard candidate.hasPrefix(prefix),
+              UUID(uuidString: String(candidate.dropFirst(prefix.count))) != nil else
+        {
+            return nil
+        }
+        return candidate
+    }
+}
+
+// MARK: - DirectProxyWatchdogExit
+
+/// How a watchdog that gave up ends, in the one form the helper that exits and the app that reads
+/// the exit status agree on.
+enum DirectProxyWatchdogExit {
+    /// `EX_CONFIG`. The watchdog could not vouch for its backup record and stopped. Distinct from
+    /// zero, which means the session resolved, so a job that exited this way is a job to look at.
+    static let refusedBackup: Int32 = 78
+}
+
+// MARK: - DirectProxyWatchdogOutcome
+
+/// How a watchdog's polling loop ended.
+enum DirectProxyWatchdogOutcome: Equatable {
+    /// The owner was gone and a restore was issued; the backup is resolved.
+    case restore
+    /// The backup disappeared, so another recovery already resolved the session.
+    case exit
+    /// The backup stayed in place but failed the trust gate or its content checks on consecutive
+    /// polls. The watchdog will not act on it and will not poll it forever: it ends so the refusal
+    /// is visible (`DirectProxyWatchdogExit.refusedBackup`) instead of a silent no-op.
+    case refused
 }
 
 // MARK: - DirectProxyWatchdogRuntime
@@ -208,17 +251,36 @@ enum DirectProxyWatchdogJobDiscovery {
 /// behaviour — the ordering of the checks, when a restore is issued, when the loop ends — is the
 /// behaviour under test, instead of a second copy that only resembles it.
 enum DirectProxyWatchdogRuntime {
+    /// Consecutive refused polls before the watchdog concludes the record is not coming back.
+    /// A record being replaced is published atomically, so a refusal that survives this many
+    /// polls is a verdict on the file, not a race with its writer.
+    static let refusalPollLimit = 3
+
     /// Polls until the session resolves, and reports how it ended.
     @discardableResult
     static func watch(
         parentIsLive: () -> Bool,
         backupExists: () -> Bool,
+        backupIsRefused: () -> Bool = { false },
         restore: () -> Void,
         waitBeforeNextPoll: () -> Void
     )
-        -> DirectProxyWatchdogAction
+        -> DirectProxyWatchdogOutcome
     {
+        var consecutiveRefusals = 0
         while true {
+            // Fail closed on a record that cannot be vouched for -- but say so, and stop, rather
+            // than polling a deterministic refusal forever while the services stay on a dead port.
+            if backupIsRefused() {
+                consecutiveRefusals += 1
+                if consecutiveRefusals >= refusalPollLimit {
+                    return .refused
+                }
+                waitBeforeNextPoll()
+                continue
+            }
+            consecutiveRefusals = 0
+
             switch DirectProxyWatchdogPolicy.action(
                 parentAlive: parentIsLive(),
                 backupExists: backupExists()

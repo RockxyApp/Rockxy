@@ -370,14 +370,40 @@ enum ProxyConfigurator {
         logger.info("Restored original bypass domains for '\(service)'")
     }
 
-    /// Returns whether the proxy is currently overridden by Rockxy and the active port.
+    /// The wire form of `currentStatusReading()`. Prefer the reading inside the helper: this pair
+    /// carries "cannot tell" as `(true, -1)`, and a caller that takes the port at face value
+    /// would use -1.
     static func getCurrentStatus() -> (isOverridden: Bool, port: Int) {
+        currentStatusReading().wire
+    }
+
+    /// Whether the proxy is currently overridden by Rockxy, and on which port -- or that this
+    /// cannot be told.
+    ///
+    /// The restore point is read first and a failure to read it is not an absence. "There is no
+    /// backup" proves nothing of Rockxy's is in place; "there is a backup I refused to read" says
+    /// the opposite is possible, because networksetup may still point services at a dead port. The
+    /// same holds when a backup exists but the live settings cannot be read. Both answer
+    /// `.undeterminable` so no caller mistakes them for a clean machine.
+    static func currentStatusReading() -> HelperProxyStatusReading {
         settleOwedApply()
-        guard let services = try? detectAllEnabledServices(), !services.isEmpty else {
-            return (false, 0)
+        let backup: CrashRecovery.ProxyBackup
+        do {
+            guard let loaded = try CrashRecovery.loadBackup() else {
+                return .notOverridden
+            }
+            backup = loaded
+        } catch {
+            logger.error(
+                "Proxy status cannot be determined: the recovery backup exists but was not read (\(error.localizedDescription, privacy: .public))"
+            )
+            return .undeterminable
         }
-        guard let backup = try? CrashRecovery.loadBackup() else {
-            return (false, 0)
+        guard let services = try? detectAllEnabledServices() else {
+            return .undeterminable
+        }
+        guard !services.isEmpty else {
+            return .notOverridden
         }
 
         let servicesToCheck = detectPrimaryService(from: services).map { [$0] } ?? services
@@ -390,7 +416,7 @@ enum ProxyConfigurator {
                   let autoDiscoveryOutput = try? runNetworkSetup(["-getproxyautodiscovery", service]),
                   let bypassOutput = try? runNetworkSetup(["-getproxybypassdomains", service]) else
             {
-                return (false, 0)
+                return .undeterminable
             }
 
             let http = parseProxyOutput(httpOutput)
@@ -410,18 +436,18 @@ enum ProxyConfigurator {
                   !parseAutoDiscoveryOutput(autoDiscoveryOutput),
                   !hasGlobalBypass else
             {
-                return (false, 0)
+                return .notOverridden
             }
             if let matchedPort, matchedPort != http.port {
-                return (false, 0)
+                return .notOverridden
             }
             if let rockxyPort = backup.rockxyPort, rockxyPort != http.port {
-                return (false, 0)
+                return .notOverridden
             }
             matchedPort = http.port
         }
 
-        return matchedPort.map { (true, $0) } ?? (false, 0)
+        return matchedPort.map { .overridden(port: $0) } ?? .notOverridden
     }
 
     static func parseProxyOutput(_ output: String) -> ProxyInfo {

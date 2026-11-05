@@ -6,6 +6,7 @@ import os
 enum CrashRecoveryError: LocalizedError {
     case backupOwnedByAnotherSession
     case backupUnreadable
+    case backupWouldNotBeReadable(reason: String)
 
     // MARK: Internal
 
@@ -15,6 +16,8 @@ enum CrashRecoveryError: LocalizedError {
             "Another app process owns the existing proxy recovery backup"
         case .backupUnreadable:
             "The proxy recovery backup exists but could not be read safely"
+        case let .backupWouldNotBeReadable(reason):
+            "This Mac's proxy configuration cannot be saved for recovery: \(reason)"
         }
     }
 }
@@ -382,6 +385,24 @@ enum CrashRecovery {
     /// A throw therefore means nothing was committed, which is what the callers that treat a
     /// successful write as their permission to issue a command depend on.
     static func persist(_ backup: ProxyBackup) throws {
+        // The read path refuses a record that exceeds these bounds. Writing one anyway would
+        // hand the user a configuration that can be applied but never read back: the proxy
+        // could not be enabled again, and -- worse -- a status read that cannot load the
+        // backup looks the same as owning no override, so the app would conclude it owns
+        // nothing while every service still pointed at a dead Rockxy port. The bypass list is
+        // captured from the Mac's existing settings, not written by Rockxy, so a managed list
+        // of a few thousand entries reaches this honestly. Refuse to take the proxy over
+        // instead of stranding it.
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: backup.rockxyPort,
+            serviceNames: backup.services.map(\.service),
+            servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+            allowsEmptyServices: true
+        ) {
+            logger.fault("Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public)")
+            throw CrashRecoveryError.backupWouldNotBeReadable(reason: reason)
+        }
         guard let authoritativeURL = backupURLs.first else {
             return
         }
@@ -553,8 +574,8 @@ enum CrashRecovery {
             if let inferredPort = ProxyOverrideOwnership.inferredOwnedPort(in: overrideStates) {
                 return inferredPort
             }
-            let status = ProxyConfigurator.getCurrentStatus()
-            return status.isOverridden ? status.port : nil
+            // Only a proven port may stand in for the recorded one; "cannot tell" has none.
+            return ProxyConfigurator.currentStatusReading().provenPort
         }
         let ownedPort = backup.rockxyPort ?? fallbackPort()
         guard backup.recoveryPending || ownedPort != nil else {

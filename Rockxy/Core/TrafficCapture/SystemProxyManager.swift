@@ -4,10 +4,21 @@ import Foundation
 import os
 import SystemConfiguration
 
+// MARK: - DirectBackupRead
+
 // swiftlint:disable file_length
 
 // Defines `SystemProxyManager`, which coordinates system proxy behavior in traffic capture
 // and system proxy coordination.
+
+/// What reading the app's direct backup came to. Only `.refused` is a verdict on the record;
+/// `.unreadable` is an I/O failure that may clear by itself.
+enum DirectBackupRead {
+    case missing
+    case loaded(DirectProxyBackup)
+    case unreadable(String)
+    case refused(String)
+}
 
 // MARK: - SystemProxyError
 
@@ -303,6 +314,11 @@ final class SystemProxyManager: @unchecked Sendable {
     /// different services, and of different fields of one service, are independent.
     nonisolated static let readFanoutWidth = 8
 
+    /// The port reported for a helper-held override whose port the helper could not determine.
+    /// Not a port: it can never equal an active proxy port, so such an override reads as "present
+    /// but not this session's" rather than as a match.
+    nonisolated static let unknownHelperOverridePort = 0
+
     nonisolated static var directWatchdogLabel: String {
         "\(RockxyIdentity.current.appBundleIdentifier).direct-proxy-watchdog"
     }
@@ -313,6 +329,12 @@ final class SystemProxyManager: @unchecked Sendable {
 
     var usingHelperProxyOverride: Bool {
         lock.withLock { usingHelper }
+    }
+
+    /// Whether a watchdog armed for this session ended by refusing its backup, so nothing but the
+    /// app's own manual restore will put the proxy settings back.
+    var directWatchdogRefusedItsRecord: Bool {
+        lock.withLock { directWatchdogRefusedRecord }
     }
 
     nonisolated static func shouldAttemptHelperEmergencyRestore(
@@ -389,6 +411,30 @@ final class SystemProxyManager: @unchecked Sendable {
         -> Bool
     {
         commandsSucceeded && !proxyStillPointsAtRockxy
+    }
+
+    /// Who owns the override according to the helper, or `nil` when the helper says there is none.
+    ///
+    /// A helper that "cannot tell" (its restore point exists but was not readable) is not a
+    /// helper that says "clean". Mapping it to `nil` made the caller conclude Rockxy owned
+    /// nothing and skip the restore, while networksetup could still point every service at a dead
+    /// port. It is therefore reported as a helper-held override of unknown port: Stop then asks
+    /// the helper to restore, which fails out loud on an unreadable record instead of skipping it,
+    /// and the in-memory session state is not cleared on the strength of a guess.
+    nonisolated static func helperOverrideOwner(
+        for reading: HelperProxyStatusReading,
+        effectiveProxyMatches: (Int) -> Bool
+    )
+        -> ProxyOverrideOwner?
+    {
+        switch reading {
+        case .notOverridden:
+            nil
+        case let .overridden(port):
+            effectiveProxyMatches(port) ? .helper(port: port) : nil
+        case .undeterminable:
+            .helper(port: unknownHelperOverridePort)
+        }
     }
 
     nonisolated static func helperOverrideIsConfirmed(
@@ -605,6 +651,45 @@ final class SystemProxyManager: @unchecked Sendable {
         return states
     }
 
+    /// Reads and judges a direct backup. Pure with respect to the manager so it can be exercised
+    /// against a scratch directory.
+    ///
+    /// `trustedOwner` is the uid the record must belong to. The direct backup is written by the
+    /// app, which runs as the user, in the user's Application Support directory, and the watchdog
+    /// reads it as that same user, so callers pass `geteuid()`. The helper's own root-owned
+    /// records use the gate's default of 0 instead; passing 0 here would refuse every legitimate
+    /// direct backup, and passing a uid the file does not belong to would trust a stranger's.
+    nonisolated static func readDirectBackup(at url: URL, trustedOwner: uid_t) -> DirectBackupRead {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return .missing
+        }
+        let data: Data
+        do {
+            data = try ProxyBackupFileTrust.readTrustedFile(at: url, trustedOwner: trustedOwner)
+        } catch let refusal as ProxyBackupFileTrust.Refusal {
+            return refusal.isTransient ? .unreadable(refusal.description) : .refused(refusal.description)
+        } catch {
+            return .unreadable(error.localizedDescription)
+        }
+        let backup: DirectProxyBackup
+        do {
+            backup = try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
+        } catch {
+            return .refused("could not be decoded: \(error.localizedDescription)")
+        }
+        // An emptied list is legitimate (recovery narrows a backup as services are restored).
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: backup.rockxyPort,
+            serviceNames: backup.services.map(\.service),
+            servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+            allowsEmptyServices: true
+        ) {
+            return .refused(reason)
+        }
+        return .loaded(backup)
+    }
+
     /// Starts one process-wide observer for the live macOS proxy dictionary. Unlike
     /// `.systemProxyDidChange`, this also detects changes made by System Settings,
     /// VPN software, or another debugging proxy while Rockxy's listener is running.
@@ -752,17 +837,29 @@ final class SystemProxyManager: @unchecked Sendable {
         }
     }
 
-    /// Loads a previously persisted direct backup from disk, returning nil if missing or corrupt.
+    /// Loads a previously persisted direct backup from disk, returning nil if missing, unreadable,
+    /// or refused.
+    ///
+    /// The record goes through the same trust gate and content validation the watchdog applies,
+    /// so launch recovery never restores from a record the watchdog would have refused. nil with
+    /// the file still on disk is the app's existing "cannot restore" state: the file is preserved,
+    /// enabling and Stop report `proxyRestoreFailed`, and stale-record recovery reports
+    /// `restoreIncomplete`, which leaves the manual Stop path open. A refusal is additionally
+    /// logged at fault level.
     func loadDirectBackup() -> DirectProxyBackup? {
         let url = Self.directBackupURL
-        guard FileManager.default.fileExists(atPath: url.path) else {
+        switch Self.readDirectBackup(at: url, trustedOwner: geteuid()) {
+        case .missing:
             return nil
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            return try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
-        } catch {
-            Self.logger.warning("Direct backup is temporarily unreadable, preserving it: \(error.localizedDescription)")
+        case let .loaded(backup):
+            return backup
+        case let .unreadable(detail):
+            Self.logger.warning("Direct backup is temporarily unreadable, preserving it: \(detail, privacy: .public)")
+            return nil
+        case let .refused(reason):
+            Self.logger.fault(
+                "Direct proxy backup refused, not restoring from it and preserving the file: \(reason, privacy: .public)"
+            )
             return nil
         }
     }
@@ -975,6 +1072,13 @@ final class SystemProxyManager: @unchecked Sendable {
     private var usingHelper = false
     private var activeServices: [String] = []
     private var directRestorePending = false
+
+    /// Set when a direct-mode watchdog ended by refusing its backup record
+    /// (`DirectProxyWatchdogExit.refusedBackup`). While it is set the override has no automatic
+    /// restore behind it, and the manual path -- Stop, which restores from the same backup in this
+    /// process -- is what puts the settings back. Cleared when a new watchdog is armed or the
+    /// session's watchers are retired as resolved.
+    private var directWatchdogRefusedRecord = false
     /// Which override session the manager is on. Bumped by everything that ends one, and read
     /// inside the operation gate, so work queued for a session that has since ended never runs.
     private var sessionGeneration: UInt64 = 0
@@ -1088,6 +1192,22 @@ final class SystemProxyManager: @unchecked Sendable {
         )
     }
 
+    /// Reads the watchdogs' last exit statuses from launchd and records a refusal. Returns whether
+    /// one was found. `launchctl list` keeps a submitted job's last status after it exits, which is
+    /// the only channel a watchdog that has already stopped can still speak through.
+    @discardableResult
+    private func noteRefusedDirectWatchdogs(context: String) -> Bool {
+        let refused = Self.discoverRefusedDirectWatchdogLabels()
+        guard !refused.isEmpty else {
+            return false
+        }
+        Self.logger.fault(
+            "A direct proxy watchdog refused its backup record (\(context, privacy: .public)) — the proxy has no automatic restore until Stop or relaunch recovery runs: \(refused.joined(separator: ", "), privacy: .public)"
+        )
+        lock.withLock { directWatchdogRefusedRecord = true }
+        return true
+    }
+
     private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
         // In-memory ownership is only a hint. The proxy can be changed outside
         // Rockxy, or a helper watchdog can restore it after an app restart.
@@ -1102,6 +1222,9 @@ final class SystemProxyManager: @unchecked Sendable {
             if currentProxyMatchesRockxy(port: backup.rockxyPort, backedUpServices: backedUpServices),
                effectiveSystemProxyMatchesRockxy(port: backup.rockxyPort)
             {
+                // The watchdog is this override's only automatic restore. If it ended by refusing
+                // its record, say so now instead of leaving it to be discovered after a crash.
+                noteRefusedDirectWatchdogs(context: "ownership check")
                 return .direct(backup: backup)
             }
         }
@@ -1113,10 +1236,12 @@ final class SystemProxyManager: @unchecked Sendable {
            let helperStatus = try? await HelperConnection.shared.getProxyStatus(
                timeout: Self.helperOwnerProbeTimeout
            ),
-           helperStatus.isOverridden,
-           effectiveSystemProxyMatchesRockxy(port: helperStatus.port)
+           let owner = Self.helperOverrideOwner(
+               for: HelperProxyStatusReading(isOverridden: helperStatus.isOverridden, port: helperStatus.port),
+               effectiveProxyMatches: { effectiveSystemProxyMatchesRockxy(port: $0) }
+           )
         {
-            return .helper(port: helperStatus.port)
+            return owner
         }
 
         if wasEnabled || wasUsingHelper {
@@ -1902,10 +2027,12 @@ final class SystemProxyManager: @unchecked Sendable {
     }
 
     private func helperRestoreStateMatchesCurrentSnapshot() async -> Bool {
+        // Only a helper that positively reports a clean machine counts. "Cannot tell" is the
+        // opposite of proof that a restore completed.
         guard let status = try? await HelperConnection.shared.getProxyStatus(
             timeout: Self.helperRestoreConfirmationProbeTimeout
         ),
-            !status.isOverridden else
+            HelperProxyStatusReading(isOverridden: status.isOverridden, port: status.port) == .notOverridden else
         {
             return false
         }
@@ -2571,6 +2698,7 @@ extension SystemProxyManager {
             try? Self.writeKnownDirectWatchdogLabels([activeLabel] + Array(retainedLabels))
             lock.lock()
             activeDirectWatchdogLabel = activeLabel
+            directWatchdogRefusedRecord = false
             lock.unlock()
             Self.logger
                 .info(
@@ -2597,7 +2725,32 @@ extension SystemProxyManager {
         {
             return []
         }
-        return Array(Set(labels)).sorted()
+        // Every label read back from this file reaches `launchctl remove`. The file holds
+        // whatever was last written to it, so a stale or corrupted registry would have the app
+        // retire a job that was never its watchdog. Keep only the two shapes this code can
+        // produce -- the bare label, and the label plus a UUID -- so an entry that does not
+        // name one of our own jobs can never be acted on.
+        let owned = labels.filter(isOwnedDirectWatchdogLabel)
+        if owned.count != labels.count {
+            logger.fault(
+                "Ignoring \(labels.count - owned.count, privacy: .public) watchdog label(s) that do not name a Rockxy watchdog"
+            )
+        }
+        return Array(Set(owned)).sorted()
+    }
+
+    /// Whether a label is one this code could have submitted: either the bare watchdog label or
+    /// that label followed by a single UUID suffix.
+    nonisolated static func isOwnedDirectWatchdogLabel(_ label: String) -> Bool {
+        let base = directWatchdogLabel
+        if label == base {
+            return true
+        }
+        guard label.hasPrefix(base + ".") else {
+            return false
+        }
+        let suffix = String(label.dropFirst(base.count + 1))
+        return UUID(uuidString: suffix) != nil
     }
 
     private static func writeKnownDirectWatchdogLabels(_ labels: [String]) throws {
@@ -2620,6 +2773,13 @@ extension SystemProxyManager {
     /// Includes jobs from builds that did not yet persist the registry, plus the narrow crash
     /// window where launchd accepted a UUID label but the app died before its registry write
     /// became visible. Discovery is intentionally used only after the proxy session is resolved.
+    private static func discoverRefusedDirectWatchdogLabels() -> [String] {
+        guard let output = try? runLaunchctl(["list"]) else {
+            return []
+        }
+        return DirectProxyWatchdogJobDiscovery.refusedLabels(in: output, baseLabel: directWatchdogLabel)
+    }
+
     private static func discoverDirectWatchdogLabels() -> [String] {
         guard let output = try? runLaunchctl(["list"]) else {
             return []
@@ -3072,6 +3232,7 @@ extension SystemProxyManager {
 
         try? Self.writeKnownDirectWatchdogLabels(retainedLabels)
         lock.lock()
+        directWatchdogRefusedRecord = false
         if let label, !retainedLabels.contains(label) {
             activeDirectWatchdogLabel = nil
         }
@@ -3369,6 +3530,9 @@ extension SystemProxyManager {
             )
         case .restoreIncomplete:
             lock.withLock { directRestorePending = true }
+            // Recovery could not finish and a watchdog that refused the same record cannot either:
+            // both automatic routes are closed and only the manual restore remains.
+            noteRefusedDirectWatchdogs(context: "launch recovery")
         case .preserved:
             Self.logger.info("A live app process owns the direct proxy backup — preserving its session")
         case .noBackup,

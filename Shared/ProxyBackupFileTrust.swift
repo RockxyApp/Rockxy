@@ -11,7 +11,10 @@ import Foundation
 /// system could let an admin-group process write to.
 ///
 /// A file is trusted only when its directory and the file itself are both owned by the trusted
-/// user, are real (not symlinks), and are not writable by group or other. Every refusal is
+/// user, are real (not symlinks), and are not writable by group or other, and when every ancestor
+/// of that directory is owned by the trusted user or root and is not writable by group or other
+/// either. The chain is walked with `openat`, so the directory that was checked is the directory
+/// the file is opened in. Every refusal is
 /// thrown with the path and the failing condition so a caller can log it. Nothing here falls back
 /// silently.
 enum ProxyBackupFileTrust {
@@ -27,6 +30,16 @@ enum ProxyBackupFileTrust {
         case unreadable(path: String, errnoCode: Int32)
 
         // MARK: Internal
+
+        /// True only for a failure that may clear by itself (an I/O error, a file mid-replacement).
+        /// Every other refusal is a verdict about the file or its location and will repeat until
+        /// somebody changes it, so a caller that retries one forever is polling for nothing.
+        var isTransient: Bool {
+            if case .unreadable = self {
+                return true
+            }
+            return false
+        }
 
         var description: String {
             switch self {
@@ -59,24 +72,29 @@ enum ProxyBackupFileTrust {
     /// shares the bound.
     static let maximumFileBytes = 512 * 1_024
 
-    /// Checks one directory: a real directory, owned by `trustedOwner`, not group/other writable.
+    /// Checks one directory and every ancestor above it. See `openVerifiedDirectory`.
     static func verifyDirectory(at url: URL, trustedOwner: uid_t = 0) throws {
-        let path = url.path
-        var info = stat()
-        guard lstat(path, &info) == 0 else {
-            throw Refusal.unreadable(path: path, errnoCode: errno)
-        }
-        try verifyDirectory(info, path: path, trustedOwner: trustedOwner)
+        close(try openVerifiedDirectory(at: url, trustedOwner: trustedOwner))
     }
 
-    /// Reads `url` only if its directory and the file are trusted, and never more than
-    /// `maximumFileBytes`. The file is opened without following symlinks and judged by `fstat` on
-    /// the open descriptor, so what is checked is what is read.
+    /// Reads `url` only if its whole directory chain and the file are trusted, and never more than
+    /// `maximumFileBytes`. The directory chain is walked with `openat` and the file is then opened
+    /// relative to the verified directory descriptor without following symlinks and judged by
+    /// `fstat` on the open descriptor, so what is checked is what is read: no path is resolved a
+    /// second time between the check and the use.
     static func readTrustedFile(at url: URL, trustedOwner: uid_t = 0) throws -> Data {
         let path = url.path
-        try verifyDirectory(at: url.deletingLastPathComponent(), trustedOwner: trustedOwner)
+        let directoryDescriptor = try openVerifiedDirectory(
+            at: url.deletingLastPathComponent(),
+            trustedOwner: trustedOwner
+        )
+        defer { close(directoryDescriptor) }
 
-        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        let descriptor = openat(
+            directoryDescriptor,
+            url.lastPathComponent,
+            O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC
+        )
         guard descriptor >= 0 else {
             if errno == ELOOP {
                 throw Refusal.symbolicLink(path: path)
@@ -126,14 +144,97 @@ enum ProxyBackupFileTrust {
 
     // MARK: Private
 
-    private static func verifyDirectory(_ info: stat, path: String, trustedOwner: uid_t) throws {
-        if (info.st_mode & S_IFMT) == S_IFLNK {
-            throw Refusal.symbolicLink(path: path)
+    /// Resolves `url` once, then opens every component of the RESOLVED path with
+    /// `O_NOFOLLOW | O_DIRECTORY` relative to the previous component's descriptor, judging each
+    /// directory by `fstat` on the descriptor it just opened. Returns the leaf directory's
+    /// descriptor, still open, for the caller to open the file relative to.
+    ///
+    /// Why every ancestor: `lstat` on a directory describes the directory it resolves to and says
+    /// nothing about the path taken to reach it. A leaf directory that is root-owned and 0700 is
+    /// only as trustworthy as every directory above it, because whoever can write one of those can
+    /// rename the leaf away or swap a component for a symlink. Checking the leaf alone passes
+    /// silently if a location ever sits under a group-writable ancestor, a symlink to another
+    /// volume, or a directory an installer created `0775`.
+    ///
+    /// The leaf must be owned by `trustedOwner`. Each ancestor must be owned by `trustedOwner` or
+    /// root: the system's own `/`, `/Library`, `/Users` are root's, a home directory is the user's.
+    /// None may be writable by group or other. Components are opened without following symlinks,
+    /// so a component swapped for a link after the resolution fails closed instead of being
+    /// followed; a symlink in the requested path (`/var`, a relocated home) is resolved up front
+    /// and its target chain is what gets verified.
+    private static func openVerifiedDirectory(at url: URL, trustedOwner: uid_t) throws -> Int32 {
+        let requested = url.path
+        guard let resolvedPointer = realpath(requested, nil) else {
+            throw Refusal.unreadable(path: requested, errnoCode: errno)
+        }
+        let resolved = String(cString: resolvedPointer)
+        free(resolvedPointer)
+
+        let components = resolved.split(separator: "/").map(String.init)
+        var current = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        guard current >= 0 else {
+            throw Refusal.unreadable(path: "/", errnoCode: errno)
+        }
+        do {
+            try verifyDescriptor(current, path: "/", trustedOwner: trustedOwner, isLeaf: components.isEmpty)
+            var walked = ""
+            for (index, name) in components.enumerated() {
+                walked += "/" + name
+                let next = openat(current, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+                guard next >= 0 else {
+                    throw openFailure(errno, parent: current, name: name, path: walked)
+                }
+                close(current)
+                current = next
+                try verifyDescriptor(
+                    next,
+                    path: walked,
+                    trustedOwner: trustedOwner,
+                    isLeaf: index == components.count - 1
+                )
+            }
+        } catch {
+            close(current)
+            throw error
+        }
+        return current
+    }
+
+    private static func openFailure(_ code: Int32, parent: Int32, name: String, path: String) -> Refusal {
+        switch code {
+        case ELOOP:
+            return .symbolicLink(path: path)
+        case ENOTDIR:
+            // `O_DIRECTORY | O_NOFOLLOW` on a symlink may report either; look at the entry itself.
+            var info = stat()
+            if fstatat(parent, name, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFLNK {
+                return .symbolicLink(path: path)
+            }
+            return .notDirectory(path: path)
+        default:
+            return .unreadable(path: path, errnoCode: code)
+        }
+    }
+
+    private static func verifyDescriptor(
+        _ descriptor: Int32,
+        path: String,
+        trustedOwner: uid_t,
+        isLeaf: Bool
+    )
+        throws
+    {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else {
+            throw Refusal.unreadable(path: path, errnoCode: errno)
         }
         guard (info.st_mode & S_IFMT) == S_IFDIR else {
             throw Refusal.notDirectory(path: path)
         }
-        guard info.st_uid == trustedOwner else {
+        let ownerIsAcceptable = isLeaf
+            ? info.st_uid == trustedOwner
+            : (info.st_uid == trustedOwner || info.st_uid == 0)
+        guard ownerIsAcceptable else {
             throw Refusal.notOwnedByTrustedUser(path: path, owner: info.st_uid)
         }
         guard info.st_mode & (S_IWGRP | S_IWOTH) == 0 else {

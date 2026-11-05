@@ -88,6 +88,122 @@ struct ProxyBackupFileTrustTests {
         }
     }
 
+    @Test("A group-writable ANCESTOR of the directory is refused even when directory and file are owner-only")
+    func groupWritableAncestorRefused() throws {
+        let root = try Self.makeRoot()
+        let ancestor = root.appendingPathComponent("ancestor")
+        let file = try Self.makeFile(in: ancestor.appendingPathComponent("leaf"))
+        #expect(throws: Never.self) {
+            try ProxyBackupFileTrust.readTrustedFile(at: file, trustedOwner: getuid())
+        }
+
+        #expect(chmod(ancestor.path, 0o775) == 0)
+        let refusal = Self.refusal(for: file)
+        guard case let .writableByGroupOrOther(path, mode) = refusal else {
+            Issue.record("expected writableByGroupOrOther, got \(String(describing: refusal))")
+            return
+        }
+        #expect(path == Self.resolved(ancestor))
+        #expect(mode & 0o020 != 0)
+    }
+
+    @Test("A symlinked path is judged by the directories it resolves through, not by the link")
+    func symlinkedAncestorIsJudgedByItsTarget() throws {
+        let root = try Self.makeRoot()
+        _ = try Self.makeFile(in: root.appendingPathComponent("clean/leaf"))
+        _ = try Self.makeFile(in: root.appendingPathComponent("loose/leaf"))
+        #expect(chmod(root.appendingPathComponent("loose").path, 0o775) == 0)
+        let cleanLink = root.appendingPathComponent("clean-link")
+        let looseLink = root.appendingPathComponent("loose-link")
+        try FileManager.default.createSymbolicLink(
+            at: cleanLink,
+            withDestinationURL: root.appendingPathComponent("clean")
+        )
+        try FileManager.default.createSymbolicLink(
+            at: looseLink,
+            withDestinationURL: root.appendingPathComponent("loose")
+        )
+
+        // A link to a trustworthy chain is as good as the chain (macOS itself reaches the temp
+        // directory through /var -> /private/var), and a link to a loose one inherits the refusal.
+        #expect(throws: Never.self) {
+            try ProxyBackupFileTrust.readTrustedFile(
+                at: cleanLink.appendingPathComponent("leaf/proxy-backup.plist"),
+                trustedOwner: getuid()
+            )
+        }
+        let refusal = Self.refusal(for: looseLink.appendingPathComponent("leaf/proxy-backup.plist"))
+        guard case let .writableByGroupOrOther(path, _) = refusal else {
+            Issue.record("expected writableByGroupOrOther, got \(String(describing: refusal))")
+            return
+        }
+        #expect(path == Self.resolved(root.appendingPathComponent("loose")))
+    }
+
+    @Test("An ancestor owned by neither the trusted owner nor root is refused")
+    func foreignOwnedAncestorRefused() throws {
+        let file = try Self.makeFile()
+        // The test user's own directories are neither root's nor uid+1's, so with another trusted
+        // owner the first user-owned ancestor is where the walk must stop.
+        let refusal = Self.refusal(for: file, owner: getuid() &+ 1)
+        guard case let .notOwnedByTrustedUser(path, owner) = refusal else {
+            Issue.record("expected notOwnedByTrustedUser, got \(String(describing: refusal))")
+            return
+        }
+        #expect(owner == getuid())
+        #expect(path.count < Self.resolved(file.deletingLastPathComponent()).count)
+    }
+
+    @Test("verifyDirectory walks the ancestors too")
+    func verifyDirectoryChecksAncestors() throws {
+        let root = try Self.makeRoot()
+        let ancestor = root.appendingPathComponent("ancestor")
+        let directory = ancestor.appendingPathComponent("leaf")
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        #expect(throws: Never.self) {
+            try ProxyBackupFileTrust.verifyDirectory(at: directory, trustedOwner: getuid())
+        }
+        #expect(chmod(ancestor.path, 0o770) == 0)
+        #expect(throws: ProxyBackupFileTrust.Refusal.self) {
+            try ProxyBackupFileTrust.verifyDirectory(at: directory, trustedOwner: getuid())
+        }
+    }
+
+    @Test("A directory component swapped for a symlink to a path outside the chain is not followed")
+    func fileIsOpenedRelativeToTheVerifiedDirectory() throws {
+        // `openat` against the verified descriptor means the file is looked up in the directory
+        // that was checked. A symlink where the file should be is refused, never followed out.
+        let root = try Self.makeRoot()
+        let outside = try Self.makeFile(in: root.appendingPathComponent("outside"))
+        let file = try Self.makeFile(in: root.appendingPathComponent("inside"))
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createSymbolicLink(at: file, withDestinationURL: outside)
+        guard case .symbolicLink = Self.refusal(for: file) else {
+            Issue.record("expected symbolicLink")
+            return
+        }
+    }
+
+    @Test("Only an I/O failure is transient; every verdict on the file or its location is not")
+    func transientRefusalsAreOnlyIOFailures() {
+        #expect(ProxyBackupFileTrust.Refusal.unreadable(path: "/x", errnoCode: EIO).isTransient)
+        let verdicts: [ProxyBackupFileTrust.Refusal] = [
+            .notOwnedByTrustedUser(path: "/x", owner: 501),
+            .writableByGroupOrOther(path: "/x", mode: 0o775),
+            .symbolicLink(path: "/x"),
+            .notRegularFile(path: "/x"),
+            .notDirectory(path: "/x"),
+            .tooLarge(path: "/x", bytes: 1)
+        ]
+        for verdict in verdicts {
+            #expect(!verdict.isTransient, "\(verdict)")
+        }
+    }
+
     @Test("A missing file is refused as unreadable")
     func missingFileRefused() throws {
         let file = try Self.makeFile()
@@ -159,6 +275,47 @@ struct ProxyBackupFileTrustTests {
         } catch {
             return error as? ProxyBackupFileTrust.Refusal
         }
+    }
+
+    /// A fresh owner-only directory to build a chain of ancestors under.
+    private static func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProxyBackupFileTrustTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return root
+    }
+
+    /// The path the gate reports, which is the resolved one (`/var` is a link to `/private/var`).
+    /// Resolves the way the gate does. `ProxyBackupFileTrust` uses `realpath`, which always
+    /// resolves every component; Foundation's `resolvingSymlinksInPath()` does not, and on this
+    /// platform left `/var/...` unresolved where the gate reported `/private/var/...`. Comparing
+    /// a refusal's path against a differently-resolved expectation failed a refusal that had in
+    /// fact happened, which is the worst kind of false negative on this code.
+    private static func resolved(_ url: URL) -> String {
+        url.path.withCString { raw in
+            guard let resolved = realpath(raw, nil) else {
+                return url.path
+            }
+            defer { free(resolved) }
+            return String(cString: resolved)
+        }
+    }
+
+    /// An owner-only `proxy-backup.plist` in `directory`, creating the chain above it owner-only.
+    private static func makeFile(in directory: URL) throws -> URL {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let file = directory.appendingPathComponent("proxy-backup.plist")
+        try Data(repeating: 65, count: 100).write(to: file)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        return file
     }
 
     private static func makeFile(
