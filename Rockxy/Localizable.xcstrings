@@ -384,6 +384,16 @@
         }
       }
     },
+    "Calculating value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在计算值"
+          }
+        }
+      }
+    },
     "Captured timing phase.": {
       "localizations": {
         "zh-Hans": {
@@ -51076,6 +51086,96 @@
           "stringUnit": {
             "state": "translated",
             "value": "捕获的正文已被省略或截断。"
+          }
+        }
+      }
+    },
+    "Try Saving Again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新尝试保存"
+          }
+        }
+      }
+    },
+    "Couldn't save the Full Proxy Bypass list": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存“完全代理绕过”列表"
+          }
+        }
+      }
+    },
+    "Couldn't save the HTTPS Decryption rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存 HTTPS 解密规则"
+          }
+        }
+      }
+    },
+    "Your change applies until you quit Rockxy, but the saved copy was not updated, so the list will come back as it was on the next launch. Make sure the disk has free space and Rockxy's data folder is writable, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的更改在退出 Rockxy 之前有效，但已保存的副本未更新，因此下次启动时列表会恢复原样。请确认磁盘有可用空间且 Rockxy 的数据文件夹可写，然后重试。"
+          }
+        }
+      }
+    },
+    "Showing apps and domains in the current sidebar scope: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在显示当前侧边栏范围内的应用和域名：%@"
+          }
+        }
+      }
+    },
+    "Your custom root certificate could not be loaded (%@). Rockxy is signing with its own root instead, so your custom root is not in use.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的自定义根证书（%@）。Rockxy 正在改用自己的根证书签名，因此你的自定义根证书未被使用。"
+          }
+        }
+      }
+    },
+    "Your custom root certificate is not in use": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的自定义根证书未被使用"
+          }
+        }
+      }
+    },
+    "The P12 file could not be opened. The password may be incorrect, or the file may be damaged.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开该 P12 文件。密码可能不正确，或文件可能已损坏。"
+          }
+        }
+      }
+    },
+    "macOS could not use the keychain to read this P12 file. Unlock the keychain and try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 无法使用钥匙串读取此 P12 文件。请解锁钥匙串后重试。"
           }
         }
       }

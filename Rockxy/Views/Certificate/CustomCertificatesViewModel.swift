@@ -42,6 +42,17 @@ final class CustomCertificatesViewModel {
     init(manager: CustomCertificateManager = .shared) {
         self.manager = manager
         reload()
+        // `CertificateManager` is an actor and cannot publish, so the fallback reason is pulled
+        // on appear and whenever the monitor says it changed.
+        observerTokens.keep(NotificationCenter.default.addObserver(
+            forName: .customRootFallbackDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshCustomRootFallback()
+            }
+        })
     }
 
     // MARK: Internal
@@ -102,6 +113,9 @@ final class CustomCertificatesViewModel {
         let message: String
         let confirmLabel: String
     }
+
+    /// Why the custom root is NOT the one signing traffic, or `nil` while it is (or none is set).
+    private(set) var customRootFallbackReason: String?
 
     let manager: CustomCertificateManager
 
@@ -194,17 +208,32 @@ final class CustomCertificatesViewModel {
     var rootSubtitle: String {
         switch rootStatus {
         case .customVerifying:
-            String(localized: "Rockxy is verifying this custom root certificate and its private key.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Rockxy is verifying this custom root certificate and its private key.",
+                bundle: RockxyLocalization.bundle
+            )
         case .customActive:
-            String(localized: "Rockxy signs generated host certificates with this imported root.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Rockxy signs generated host certificates with this imported root.",
+                bundle: RockxyLocalization.bundle
+            )
         case .customUnavailable:
-            String(localized: "Rockxy cannot access this custom root certificate and its private key.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Rockxy cannot access this custom root certificate and its private key.",
+                bundle: RockxyLocalization.bundle
+            )
         case .installedTrusted,
              .installedNotTrusted,
              .generated:
-            String(localized: "Rockxy signs generated host certificates with its default root.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "Rockxy signs generated host certificates with its default root.",
+                bundle: RockxyLocalization.bundle
+            )
         case .unavailable:
-            String(localized: "No root certificate is loaded. HTTPS interception is unavailable.", bundle: RockxyLocalization.bundle)
+            String(
+                localized: "No root certificate is loaded. HTTPS interception is unavailable.",
+                bundle: RockxyLocalization.bundle
+            )
         }
     }
 
@@ -268,7 +297,10 @@ final class CustomCertificatesViewModel {
     }
 
     var primaryDestructiveTitle: String {
-        mode == .root ? String(localized: "Revert to Default…", bundle: RockxyLocalization.bundle) : String(localized: "Delete…", bundle: RockxyLocalization.bundle)
+        mode == .root ? String(localized: "Revert to Default…", bundle: RockxyLocalization.bundle) : String(
+            localized: "Delete…",
+            bundle: RockxyLocalization.bundle
+        )
     }
 
     var canPerformPrimaryDestructive: Bool {
@@ -279,6 +311,13 @@ final class CustomCertificatesViewModel {
             selectedServerEntry != nil
         case .client:
             selectedClientEntry != nil
+        }
+    }
+
+    func refreshCustomRootFallback() async {
+        let reason = await CertificateManager.shared.refreshCustomRootFallbackReason()
+        if reason != customRootFallbackReason {
+            customRootFallbackReason = reason
         }
     }
 
@@ -502,7 +541,10 @@ final class CustomCertificatesViewModel {
             let item: CertificatePreviewItem? = material.certificate.flatMap { certificate in
                 try? CertificatePreviewItem(
                     certificate: certificate,
-                    displayName: String(localized: "Rockxy Default Root Certificate", bundle: RockxyLocalization.bundle),
+                    displayName: String(
+                        localized: "Rockxy Default Root Certificate",
+                        bundle: RockxyLocalization.bundle
+                    ),
                     fingerprintSHA256: snapshot.fingerprintSHA256
                 )
             }
@@ -522,12 +564,19 @@ final class CustomCertificatesViewModel {
                 customRootAvailability: customRootAvailability,
                 generation: generation
             ) {
-                rootLoadErrorMessage = String(localized: "Rockxy could not load the default root certificate details.", bundle: RockxyLocalization.bundle)
+                rootLoadErrorMessage = String(
+                    localized: "Rockxy could not load the default root certificate details.",
+                    bundle: RockxyLocalization.bundle
+                )
             }
         }
     }
 
     // MARK: Private
+
+    /// Removes the fallback observation when this view model goes away; see
+    /// `NotificationObserverTokens`.
+    private let observerTokens = NotificationObserverTokens()
 
     private static func mode(for kind: CustomCertificateKind) -> Mode {
         switch kind {
@@ -606,7 +655,10 @@ final class CustomCertificatesViewModel {
         if kind != .root {
             let raw = rawHost ?? ""
             if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                errorMessage = String(localized: "Enter a host pattern for this certificate before importing.", bundle: RockxyLocalization.bundle)
+                errorMessage = String(
+                    localized: "Enter a host pattern for this certificate before importing.",
+                    bundle: RockxyLocalization.bundle
+                )
                 return
             }
             if let message = SSLHostPatternValidation.message(for: raw) {
@@ -637,7 +689,10 @@ final class CustomCertificatesViewModel {
             if generation == importGeneration, mode == modeAtStart {
                 mode = Self.mode(for: metadata.kind)
                 select(imported: metadata)
-                statusMessage = String(localized: "Imported \(metadata.displayName).", bundle: RockxyLocalization.bundle)
+                statusMessage = String(
+                    localized: "Imported \(metadata.displayName).",
+                    bundle: RockxyLocalization.bundle
+                )
                 statusTone = .success
             }
         } catch {
@@ -729,7 +784,12 @@ final class CustomCertificatesViewModel {
     )
         -> DeletionRequest
     {
-        let hostClause = entry.hostPattern.map { String(localized: " for the host pattern \($0)", bundle: RockxyLocalization.bundle) } ?? ""
+        let hostClause = entry.hostPattern.map { pattern in
+            String(
+                localized: " for the host pattern \(pattern)",
+                bundle: RockxyLocalization.bundle
+            )
+        } ?? ""
         return DeletionRequest(
             target: .certificate(entry.id),
             title: String(localized: "Delete Certificate?", bundle: RockxyLocalization.bundle),

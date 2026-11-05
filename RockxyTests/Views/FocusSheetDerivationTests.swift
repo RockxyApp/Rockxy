@@ -36,13 +36,58 @@ struct FocusSheetDerivationTests {
         #expect(Self.sheetApps(in: coordinator) == ["Safari"])
         #expect(Self.sheetApps(in: coordinator) == coordinator.appNodes.map(\.name).sorted())
 
-        // The two halves are scoped by different criteria, because the sidebar scopes them that
-        // way: the domain index is narrowed by `sidebarDomain`, never by `sidebarApp`. So an
-        // app scope leaves a domain only another app reached on offer. The sheet now mirrors
-        // the sidebar exactly rather than inventing a third rule, which is the most it can
-        // settle on its own.
-        #expect(Self.sheetDomains(in: coordinator).contains("telemetry.example.com"))
-        #expect(Self.sheetDomains(in: coordinator) == coordinator.domainTree.map(\.domain))
+        // The domain index is narrowed only by `sidebarDomain`, so on its own it would still offer
+        // example.org, a registrable domain Safari never contacted. The sheet applies one rule to
+        // both lists -- inside the active sidebar scope -- so that domain is gone. (Candidates are
+        // registrable domains, the roots of the domain tree; see `AddFavoriteView.filteredDomains`.)
+        // Hosts sit among a registrable-domain root's children, not at the top level.
+        #expect(coordinator.domainTree.flatMap(\.children).map(\.domain).contains("telemetry.example.com"))
+        #expect(coordinator.domainTree.map(\.domain).contains("example.org"))
+        #expect(!Self.sheetDomains(in: coordinator).contains("example.org"))
+        #expect(Self.sheetDomains(in: coordinator) == ["example.com"])
+    }
+
+    @Test("A domain scope narrows the Apps list to the apps that contacted that domain")
+    func domainScopeNarrowsApps() {
+        let coordinator = Self.makeCoordinator()
+        coordinator.filterCriteria.sidebarDomain = "tracker.example.org"
+        coordinator.rebuildSidebarIndexes(for: coordinator.activeWorkspace)
+
+        // The app index is not narrowed by `sidebarDomain` on its own.
+        #expect(coordinator.appNodes.map(\.name).sorted() == ["Google Chrome", "Safari"])
+        #expect(Self.sheetApps(in: coordinator) == ["Google Chrome"])
+        #expect(Self.sheetDomains(in: coordinator) == ["example.org"])
+    }
+
+    @Test("With no sidebar scope both lists are complete and no scope is named")
+    func unscopedSheetIsComplete() {
+        let coordinator = Self.makeCoordinator()
+        let scope = Self.scope(in: coordinator)
+
+        #expect(scope.activeScopeLabel == nil)
+        #expect(Self.sheetApps(in: coordinator) == ["Google Chrome", "Safari"])
+        #expect(Self.sheetDomains(in: coordinator) == ["example.com", "example.org"])
+    }
+
+    @Test("Both scope kinds together apply both, and the active scope is named")
+    func combinedScopeAppliesBoth() {
+        let apps = [
+            AppInfo(name: "Safari", domains: ["api.example.com", "cdn.example.com"], requestCount: 2),
+            AppInfo(name: "Google Chrome", domains: ["api.example.com"], requestCount: 1)
+        ]
+        let domains = ["api.example.com", "cdn.example.com", "other.test"].map {
+            DomainNode(id: $0, domain: $0, requestCount: 1, children: [])
+        }
+        let scope = FavoriteCandidateScope(
+            apps: apps,
+            domains: domains,
+            sidebarApp: "Safari",
+            sidebarDomain: "cdn.example.com"
+        )
+
+        #expect(scope.apps.map(\.name) == ["Safari"])
+        #expect(scope.domains.map(\.domain) == ["cdn.example.com"])
+        #expect(scope.activeScopeLabel == "Safari, cdn.example.com")
     }
 
     @Test("A request with no client app is grouped under the same label the sheet shows")
@@ -105,8 +150,32 @@ struct FocusSheetDerivationTests {
     func addFavoriteReadsTheMaintainedIndex() throws {
         let source = try readProjectFile("Rockxy/Views/Sidebar/AddFavoriteView.swift")
 
-        #expect(source.contains("coordinator.appNodes.map { AppCandidate(name: $0.name) }"))
+        #expect(source.contains("scope.apps.map { AppCandidate(name: $0.name) }"))
+        #expect(source.contains("apps: coordinator.appNodes"))
+        #expect(source.contains("domains: coordinator.domainTree"))
         #expect(!source.contains("for transaction in coordinator.transactions"))
+    }
+
+    @Test("The bypass and HTTPS decryption lists surface a failed save inline, with a retry")
+    func persistenceFailureIsShownInline() throws {
+        let bypass = try readProjectFile("Rockxy/Views/Settings/BypassProxyListView.swift")
+        let ssl = try readProjectFile("Rockxy/Views/Settings/SSLProxyingListView.swift")
+        let banner = try readProjectFile("Rockxy/Views/Common/PersistenceFailureBanner.swift")
+
+        #expect(bypass.contains("manager.persistenceFailure"))
+        #expect(bypass.contains("retry: { manager.save() }"))
+        #expect(ssl.contains("viewModel.manager.persistenceFailure"))
+        #expect(ssl.contains("retry: { viewModel.manager.save() }"))
+        #expect(banner.contains("AccessibilityNotification.Announcement"))
+        // Compared whitespace-stripped: the formatter rewraps call sites. What this guarantees is
+        // that the banner's one button runs the caller's retry under `actionTitle`, and that the
+        // default title is localized through Rockxy's own bundle, not a bare literal.
+        let flatBanner = banner.filter { !$0.isWhitespace }
+        #expect(flatBanner.contains("Button(actionTitle,action:retry)"))
+        #expect(flatBanner.contains(
+            "actionTitle??String(localized:\"TrySavingAgain\",bundle:RockxyLocalization.bundle)"
+        ))
+        #expect(!banner.contains(".alert("))
     }
 
     // MARK: Private
@@ -121,19 +190,31 @@ struct FocusSheetDerivationTests {
         safariAuth.clientApp = "Safari"
         let chrome = TestFixtures.makeTransaction(url: "https://telemetry.example.com/events")
         chrome.clientApp = "Google Chrome"
-        coordinator.transactions = [safariAPI, safariAuth, chrome]
+        let chromeTracker = TestFixtures.makeTransaction(url: "https://tracker.example.org/beacon")
+        chromeTracker.clientApp = "Google Chrome"
+        coordinator.transactions = [safariAPI, safariAuth, chrome, chromeTracker]
         coordinator.rebuildSidebarIndexes(for: coordinator.activeWorkspace)
         return coordinator
     }
 
-    /// Mirrors `AddFavoriteView.filteredApps`, which is private to the view.
-    private static func sheetApps(in coordinator: MainContentCoordinator) -> [String] {
-        coordinator.appNodes.map(\.name).sorted()
+    /// The same inputs `AddFavoriteView.scope` passes in.
+    private static func scope(in coordinator: MainContentCoordinator) -> FavoriteCandidateScope {
+        FavoriteCandidateScope(
+            apps: coordinator.appNodes,
+            domains: coordinator.domainTree,
+            sidebarApp: coordinator.filterCriteria.sidebarApp,
+            sidebarDomain: coordinator.filterCriteria.sidebarDomain
+        )
     }
 
-    /// Mirrors `AddFavoriteView.filteredDomains`, which is private to the view.
+    /// Mirrors `AddFavoriteView.filteredApps` with no search text.
+    private static func sheetApps(in coordinator: MainContentCoordinator) -> [String] {
+        scope(in: coordinator).apps.map(\.name).sorted()
+    }
+
+    /// Mirrors `AddFavoriteView.filteredDomains` with no search text.
     private static func sheetDomains(in coordinator: MainContentCoordinator) -> [String] {
-        coordinator.domainTree.map(\.domain)
+        scope(in: coordinator).domains.map(\.domain).sorted()
     }
 
     private func readProjectFile(_ relativePath: String) throws -> String {

@@ -24,6 +24,15 @@ struct AddFavoriteView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
 
+            if let scopeCaption {
+                Text(scopeCaption)
+                    .font(.system(size: metrics.sidebarSecondaryFontSize))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+            }
+
             Divider()
 
             itemList
@@ -55,14 +64,22 @@ struct AddFavoriteView: View {
     @State private var isDomainsExpanded = true
     @Environment(\.appUIDisplayMetrics) private var metrics
 
-    /// Reads the maintained app index, exactly as `filteredDomains` below reads the maintained
-    /// domain tree. Scanning `coordinator.transactions` here instead cost a pass per keystroke
-    /// and a pass per captured request, and -- because the app index skips rows outside an
-    /// active sidebar app scope -- it also derived this list under different scope rules from
-    /// the Domains list beside it, so the two halves of one sheet could disagree with each
-    /// other and with the sidebar.
+    /// Both lists are read from the maintained sidebar indexes (no capture scan per keystroke) and
+    /// both obey ONE rule, encoded in `FavoriteCandidateScope`: the sheet offers what is inside the
+    /// sidebar scope that is active right now, whichever kind of scope it is. The indexes only
+    /// narrow themselves by their own scope kind, so the cross-kind narrowing is applied here from
+    /// data the indexes already hold (each app's contacted hosts).
+    private var scope: FavoriteCandidateScope {
+        FavoriteCandidateScope(
+            apps: coordinator.appNodes,
+            domains: coordinator.domainTree,
+            sidebarApp: coordinator.filterCriteria.sidebarApp,
+            sidebarDomain: coordinator.filterCriteria.sidebarDomain
+        )
+    }
+
     private var filteredApps: [AppCandidate] {
-        let apps = coordinator.appNodes.map { AppCandidate(name: $0.name) }.sorted { $0.name < $1.name }
+        let apps = scope.apps.map { AppCandidate(name: $0.name) }.sorted { $0.name < $1.name }
         if searchText.isEmpty {
             return apps
         }
@@ -70,13 +87,31 @@ struct AddFavoriteView: View {
         return apps.filter { $0.name.lowercased().contains(query) }
     }
 
+    /// Candidates are the REGISTRABLE DOMAINS -- the roots of `domainTree` -- not individual hosts.
+    /// Decided by what a pin does downstream: it stores `.domainNode(domain:)`, selecting it sets
+    /// `filterCriteria.sidebarDomain`, and that filter matches the domain AND every subdomain
+    /// (`DomainGrouping.host(_:matchesDomain:)`), so one root pin comes back to all of a service's
+    /// hosts. The sidebar's selection-pruning (`pruneSidebarSelectionIfNeeded`) also only
+    /// recognises root-level `.domainNode` values, so offering a host here could pin something the
+    /// sidebar then drops. Hosts stay reachable by selecting them in the sidebar itself.
     private var filteredDomains: [DomainNode] {
-        let domains = coordinator.domainTree
+        let domains = scope.domains
         if searchText.isEmpty {
             return domains
         }
         let query = searchText.lowercased()
         return domains.filter { $0.domain.lowercased().contains(query) }
+    }
+
+    /// Names the active scope so the user can predict both lists before reading them.
+    private var scopeCaption: String? {
+        guard let label = scope.activeScopeLabel else {
+            return nil
+        }
+        return String(
+            localized: "Showing apps and domains in the current sidebar scope: \(label)",
+            bundle: RockxyLocalization.bundle
+        )
     }
 
     private var isAddDisabledByQuota: Bool {
@@ -312,6 +347,67 @@ struct AddFavoriteView: View {
         }
         coordinator.focusNavigatorMode = .library
         coordinator.selectSidebarItem(favorite)
+    }
+}
+
+// MARK: - FavoriteCandidateScope
+
+/// The single rule behind the Add Favorite sheet's two lists: show what lies inside the active
+/// sidebar scope.
+///
+/// - An app scope keeps only that app, and only the domains that app contacted.
+/// - A domain scope keeps only that domain family, and only the apps that contacted it.
+/// - Both together apply both; no scope leaves both lists complete.
+///
+/// Decided this way (rather than "always list everything") because the indexes the sheet reads
+/// are already narrowed by their own scope kind and the sidebar shows them that way, so
+/// "everything" would need a capture scan per open or per keystroke. The cross-kind half uses
+/// each app's recorded hosts, so the cost is proportional to the lists, never to the capture.
+struct FavoriteCandidateScope {
+    // MARK: Lifecycle
+
+    init(apps: [AppInfo], domains: [DomainNode], sidebarApp: String?, sidebarDomain: String?) {
+        var visibleApps = apps
+        var visibleDomains = domains
+
+        if let sidebarApp {
+            visibleApps = visibleApps.filter { $0.name == sidebarApp }
+            let scopedHosts = Set(visibleApps.flatMap(\.domains).map(DomainGrouping.normalizedHost))
+            visibleDomains = visibleDomains.filter { node in
+                Self.hosts(in: node).contains { scopedHosts.contains(DomainGrouping.normalizedHost($0)) }
+            }
+        }
+        if let sidebarDomain {
+            visibleApps = visibleApps.filter { app in
+                app.domains.contains { DomainGrouping.host($0, matchesDomain: sidebarDomain) }
+            }
+            visibleDomains = visibleDomains.filter { node in
+                Self.hosts(in: node).contains { DomainGrouping.host($0, matchesDomain: sidebarDomain) }
+            }
+        }
+
+        self.apps = visibleApps
+        self.domains = visibleDomains
+        activeScopeLabel = [sidebarApp, sidebarDomain].compactMap { $0 }.joined(separator: ", ").nilIfEmpty
+    }
+
+    // MARK: Internal
+
+    let apps: [AppInfo]
+    let domains: [DomainNode]
+    let activeScopeLabel: String?
+
+    // MARK: Private
+
+    private static func hosts(in node: DomainNode) -> [String] {
+        let own = node.kind == .path ? [] : [node.selectionDomain]
+        return own + node.children.flatMap(hosts(in:))
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
