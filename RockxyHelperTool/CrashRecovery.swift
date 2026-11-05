@@ -7,6 +7,8 @@ enum CrashRecoveryError: LocalizedError {
     case backupOwnedByAnotherSession
     case backupUnreadable
 
+    // MARK: Internal
+
     var errorDescription: String? {
         switch self {
         case .backupOwnedByAnotherSession:
@@ -16,6 +18,8 @@ enum CrashRecoveryError: LocalizedError {
         }
     }
 }
+
+// MARK: - CrashRecovery
 
 /// Manages proxy settings backup and crash recovery.
 /// Stores original proxy configuration to a plist file before Rockxy overrides it.
@@ -260,7 +264,9 @@ enum CrashRecovery {
         ownerPID: Int32,
         ownerStartSignature: String,
         ownerUID: uid_t
-    ) throws -> ProxyBackup {
+    )
+        throws -> ProxyBackup
+    {
         let existingBackup = try loadBackup()
         if let existingBackup,
            !HelperBoundProcessIdentityPolicy.recordedSessionBelongsToCaller(
@@ -677,8 +683,33 @@ enum CrashRecovery {
             }
 
             do {
-                let data = try Data(contentsOf: url)
+                // Refuse loudly and keep the copy: a file this process cannot vouch for is never
+                // read, never silently skipped, and never deleted by the refusal itself.
+                let data: Data
+                do {
+                    data = try ProxyBackupFileTrust.readTrustedFile(at: url)
+                } catch let refusal as ProxyBackupFileTrust.Refusal {
+                    logger.fault("Refusing the proxy backup copy: \(refusal.description, privacy: .public)")
+                    foundUnusableCopy = true
+                    continue
+                }
                 let backup = try PropertyListDecoder().decode(ProxyBackup.self, from: data)
+                // Only the authoritative copy may be empty: recovery's own narrowing can leave it
+                // so legitimately, and refusing it would strand every later restore. A weaker-
+                // provenance copy with nothing in it is refused.
+                if let reason = ProxyBackupContentValidation.failure(
+                    ownedPort: backup.rockxyPort,
+                    serviceNames: backup.services.map(\.service),
+                    servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+                    largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+                    allowsEmptyServices: index == 0
+                ) {
+                    logger.fault(
+                        "Refusing the proxy backup at \(url.path, privacy: .public): \(reason, privacy: .public)"
+                    )
+                    foundUnusableCopy = true
+                    continue
+                }
                 guard ProxyBackupCopyPolicy.isRecoveryTruth(
                     role: backup.copyRole,
                     isAuthoritativeLocation: index == 0
@@ -747,6 +778,14 @@ enum CrashRecovery {
     private static func ensureBackupDirectoryExists(for url: URL) throws {
         let dir = url.deletingLastPathComponent()
         guard !FileManager.default.fileExists(atPath: dir.path) else {
+            // An existing directory is only as safe as its owner and mode. Writing a record into
+            // one anyone else could write to would let them swap it before it is read back.
+            do {
+                try ProxyBackupFileTrust.verifyDirectory(at: dir)
+            } catch {
+                logger.fault("Refusing the proxy backup directory: \(String(describing: error), privacy: .public)")
+                throw error
+            }
             return
         }
         try FileManager.default.createDirectory(
@@ -782,7 +821,7 @@ enum CrashRecovery {
     }
 
     private static func readBypassDomains(service: String) throws -> [String] {
-        ProxyBypassDomainOutput.parse(try readProxySettings(type: "proxybypassdomains", service: service))
+        try ProxyBypassDomainOutput.parse(readProxySettings(type: "proxybypassdomains", service: service))
     }
 
     private static func readProxySettings(type: String, service: String) throws -> String {

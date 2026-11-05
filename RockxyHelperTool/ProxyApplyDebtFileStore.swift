@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 // MARK: - ProxyApplyDebtFileStore
 
@@ -22,9 +23,26 @@ struct ProxyApplyDebtFileStore: ProxyApplyDebtStore {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return .none
         }
-        guard let data = try? Data(contentsOf: url),
-              let debt = try? JSONDecoder().decode(ProxyApplyDebt.self, from: data) else
-        {
+        // Unreadable means "an apply is assumed owed", the safe direction, so every refusal here
+        // lands there — loudly, with the path and the failing condition.
+        let data: Data
+        do {
+            data = try ProxyBackupFileTrust.readTrustedFile(at: url)
+        } catch {
+            Self.logger.fault("Refusing the apply-debt record: \(String(describing: error), privacy: .public)")
+            return .unreadable
+        }
+        guard let debt = try? JSONDecoder().decode(ProxyApplyDebt.self, from: data) else {
+            return .unreadable
+        }
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: debt.ownedPort,
+            serviceNames: debt.services,
+            allowsEmptyServices: true
+        ) {
+            Self.logger.fault(
+                "Refusing the apply-debt record at \(url.path, privacy: .public): \(reason, privacy: .public)"
+            )
             return .unreadable
         }
         return .owed(debt)
@@ -32,7 +50,9 @@ struct ProxyApplyDebtFileStore: ProxyApplyDebtStore {
 
     func save(_ debt: ProxyApplyDebt) throws {
         let directory = url.deletingLastPathComponent()
-        if !FileManager.default.fileExists(atPath: directory.path) {
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try ProxyBackupFileTrust.verifyDirectory(at: directory)
+        } else {
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
@@ -59,6 +79,11 @@ struct ProxyApplyDebtFileStore: ProxyApplyDebtStore {
     }
 
     // MARK: Private
+
+    private static let logger = Logger(
+        subsystem: RockxyIdentity.current.logSubsystem,
+        category: "ProxyApplyDebt"
+    )
 
     private let url: URL
 

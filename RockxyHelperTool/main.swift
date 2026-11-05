@@ -393,8 +393,30 @@ private enum DirectProxyWatchdog {
 
     private static func loadBackup(from backupURL: URL) -> DirectProxyBackup? {
         do {
-            let data = try Data(contentsOf: backupURL)
-            return try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
+            // Unlike the root-run helper paths, this record belongs to the user the watchdog was
+            // submitted as, so that user, not uid 0, is the owner it must have. A refusal is
+            // loud and leaves the file alone: the caller keeps retrying an unreadable record and
+            // never acts on one it could not vouch for.
+            let data: Data
+            do {
+                data = try ProxyBackupFileTrust.readTrustedFile(at: backupURL, trustedOwner: geteuid())
+            } catch let refusal as ProxyBackupFileTrust.Refusal {
+                logger.fault("Direct proxy watchdog refused its backup: \(refusal.description, privacy: .public)")
+                return nil
+            }
+            let backup = try PropertyListDecoder().decode(DirectProxyBackup.self, from: data)
+            // An emptied list is legitimate here (recovery narrows it), so only the rest is checked.
+            if let reason = ProxyBackupContentValidation.failure(
+                ownedPort: backup.rockxyPort,
+                serviceNames: backup.services.map(\.service),
+                servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+                largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+                allowsEmptyServices: true
+            ) {
+                logger.fault("Direct proxy watchdog refused its backup: \(reason, privacy: .public)")
+                return nil
+            }
+            return backup
         } catch {
             logger.error("Direct proxy watchdog could not load backup: \(error.localizedDescription)")
             return nil
