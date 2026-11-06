@@ -256,12 +256,20 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     /// The single definition of "no longer changing", shared by every off-main-actor reader.
     /// Open streams and WebSockets keep receiving frames, and TLS failures never get a row.
+    ///
+    /// A `.completed` row that still has no response is not finished either. The Babylon SDK may
+    /// report a request first and its response in a later package with the same id, and that
+    /// first package carries no end marker to distinguish it, so the mapper calls it completed.
+    /// Claiming such a row would let `BabylonCaptureMapper.applyUpdate` write `response` on the
+    /// main actor while a reader walks the same storage off it. Every proxy-built `.completed`
+    /// row carries a response, so excluding this shape costs them nothing.
     var isSettledForOffMainRead: Bool {
         !deliversLiveRow
             && webSocketConnection == nil
             && !isTLSFailure
             && state != .active
             && state != .pending
+            && !(state == .completed && response == nil)
     }
 
     /// Whether `claimForOffMainRead()` has run. Once true, `request` and `response` must not be

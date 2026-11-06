@@ -611,6 +611,31 @@ struct BabylonCaptureMapperTests {
         #expect(connection.totalPayloadSize == 3)
     }
 
+    /// The SDK may report a request first and its response in a later package with the same id,
+    /// which `applyUpdate` writes on the main actor. The first package carries no end marker, so
+    /// the mapper calls that row `.completed` while its response is still missing. It must not
+    /// look settled in between: the capture flush claims settled rows for off-main reads, and the
+    /// later write would race that reader on the same body and header storage.
+    @MainActor
+    @Test("a response-less package is not settled until its response arrives")
+    func responselessPackageIsNotSettledUntilResponseArrives() throws {
+        let opening = makeTrafficPackage(response: nil, endAt: nil)
+        let transaction = try BabylonCaptureMapper.makeTransaction(from: opening, identity: identity)
+
+        #expect(transaction.response == nil)
+        #expect(transaction.state == .completed)
+        #expect(transaction.isSettledForOffMainRead == false)
+
+        let closing = makeTrafficPackage(
+            response: .init(statusCode: 201, headers: []),
+            endAt: 101
+        )
+        try BabylonCaptureMapper.applyUpdate(closing, to: transaction)
+
+        #expect(transaction.response?.statusCode == 201)
+        #expect(transaction.isSettledForOffMainRead)
+    }
+
     // MARK: Private
 
     private let identity = BabylonCaptureIdentity(
@@ -690,6 +715,35 @@ struct BabylonCaptureMapperTests {
                 responseCompression: nil,
                 messages: messages
             )
+        )
+    }
+
+    /// A plain HTTP traffic package whose response and end marker can be left out, which is how
+    /// the SDK reports a request before its response is known.
+    private func makeTrafficPackage(
+        response: BabylonTrafficPackageDTO.Response?,
+        endAt: TimeInterval?
+    )
+        -> BabylonTrafficPackageDTO
+    {
+        BabylonTrafficPackageDTO(
+            id: "deferred-response",
+            startAt: 100,
+            request: .init(
+                url: "https://api.example.com/items",
+                method: "POST",
+                headers: [.init(key: "Content-Type", value: "text/plain")],
+                body: Data("request".utf8)
+            ),
+            response: response,
+            error: nil,
+            responseBodyData: response == nil ? Data() : Data("response".utf8),
+            endAt: endAt,
+            packageType: .http,
+            correlationContext: nil,
+            urlSessionTiming: nil,
+            websocketMessagePackage: nil,
+            grpcCapture: nil
         )
     }
 }
