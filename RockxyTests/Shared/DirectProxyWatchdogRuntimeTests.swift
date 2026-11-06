@@ -286,6 +286,31 @@ struct DirectProxyWatchdogRuntimeTests {
         #expect(Set(failures.notRunning) == [killed, exitedOne])
     }
 
+    /// `launchctl submit` leaves a job registered after it exits, and `launchctl remove` can fail,
+    /// which `install` reports as a retained superseded label. The status column then keeps that
+    /// job's last exit forever. Reading 78 and 79 whatever the PID column said let such a label
+    /// answer "refused" on every poll, so the user was told the override had no automatic restore
+    /// while a freshly submitted watchdog was watching it. A live PID means the status is stale.
+    @Test("A watchdog that is running now is not a failure, whatever its last exit said")
+    func runningJobsAreNotFailuresWhateverTheirLastStatus() {
+        let base = "com.example.watchdog"
+        let runningAfterRefusal = "\(base).\(UUID().uuidString)"
+        let runningAfterSetupFailure = "\(base).\(UUID().uuidString)"
+        let retiredRefusal = "\(base).\(UUID().uuidString)"
+        let output = """
+        PID\tStatus\tLabel
+        4242\t79\t\(runningAfterRefusal)
+        4243\t78\t\(runningAfterSetupFailure)
+        -\t79\t\(retiredRefusal)
+        """
+
+        let failures = DirectProxyWatchdogJobDiscovery.failures(in: output, baseLabel: base)
+
+        #expect(failures.refused == [retiredRefusal])
+        #expect(failures.neverRan.isEmpty)
+        #expect(failures.other.isEmpty)
+    }
+
     @Test("Production discovery surfaces a signal-killed or oddly-exited watchdog as not running")
     func managerSurfacesNonRefusalFailures() {
         let base = SystemProxyManager.directWatchdogLabel

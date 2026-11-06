@@ -191,11 +191,18 @@ enum DirectProxyWatchdogJobDiscovery {
     /// `launchctl list` status into a fault, so a signal (launchd lists those as negative numbers,
     /// e.g. SIGKILL under memory pressure) or any other non-zero status is not silently dropped.
     ///
-    /// A job with a live PID is still running, so a stale status beside it is not a failure.
-    /// Statuses 78 and 79 are classified whatever the PID column says, as they always were.
+    /// A job with a live PID is still running, so a stale status beside it is not a failure. That
+    /// holds for 78 and 79 as much as for any other status: a watchdog that refuses its backup
+    /// exits immediately, so it cannot be the one holding that PID. Reading those two whatever the
+    /// PID said let a retired label — one `launchctl remove` failed to clear, which `install`
+    /// reports as `retainedSupersededLabel` — keep answering "refused" on every poll, so the user
+    /// was told an override had no automatic restore while a freshly submitted watchdog was in
+    /// fact watching it.
     static func failures(in launchctlListOutput: String, baseLabel: String) -> DirectProxyWatchdogFailures {
         var failures = DirectProxyWatchdogFailures()
-        for (label, diagnosis, isRunning) in diagnosedJobs(in: launchctlListOutput, baseLabel: baseLabel) {
+        for (label, diagnosis, isRunning) in diagnosedJobs(in: launchctlListOutput, baseLabel: baseLabel)
+            where !isRunning
+        {
             switch diagnosis {
             case .resolved:
                 break
@@ -204,9 +211,7 @@ enum DirectProxyWatchdogJobDiscovery {
             case .neverRan:
                 failures.neverRan.append(label)
             case let .other(status):
-                if !isRunning {
-                    failures.other.append(.init(label: label, status: status))
-                }
+                failures.other.append(.init(label: label, status: status))
             }
         }
         failures.refused = Array(Set(failures.refused)).sorted()
