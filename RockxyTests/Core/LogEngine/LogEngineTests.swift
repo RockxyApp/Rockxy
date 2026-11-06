@@ -95,6 +95,26 @@ struct LogEngineTests {
         #expect(result == closeTransaction.id)
     }
 
+    @Test("Correlation preserves first ties, exclusive boundaries, and out-of-order timestamps")
+    func correlationEdgeCases() {
+        let time = Date(timeIntervalSince1970: 1_000_000)
+        func row(_ offset: TimeInterval) -> HTTPTransaction {
+            HTTPTransaction(timestamp: time.addingTimeInterval(offset), request: TestFixtures.makeRequest())
+        }
+        let entry = LogEntry(
+            id: UUID(), timestamp: time, level: .info, message: "Synthetic log",
+            source: .custom(name: "fixture"), processName: nil, subsystem: nil, category: nil, metadata: [:]
+        )
+        let first = row(0.25)
+        let equalDistance = row(-0.25)
+        let exact = row(0)
+        #expect(LogCorrelator.correlate(logEntry: entry, with: [first, equalDistance]) == first.id)
+        #expect(LogCorrelator.correlate(logEntry: entry, with: [row(10), first, exact, row(-20)]) == exact.id)
+        #expect(LogCorrelator.correlate(logEntry: entry, with: [row(1), row(-1)]) == nil)
+        #expect(LogCorrelator.correlate(logEntry: entry, with: [exact], timeWindow: 0) == nil)
+        #expect(LogCorrelator.correlate(logEntry: entry, with: [exact], timeWindow: .nan) == nil)
+    }
+
     // MARK: - LogFilterEngine Tests
 
     @Test("LogFilterEngine filters by single level")

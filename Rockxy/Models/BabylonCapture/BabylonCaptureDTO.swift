@@ -347,15 +347,18 @@ struct BabylonCaptureMetadata: Codable, Equatable {
         error: BabylonTrafficPackageDTO.CapturedError?,
         compatibilityDiagnostics: [String]
     ) {
-        clientID = boundedBabylonString(identity.clientID, bytes: 512)
+        // Ingress already rejects a client ID over the bound, so this never shortens one that
+        // arrived from a device; the bound only guards callers that build metadata directly.
+        clientID = boundedBabylonString(identity.clientID, bytes: BabylonCaptureProtocol.maximumClientIDSize)
         packageName = boundedBabylonString(identity.projectName, bytes: 120)
         bundleIdentifier = boundedBabylonString(identity.bundleIdentifier, bytes: 255)
         deviceName = boundedBabylonString(identity.deviceName, bytes: 120)
         deviceModel = boundedBabylonString(identity.deviceModel, bytes: 255)
         transportSessionID = boundedBabylonString(identity.sessionID, bytes: 128)
-        runtimeSessionID = correlation.map { boundedBabylonString($0.sessionID, bytes: 128) }
-        traceID = correlation.map { boundedBabylonString($0.traceID, bytes: 128) }
-        stepID = correlation.map { boundedBabylonString($0.stepID, bytes: 128) }
+        let correlationBound = BabylonCaptureProtocol.maximumCorrelationIdentifierSize
+        runtimeSessionID = correlation.map { boundedBabylonString($0.sessionID, bytes: correlationBound) }
+        traceID = correlation.map { boundedBabylonString($0.traceID, bytes: correlationBound) }
+        stepID = correlation.map { boundedBabylonString($0.stepID, bytes: correlationBound) }
         self.urlSessionTiming = urlSessionTiming.flatMap(BabylonURLSessionTimingMetadata.init)
         sdkVersion = capabilities.map { boundedBabylonString($0.sdkVersion, bytes: 64) }
         platform = capabilities.map { boundedBabylonString($0.platform, bytes: 64) }
@@ -385,7 +388,21 @@ struct BabylonCaptureMetadata: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        clientID = try boundedBabylonString(container.decodeIfPresent(String.self, forKey: .clientID) ?? "", bytes: 512)
+        // Rejected rather than truncated: the client ID is an identity that correlation and
+        // session keys are built from, and two long IDs sharing a prefix would collapse onto one
+        // key. Throwing is safe because `SessionCodable` decodes this field with `try?`, so an
+        // over-bound record loses only its metadata, never the transaction or the session.
+        let decodedClientID = try container.decodeIfPresent(String.self, forKey: .clientID) ?? ""
+        // Decoding reads stored records, so it uses the frozen storage bound, not the (lower)
+        // ingress bound: an earlier build may have saved a 257-512 byte identifier.
+        guard decodedClientID.utf8.count <= BabylonCaptureProtocol.maximumStoredIdentifierSize else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .clientID,
+                in: container,
+                debugDescription: "Babylon client ID is longer than the protocol allows"
+            )
+        }
+        clientID = decodedClientID
         packageName = try boundedBabylonString(
             container.decodeIfPresent(String.self, forKey: .packageName) ?? "",
             bytes: 120
@@ -404,12 +421,27 @@ struct BabylonCaptureMetadata: Codable, Equatable {
         transportSessionID = try boundedBabylonString(
             container.decodeIfPresent(String.self, forKey: .transportSessionID) ?? "", bytes: 128
         )
-        runtimeSessionID = try container.decodeIfPresent(String.self, forKey: .runtimeSessionID)
-            .map { boundedBabylonString($0, bytes: 128) }
-        traceID = try container.decodeIfPresent(String.self, forKey: .traceID)
-            .map { boundedBabylonString($0, bytes: 128) }
-        stepID = try container.decodeIfPresent(String.self, forKey: .stepID)
-            .map { boundedBabylonString($0, bytes: 128) }
+        /// Rejected rather than truncated, for the same reason as the client ID: these are the
+        /// keys correlation matches on. The bound is the frozen storage bound, not the ingress one.
+        /// An over-bound value costs the transaction its Babylon metadata, never the transaction:
+        /// `SessionCodable` decodes this record with `try?`, and the SQLite store degrades an
+        /// unreadable evidence blob to a request without evidence (bodies flagged incomplete).
+        func correlationIdentifier(_ key: CodingKeys) throws -> String? {
+            guard let value = try container.decodeIfPresent(String.self, forKey: key) else {
+                return nil
+            }
+            guard value.utf8.count <= BabylonCaptureProtocol.maximumStoredIdentifierSize else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "Babylon correlation identifier exceeds the byte bound"
+                )
+            }
+            return value
+        }
+        runtimeSessionID = try correlationIdentifier(.runtimeSessionID)
+        traceID = try correlationIdentifier(.traceID)
+        stepID = try correlationIdentifier(.stepID)
         urlSessionTiming = try container.decodeIfPresent(
             BabylonURLSessionTimingMetadata.self,
             forKey: .urlSessionTiming

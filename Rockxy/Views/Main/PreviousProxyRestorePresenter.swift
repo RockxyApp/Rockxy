@@ -106,10 +106,17 @@ enum PreviousProxyRestorePresenter {
         do {
             let result = try await SystemProxyManager.shared.restorePreviousProxySettings(entries)
             logger.info(
-                "Restored previous proxy settings on \(result.restoredServices.count) service(s); \(result.changedServices.count) changed again"
+                "Restored previous proxy settings on \(result.restoredServices.count) service(s); \(result.changedServices.count) changed again; \(result.failedServices.count) failed"
             )
             if !result.changedServices.isEmpty {
                 presentChangedAgain(services: result.changedServices)
+            }
+            // Every service is attempted now, so a failure here is a partial outcome rather
+            // than an abandoned sweep. The user still has to hear that something was left
+            // on the port capture stopped listening on.
+            if !result.isComplete {
+                logger.error("Could not restore: \(result.failedServices.joined(separator: ", "))")
+                presentFailure(error: SystemProxyError.proxyRestoreFailed)
             }
         } catch {
             logger.error("Could not restore previous proxy settings: \(error.localizedDescription)")

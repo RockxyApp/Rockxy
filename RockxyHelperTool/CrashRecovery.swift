@@ -6,6 +6,9 @@ import os
 enum CrashRecoveryError: LocalizedError {
     case backupOwnedByAnotherSession
     case backupUnreadable
+    case backupWouldNotBeReadable(reason: String)
+
+    // MARK: Internal
 
     var errorDescription: String? {
         switch self {
@@ -13,9 +16,13 @@ enum CrashRecoveryError: LocalizedError {
             "Another app process owns the existing proxy recovery backup"
         case .backupUnreadable:
             "The proxy recovery backup exists but could not be read safely"
+        case let .backupWouldNotBeReadable(reason):
+            "This Mac's proxy configuration cannot be saved for recovery: \(reason)"
         }
     }
 }
+
+// MARK: - CrashRecovery
 
 /// Manages proxy settings backup and crash recovery.
 /// Stores original proxy configuration to a plist file before Rockxy overrides it.
@@ -260,7 +267,9 @@ enum CrashRecovery {
         ownerPID: Int32,
         ownerStartSignature: String,
         ownerUID: uid_t
-    ) throws -> ProxyBackup {
+    )
+        throws -> ProxyBackup
+    {
         let existingBackup = try loadBackup()
         if let existingBackup,
            !HelperBoundProcessIdentityPolicy.recordedSessionBelongsToCaller(
@@ -376,6 +385,26 @@ enum CrashRecovery {
     /// A throw therefore means nothing was committed, which is what the callers that treat a
     /// successful write as their permission to issue a command depend on.
     static func persist(_ backup: ProxyBackup) throws {
+        // The read path refuses a record that exceeds these bounds. Writing one anyway would
+        // hand the user a configuration that can be applied but never read back: the proxy
+        // could not be enabled again, and -- worse -- a status read that cannot load the
+        // backup looks the same as owning no override, so the app would conclude it owns
+        // nothing while every service still pointed at a dead Rockxy port. The bypass list is
+        // captured from the Mac's existing settings, not written by Rockxy, so a managed list
+        // of a few thousand entries reaches this honestly. Refuse to take the proxy over
+        // instead of stranding it.
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: backup.rockxyPort,
+            serviceNames: backup.services.map(\.service),
+            servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            serviceHosts: backup.services.flatMap { [$0.httpHost, $0.httpsHost, $0.socksHost] },
+            pacURLs: backup.services.map(\.pacURL),
+            largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+            allowsEmptyServices: true
+        ) {
+            logger.fault("Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public)")
+            throw CrashRecoveryError.backupWouldNotBeReadable(reason: reason)
+        }
         guard let authoritativeURL = backupURLs.first else {
             return
         }
@@ -384,6 +413,21 @@ enum CrashRecovery {
         let encoder = PropertyListEncoder()
         let authoritativeData = try encoder.encode(backup.markedAs(.authoritative))
         let mirrorData = try encoder.encode(backup.markedAs(.mirror))
+        // The content bounds above admit 64 services of 2,048 bypass entries each, which encodes
+        // past the reader's byte limit, so a record can satisfy every field check and still be
+        // written permanently unreadable. Check the encoded size for the same reason the content
+        // is checked: a refusal here costs the user nothing, a wedge costs them their network.
+        for data in [authoritativeData, mirrorData] where data.count > ProxyBackupFileTrust.maximumFileBytes {
+            // The helper target cannot see `SizeFormatter`, and a second copy here would be the
+            // drifting private formatter the source-pinning test exists to prevent. So the error
+            // that travels to the user names the limit without a figure, and the exact unrounded
+            // counts, which only diagnosis needs, stay inside the log call.
+            let reason = "it is larger than the recovery file size limit"
+            logger.fault(
+                "Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public); it encodes to \(data.count) bytes, limit \(ProxyBackupFileTrust.maximumFileBytes) bytes"
+            )
+            throw CrashRecoveryError.backupWouldNotBeReadable(reason: reason)
+        }
 
         try ProxyBackupCommit.run(
             prepareCompatibilityCopies: {
@@ -547,8 +591,8 @@ enum CrashRecovery {
             if let inferredPort = ProxyOverrideOwnership.inferredOwnedPort(in: overrideStates) {
                 return inferredPort
             }
-            let status = ProxyConfigurator.getCurrentStatus()
-            return status.isOverridden ? status.port : nil
+            // Only a proven port may stand in for the recorded one; "cannot tell" has none.
+            return ProxyConfigurator.currentStatusReading().provenPort
         }
         let ownedPort = backup.rockxyPort ?? fallbackPort()
         guard backup.recoveryPending || ownedPort != nil else {
@@ -677,8 +721,35 @@ enum CrashRecovery {
             }
 
             do {
-                let data = try Data(contentsOf: url)
+                // Refuse loudly and keep the copy: a file this process cannot vouch for is never
+                // read, never silently skipped, and never deleted by the refusal itself.
+                let data: Data
+                do {
+                    data = try ProxyBackupFileTrust.readTrustedFile(at: url)
+                } catch let refusal as ProxyBackupFileTrust.Refusal {
+                    logger.fault("Refusing the proxy backup copy: \(refusal.description, privacy: .public)")
+                    foundUnusableCopy = true
+                    continue
+                }
                 let backup = try PropertyListDecoder().decode(ProxyBackup.self, from: data)
+                // Only the authoritative copy may be empty: recovery's own narrowing can leave it
+                // so legitimately, and refusing it would strand every later restore. A weaker-
+                // provenance copy with nothing in it is refused.
+                if let reason = ProxyBackupContentValidation.failure(
+                    ownedPort: backup.rockxyPort,
+                    serviceNames: backup.services.map(\.service),
+                    servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+                    serviceHosts: backup.services.flatMap { [$0.httpHost, $0.httpsHost, $0.socksHost] },
+                    pacURLs: backup.services.map(\.pacURL),
+                    largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+                    allowsEmptyServices: index == 0
+                ) {
+                    logger.fault(
+                        "Refusing the proxy backup at \(url.path, privacy: .public): \(reason, privacy: .public)"
+                    )
+                    foundUnusableCopy = true
+                    continue
+                }
                 guard ProxyBackupCopyPolicy.isRecoveryTruth(
                     role: backup.copyRole,
                     isAuthoritativeLocation: index == 0
@@ -747,6 +818,14 @@ enum CrashRecovery {
     private static func ensureBackupDirectoryExists(for url: URL) throws {
         let dir = url.deletingLastPathComponent()
         guard !FileManager.default.fileExists(atPath: dir.path) else {
+            // An existing directory is only as safe as its owner and mode. Writing a record into
+            // one anyone else could write to would let them swap it before it is read back.
+            do {
+                try ProxyBackupFileTrust.verifyDirectory(at: dir)
+            } catch {
+                logger.fault("Refusing the proxy backup directory: \(String(describing: error), privacy: .public)")
+                throw error
+            }
             return
         }
         try FileManager.default.createDirectory(
@@ -782,7 +861,7 @@ enum CrashRecovery {
     }
 
     private static func readBypassDomains(service: String) throws -> [String] {
-        ProxyBypassDomainOutput.parse(try readProxySettings(type: "proxybypassdomains", service: service))
+        try ProxyBypassDomainOutput.parse(readProxySettings(type: "proxybypassdomains", service: service))
     }
 
     private static func readProxySettings(type: String, service: String) throws -> String {
@@ -806,18 +885,27 @@ enum CrashRecovery {
             )
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: networkSetupPath)
-        process.arguments = ["-get\(type)", service]
+        let result: BoundedHelperCommand.CapturedOutput
+        do {
+            result = try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: networkSetupPath),
+                arguments: ["-get\(type)", service],
+                timeout: BoundedHelperCommand.networkConfigurationTimeout
+            )
+        } catch {
+            // This reading becomes the backup the restore is measured against, so a command that
+            // was killed or overran its budget has to throw. Returning the empty string here
+            // would record "no proxy configured" for a service that has one.
+            throw ProxyConfiguratorError.executionFailed(
+                command: "-get\(type)",
+                reason: String(describing: error)
+            )
+        }
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        try process.run()
-        process.waitUntilExit()
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+        // Decoded leniently, and the exit status is deliberately not inspected: the previous
+        // reader also returned whatever the tool printed, and the parsers treat an unrecognized
+        // reading as absent.
+        // swiftlint:disable:next optional_data_string_conversion
+        return String(decoding: result.standardOutput, as: UTF8.self)
     }
 }

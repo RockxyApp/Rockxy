@@ -443,8 +443,19 @@ struct SensitiveDataRedactor {
     {
         let readable = Self.readableBody(body, headers: headers)
         let hasContentEncoding = headers.contains { $0.name.lowercased() == "content-encoding" }
-        let omitUninspectableBody = hasContentEncoding && body != nil
-            && (!readable.didDecode || readable.body.flatMap { String(data: $0, encoding: .utf8) } == nil)
+        // `redactBody` can only redact what it can read as text, and it returns a body it
+        // cannot decode UNCHANGED. So "not inspectable" has to be enough on its own to omit:
+        // gating it on `Content-Encoding` meant a binary body with no such header -- a
+        // protobuf or gRPC payload, say -- was handed back verbatim and then published to a
+        // Gist or written to an export in full, while the UI reported redaction as on and the
+        // headers beside it really had been scrubbed.
+        //
+        // The decode half stays as it was: a body whose declared encoding could not be
+        // decoded is omitted even when the raw bytes happen to read as text, because what
+        // redaction inspected is then not what the sender sent.
+        let bodyIsInspectable = readable.body.flatMap { String(data: $0, encoding: .utf8) } != nil
+        let omitUninspectableBody = body != nil
+            && (!bodyIsInspectable || (hasContentEncoding && !readable.didDecode))
         let retainedHeaders = (readable.didDecode || omitUninspectableBody)
             ? headers.filter { header in
                 let name = header.name.lowercased()

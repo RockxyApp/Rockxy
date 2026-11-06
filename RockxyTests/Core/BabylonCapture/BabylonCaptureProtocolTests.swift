@@ -197,4 +197,34 @@ struct BabylonCaptureProtocolTests {
         #expect(BabylonGzipCodec.gunzip(compressed, maximumOutputSize: 4_095) == nil)
         #expect(BabylonGzipCodec.gunzip(compressed, maximumOutputSize: 4_096) == original)
     }
+
+    @Test("Babylon gzip validates header CRC and consumes every concatenated member")
+    func gzipStreamIntegrity() throws {
+        let body = Data("protocol payload".utf8)
+        let member = try #require(BabylonGzipCodec.gzip(body))
+        let concatenated = member + member
+        #expect(BabylonGzipCodec.gunzip(concatenated, maximumOutputSize: body.count * 2) == body + body)
+        #expect(BabylonGzipCodec.gunzip(concatenated, maximumOutputSize: body.count * 2 - 1) == nil)
+        #expect(BabylonGzipCodec.gunzip(member + Data([1]), maximumOutputSize: 1_024) == nil)
+        var badSecond = member
+        badSecond[badSecond.count - 8] ^= 1
+        #expect(BabylonGzipCodec.gunzip(member + badSecond, maximumOutputSize: 1_024) == nil)
+        // Valid independent gzip fixture with FHCRC; corrupt only its header checksum.
+        var headerCRC = try #require(Data(base64Encoded: "H4sIAgAAAAAC/xKrKyjKL8lPzs9RKEiszMlPTAEAjEd+EhAAAAA="))
+        #expect(BabylonGzipCodec.gunzip(headerCRC, maximumOutputSize: 1_024) == body)
+        headerCRC[11] ^= 1
+        #expect(BabylonGzipCodec.gunzip(headerCRC, maximumOutputSize: 1_024) == nil)
+    }
+
+    @Test("Babylon protocol decompression keeps its budget independently of HTTP bodies")
+    func gzipProtocolBudget() throws {
+        let body = Data(repeating: 0x41, count: 50 * 1_024 * 1_024 + 1)
+        let member = try #require(BabylonGzipCodec.gzip(body))
+        #expect(BabylonGzipCodec
+            .gunzip(member, maximumOutputSize: BabylonCaptureProtocol.maximumDecompressedSize) == body)
+        #expect(BabylonGzipCodec.gunzip(member, maximumOutputSize: body.count - 1) == nil)
+        let httpBody = BodyDecoder.decodeReportingChange(member, encoding: "gzip")
+        #expect(!httpBody.didDecode)
+        #expect(httpBody.data == member)
+    }
 }

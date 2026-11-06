@@ -39,7 +39,7 @@ enum MapLocalError: Error, CustomStringConvertible {
 enum MapLocalDirectoryResolver {
     // MARK: Internal
 
-    struct ResolvedFile {
+    struct ResolvedFile: Sendable {
         let url: URL
         let data: Data
         let mimeType: String
@@ -61,6 +61,28 @@ enum MapLocalDirectoryResolver {
     {
         let subpath = extractSubpath(requestPath: requestPath, urlPattern: urlPattern)
         return serve(subpath: subpath, directoryPath: directoryPath)
+    }
+
+    /// Resolves a request to a local file off the caller's thread, reporting the result through
+    /// `completion` on the Map Local file-I/O queue. The proxy handlers resolve from a NIO event
+    /// loop, where the blocking filesystem work below stalled every connection on that loop.
+    ///
+    /// Reports the resolved file or `nil`: the callers only choose between serving the file and
+    /// falling back to the origin, and `MapLocalError.readError` carries an arbitrary `Error`
+    /// that cannot cross a concurrency boundary.
+    static func resolve(
+        requestURL: String,
+        matchContext: MapLocalMatchContext,
+        directoryPath: String,
+        completion: @escaping @Sendable (ResolvedFile?) -> Void
+    ) {
+        MapLocalFileIO.perform {
+            completion(try? resolve(
+                requestURL: requestURL,
+                matchContext: matchContext,
+                directoryPath: directoryPath
+            ).get())
+        }
     }
 
     /// Resolves a request to a local file using the authored match context the editor

@@ -412,8 +412,8 @@ extension MainContentCoordinator {
     /// active Project's runtime capture projection.
     func rebuildAllWorkspacesForCaptureReplacement() {
         for workspace in workspaceStore.allWorkspaces {
-            rebuildSidebarIndexes(for: workspace)
-            recomputeFilteredTransactions(for: workspace)
+            CaptureRetentionProfiler.measure(.sidebarIndexes) { rebuildSidebarIndexes(for: workspace) }
+            CaptureRetentionProfiler.measure(.filteredRows) { recomputeFilteredTransactions(for: workspace) }
         }
         TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
     }
@@ -479,11 +479,7 @@ extension MainContentCoordinator {
         resetTrafficMetrics()
         recordTrafficMetrics(for: transactions)
         rebuildObservedDomainsByApp()
-        debugAssistantTransactionsByHost.removeAll()
-        debugAssistantIndexedTransactionIDs.removeAll()
-        debugAssistantIndexedLiveCount = 0
-        debugAssistantTrafficIndexGeneration &+= 1
-        appendToDebugAssistantTrafficIndex(transactions)
+        rebuildDebugAssistantTrafficIndex()
         headerColumnStore.updateDiscoveredHeaders(from: transactions)
     }
 

@@ -3,31 +3,25 @@ import Foundation
 import os
 
 extension MainContentCoordinator {
-    func configureBabylonCaptureIntake() {
+    @discardableResult
+    func configureBabylonCaptureIntake() -> Task<Void, Never> {
         let manager = sessionManager
-        Task {
-            await manager.setOnBatchReady { [weak self] batch, generation in
-                guard let self else {
-                    return
-                }
-                Task { @MainActor in
-                    self.processBatch(batch, generation: generation)
-                }
-            }
-            await manager.setOnClientAppEnriched { [weak self] enrichedTransactions in
-                guard let self else {
-                    return
-                }
-                Task { @MainActor in
-                    self.handleClientAppEnrichment(enrichedTransactions)
-                }
-            }
+        return Task {
+            await configureSessionDeliveryCallbacks()
             let settings = AppSettingsStorage.load()
             let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
             liveHistoryLimit = max(1, effectiveBufferSize)
             await manager.setMaxBufferSize(effectiveBufferSize)
             await manager.setProxyPort(activeProxyPort)
-            await manager.startBatchTimer()
+            // Declare Babylon as a producer only while its receiver is actually accepting
+            // connections. This ran at every launch regardless, which is why the flush
+            // loop stayed alive for the whole process even for someone who never turns
+            // Babylon on -- and why the proxy's own Stop could not end it. A receiver
+            // enabled later needs no declaration: its first delivery arms the loop, and
+            // the loop retires itself once nothing is buffered.
+            if BabylonCaptureReceiver.shared.isEnabled {
+                await manager.startBatchTimer(for: .babylon)
+            }
         }
     }
 
@@ -35,7 +29,7 @@ extension MainContentCoordinator {
     /// only refreshes a row that is still live, so it can never add the same row a second time when
     /// it overtakes the first delivery; that first delivery then adds the already-finished row.
     func receiveBabylonTransaction(_ transaction: HTTPTransaction, isUpdate: Bool = false) async {
-        guard captureRecordingGate.allowsCapture() else {
+        guard isUpdate || captureRecordingGate.allowsCapture() else {
             return
         }
         guard await ensureProjectCatalogReadyForDataIntake() else {
@@ -43,7 +37,10 @@ extension MainContentCoordinator {
             return
         }
         transaction.assignCaptureContextIfMissing(activeCaptureContext)
-        await sessionManager.addTransaction(transaction, acceptsNewRows: !isUpdate)
+        await sessionManager.addTransaction(
+            transaction,
+            acceptsNewRows: !isUpdate && captureRecordingGate.allowsCapture()
+        )
     }
 
     func registerBabylonCapture(identity: BabylonCaptureIdentity) async {
@@ -124,19 +121,26 @@ extension MainContentCoordinator {
     )
         -> String
     {
-        var tokens: [String] = []
-        if let sourceClientID {
-            let escapedClientID = sourceClientID
+        // Every value is quoted and escaped. Ingress forbids whitespace and control characters in
+        // these identifiers, but a session imported from a file or a nearby transfer is not
+        // ingress, and an unquoted space would split the filter into extra tokens that select
+        // other traffic.
+        func quoted(_ value: String) -> String {
+            let escaped = value
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "\"", with: "\\\"")
-            tokens.append("source:\"\(escapedClientID)\"")
+            return "\"\(escaped)\""
+        }
+        var tokens: [String] = []
+        if let sourceClientID {
+            tokens.append("source:\(quoted(sourceClientID))")
         }
         if let sessionID {
-            tokens.append("session:\(sessionID)")
+            tokens.append("session:\(quoted(sessionID))")
         }
-        tokens.append("trace:\(traceID)")
+        tokens.append("trace:\(quoted(traceID))")
         if let stepID {
-            tokens.append("step:\(stepID)")
+            tokens.append("step:\(quoted(stepID))")
         }
         return tokens.joined(separator: " ")
     }

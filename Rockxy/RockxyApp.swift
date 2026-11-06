@@ -709,7 +709,17 @@ struct RockxyMenuCommands: Commands {
     /// silently doing nothing, so ⌘O / ⌥⌘N / ⌘K keep working from any window.
     private var proxyActions: MainContentCommandActions { actions ?? MainContentCommandActions(coordinator: coordinator) }
 
+    /// "Never" disables only the acquiring direction; switching an existing override off stays on.
+    private var systemProxyUnavailableReason: String? {
+        AutomaticSystemProxyRouting.acquisitionUnavailableReason(
+            storedMode: storedRoutingMode,
+            isOverrideActive: coordinator.isSystemProxyConfigured
+        )
+    }
+
     @AppStorage(NoCacheHeaderMutator.userDefaultsKey) private var isNoCachingEnabled = false
+    @AppStorage(AutomaticSystemProxyRouting.modeDefaultsKey) private var storedRoutingMode = ""
+
     @StateObject private var externalProxyMenuState = ExternalProxyMenuState()
 
     private let certificateRouter = CertificateMenuActionRouter()
@@ -1077,13 +1087,13 @@ struct RockxyMenuCommands: Commands {
             Button(String(localized: "Start Proxy", bundle: RockxyLocalization.bundle)) {
                 proxyActions.startProxy()
             }
-            .disabled(proxyActions.isProxyRunning)
+            .disabled(!proxyActions.canStartProxy)
 
             Button(String(localized: "Stop Proxy", bundle: RockxyLocalization.bundle)) {
                 proxyActions.stopProxy()
             }
             .keyboardShortcut(".", modifiers: [.command])
-            .disabled(!proxyActions.isProxyRunning)
+            .disabled(!proxyActions.canStopProxy)
 
             Button(
                 !proxyActions.isRecording
@@ -1099,7 +1109,8 @@ struct RockxyMenuCommands: Commands {
                 proxyActions.toggleSystemProxyOverride()
             }
             .keyboardShortcut("o", modifiers: [.command, .option])
-            .disabled(!proxyActions.canToggleSystemProxyOverride)
+            .disabled(!proxyActions.canToggleSystemProxyOverride || systemProxyUnavailableReason != nil)
+            .help(systemProxyUnavailableReason ?? "")
 
             Divider()
 

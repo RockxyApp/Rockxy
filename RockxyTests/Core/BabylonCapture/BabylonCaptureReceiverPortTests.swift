@@ -10,6 +10,8 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct BabylonCaptureReceiverPortTests {
+    // MARK: Internal
+
     @Test("When the preferred port is taken the receiver listens on another port")
     func fallsBackWhenPortIsTaken() async throws {
         let holder = try await Self.boundListener()
@@ -44,7 +46,7 @@ struct BabylonCaptureReceiverPortTests {
 
     @Test("The receiver stays off until the person turns it on, and remembers the choice")
     func receiverIsOptIn() async throws {
-        let suiteName = "BabylonReceiverOptIn-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "BabylonReceiverOptIn-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let probe = try await Self.boundListener()

@@ -5,9 +5,9 @@ import Testing
 @MainActor
 struct DeveloperSetupPinnedStoreTests {
     @Test("Pinned store defaults to the curated pinned targets")
-    func defaultPinnedTargets() {
-        let suiteName = "DeveloperSetupPinnedStoreDefaults-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
+    func defaultPinnedTargets() throws {
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "DeveloperSetupPinnedStoreDefaults-")
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = DeveloperSetupPinnedStore(
@@ -19,9 +19,9 @@ struct DeveloperSetupPinnedStoreTests {
     }
 
     @Test("Pinned store persists pin changes")
-    func persistsPinChanges() {
-        let suiteName = "DeveloperSetupPinnedStorePersistence-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
+    func persistsPinChanges() throws {
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "DeveloperSetupPinnedStorePersistence-")
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let store = DeveloperSetupPinnedStore(

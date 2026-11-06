@@ -350,11 +350,11 @@ struct WebSocketFrameHandlerTests {
 
     @Test("Client-first close completes the shared lifecycle exactly once")
     func clientFirstCloseCompletesOnce() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
         var payload = pair.client.allocator.buffer(capacity: 2)
         payload.writeInteger(UInt16(1_000))
-        try pair.client.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))
+        try await pair.client.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))
 
         pair.client.pipeline.fireChannelInactive()
         pair.server.pipeline.fireChannelInactive()
@@ -363,19 +363,19 @@ struct WebSocketFrameHandlerTests {
         #expect(pair.states.value == [.active, .completed])
         #expect(pair.releases.value == 1)
         #expect(pair.transaction.webSocketConnection?.frames.count == 1)
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("Server-first close completes the shared lifecycle exactly once")
     func serverFirstCloseCompletesOnce() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
         var text = pair.server.allocator.buffer(capacity: 3)
         text.writeString("bye")
-        try pair.server.writeInbound(WebSocketFrame(fin: true, opcode: .text, data: text))
+        try await pair.server.writeInbound(WebSocketFrame(fin: true, opcode: .text, data: text))
         var close = pair.server.allocator.buffer(capacity: 2)
         close.writeInteger(UInt16(1_000))
-        try pair.server.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: close))
+        try await pair.server.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: close))
 
         pair.server.pipeline.fireChannelInactive()
         pair.client.pipeline.fireChannelInactive()
@@ -384,12 +384,12 @@ struct WebSocketFrameHandlerTests {
         #expect(pair.states.value == [.active, .completed])
         #expect(pair.releases.value == 1)
         #expect(pair.transaction.webSocketConnection?.frames.count == 2)
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("Abrupt disconnect without a close frame still completes exactly once")
     func abruptDisconnectCompletesOnce() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
 
         pair.server.pipeline.fireChannelInactive()
@@ -399,12 +399,12 @@ struct WebSocketFrameHandlerTests {
 
         #expect(pair.states.value == [.active, .completed])
         #expect(pair.releases.value == 1)
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("A forwarding error marks the WebSocket failed and completes it exactly once")
     func forwardingErrorMarksFailed() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
 
         pair.client.pipeline.fireErrorCaught(ChannelError.ioOnClosedChannel)
@@ -416,28 +416,28 @@ struct WebSocketFrameHandlerTests {
         #expect(pair.states.value == [.active, .failed])
         #expect(pair.transaction.state == .failed)
         #expect(pair.releases.value == 1)
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("A transport error after a close frame is still a clean close")
     func errorAfterCloseFrameIsClean() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
         var payload = pair.client.allocator.buffer(capacity: 2)
         payload.writeInteger(UInt16(1_000))
-        try pair.client.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))
+        try await pair.client.writeInbound(WebSocketFrame(fin: true, opcode: .connectionClose, data: payload))
 
         pair.server.pipeline.fireErrorCaught(ChannelError.ioOnClosedChannel)
         pair.server.pipeline.fireChannelInactive()
         await pair.settle()
 
         #expect(pair.states.value == [.active, .completed])
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("A TLS peer closing without close_notify is not a failure")
     func uncleanTLSShutdownIsClean() async throws {
-        let pair = try WebSocketRelayPair()
+        let pair = try await WebSocketRelayPair()
         pair.lifecycle.open(pair.transaction)
 
         pair.server.pipeline.fireErrorCaught(NIOSSLError.uncleanShutdown)
@@ -445,7 +445,7 @@ struct WebSocketFrameHandlerTests {
         await pair.settle()
 
         #expect(pair.states.value == [.active, .completed])
-        pair.finish()
+        await pair.finish()
     }
 
     @Test("A failure reported after completion does not rewrite the final state")
@@ -551,10 +551,15 @@ private final class WebSocketTransactionRecorder: @unchecked Sendable {
 
 /// Client-facing and upstream relays wired to each other through a shared lifecycle,
 /// mirroring how an upgraded proxied WebSocket is assembled.
+///
+/// Only `async` tests use this helper, so both ends are `NIOAsyncTestingChannel`s sharing one
+/// `NIOAsyncTestingEventLoop`. `EmbeddedChannel` traps when touched from any thread but the one
+/// that built it, and an `async` test body resumes on whichever cooperative thread is free after
+/// each suspension. The async testing loop is thread-safe and is pumped with `await`.
 private struct WebSocketRelayPair {
     // MARK: Lifecycle
 
-    init() throws {
+    init() async throws {
         let request = TestFixtures.makeRequest(url: "ws://127.0.0.1/socket")
         let connection = WebSocketConnection(upgradeRequest: request)
         let transaction = HTTPTransaction(request: request, state: .active, webSocketConnection: connection)
@@ -564,28 +569,37 @@ private struct WebSocketRelayPair {
             onTransactionComplete: { states.record($0.state) },
             onChannelClosed: { releases.record() }
         )
-        let client = EmbeddedChannel()
-        let server = EmbeddedChannel()
-        try client.pipeline.syncOperations.addHandler(WebSocketFrameHandler(
+        let loop = NIOAsyncTestingEventLoop()
+        let client = NIOAsyncTestingChannel(loop: loop)
+        let server = NIOAsyncTestingChannel(loop: loop)
+        let clientRelay = WebSocketFrameHandler(
             direction: .sent,
             peerChannel: server,
             webSocketConnection: connection,
             parentTransaction: transaction,
             onTransactionComplete: { _ in },
             lifecycle: lifecycle
-        ))
-        try server.pipeline.syncOperations.addHandler(WebSocketFrameHandler(
+        )
+        let serverRelay = WebSocketFrameHandler(
             direction: .received,
             peerChannel: client,
             webSocketConnection: connection,
             parentTransaction: transaction,
             onTransactionComplete: { _ in },
             lifecycle: lifecycle
-        ))
+        )
+        // Handlers are installed on the loop, as they would be in production.
+        try await loop.executeInContext {
+            try client.pipeline.syncOperations.addHandler(clientRelay)
+            try server.pipeline.syncOperations.addHandler(serverRelay)
+        }
+        try await client.register()
+        try await server.register()
         self.transaction = transaction
         self.states = states
         self.releases = releases
         self.lifecycle = lifecycle
+        self.loop = loop
         self.client = client
         self.server = server
     }
@@ -596,16 +610,21 @@ private struct WebSocketRelayPair {
     let states: WebSocketStateRecorder
     let releases: WebSocketEventCount
     let lifecycle: WebSocketLifecycle
-    let client: EmbeddedChannel
-    let server: EmbeddedChannel
+    let loop: NIOAsyncTestingEventLoop
+    let client: NIOAsyncTestingChannel
+    let server: NIOAsyncTestingChannel
 
     func settle() async {
+        // Events fired from the test body hop onto the loop; run it until the close cascade
+        // between the two relays has fully propagated before the main-actor hop below.
+        await loop.run()
         await Task.yield()
         await MainActor.run {}
+        await loop.run()
     }
 
-    func finish() {
-        _ = try? client.finish(acceptAlreadyClosed: true)
-        _ = try? server.finish(acceptAlreadyClosed: true)
+    func finish() async {
+        _ = try? await client.finish(acceptAlreadyClosed: true)
+        _ = try? await server.finish(acceptAlreadyClosed: true)
     }
 }

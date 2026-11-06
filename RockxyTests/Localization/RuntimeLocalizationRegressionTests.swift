@@ -232,7 +232,8 @@ struct RuntimeLocalizationRegressionTests {
         let source = try readProjectFile("Rockxy/Views/Inspector/ResponseInspectorView.swift")
         // Editor product names ("Code", "Cursor", …) render verbatim, never through the catalog.
         #expect(source.contains("Text(verbatim: editor.name)"))
-        #expect(source.contains("ResponseBodyEditor(name: \"Code\""))
+        let editor = try #require(ResponseBodyEditor.candidates.first { $0.bundleIdentifier == "com.microsoft.VSCode" })
+        #expect(editor.name == "Code")
         #expect(!source.contains("Label(\"Code\""))
         #expect(!source.contains("localized: \"Code\""))
     }

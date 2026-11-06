@@ -12,6 +12,10 @@ protocol RockxyHelperProtocol {
     func restoreSystemProxy(withReply reply: @escaping (Bool, String?) -> Void)
 
     /// Check current proxy state: (isOverridden, currentPort).
+    ///
+    /// The pair is the wire form of `HelperProxyStatusReading`, which has three answers, not two:
+    /// a helper that cannot tell replies `(true, HelperProxyStatusReading.undeterminablePort)`.
+    /// Read it through `HelperProxyStatusReading(isOverridden:port:)`, never as a bare Bool.
     func getProxyStatus(withReply reply: @escaping (Bool, Int) -> Void)
 
     /// Return structured helper info: binaryVersion, buildNumber, protocolVersion.
@@ -91,4 +95,63 @@ protocol RockxyHelperProtocol {
 
     /// Set the system proxy bypass domain list on all enabled network services.
     func setBypassDomains(_ domains: [String], withReply reply: @escaping (Bool, String?) -> Void)
+}
+
+// MARK: - HelperProxyStatusReading
+
+/// What the helper can honestly say about the system proxy override.
+///
+/// "No override" and "I could not read my own restore point" used to share one answer,
+/// `(false, 0)`. The second is not an absence: networksetup may still point every service at a
+/// dead loopback port, and a caller that read it as "nothing to restore" would stop looking.
+///
+/// The XPC reply stays `(Bool, Int)` so no protocol version moves and an older app keeps working.
+/// `.undeterminable` travels as `(true, -1)`: the side older callers fail safe on. An old app
+/// that checks `isOverridden && port == expected` finds no match (-1 is never a port), and one
+/// that asks "is it still overridden?" before declaring a restore complete gets "yes". Only the
+/// answer that is a lie, `(false, 0)`, is no longer sent for a record that could not be read.
+enum HelperProxyStatusReading: Equatable {
+    /// Nothing of Rockxy's is in place: no restore point exists, or the services are not ours.
+    case notOverridden
+    /// Every checked service points at Rockxy on `port`.
+    case overridden(port: Int)
+    /// A restore point may exist but could not be read, or the live settings could not be read
+    /// while one does. Neither "overridden" nor "clear" is known.
+    case undeterminable
+
+    // MARK: Lifecycle
+
+    /// Decodes the XPC reply. An "overridden" reply whose port is not a real port is
+    /// undeterminable, not a match for any port.
+    init(isOverridden: Bool, port: Int) {
+        guard isOverridden else {
+            self = .notOverridden
+            return
+        }
+        self = (1 ... 65_535).contains(port) ? .overridden(port: port) : .undeterminable
+    }
+
+    // MARK: Internal
+
+    /// Not a port. Carried in the `port` slot of an "overridden" reply to mean "cannot tell".
+    static let undeterminablePort = -1
+
+    var wire: (isOverridden: Bool, port: Int) {
+        switch self {
+        case .notOverridden:
+            (false, 0)
+        case let .overridden(port):
+            (true, port)
+        case .undeterminable:
+            (true, Self.undeterminablePort)
+        }
+    }
+
+    /// The port only a proven override carries.
+    var provenPort: Int? {
+        if case let .overridden(port) = self {
+            return port
+        }
+        return nil
+    }
 }

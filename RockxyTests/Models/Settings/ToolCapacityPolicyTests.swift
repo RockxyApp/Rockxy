@@ -101,7 +101,7 @@ struct ToolCapacityPolicyTests {
     }
 
     private func isolatedDefaults() throws -> (UserDefaults, String) {
-        let suite = "ToolCapacityPolicyTests-\(UUID().uuidString)"
-        return (try #require(UserDefaults(suiteName: suite)), suite)
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ToolCapacityPolicyTests-")
+        return try (#require(UserDefaults(suiteName: suite)), suite)
     }
 }

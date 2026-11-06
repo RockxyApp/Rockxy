@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import os
 
 // Defines `HTTPTransaction`, the model for http transaction used by proxy, storage, and
 // inspection flows.
@@ -8,8 +9,17 @@ import Foundation
 
 /// The central model for a proxied HTTP exchange — pairs a request with its response,
 /// lifecycle state, timing breakdown, and optional protocol-specific data (WebSocket, GraphQL, Web3 RPC).
-/// Uses `@Observable` for SwiftUI reactivity; marked `@unchecked Sendable` because mutations
-/// only occur on the main actor after the proxy pipeline delivers completed transactions.
+/// Uses `@Observable` for SwiftUI reactivity.
+///
+/// `@unchecked Sendable` is a promise, not a proof, and it holds only under this contract:
+/// - A *settled* transaction (`isSettledForOffMainRead`) is read off the main actor by the
+///   session actor's delivery warm-up, which claims it via `claimForOffMainRead()`. Nothing may
+///   write its `request` or `response` after that. Debug builds trap if something does.
+/// - Rows that keep changing after delivery — `deliversLiveRow` streams and WebSockets — are
+///   mutated on the main actor, and are never claimed for an off-main read.
+/// - `clientApp` and the Babylon correlation are written after delivery to any row, but they are
+///   distinct stored properties the warm-up never reads.
+/// A producer that hands over a transaction it will still mutate must not make it settled.
 @Observable
 final class HTTPTransaction: Identifiable, @unchecked Sendable {
     // MARK: Lifecycle
@@ -56,73 +66,25 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
 
     let id: UUID
     let timestamp: Date
-    /// Values of body columns, keyed by column, kept once the transaction has finished.
+    /// Values of body columns, keyed by column, invalidated whenever request or response evidence changes.
     @ObservationIgnored let customColumnValueCache = CustomColumnValueCache()
-    var state: TransactionState
+    /// Rendering revision, separate from body-analysis caches so cosmetic updates stay cheap.
+    @ObservationIgnored private(set) var listPresentationRevision: UInt64 = 0
     /// Whether this transaction reaches the session twice — as an `.active` row when it opens
     /// and again when it finishes. Fixed at creation because the two deliveries travel through
     /// independent tasks: by the time the opening one is taken in, `state` may already read
     /// `.completed`, so routing on the live `state` could append the same transaction twice.
     @ObservationIgnored var deliversLiveRow: Bool
-    var timingInfo: TimingInfo?
-    var measuredDuration: TimeInterval?
-
-    /// Live SSE stream diagnostics, present only for `text/event-stream` responses
-    /// observed through the proxy. `nil` for non-streaming and imported traffic.
-    var streamDiagnostics: StreamDiagnostics?
-    var webSocketConnection: WebSocketConnection?
-    var graphQLInfo: GraphQLInfo?
-    var web3RPCInfo: Web3RPCInfo?
-    var x402Info: X402Info?
-    /// Call shape supplied by a typed Babylon gRPC capture. Persisted for inspection; the
-    /// framed request/response remain the source of truth for message bytes.
-    var babylonGRPCCallType: String?
-    /// Bounded source, producer capability, correlation, and app-reported error metadata.
-    /// Older sessions omit this optional field.
-    var babylonCaptureMetadata: BabylonCaptureMetadata?
-    var sourcePort: UInt16?
-    var clientApp: String?
-
-    /// Runtime-only owning application identity resolved from the accepted connection. Used
-    /// for application-scoped SSL proxying attribution. Portable session files intentionally
-    /// omit this — it is local to a live capture and never persisted or exported.
-    var clientApplicationIdentity: ClientApplicationIdentity?
     /// Runtime-only, privacy-preserving scope used by TLS rejection recovery. Local clients use
     /// their application identity; remote clients use a one-way network identifier. The value is
     /// intentionally omitted from portable sessions and exports.
     var tlsClientScopeIdentifier: String?
-    var comment: String?
-    var highlightColor: HighlightColor?
-    var isPinned: Bool = false
-    var isSaved: Bool = false
     /// Loaded from a file or a nearby transfer instead of captured live. The live history cap
     /// neither counts nor evicts imported rows: an import is never trimmed.
     var isImported: Bool = false
-    /// Draws the row with struck-through text so a request can be marked as ignorable.
-    var isStruckThrough: Bool = false
-    var isTLSFailure: Bool = false
-    /// See `SSLCaptureMode`. Live captures always stamp this: raw tunnels record `.tunneled` and
-    /// `HTTPSProxyRelayHandler` stamps every decrypted transaction `.intercepted`. `nil` therefore
-    /// only occurs on legacy/reloaded/imported transactions whose capture disposition was not
-    /// persisted (and on TLS-failure rows, which are never shown in the request list).
-    var sslCapture: SSLCaptureMode?
     /// Why a raw tunnel was not decrypted, recorded at capture time. `nil` for decrypted traffic
     /// and for rows captured before this was recorded.
     var tunnelReason: TunnelReason?
-    /// The Babylon runtime session, trace, and step the app made this request in. `nil` for
-    /// proxied traffic and for Babylon captures sent without a trace.
-    var babylonCorrelation: BabylonCorrelation?
-    var webSocketFrameVersion: Int = 0
-    var matchedRuleID: UUID?
-    var matchedRuleName: String?
-    var matchedRuleActionSummary: String?
-    var matchedRulePattern: String?
-    /// Names of scripts whose request or response hook ran for this exchange.
-    var appliedScriptNames: [String] = []
-    /// Preview tabs scripts published for this exchange (`context.previewTabs`).
-    var scriptPreviews: [ScriptPreviewTab] = []
-    /// True when No Caching rewrote this exchange's cache headers.
-    var noCachingApplied = false
     /// Protocol Rockxy used to reach the server (`1.1` or `2`); nil for tunnels, local
     /// responses, and sessions saved before it was recorded.
     var serverHTTPVersion: String?
@@ -134,17 +96,186 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
     /// an imported capture is assigned to the destination Project chosen by the user.
     private(set) var captureContext: TrafficCaptureContext?
 
+    var state: TransactionState {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var timingInfo: TimingInfo? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var measuredDuration: TimeInterval? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Live SSE stream diagnostics, present only for `text/event-stream` responses
+    /// observed through the proxy. `nil` for non-streaming and imported traffic.
+    var streamDiagnostics: StreamDiagnostics? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var webSocketConnection: WebSocketConnection? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var graphQLInfo: GraphQLInfo? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var web3RPCInfo: Web3RPCInfo? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var x402Info: X402Info? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Call shape supplied by a typed Babylon gRPC capture. Persisted for inspection; the
+    /// framed request/response remain the source of truth for message bytes.
+    var babylonGRPCCallType: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Bounded source, producer capability, correlation, and app-reported error metadata.
+    /// Older sessions omit this optional field.
+    var babylonCaptureMetadata: BabylonCaptureMetadata? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var sourcePort: UInt16? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var clientApp: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Runtime-only owning application identity resolved from the accepted connection. Used
+    /// for application-scoped SSL proxying attribution. Portable session files intentionally
+    /// omit this — it is local to a live capture and never persisted or exported.
+    var clientApplicationIdentity: ClientApplicationIdentity? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var comment: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var highlightColor: HighlightColor? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var isPinned: Bool = false {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var isSaved: Bool = false {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Draws the row with struck-through text so a request can be marked as ignorable.
+    var isStruckThrough: Bool = false {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var isTLSFailure: Bool = false {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// See `SSLCaptureMode`. Live captures always stamp this: raw tunnels record `.tunneled` and
+    /// `HTTPSProxyRelayHandler` stamps every decrypted transaction `.intercepted`. `nil` therefore
+    /// only occurs on legacy/reloaded/imported transactions whose capture disposition was not
+    /// persisted (and on TLS-failure rows, which are never shown in the request list).
+    var sslCapture: SSLCaptureMode? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// The Babylon runtime session, trace, and step the app made this request in. `nil` for
+    /// proxied traffic and for Babylon captures sent without a trace.
+    var babylonCorrelation: BabylonCorrelation? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var webSocketFrameVersion: Int = 0 {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var matchedRuleID: UUID? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var matchedRuleName: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var matchedRuleActionSummary: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    var matchedRulePattern: String? {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Names of scripts whose request or response hook ran for this exchange.
+    var appliedScriptNames: [String] = [] {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// Preview tabs scripts published for this exchange (`context.previewTabs`).
+    var scriptPreviews: [ScriptPreviewTab] = [] {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
+    /// True when No Caching rewrote this exchange's cache headers.
+    var noCachingApplied = false {
+        didSet { listPresentationRevision &+= 1 }
+    }
+
     /// Request-list ordering metadata. Tracks the order this transaction was received by
     /// the coordinator, independent of `timestamp`. Used only for the request-list "row #"
     /// column sort. Must not be used by export, persistence, inspector, or replay.
-    var sequenceNumber: Int = 0
+    var sequenceNumber: Int = 0 {
+        didSet { listPresentationRevision &+= 1 }
+    }
 
     var request: HTTPRequestData {
-        didSet { signalEvidenceRevision &+= 1 }
+        didSet {
+            assertEvidenceNotClaimedForOffMainRead()
+            signalEvidenceRevision &+= 1
+            listPresentationRevision &+= 1
+        }
     }
 
     var response: HTTPResponseData? {
-        didSet { signalEvidenceRevision &+= 1 }
+        didSet {
+            assertEvidenceNotClaimedForOffMainRead()
+            signalEvidenceRevision &+= 1
+            listPresentationRevision &+= 1
+        }
+    }
+
+    /// The single definition of "no longer changing", shared by every off-main-actor reader.
+    /// Open streams and WebSockets keep receiving frames, and TLS failures never get a row.
+    ///
+    /// A `.completed` row that still has no response is not finished either. The Babylon SDK may
+    /// report a request first and its response in a later package with the same id, and that
+    /// first package carries no end marker to distinguish it, so the mapper calls it completed.
+    /// Claiming such a row would let `BabylonCaptureMapper.applyUpdate` write `response` on the
+    /// main actor while a reader walks the same storage off it. Every proxy-built `.completed`
+    /// row carries a response, so excluding this shape costs them nothing.
+    var isSettledForOffMainRead: Bool {
+        !deliversLiveRow
+            && webSocketConnection == nil
+            && !isTLSFailure
+            && state != .active
+            && state != .pending
+            && !(state == .completed && response == nil)
+    }
+
+    /// Whether `claimForOffMainRead()` has run. Once true, `request` and `response` must not be
+    /// written unless the row is a live row.
+    var isClaimedForOffMainRead: Bool {
+        offMainReadClaim.withLock { $0 }
     }
 
     /// Changes whenever request or response evidence used by cached list signals changes.
@@ -186,6 +317,14 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
         state == .active && displayDuration == nil
     }
 
+    /// Declares that this transaction's request and response are about to be read off the main
+    /// actor. Traps in debug builds if the transaction is not settled, so a producer that routes
+    /// a still-changing shape here fails at the call instead of racing a later write.
+    func claimForOffMainRead() {
+        assert(isSettledForOffMainRead, "Only a settled transaction may be read off the main actor")
+        offMainReadClaim.withLock { $0 = true }
+    }
+
     /// The duration a detail surface shows at `now`: the final value once known, otherwise the
     /// running time of a connection or stream that is still open. The request list keeps `—` for
     /// a running row instead — a per-second redraw belongs to the one selected row, not the
@@ -214,6 +353,20 @@ final class HTTPTransaction: Identifiable, @unchecked Sendable {
             return
         }
         captureContext = context
+    }
+
+    // MARK: Private
+
+    @ObservationIgnored private let offMainReadClaim = OSAllocatedUnfairLock(initialState: false)
+
+    /// Trips in debug builds when evidence is rewritten after an off-main read was claimed — the
+    /// write would race that read on `Data` and `[HTTPHeader]` storage. Live rows are exempt:
+    /// they are never claimed, and their writes happen on the main actor.
+    private func assertEvidenceNotClaimedForOffMainRead() {
+        assert(
+            !offMainReadClaim.withLock { $0 } || deliversLiveRow,
+            "request/response written after the transaction was claimed for off-main reads"
+        )
     }
 }
 

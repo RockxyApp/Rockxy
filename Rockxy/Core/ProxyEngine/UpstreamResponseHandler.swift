@@ -124,11 +124,91 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return nil
     }
 
+    /// A short, user-facing reason for the failed row. Certificate problems are the case a
+    /// developer most needs to recognise, so they get a dedicated message.
+    nonisolated static func upstreamFailureReason(for error: Error) -> String {
+        if let sslError = error as? NIOSSLError {
+            switch sslError {
+            case .handshakeFailed:
+                return "Upstream TLS handshake failed (certificate rejected)"
+            default:
+                return "Upstream TLS error"
+            }
+        }
+        if error is NIOSSLExtraError {
+            return "Upstream TLS handshake failed (certificate rejected)"
+        }
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream before responding (\(http2ErrorName(reset.errorCode)))"
+        }
+        return "Upstream connection failed before responding"
+    }
+
+    /// Why a response that had already started did not finish.
+    nonisolated static func midResponseFailureReason(for error: Error) -> String {
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
+        }
+        return "Upstream connection failed mid-response"
+    }
+
+    /// Whether the response declares its own length, so an early close means missing bytes.
+    nonisolated static func hasFramedBody(_ head: HTTPResponseHead) -> Bool {
+        head.headers.contains(name: "Content-Length")
+            || head.headers[canonicalForm: "Transfer-Encoding"].contains { $0.lowercased() == "chunked" }
+    }
+
+    /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.
+    nonisolated static func http2ErrorName(_ code: HTTP2ErrorCode) -> String {
+        switch code {
+        case .noError: "NO_ERROR"
+        case .protocolError: "PROTOCOL_ERROR"
+        case .internalError: "INTERNAL_ERROR"
+        case .flowControlError: "FLOW_CONTROL_ERROR"
+        case .settingsTimeout: "SETTINGS_TIMEOUT"
+        case .streamClosed: "STREAM_CLOSED"
+        case .frameSizeError: "FRAME_SIZE_ERROR"
+        case .refusedStream: "REFUSED_STREAM"
+        case .cancel: "CANCEL"
+        case .compressionError: "COMPRESSION_ERROR"
+        case .connectError: "CONNECT_ERROR"
+        case .enhanceYourCalm: "ENHANCE_YOUR_CALM"
+        case .inadequateSecurity: "INADEQUATE_SECURITY"
+        case .http11Required: "HTTP_1_1_REQUIRED"
+        default: "0x\(String(code.networkCode, radix: 16, uppercase: true))"
+        }
+    }
+
+    // MARK: - Transaction Assembly
+
+    /// Server-sent events and newline-delimited JSON stay open for as long as the server keeps
+    /// producing — an LLM completion commonly streams for 30 s or more. Only these content
+    /// types get a live row, so ordinary responses keep their single delivery.
+    nonisolated static func isStreamingResponse(_ headers: HTTPHeaders) -> Bool {
+        guard let contentType = headers.first(name: "Content-Type")?.lowercased() else {
+            return false
+        }
+        let mediaType = contentType.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+        return [
+            "text/event-stream",
+            "application/x-ndjson",
+            "application/ndjson",
+            "application/jsonl",
+            "application/x-jsonlines",
+        ].contains(mediaType)
+    }
+
     nonisolated func handlerAdded(context: ChannelHandlerContext) {
         // An HTTP/2 origin is reached through a stream channel whose parent is the connection.
         serverHTTPVersion = context.channel.parent == nil ? "1.1" : "2"
         // Socket addresses are only readable while the channel is open, so take them now.
         snapshotConnection(context.channel)
+        // Weak: the pipeline owns this handler and the channel owns the pipeline, so a strong
+        // reference here would be a cycle that only the channel's own teardown could break.
+        // While the handler is installed its channel is necessarily alive, and once it is not,
+        // there is nothing left to close.
+        upstreamChannel = context.channel
         readTimeoutTask = context.eventLoop.scheduleTask(in: .seconds(30)) { [weak self] in
             guard let self, !self.completed else {
                 return
@@ -164,28 +244,53 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             context.close(promise: nil)
         }
 
-        // Close upstream channel when the client disconnects to prevent FD leaks
-        clientContext.channel.closeFuture.whenComplete { [weak self] _ in
-            guard let self else {
-                return
-            }
-            // A response breakpoint sets `completed` at `.end` before pausing, so the
-            // guard below would otherwise skip a paused item. Cancel it here first so
-            // the queue drains; its resolution gate then suppresses relay/build because
-            // the client channel is already inactive.
-            self.cancelPendingResponseBreakpoint()
-            guard !self.completed else {
-                return
-            }
-            self.completed = true
-            self.readTimeoutTask?.cancel()
-            self.readTimeoutTask = nil
-            if self.responseHead != nil {
-                self.finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
-                self.buildAndCompleteTransaction()
-            }
-            context.close(promise: nil)
+        // The client-side relay handler drives this on its own `channelInactive`; see
+        // `clientDisconnected()`. A client channel that is already gone never produces that
+        // hook for this request, so run the same teardown immediately instead.
+        if !clientContext.channel.isActive {
+            clientDisconnected()
         }
+    }
+
+    /// Closes the upstream channel when the accepted client connection goes away, so a client
+    /// that hangs up mid-request does not leak its origin socket.
+    ///
+    /// Called by the client-side relay handler (`HTTPSProxyRelayHandler` / `HTTPProxyHandler`)
+    /// from its `channelInactive`. This handler used to subscribe to the client channel's
+    /// `closeFuture` itself, but it is built once per request while the client channel is
+    /// long-lived — a keep-alive connection or a decrypted CONNECT tunnel serves unboundedly
+    /// many requests — and NIO cannot deregister a `whenComplete` callback. Every request
+    /// therefore left one behind, and because the closure captured the upstream
+    /// `ChannelHandlerContext`, each one pinned a whole handler with its request and response
+    /// bodies until the connection finally closed. One callback per connection replaces it,
+    /// and the callbacks no longer all fire at once when a busy connection closes.
+    ///
+    /// Safe without a hop: the upstream channel is bootstrapped on the client channel's event
+    /// loop, so both handlers run on that one loop and this is an ordinary same-loop call.
+    nonisolated func clientDisconnected() {
+        // A response breakpoint sets `completed` at `.end` before pausing, so the
+        // guard below would otherwise skip a paused item. Cancel it here first so
+        // the queue drains; its resolution gate then suppresses relay/build because
+        // the client channel is already inactive.
+        cancelPendingResponseBreakpoint()
+        // The response script hook, for the same reason and in the same place: `.end` sets
+        // `completed` before the hook is started, so anything below the guard would leave it
+        // running. This is the only cancellation point for it -- deliberately NOT
+        // `channelInactive`, which is the origin's normal end-of-response; see the comment on
+        // `cancelThrottleTasks()`.
+        responseHookTask.cancel()
+        cancelThrottleTasks()
+        guard !completed else {
+            return
+        }
+        completed = true
+        readTimeoutTask?.cancel()
+        readTimeoutTask = nil
+        if responseHead != nil {
+            finalizeStreamDiagnosticsIfNeeded(reason: .transportFailure)
+            buildAndCompleteTransaction()
+        }
+        upstreamChannel?.close(promise: nil)
     }
 
     nonisolated func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
@@ -215,35 +320,18 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
     }
 
-    /// The upstream went away (TLS handshake rejected, connection reset, server closed early)
-    /// before a single response byte arrived. Without this the client would sit on an open
-    /// socket until its own timeout and the request would never appear in the list.
-    nonisolated private func failClientBeforeResponse(reason: String) {
-        upstreamLogger.warning("Upstream failed before responding for \(self.requestData.url): \(reason)")
+    /// Flushes the client channel once per upstream read burst.
+    ///
+    /// The relay paths below write without flushing so that the writes of a single read
+    /// coalesce. Without this, nothing reaches the client until `relayResponseEnd` flushes,
+    /// which never happens while a `text/event-stream` or chunked response is still open:
+    /// the client would wait for headers until the response completed. Flushing here keeps
+    /// streaming responses live without flushing once per chunk.
+    nonisolated func channelReadComplete(context: ChannelHandlerContext) {
         if clientContext.channel.isActive {
-            var head = HTTPResponseHead(version: .http1_1, status: .badGateway)
-            head.headers.add(name: "Connection", value: "close")
-            head.headers.add(name: "Content-Length", value: "0")
-            clientContext.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
-            clientContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { [clientContext] _ in
-                clientContext.close(promise: nil)
-            }
+            clientContext.flush()
         }
-
-        let transaction = HTTPTransaction(
-            request: requestData,
-            response: HTTPResponseData(statusCode: 502, statusMessage: reason, headers: []),
-            state: .failed
-        )
-        if connectionLog?.failure == nil {
-            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: reason)
-        }
-        transaction.connectionLog = connectionLog
-        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds &- startTime.uptimeNanoseconds
-        transaction.measuredDuration = Double(elapsedNanoseconds) / 1_000_000_000
-        transaction.sourcePort = sourcePort
-        transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
-        onTransactionComplete(transaction)
+        context.fireChannelReadComplete()
     }
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -440,61 +528,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         context.close(promise: nil)
     }
 
-    /// A short, user-facing reason for the failed row. Certificate problems are the case a
-    /// developer most needs to recognise, so they get a dedicated message.
-    nonisolated static func upstreamFailureReason(for error: Error) -> String {
-        if let sslError = error as? NIOSSLError {
-            switch sslError {
-            case .handshakeFailed:
-                return "Upstream TLS handshake failed (certificate rejected)"
-            default:
-                return "Upstream TLS error"
-            }
-        }
-        if error is NIOSSLExtraError {
-            return "Upstream TLS handshake failed (certificate rejected)"
-        }
-        if let reset = error as? NIOHTTP2Errors.StreamClosed {
-            return "Upstream reset the HTTP/2 stream before responding (\(http2ErrorName(reset.errorCode)))"
-        }
-        return "Upstream connection failed before responding"
-    }
-
-    /// Why a response that had already started did not finish.
-    nonisolated static func midResponseFailureReason(for error: Error) -> String {
-        if let reset = error as? NIOHTTP2Errors.StreamClosed {
-            return "Upstream reset the HTTP/2 stream mid-response (\(http2ErrorName(reset.errorCode)))"
-        }
-        return "Upstream connection failed mid-response"
-    }
-
-    /// Whether the response declares its own length, so an early close means missing bytes.
-    nonisolated static func hasFramedBody(_ head: HTTPResponseHead) -> Bool {
-        head.headers.contains(name: "Content-Length")
-            || head.headers[canonicalForm: "Transfer-Encoding"].contains { $0.lowercased() == "chunked" }
-    }
-
-    /// The RFC 9113 name for an HTTP/2 error code, such as `CANCEL` or `REFUSED_STREAM`.
-    nonisolated static func http2ErrorName(_ code: HTTP2ErrorCode) -> String {
-        switch code {
-        case .noError: "NO_ERROR"
-        case .protocolError: "PROTOCOL_ERROR"
-        case .internalError: "INTERNAL_ERROR"
-        case .flowControlError: "FLOW_CONTROL_ERROR"
-        case .settingsTimeout: "SETTINGS_TIMEOUT"
-        case .streamClosed: "STREAM_CLOSED"
-        case .frameSizeError: "FRAME_SIZE_ERROR"
-        case .refusedStream: "REFUSED_STREAM"
-        case .cancel: "CANCEL"
-        case .compressionError: "COMPRESSION_ERROR"
-        case .connectError: "CONNECT_ERROR"
-        case .enhanceYourCalm: "ENHANCE_YOUR_CALM"
-        case .inadequateSecurity: "INADEQUATE_SECURITY"
-        case .http11Required: "HTTP_1_1_REQUIRED"
-        default: "0x\(String(code.networkCode, radix: 16, uppercase: true))"
-        }
-    }
-
     // MARK: Private
 
     private let requestData: HTTPRequestData
@@ -535,6 +568,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     private var channelClosedCalled = false
     private var responseBody: ByteBuffer?
     private var responseBodyTruncated = false
+    /// The origin channel this handler is installed on, used to close it when the client
+    /// disconnects. See `handlerAdded(context:)` for why it is weak.
+    private weak var upstreamChannel: Channel?
     private var responseBreakpointSuppressed = false
     private var firstByteTime: DispatchTime?
 
@@ -556,8 +592,19 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
     /// client `closeFuture` cancels it — an upstream close after a full response is a
     /// normal end-of-stream and must not disturb a legitimately paused breakpoint.
     private var pendingResponseBreakpointTask: Task<Void, Never>?
+    /// The response script hook of this one request, retained so a downstream-client
+    /// disconnect can cancel it. Same asymmetry as the breakpoint task above: only
+    /// `clientDisconnected()` reaches it, never this handler's own `channelInactive`.
+    private let responseHookTask = ProxyHookTaskSlot()
     private var downloadReadyAtNanos: UInt64?
     private var downloadTailFuture: EventLoopFuture<Void>?
+    /// Every task armed for a throttled download, plus the promise its last chunk completes.
+    /// The whole plan is armed up front, so a client that hangs up mid-download would leave one
+    /// closure per remaining chunk alive until that chunk's own deadline -- each holding
+    /// `clientContext` strongly and, through the shared `ByteBuffer`, the response body.
+    /// Cancelling removes the task from the event loop's queue, which is what actually frees it.
+    private var throttleTasks: [Scheduled<Void>] = []
+    private var downloadTailPromise: EventLoopPromise<Void>?
     /// The row published when a streaming response's head arrived, completed in place at `.end`.
     private var liveStreamTransaction: HTTPTransaction?
 
@@ -586,11 +633,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return nsError.domain == "NIOSSL.NIOSSLErrorDomain" && nsError.code == 12
     }
 
-    nonisolated private func cancelPendingResponseBreakpoint() {
-        pendingResponseBreakpointTask?.cancel()
-        pendingResponseBreakpointTask = nil
-    }
-
     /// Detects a `text/event-stream` response so the SSE framer is created only for
     /// streaming responses.
     nonisolated private static func isEventStream(_ headers: HTTPHeaders) -> Bool {
@@ -603,6 +645,42 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         return headers["Content-Type"].contains { $0.lowercased().contains("text/event-stream") }
     }
 
+    /// The upstream went away (TLS handshake rejected, connection reset, server closed early)
+    /// before a single response byte arrived. Without this the client would sit on an open
+    /// socket until its own timeout and the request would never appear in the list.
+    nonisolated private func failClientBeforeResponse(reason: String) {
+        upstreamLogger.warning("Upstream failed before responding for \(self.requestData.url): \(reason)")
+        if clientContext.channel.isActive {
+            var head = HTTPResponseHead(version: .http1_1, status: .badGateway)
+            head.headers.add(name: "Connection", value: "close")
+            head.headers.add(name: "Content-Length", value: "0")
+            clientContext.write(NIOAny(HTTPServerResponsePart.head(head)), promise: nil)
+            clientContext.writeAndFlush(NIOAny(HTTPServerResponsePart.end(nil))).whenComplete { [clientContext] _ in
+                clientContext.close(promise: nil)
+            }
+        }
+
+        let transaction = HTTPTransaction(
+            request: requestData,
+            response: HTTPResponseData(statusCode: 502, statusMessage: reason, headers: []),
+            state: .failed
+        )
+        if connectionLog?.failure == nil {
+            connectionLog?.failure = ConnectionLog.Failure(stage: .response, message: reason)
+        }
+        transaction.connectionLog = connectionLog
+        let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds &- startTime.uptimeNanoseconds
+        transaction.measuredDuration = Double(elapsedNanoseconds) / 1_000_000_000
+        transaction.sourcePort = sourcePort
+        transaction.clientApp = Self.extractAppFromUserAgent(requestData.headers)
+        onTransactionComplete(transaction)
+    }
+
+    nonisolated private func cancelPendingResponseBreakpoint() {
+        pendingResponseBreakpointTask?.cancel()
+        pendingResponseBreakpointTask = nil
+    }
+
     // MARK: - Client Relay
 
     nonisolated private func relayResponseHead(_ head: HTTPResponseHead) {
@@ -611,11 +689,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
         let proxyHead = HTTPResponseHead(version: head.version, status: head.status, headers: head.headers)
         let part = NIOAny(HTTPServerResponsePart.head(proxyHead))
-        if networkConditionProfile?.downloadBytesPerSecond != nil || networkConditionProfile?.packetLoss != nil {
-            clientContext.writeAndFlush(part, promise: nil)
-        } else {
-            clientContext.write(part, promise: nil)
-        }
+        // Always flushed: there is one head per response, so the cost is negligible, and a
+        // head relayed outside a read burst — after a response breakpoint resolves or a
+        // response script finishes — has no `channelReadComplete` behind it to flush it.
+        clientContext.writeAndFlush(part, promise: nil)
     }
 
     nonisolated private func relayResponseBody(_ buffer: ByteBuffer) {
@@ -641,8 +718,9 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             let tailPromise = isLastChunk ? clientContext.eventLoop.makePromise(of: Void.self) : nil
             if let tailPromise {
                 downloadTailFuture = tailPromise.futureResult
+                downloadTailPromise = tailPromise
             }
-            clientContext.eventLoop.scheduleTask(in: .milliseconds(chunk.delayMs)) { [clientContext] in
+            let chunkTask = clientContext.eventLoop.scheduleTask(in: .milliseconds(chunk.delayMs)) { [clientContext] in
                 guard clientContext.channel.isActive else {
                     tailPromise?.fail(ChannelError.ioOnClosedChannel)
                     return
@@ -661,7 +739,38 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                     }
                 }
             }
+            throttleTasks.append(chunkTask)
         }
+    }
+
+    /// Drops a throttled download's pending work.
+    ///
+    /// Only `clientDisconnected()` calls this -- deliberately NOT `channelInactive`. This
+    /// handler sits on the per-request UPSTREAM channel, so its `channelInactive` is the
+    /// origin closing after it finished sending, which is the normal end of every response
+    /// while chunks are still being paced out to the client and the `.end` write is still
+    /// scheduled. Cancelling there truncated a throttled download and, worse, cancelled the
+    /// task that writes `HTTPServerResponsePart.end`, so every proxied request hung until the
+    /// client timed out.
+    ///
+    /// Called BEFORE the `completed` guard in `clientDisconnected()` on purpose: `.end` sets
+    /// `completed` while this work is still armed, so a client that hangs up after it would
+    /// return early and leave the tasks in place.
+    nonisolated private func cancelThrottleTasks() {
+        guard !throttleTasks.isEmpty || downloadTailPromise != nil else {
+            return
+        }
+        for task in throttleTasks {
+            task.cancel()
+        }
+        throttleTasks.removeAll()
+        // The last chunk is what completes this promise, so cancelling it means nothing ever
+        // would -- and `relayResponseEnd` registers a `whenComplete` that waits on it. Failing
+        // it releases that closure too. Nilled first so no later path can complete it twice.
+        let promise = downloadTailPromise
+        downloadTailPromise = nil
+        downloadTailFuture = nil
+        promise?.fail(ChannelError.ioOnClosedChannel)
     }
 
     nonisolated private func relayResponseEnd() {
@@ -683,7 +792,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             return
         }
         let delayMs = NetworkThrottlePlanner.millisecondsUntil(readyAtNanos: downloadReadyAtNanos)
-        clientContext.eventLoop.scheduleTask(in: .milliseconds(delayMs)) { [clientContext] in
+        let endTask = clientContext.eventLoop.scheduleTask(in: .milliseconds(delayMs)) { [clientContext] in
             guard clientContext.channel.isActive else {
                 return
             }
@@ -692,6 +801,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
                 promise: nil
             )
         }
+        throttleTasks.append(endTask)
     }
 
     // MARK: - Response Script
@@ -705,13 +815,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
 
         let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
-        let bodyData: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                                 let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let bodyData = ProxyHandlerShared.capturedBodyData(responseBody)
         let contentType = ContentTypeDetector.detect(headers: headers, body: bodyData)
         let originalResponse = HTTPResponseData(
             statusCode: Int(head.status.code),
@@ -725,13 +829,23 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         let request = requestData
         let eventLoop = context.eventLoop
 
-        eventLoop.makeFutureWithTask {
-            await scriptPluginManager.runResponseHook(request: request, response: originalResponse)
-        }.whenComplete { [weak self] result in
+        // Liveness here is the CLIENT channel, never `context.channel` -- this handler sits on
+        // the per-request upstream channel, whose inactivity is the origin closing after it
+        // finished sending, which is the normal end of every response. `relayResponseHead`,
+        // `relayResponseBody` and `relayResponseEnd` all gate on the same channel.
+        //
+        // Gating matters beyond saved work: `clientDisconnected()` has already built and
+        // emitted this exchange's transaction, so letting a hook that resolves afterwards reach
+        // `applyMutatedResponseAndRelay` sent a second row for the same request through
+        // `buildAndCompleteTransaction`, which has no idempotence of its own.
+        responseHookTask.run(
+            on: eventLoop,
+            hook: { await scriptPluginManager.runResponseHook(request: request, response: originalResponse) },
+            isLive: { [clientContext] in clientContext.channel.isActive }
+        ) { [weak self] mutated in
             guard let self else {
                 return
             }
-            let mutated: HTTPResponseData = (try? result.get()) ?? originalResponse
             self.applyMutatedResponseAndRelay(mutated: mutated, context: context)
         }
     }
@@ -780,13 +894,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         )
     ) {
         let responseHeaders = head.headers.map { EditableHeader(name: $0.name, value: $0.value) }
-        let bodyData: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                                 let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let bodyData = ProxyHandlerShared.capturedBodyData(responseBody)
         // Compressed origin bodies are decoded for the editor; the editable headers then
         // describe the plain body so an executed edit is relayed with consistent framing.
         let projection = BreakpointRequestData.editableResponseProjection(
@@ -931,26 +1039,6 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
     }
 
-    // MARK: - Transaction Assembly
-
-    /// Server-sent events and newline-delimited JSON stay open for as long as the server keeps
-    /// producing — an LLM completion commonly streams for 30 s or more. Only these content
-    /// types get a live row, so ordinary responses keep their single delivery.
-    nonisolated static func isStreamingResponse(_ headers: HTTPHeaders) -> Bool {
-        guard let contentType = headers.first(name: "Content-Type")?.lowercased() else {
-            return false
-        }
-        let mediaType = contentType.split(separator: ";", maxSplits: 1).first?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        return [
-            "text/event-stream",
-            "application/x-ndjson",
-            "application/ndjson",
-            "application/jsonl",
-            "application/x-jsonlines",
-        ].contains(mediaType)
-    }
-
     /// Delivers a streaming response as an `.active` row the moment its head arrives, so a
     /// long stream is visible while it runs instead of appearing only once it ends. The same
     /// transaction is completed in place by `buildAndCompleteTransaction()`.
@@ -986,13 +1074,7 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         }
 
         let headers = head.headers.map { HTTPHeader(name: $0.name, value: $0.value) }
-        let body: Data? = if let buf = responseBody, buf.readableBytes > 0,
-                             let bytes = buf.getBytes(at: buf.readerIndex, length: buf.readableBytes)
-        {
-            Data(bytes)
-        } else {
-            nil
-        }
+        let body = ProxyHandlerShared.capturedBodyData(responseBody)
         let contentType = ContentTypeDetector.detect(headers: headers, body: body)
 
         var responseData = HTTPResponseData(
@@ -1028,6 +1110,10 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
         finalizeStreamDiagnosticsIfNeeded(reason: .endOfStream)
         transaction.streamDiagnostics = streamDiagnostics
 
+        // The captured bytes now belong to the delivered transaction. Dropping them here means
+        // a handler that outlives its request — pinned by a stray retention somewhere in the
+        // pipeline — no longer holds the response body with it.
+        responseBody = nil
         guard let live = liveStreamTransaction else {
             onTransactionComplete(transaction)
             return
@@ -1078,7 +1164,8 @@ final class UpstreamResponseHandler: ChannelInboundHandler, RemovableChannelHand
             } ?? 0
             return TimingInfo(
                 dnsLookup: dnsLookup,
-                tcpConnection: TimeInterval(socketOpen &- min(connectTime.uptimeNanoseconds, socketOpen)) / 1_000_000_000,
+                tcpConnection: TimeInterval(socketOpen &- min(connectTime.uptimeNanoseconds, socketOpen)) /
+                    1_000_000_000,
                 tlsHandshake: TimeInterval(handshakeAt.uptimeNanoseconds - socketOpen) / 1_000_000_000,
                 timeToFirstByte: ttfbAfterTLS,
                 contentTransfer: transfer

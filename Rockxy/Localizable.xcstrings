@@ -384,6 +384,16 @@
         }
       }
     },
+    "Calculating value": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在计算值"
+          }
+        }
+      }
+    },
     "Captured timing phase.": {
       "localizations": {
         "zh-Hans": {
@@ -876,6 +886,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "文件名"
+          }
+        }
+      }
+    },
+    "File on this Mac": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的文件"
           }
         }
       }
@@ -1596,6 +1616,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "插件未加载：%@"
+          }
+        }
+      }
+    },
+    "Plugin script did not terminate and was disabled: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插件脚本未终止，已禁用：%@"
           }
         }
       }
@@ -2356,6 +2386,16 @@
         }
       }
     },
+    "System proxy setup was cancelled because capture was stopped": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由于已停止捕获，系统代理设置已取消"
+          }
+        }
+      }
+    },
     "That is in line with other captured requests to this endpoint.": {
       "localizations": {
         "zh-Hans": {
@@ -2652,6 +2692,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "这台 Mac 连接了多个网络。请选择设备所在的网络，然后在设备上使用此主机和端口。"
+          }
+        }
+      }
+    },
+    "This Mac's proxy settings cannot be saved for recovery, so Rockxy did not change them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存此 Mac 的代理设置以便日后还原，因此 Rockxy 未更改这些设置。"
+          }
+        }
+      }
+    },
+    "This request could not be saved, so the change was undone.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存此请求，因此已撤销该更改。"
           }
         }
       }
@@ -4263,6 +4323,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "XPC 调用超时——助手工具可能没有响应"
+          }
+        }
+      }
+    },
+    "Your change to %@ was not saved and will be lost when Rockxy quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您对 %@ 的更改未保存，退出 Rockxy 后将丢失。"
+          }
+        }
+      }
+    },
+    "Your note on %@ was not saved and will be lost when Rockxy quits.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "您对 %@ 的备注未保存，退出 Rockxy 后将丢失。"
           }
         }
       }
@@ -18526,6 +18606,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "辅助工具已在 macOS 中注册，但 Rockxy 无法访问它。请再次检查、从当前版本重新安装辅助工具，或在 macOS 登录项卡住时使用强制重置。"
+          }
+        }
+      }
+    },
+    "Rockxy tried to repair the helper tool's macOS registration, but it still does not respond. Restart your Mac, or use Force Reset in Advanced Settings if it stays unreachable.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 已尝试修复辅助工具在 macOS 中的注册，但它仍然没有响应。请重新启动 Mac；如果仍无法访问，请在“高级设置”中使用强制重置。"
+          }
+        }
+      }
+    },
+    "macOS lost Rockxy's helper registration, so Rockxy registered it again. Approve the helper tool in System Settings > Login Items to finish.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 丢失了 Rockxy 的辅助工具注册，因此 Rockxy 已重新注册。请在“系统设置 > 登录项”中批准辅助工具以完成设置。"
+          }
+        }
+      }
+    },
+    "macOS has Rockxy's helper tool registered but will not start it, so it keeps retrying. Open Rockxy from your Applications folder so the registration points at that copy. If more than one copy of Rockxy is installed, keep only that one." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 已注册 Rockxy 的辅助工具，但无法启动它，因此会不断重试。请从应用程序文件夹打开 Rockxy，让注册指向该副本。如果安装了多个 Rockxy 副本，请只保留该副本。"
           }
         }
       }
@@ -38350,6 +38460,16 @@
         }
       }
     },
+    "the helper tool's macOS registration is broken and could not be repaired automatically": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辅助工具在 macOS 中的注册已损坏，且无法自动修复"
+          }
+        }
+      }
+    },
     "the helper tool needs to be updated": {
       "localizations": {
         "zh-Hans": {
@@ -43229,6 +43349,26 @@
         }
       }
     },
+    "Restore not verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法验证还原记录"
+          }
+        }
+      }
+    },
+    "Restore Proxy Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理设置"
+          }
+        }
+      }
+    },
     "Rockxy could not verify its local capture path. The listener is running, but capture is not confirmed.": {
       "localizations": {
         "zh-Hans": {
@@ -43245,6 +43385,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法恢复之前的系统代理设置。捕获将继续运行，以保持网络流量可达。"
+          }
+        }
+      }
+    },
+    "Your Mac's proxy settings still point at Rockxy, and Rockxy could not verify the saved copy it would restore them from. If Rockxy quits unexpectedly, your network may stay behind a proxy that is no longer running. You can put the settings back now.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 代理设置仍指向 Rockxy，但 Rockxy 无法验证用于还原这些设置的已保存备份。如果 Rockxy 意外退出，你的网络可能会停留在已不再运行的代理之后。你现在可以将这些设置还原。"
           }
         }
       }
@@ -50972,6 +51122,320 @@
           "stringUnit": {
             "state": "translated",
             "value": "至"
+          }
+        }
+      }
+    },
+    "Automatically set macOS system proxy when capture starts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始捕获时自动设置 macOS 系统代理"
+          }
+        }
+      }
+    },
+    "macOS system proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 系统代理"
+          }
+        }
+      }
+    },
+    "Automatic: set when capture starts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动：开始捕获时设置"
+          }
+        }
+      }
+    },
+    "Manual: set only from the system proxy control": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动：仅通过系统代理控制项设置"
+          }
+        }
+      }
+    },
+    "Never: Rockxy does not change the system proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从不：Rockxy 不更改系统代理"
+          }
+        }
+      }
+    },
+    "Starting or restarting capture sets this Mac's proxy settings for you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始或重新开始捕获时，会自动设置这台 Mac 的代理设置。"
+          }
+        }
+      }
+    },
+    "Capture does not take over this Mac's proxy settings. Manually configured apps and devices can still connect, and the system proxy control stays available. Stop and Restart still restore any proxy override that Rockxy enabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获不会接管这台 Mac 的代理设置。手动配置的应用和设备仍可连接，系统代理控制项仍然可用。停止和重新开始仍会恢复 Rockxy 启用的任何代理覆盖。"
+          }
+        }
+      }
+    },
+    "Rockxy never sets this Mac's proxy settings, and the system proxy control is unavailable. Stop and Restart still restore any proxy override that Rockxy enabled earlier.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 不会设置这台 Mac 的代理设置，系统代理控制项也不可用。停止和重新开始仍会恢复 Rockxy 之前启用的任何代理覆盖。"
+          }
+        }
+      }
+    },
+    "System proxy changes are turned off in Settings. Choose Automatic or Manual to use this.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置中已关闭系统代理更改。请选择“自动”或“手动”后再使用。"
+          }
+        }
+      }
+    },
+    "No automatic restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无自动恢复"
+          }
+        }
+      }
+    },
+    "Your Mac's proxy settings point at Rockxy, but the helper that restores them automatically is not running. If Rockxy quits unexpectedly, your network may stay behind a proxy that is no longer running. You can put the settings back now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 的代理设置指向 Rockxy，但负责自动恢复这些设置的辅助程序未在运行。如果 Rockxy 意外退出，你的网络可能会一直停留在已不再运行的代理之后。你现在可以将这些设置恢复。"
+          }
+        }
+      }
+    },
+    "macOS proxy off": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 代理已关闭"
+          }
+        }
+      }
+    },
+    "Optional for manually configured apps and devices. Enable only to route this Mac's proxy-aware traffic through Rockxy.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对于手动配置的应用和设备，此项可选。仅当需要将此 Mac 上支持代理的流量路由至 Rockxy 时启用。"
+          }
+        }
+      }
+    },
+    "When off, capture does not take over this Mac's proxy settings. Manually configured apps and devices can still connect. Stop and Restart still restore any proxy override that Rockxy enabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，捕获不会接管此 Mac 的代理设置。手动配置的应用和设备仍可连接。停止和重新启动时，仍会恢复 Rockxy 先前更改的代理设置。"
+          }
+        }
+      }
+    },
+    "Body Not Captured": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未捕获正文"
+          }
+        }
+      }
+    },
+    "Response body was omitted or truncated during capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应正文在捕获时被省略或截断"
+          }
+        }
+      }
+    },
+    "Request body was omitted or truncated during capture": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求正文在捕获时被省略或截断"
+          }
+        }
+      }
+    },
+    "The captured body was omitted or truncated.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获的正文已被省略或截断。"
+          }
+        }
+      }
+    },
+    "Try Saving Again": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新尝试保存"
+          }
+        }
+      }
+    },
+    "Couldn't save the Full Proxy Bypass list": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存“完全代理绕过”列表"
+          }
+        }
+      }
+    },
+    "Couldn't save the HTTPS Decryption rules": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存 HTTPS 解密规则"
+          }
+        }
+      }
+    },
+    "Your change applies until you quit Rockxy, but the saved copy was not updated, so the list will come back as it was on the next launch. Make sure the disk has free space and Rockxy's data folder is writable, then try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的更改在退出 Rockxy 之前有效，但已保存的副本未更新，因此下次启动时列表会恢复原样。请确认磁盘有可用空间且 Rockxy 的数据文件夹可写，然后重试。"
+          }
+        }
+      }
+    },
+    "Showing apps and domains in the current sidebar scope: %@": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在显示当前侧边栏范围内的应用和域名：%@"
+          }
+        }
+      }
+    },
+    "Your custom root certificate could not be loaded (%@). Rockxy is signing with its own root instead, so your custom root is not in use.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载你的自定义根证书（%@）。Rockxy 正在改用自己的根证书签名，因此你的自定义根证书未被使用。"
+          }
+        }
+      }
+    },
+    "Your custom root certificate is not in use": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的自定义根证书未被使用"
+          }
+        }
+      }
+    },
+    "The P12 file could not be opened. The password may be incorrect, or the file may be damaged.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开该 P12 文件。密码可能不正确，或文件可能已损坏。"
+          }
+        }
+      }
+    },
+    "macOS could not use the keychain to read this P12 file. Unlock the keychain and try again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 无法使用钥匙串读取此 P12 文件。请解锁钥匙串后重试。"
+          }
+        }
+      }
+    },
+    "Restored from a saved session whose capture evidence could not be read": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从已保存会话还原，其捕获证据无法读取"
+          }
+        }
+      }
+    },
+    "Request body may be incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请求正文可能不完整"
+          }
+        }
+      }
+    },
+    "Response body may be incomplete": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "响应正文可能不完整"
           }
         }
       }

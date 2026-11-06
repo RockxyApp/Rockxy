@@ -20,8 +20,8 @@ struct AdvancedFilterBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(rules.enumerated()), id: \.element.id) { index, _ in
-                filterRow(at: index, isFirst: index == 0)
+            ForEach($rules) { $rule in
+                filterRow($rule, isFirst: rules.first?.id == rule.id)
             }
             shortcutsHint
         }
@@ -31,11 +31,11 @@ struct AdvancedFilterBar: View {
             // keeps clear of the main menu's New and Delete shortcuts.
             Group {
                 Button(String(localized: "Add filter below", bundle: RockxyLocalization.bundle)) {
-                    addRule(after: focusedIndex ?? max(0, rules.count - 1))
+                    addRule(afterID: FilterRuleListEditor.resolve(focusedRuleID, in: rules))
                 }
                 .keyboardShortcut("=", modifiers: [.command, .option])
                 Button(String(localized: "Remove filter", bundle: RockxyLocalization.bundle)) {
-                    removeRule(at: focusedIndex ?? max(0, rules.count - 1))
+                    removeRule(id: FilterRuleListEditor.resolve(focusedRuleID, in: rules))
                 }
                 .keyboardShortcut("-", modifiers: [.command, .option])
             }
@@ -72,6 +72,11 @@ struct AdvancedFilterBar: View {
     @Environment(\.appUIDisplayMetrics) private var metrics
     @FocusState private var focusedRuleID: UUID?
 
+    /// The row whose value field has focus, so the keyboard shortcuts act on it.
+    private var hasActiveRules: Bool {
+        !FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true).isEmpty
+    }
+
     private var shortcutsHint: some View {
         HStack(spacing: 12) {
             Text(String(localized: "Show or Hide: ⇧⌘F", bundle: RockxyLocalization.bundle))
@@ -83,15 +88,6 @@ struct AdvancedFilterBar: View {
         .foregroundStyle(Color(nsColor: .tertiaryLabelColor))
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-    }
-
-    /// The row whose value field has focus, so the keyboard shortcuts act on it.
-    private var focusedIndex: Int? {
-        focusedRuleID.flatMap { id in rules.firstIndex { $0.id == id } }
-    }
-
-    private var hasActiveRules: Bool {
-        !FilterRuleEvaluator.activeRules(in: rules, isFilterBarVisible: true).isEmpty
     }
 
     private var presetMenu: some View {
@@ -162,9 +158,9 @@ struct AdvancedFilterBar: View {
         .controlSize(.small)
     }
 
-    private func filterRow(at index: Int, isFirst: Bool) -> some View {
+    private func filterRow(_ rule: Binding<FilterRule>, isFirst: Bool) -> some View {
         HStack(spacing: 10) {
-            Toggle("", isOn: $rules[index].isEnabled)
+            Toggle("", isOn: rule.isEnabled)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
                 .frame(width: Self.enableToggleWidth, alignment: .center)
@@ -176,7 +172,7 @@ struct AdvancedFilterBar: View {
                     .foregroundStyle(.secondary)
                     .frame(width: Self.connectorWidth, alignment: .leading)
             } else {
-                Picker("", selection: $rules[index].connector) {
+                Picker("", selection: rule.connector) {
                     ForEach(FilterLogicConnector.allCases, id: \.self) { connector in
                         Text(connector.displayName).tag(connector)
                     }
@@ -184,10 +180,13 @@ struct AdvancedFilterBar: View {
                 .pickerStyle(.segmented)
                 .controlSize(.small)
                 .frame(width: Self.connectorWidth)
-                .accessibilityLabel(String(localized: "Combine with previous filter", bundle: RockxyLocalization.bundle))
+                .accessibilityLabel(String(
+                    localized: "Combine with previous filter",
+                    bundle: RockxyLocalization.bundle
+                ))
             }
 
-            Picker("", selection: $rules[index].field) {
+            Picker("", selection: rule.field) {
                 ForEach(Self.advancedFields, id: \.self) { field in
                     Text(field.displayName).tag(field)
                 }
@@ -195,7 +194,7 @@ struct AdvancedFilterBar: View {
             .frame(width: max(184, metrics.fontSize * 14))
             .accessibilityLabel(String(localized: "Filter field", bundle: RockxyLocalization.bundle))
 
-            Picker("", selection: $rules[index].filterOperator) {
+            Picker("", selection: rule.filterOperator) {
                 ForEach(FilterOperator.allCases, id: \.self) { op in
                     Text(op.displayName).tag(op)
                 }
@@ -203,10 +202,10 @@ struct AdvancedFilterBar: View {
             .frame(width: 120)
             .accessibilityLabel(String(localized: "Filter operator", bundle: RockxyLocalization.bundle))
 
-            TextField(String(localized: "Text", bundle: RockxyLocalization.bundle), text: $rules[index].value)
+            TextField(String(localized: "Text", bundle: RockxyLocalization.bundle), text: rule.value)
                 .textFieldStyle(.roundedBorder)
                 .font(metrics.swiftUIFont())
-                .focused($focusedRuleID, equals: rules[index].id)
+                .focused($focusedRuleID, equals: rule.wrappedValue.id)
                 // The text field editor turns Escape into completion, so `onExitCommand` on the bar
                 // never sees it while the value field has focus, which is where the bar opens.
                 .onKeyPress(.escape) {
@@ -217,16 +216,19 @@ struct AdvancedFilterBar: View {
                 .overlay {
                     // An unfinished regular expression matches nothing; say so instead of
                     // silently emptying the table.
-                    if rules[index].filterOperator == .regex, !rules[index].value.isEmpty,
-                       !FilterRegexCache.isValid(rules[index].value)
+                    if rule.wrappedValue.filterOperator == .regex, !rule.wrappedValue.value.isEmpty,
+                       !FilterRegexCache.isValid(rule.wrappedValue.value)
                     {
                         RoundedRectangle(cornerRadius: 5).stroke(Color.red, lineWidth: 1)
-                            .help(String(localized: "This regular expression is not valid yet.", bundle: RockxyLocalization.bundle))
+                            .help(String(
+                                localized: "This regular expression is not valid yet.",
+                                bundle: RockxyLocalization.bundle
+                            ))
                     }
                 }
 
             Button {
-                removeRule(at: index)
+                removeRule(id: rule.wrappedValue.id)
             } label: {
                 Image(systemName: "minus")
                     .font(.system(size: metrics.controlFontSize, weight: .medium))
@@ -236,7 +238,7 @@ struct AdvancedFilterBar: View {
             .accessibilityLabel(String(localized: "Remove filter", bundle: RockxyLocalization.bundle))
 
             Button {
-                addRule(after: index)
+                addRule(afterID: rule.wrappedValue.id)
             } label: {
                 Image(systemName: "plus")
                     .font(.system(size: metrics.controlFontSize, weight: .medium))
@@ -250,18 +252,52 @@ struct AdvancedFilterBar: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, index == 0 ? 8 : 4)
+        .padding(.top, isFirst ? 8 : 4)
         .padding(.bottom, 0)
         .frame(minHeight: max(30, metrics.fontSize + 18))
-        .opacity(rules[index].isEnabled ? 1.0 : 0.5)
+        .opacity(rule.wrappedValue.isEnabled ? 1.0 : 0.5)
     }
 
-    private func addRule(after index: Int) {
+    private func addRule(afterID id: FilterRule.ID?) {
+        FilterRuleListEditor.addRule(afterID: id, to: &rules)
+    }
+
+    private func removeRule(id: FilterRule.ID?) {
+        FilterRuleListEditor.removeRule(id: id, from: &rules)
+    }
+}
+
+// MARK: - FilterRuleListEditor
+
+/// Row add/remove rules for the filter bar, kept free of view state so tests can drive them.
+///
+/// Rows are addressed by id, never by index: "Clear All" and preset selection replace the whole
+/// array while the old rows are still on screen, so an index captured earlier can be out of range.
+enum FilterRuleListEditor {
+    /// The id a keyboard shortcut should act on: the focused row if it still exists, else the last.
+    /// `@FocusState` can briefly hold an id that a preset or "Clear All" has just replaced.
+    static func resolve(_ focusedID: FilterRule.ID?, in rules: [FilterRule]) -> FilterRule.ID? {
+        if let focusedID, rules.contains(where: { $0.id == focusedID }) {
+            return focusedID
+        }
+        return rules.last?.id
+    }
+
+    static func addRule(afterID id: FilterRule.ID?, to rules: inout [FilterRule]) {
         let newRule = FilterRule()
+        guard let id, let index = rules.firstIndex(where: { $0.id == id }) else {
+            rules.append(newRule)
+            return
+        }
         rules.insert(newRule, at: index + 1)
     }
 
-    private func removeRule(at index: Int) {
+    static func removeRule(id: FilterRule.ID?, from rules: inout [FilterRule]) {
+        // A row the user is acting on can already be gone -- "Clear All" replaces the whole
+        // array while its rows are still on screen -- so an unknown id does nothing.
+        guard let id, let index = rules.firstIndex(where: { $0.id == id }) else {
+            return
+        }
         // The only row cannot be removed, so it is cleared instead of doing nothing.
         guard rules.count > 1 else {
             rules[index].value = ""

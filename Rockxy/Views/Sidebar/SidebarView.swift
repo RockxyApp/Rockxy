@@ -39,7 +39,8 @@ private struct AppIconView: View {
 
     private static var iconCache: [String: NSImage] = [:]
     private static var resizedIconCache: [IconCacheKey: NSImage] = [:]
-    private static var missingIconNames: Set<String> = []
+    /// Bounded: the name is client-controlled, the cache outlives the rows it was built for.
+    private static var missingIconNames = MissingIconNameCache()
 
     private static let bundleIDMap: [String: String] = [
         "Chrome": "com.google.Chrome",

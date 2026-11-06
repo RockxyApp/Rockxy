@@ -6,8 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+- The request list no longer rebuilds itself from scratch while capturing. Identifying which app a request came from replaces rows in place, and the table now refreshes only those rows instead of re-requesting every cell on screen -- which it had been doing about ten times a second for as long as capture ran.
+
+- Building the request list no longer decodes and scans response bodies on the main thread while capturing. The AI traffic signal for each new row is now worked out as the capture batch is assembled, instead of once per request on the main thread.
+
+- A capture left running for hours with a working script enabled no longer grows its memory without bound. Each script's hook now releases the objects a run borrowed from the JavaScript engine as that run returns, instead of holding every one of them until the script happens to go idle -- which, on a script that runs for every request, never happened. A script that hangs is still retired rather than contained: the run that never returns keeps what it borrowed for as long as the app is open.
+
+- Clearing every filter no longer crashes the app when more than one advanced filter row is showing.
+
+- Stopping capture no longer waits indefinitely for a wedged connection or a paused breakpoint to finish closing. Both shutdown waits now have a deadline and report what outlived it, so Stop stays responsive; a request paused at a breakpoint is still never forwarded to the origin after a stop.
+
+- Sidebar counts and errors refresh when existing domain or path nodes change, including live failures that keep the same tree IDs.
+
+- At the live history limit, sidebar counts remove evicted requests incrementally and unchanged table rows reuse their snapshots. Late application attribution stays idempotent, live failures refresh domain error counts, and saved requests remain available to Assistant investigations after retention, Project restoration, or saved-list replacement.
+
+- Live body columns reuse JSON/jq results until captured evidence changes, and format only the matches needed for the cell preview. Previews also cap UTF-8 storage and retain complete Unicode clusters, including long combining sequences.
+- Header-column suggestions retain at most 1,024 names per direction and merge casing variants, keeping long captures from growing the suggestion cache indefinitely. Captured headers and manually added columns remain complete.
+- Full-history sidebar rebuilds reuse local grouping storage and resolve the fallback application label once per batch, reducing repeated observation and localization work at the capture history cap.
+
 ### Added
 
+- A saved automatic macOS system proxy setting separates capture from system routing. Turn it off to start, restart, or launch capture for manually configured apps and devices without automatically replacing the Mac’s system proxy settings. The explicit system proxy control remains available.
 - Babylon requests keep the runtime session, trace, and step they were made in, also in saved sessions. Details links to the matching runtime session, trace, and step; Runtime Events shows a chronological trace/step hierarchy with session and trace filters, and traffic search accepts `session:`, `trace:`, and `step:`.
 - Babylon captures gRPC calls as gRPC exchanges with their status and message, preserves the original size of omitted gRPC messages, and shows WebSocket ping, pong, and close frames with the close code, reason, origin, and abnormal termination state.
 - Babylon enforces the producer's per-transaction body budget across request, response, gRPC messages, and WebSocket frames.
@@ -26,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - The GraphQL tab lists errors a server returned in the response body's `errors` array — message, error code, and path — so a failed operation that still answered HTTP 200 is visible without reading raw JSON; anonymous operations are labeled as such.
 - Added shared Babylon v1 protocol fixtures and a macOS CI gate that checks SDK/receiver compatibility, real TCP framing, replay acknowledgements, reconnects, and malformed-peer isolation.
 - Babylon captures now retain bounded producer, source, correlation, error, and URLSession timing metadata through sessions and HAR, with compatibility warnings for schema and capability mismatches.
+- Preserve captured Babylon errors even without a numeric code, and mark omitted or partial bodies in native, AI, and custom preview inspectors without describing uncaptured bytes as an absent original body. Session export/import regressions cover source, capabilities, timing, omission, errors, and older sessions.
 - Babylon body omissions now show request or response reason and byte counts, and retain truncation state when exported to HAR or saved sessions.
 - Traffic exports (Rockxy Session, HAR, CSV, Postman) can redact sensitive data: Authorization, cookies, API keys, URL tokens, and secret body values are replaced with [REDACTED] in the file while the captured session stays intact.
 - Android emulator routing can also trust Rockxy's certificate system-wide on Google APIs emulators until they restart, and Revert removes it.
@@ -54,6 +74,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added **Copy as** code snippets for Swift (URLSession), Python (requests), JavaScript (fetch), and Go (net/http) to the request context menu.
 
 ### Fixed
+
+- Importing a PKCS#12 certificate no longer leaves a copy of its private key in your login keychain. A P12 using the older encryption that macOS ships by default was also rejected outright and now imports, and a damaged file is no longer reported as a wrong password.
+- Rockxy no longer fails to open when its database claims a schema it does not have. The columns it needs are checked against the database itself and added when missing, so a saved or pinned request can no longer stop the app from launching.
+- A privileged helper whose macOS registration cannot be resolved is now repaired where that is possible, and named where it is not: the app says that the registration is broken and what clears it, instead of reporting that it will try again on the next launch when that attempt could never succeed.
+- Running the test suite can no longer change or remove the installed helper's registration.
+- A body column is named by what it reads rather than by the expression that reads it, in the request table, the column menu and the custom column list. The full expression stays visible beside it and in the tooltip, and searching for it still finds the column.
+- Custom column values no longer resolve on the main thread while scrolling, and a value that arrives after its row has been reused is discarded instead of being shown against another request.
+- Domains no longer disappear from the sidebar while capture is running.
+- A bypass list, an HTTPS decryption list or a custom root certificate that could not be saved or loaded now says so where you edit it, instead of appearing to work until the next launch.
+- A Babylon session evicted by the session cap keeps its replay protection, so a frame it had already accepted can no longer be replayed as new. Correlation identifiers are no longer truncated on their way into storage, which could collapse two of them onto one key.
+- The Add Favorite sheet lists apps and domains by the same rule, so both lists reflect the active sidebar scope.
+- Live rows stay sorted when streams finish, including State and custom response columns.
+- WebSocket inspection refreshes are batched during frame bursts while every accepted frame remains captured and relayed immediately.
+- Response completion and WebSocket capture avoid intermediate byte arrays; oversized WebSocket frames are rejected from capture before unmasking and copying.
+
+- Helper launchd metadata is generated for the configured app family on clean builds, so isolated builds cannot embed a production service identity.
+
+- Updating saved credentials preserves the previous value and its access policy when Keychain rejects a replacement, including Babylon pairing tokens and upstream proxy or Assistant credentials.
+
+- Requests kept in Saved, Pinned, or Notes retain Babylon source, error, producer capabilities, runtime correlation, timing and body omission metadata when the Library reloads; older saved requests remain readable.
+
+- Babylon compressed payloads validate optional gzip header checksums and all concatenated members, retain the protocol output budget, and release encoder scratch storage after each frame.
+
+- Decode empty compressed responses and every concatenated gzip member without losing body bytes; validate gzip and zlib checksums and retain the captured bytes when a compressed stream is corrupt, incomplete, or exceeds its output budget.
+
+- Decode large compressed response bodies below the 50 MiB output limit with bounded scratch memory, and enforce the limit before retaining decoded bytes. Hot-path readers also enforce their smaller decoded-body budgets.
+
+- Babylon TCP compatibility checks follow the receiver’s published port after fallback or restart and fail promptly when a fixture cannot connect.
+
+- Show TLS key log locations relative to this Mac without exposing the account path in the default label, tooltip, or write-error message.
+
+- Coalesce adjacent live-stream completion batches on the UI executor so a Stop burst refreshes history-derived state once per display interval.
+
+- Clearing one Project keeps other Projects’ open streams and new-session streams receiving their final state; reject stale attribution and completion callbacks from another Project or capture session.
+
+- Restart waits for actual capture shutdown completion instead of abandoning slow proxy restores after 15 seconds, and rechecks that starting another listener is safe.
+
+- Keep repeated live-stream deliveries idempotent with bounded identity tracking, including after large session clears; preserve failed WebSocket/SSE states instead of marking them successful.
+- Refresh Babylon-only live rows when they finish, including while recording is paused; share the same completion delivery callbacks with local proxy capture.
+- Avoid per-WebSocket history scans within a batch and temporary full-history match arrays during log correlation.
+
+- Run system proxy setup, restoration, and ownership checks away from the UI executor, including under Swift’s caller-isolated async mode, so synchronous system commands do not freeze the app during Start or Stop.
+
+- Batch WebSocket and streaming-response completion refreshes so stopping a busy capture does not schedule a full-history UI update for every closing connection. Add aggregate Stop phase timings for diagnosis.
+- Prevent full log buffers from generating an eviction log for every captured entry, which could keep self-captured OSLog streams busy even after other activity subsided.
+
+- Keep retained partial request and response body bytes when reopening a session, while preserving truncation and omission metadata; inline-storage omissions retain their known byte sizes after reopening.
 
 - Babylon skips a capture it cannot read instead of dropping the app's connection, counts skipped captures in the pairing window, and lists the reason in Runtime Events.
 - Babylon gRPC calls with absolute endpoint URLs are now accepted by the gRPC inspector; conflicting authorities are rejected.

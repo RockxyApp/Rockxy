@@ -21,64 +21,7 @@ enum BabylonGzipCodec {
     }
 
     static func gunzip(_ data: Data, maximumOutputSize: Int) -> Data? {
-        guard data.count >= 18, maximumOutputSize > 0 else {
-            return nil
-        }
-
-        return data.withUnsafeBytes { rawBuffer -> Data? in
-            guard let bytes = rawBuffer.bindMemory(to: UInt8.self).baseAddress,
-                  bytes[0] == 0x1F,
-                  bytes[1] == 0x8B,
-                  bytes[2] == 0x08 else
-            {
-                return nil
-            }
-
-            let flags = bytes[3]
-            guard flags & 0b11100000 == 0 else {
-                return nil
-            }
-            var position = 10
-            let footerStart = data.count - 8
-
-            if flags & 0x04 != 0 {
-                guard position + 2 <= footerStart else {
-                    return nil
-                }
-                let extraLength = Int(bytes[position]) | (Int(bytes[position + 1]) << 8)
-                position += 2 + extraLength
-            }
-            if flags & 0x08 != 0 {
-                guard skipNullTerminated(bytes, position: &position, limit: footerStart) else {
-                    return nil
-                }
-            }
-            if flags & 0x10 != 0 {
-                guard skipNullTerminated(bytes, position: &position, limit: footerStart) else {
-                    return nil
-                }
-            }
-            if flags & 0x02 != 0 {
-                position += 2
-            }
-            guard position < footerStart else {
-                return nil
-            }
-
-            let footer = bytes.advanced(by: footerStart)
-            let expectedChecksum = readLittleEndianUInt32(footer)
-            let expectedSize = readLittleEndianUInt32(footer.advanced(by: 4))
-            let compressed = Data(bytes: bytes.advanced(by: position), count: footerStart - position)
-            guard let inflated = stream(
-                compressed,
-                operation: COMPRESSION_STREAM_DECODE,
-                maximumOutputSize: maximumOutputSize
-            ), UInt32(truncatingIfNeeded: inflated.count) == expectedSize,
-            crc32(inflated) == expectedChecksum else {
-                return nil
-            }
-            return inflated
-        }
+        BoundedZlibDecoder.decode(data, windowBits: 31, concatenated: true, maxOutputSize: maximumOutputSize)
     }
 
     // MARK: Private
@@ -105,8 +48,11 @@ enum BabylonGzipCodec {
             guard let source = rawBuffer.bindMemory(to: UInt8.self).baseAddress else {
                 return nil
             }
+            let bufferSize = max(4_096, min(data.count, 32 * 1_024) * 2)
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
             var stream = compression_stream(
-                dst_ptr: UnsafeMutablePointer<UInt8>.allocate(capacity: 0),
+                dst_ptr: buffer,
                 dst_size: 0,
                 src_ptr: source,
                 src_size: 0,
@@ -117,9 +63,6 @@ enum BabylonGzipCodec {
             }
             defer { compression_stream_destroy(&stream) }
 
-            let bufferSize = max(4_096, min(data.count, 32 * 1_024) * 2)
-            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-            defer { buffer.deallocate() }
             var result = Data()
             stream.src_ptr = source
             stream.src_size = data.count
@@ -145,33 +88,12 @@ enum BabylonGzipCodec {
                     stream.dst_size = bufferSize
                     continue
                 case COMPRESSION_STATUS_END:
-                    return result
+                    return stream.src_size == 0 ? result : nil
                 default:
                     return nil
                 }
             }
         }
-    }
-
-    private static func skipNullTerminated(
-        _ bytes: UnsafePointer<UInt8>,
-        position: inout Int,
-        limit: Int
-    )
-        -> Bool
-    {
-        while position < limit, bytes[position] != 0 {
-            position += 1
-        }
-        guard position < limit else {
-            return false
-        }
-        position += 1
-        return true
-    }
-
-    private static func readLittleEndianUInt32(_ bytes: UnsafePointer<UInt8>) -> UInt32 {
-        UInt32(bytes[0]) | UInt32(bytes[1]) << 8 | UInt32(bytes[2]) << 16 | UInt32(bytes[3]) << 24
     }
 
     private static func crc32(_ data: Data) -> UInt32 {

@@ -128,6 +128,8 @@ struct TrafficPaneView: View {
             refreshToken: pane.refreshToken,
             isAppendOnly: pane.lastDeriveWasAppendOnly,
             appendChainOrigin: pane.appendChainOriginToken,
+            rewriteChainOrigin: pane.activeRewriteChain?.originToken,
+            rewrittenRowIndexes: pane.activeRewriteChain?.rowIndexes ?? IndexSet(),
             selectionIndex: pane.trafficSelectionIndex,
             revealRequest: pane.trafficRevealRequest,
             selectedIDs: $selectedIDs,

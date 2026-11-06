@@ -44,7 +44,7 @@ struct SettingsWindowReadabilityTests {
 
     @Test("Programmatic selection writes the namespaced defaults key")
     func programmaticSelectionWritesNamespacedDefaultsKey() throws {
-        let suiteName = "SettingsWindowReadabilityTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "SettingsWindowReadabilityTests.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

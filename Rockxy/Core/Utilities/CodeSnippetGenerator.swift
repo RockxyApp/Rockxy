@@ -16,6 +16,15 @@ enum CodeSnippetLanguage: String, CaseIterable, Identifiable, Sendable {
 
     // MARK: Internal
 
+    var commentPrefix: String {
+        switch self {
+        case .pythonRequests,
+             .httpie,
+             .rubyNetHTTP: "#"
+        default: "//"
+        }
+    }
+
     var id: String {
         rawValue
     }
@@ -50,6 +59,18 @@ enum CodeSnippetLanguage: String, CaseIterable, Identifiable, Sendable {
 enum CodeSnippetGenerator {
     // MARK: Internal
 
+    enum SnippetBody {
+        case text(String)
+        case binary(byteCount: Int)
+    }
+
+    struct SnippetInput {
+        let method: String
+        let url: String
+        let headers: [(name: String, value: String)]
+        let body: SnippetBody?
+    }
+
     static func snippet(for request: HTTPRequestData, language: CodeSnippetLanguage) -> String {
         let headers = request.headers.filter { !RequestReplay.isTransportManagedHeader($0.name) }
         let body = request.body.map { data -> SnippetBody in
@@ -64,38 +85,60 @@ enum CodeSnippetGenerator {
             headers: headers.map { (name: $0.name, value: $0.value) },
             body: body
         )
-        switch language {
-        case .swiftURLSession:
-            return swift(input)
-        case .pythonRequests:
-            return python(input)
-        case .javaScriptFetch:
-            return javaScript(input)
-        case .goNetHTTP:
-            return go(input)
-        case .httpie:
-            return httpie(input)
-        case .nodeAxios:
-            return axios(input)
-        case .javaHttpClient:
-            return java(input)
-        case .rubyNetHTTP:
-            return ruby(input)
+        let code = render(input, language: language)
+        guard BodyCompleteness(request).isUnknown,
+              let note = BodyCompleteness.exportNote(request: .unknown, response: nil) else
+        {
+            return code
         }
+        return "\(language.commentPrefix) \(note)\n\(code)"
+    }
+
+    /// Double-quoted literal with C-style escapes. Swift spells unicode escapes as `\u{XXXX}`;
+    /// JavaScript, Go, and Python use `\uXXXX`.
+    static func quoted(_ value: String, swiftUnicodeEscapes: Bool = false) -> String {
+        var escaped = ""
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case "\\": escaped += "\\\\"
+            case "\"": escaped += "\\\""
+            case "\n": escaped += "\\n"
+            case "\r": escaped += "\\r"
+            case "\t": escaped += "\\t"
+            default:
+                if scalar.value < 0x20 {
+                    escaped += swiftUnicodeEscapes
+                        ? String(format: "\\u{%04X}", scalar.value)
+                        : String(format: "\\u%04X", scalar.value)
+                } else {
+                    escaped.unicodeScalars.append(scalar)
+                }
+            }
+        }
+        return "\"\(escaped)\""
     }
 
     // MARK: Private
 
-    enum SnippetBody {
-        case text(String)
-        case binary(byteCount: Int)
-    }
-
-    struct SnippetInput {
-        let method: String
-        let url: String
-        let headers: [(name: String, value: String)]
-        let body: SnippetBody?
+    private static func render(_ input: SnippetInput, language: CodeSnippetLanguage) -> String {
+        switch language {
+        case .swiftURLSession:
+            swift(input)
+        case .pythonRequests:
+            python(input)
+        case .javaScriptFetch:
+            javaScript(input)
+        case .goNetHTTP:
+            go(input)
+        case .httpie:
+            httpie(input)
+        case .nodeAxios:
+            axios(input)
+        case .javaHttpClient:
+            java(input)
+        case .rubyNetHTTP:
+            ruby(input)
+        }
     }
 
     private static func swift(_ input: SnippetInput) -> String {
@@ -225,30 +268,6 @@ enum CodeSnippetGenerator {
             "}",
         ])
         return lines.joined(separator: "\n")
-    }
-
-    /// Double-quoted literal with C-style escapes. Swift spells unicode escapes as `\u{XXXX}`;
-    /// JavaScript, Go, and Python use `\uXXXX`.
-    static func quoted(_ value: String, swiftUnicodeEscapes: Bool = false) -> String {
-        var escaped = ""
-        for scalar in value.unicodeScalars {
-            switch scalar {
-            case "\\": escaped += "\\\\"
-            case "\"": escaped += "\\\""
-            case "\n": escaped += "\\n"
-            case "\r": escaped += "\\r"
-            case "\t": escaped += "\\t"
-            default:
-                if scalar.value < 0x20 {
-                    escaped += swiftUnicodeEscapes
-                        ? String(format: "\\u{%04X}", scalar.value)
-                        : String(format: "\\u%04X", scalar.value)
-                } else {
-                    escaped.unicodeScalars.append(scalar)
-                }
-            }
-        }
-        return "\"\(escaped)\""
     }
 
     private static func swiftQuoted(_ value: String) -> String {

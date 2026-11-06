@@ -52,6 +52,11 @@ struct ContextDetailsView: View {
         let duration: TimeInterval
     }
 
+    /// How many same-host neighbours count as "nearby" for the baseline and the repeated
+    /// error insight. Both read the rows themselves, so the bound is also what keeps this
+    /// pane's observation footprint off the rest of the capture.
+    private static let relatedNeighbourhoodLimit = 20
+
     @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
     @State private var isTimingExpanded = false
@@ -59,44 +64,6 @@ struct ContextDetailsView: View {
 
     private var selectedTransactions: [HTTPTransaction] {
         coordinator.resolveSelectedTransactions()
-    }
-
-    private var selectedErrorCount: Int {
-        selectedTransactions.count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
-    }
-
-    private var selectedTransferredText: String {
-        let bytes = selectedTransactions.reduce(Int64(0)) { partial, transaction in
-            partial + Int64(transaction.request.body?.count ?? 0)
-                + Int64(transaction.response?.body?.count ?? 0)
-        }
-        return SizeFormatter.format(bytes: bytes)
-    }
-
-    private var multiSelectionFields: [ContextTableField] {
-        [
-            ContextTableField(
-                label: String(localized: "Requests", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedTransactions.count)
-            ),
-            ContextTableField(
-                label: String(localized: "Hosts", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(Set(selectedTransactions.map(\.request.host)).count)
-            ),
-            ContextTableField(
-                label: String(localized: "Errors", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedErrorCount),
-                color: selectedErrorCount > 0 ? .red : .primary
-            ),
-            ContextTableField(
-                label: String(localized: "Rules Hit", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedTransactions.count { $0.matchedRuleID != nil })
-            ),
-            ContextTableField(
-                label: String(localized: "Transferred", bundle: RockxyLocalization.bundle),
-                value: selectedTransferredText
-            ),
-        ]
     }
 
     private var emptyStateCopy: ContextDockEmptyStateCopy {
@@ -110,7 +77,10 @@ struct ContextDetailsView: View {
     }
 
     @ViewBuilder private var contextContent: some View {
-        if selectedTransactions.count > 1 {
+        // The plurality test reads the ids, not the rows. Resolving the selection here
+        // walked the whole capture before this view had decided which branch to render,
+        // and the multi-selection branch then resolved it again for every field it shows.
+        if coordinator.selectedTransactionIDs.count > 1 {
             multiSelectionContent
         } else if let transaction = coordinator.selectedTransaction {
             singleSelectionContent(transaction)
@@ -144,12 +114,13 @@ struct ContextDetailsView: View {
     }
 
     private var multiSelectionContent: some View {
-        VStack(spacing: 0) {
+        let selected = selectedTransactions
+        return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ContextInspectorFieldTable(
                         title: String(localized: "Selection", bundle: RockxyLocalization.bundle),
-                        fields: multiSelectionFields
+                        fields: multiSelectionFields(selected)
                     )
 
                     Text(String(
@@ -167,18 +138,17 @@ struct ContextDetailsView: View {
             WorkspaceFooterBar(horizontalPadding: 10) {
                 HStack(spacing: 8) {
                     Button {
-                        let transactions = selectedTransactions
-                        guard transactions.count == 2 else {
+                        guard selected.count == 2 else {
                             return
                         }
-                        coordinator.compareTransactions(transactions[0], transactions[1])
+                        coordinator.compareTransactions(selected[0], selected[1])
                     } label: {
                         Label(
                             String(localized: "Compare", bundle: RockxyLocalization.bundle),
                             systemImage: "arrow.left.arrow.right"
                         )
                     }
-                    .disabled(selectedTransactions.count != 2)
+                    .disabled(selected.count != 2)
                     Spacer()
                     Button {
                         coordinator.presentSelectedExport(format: .har)
@@ -188,7 +158,7 @@ struct ContextDetailsView: View {
                             systemImage: "square.and.arrow.up"
                         )
                     }
-                    .disabled(selectedTransactions.isEmpty)
+                    .disabled(selected.isEmpty)
                 }
                 .controlSize(.small)
             }
@@ -355,36 +325,41 @@ struct ContextDetailsView: View {
             if transaction.request.isBodyIncomplete {
                 Divider()
                 bodyOmissionNotice(
-                    title: String(
-                        localized: "Request body was truncated during capture",
-                        bundle: RockxyLocalization.bundle
-                    ),
+                    completeness: BodyCompleteness(transaction.request),
+                    isRequest: true,
                     metadata: transaction.request.bodyOmission
                 )
             }
             if transaction.response?.isBodyIncomplete == true {
                 Divider()
                 bodyOmissionNotice(
-                    title: String(
-                        localized: "Response body was truncated during capture",
-                        bundle: RockxyLocalization.bundle
-                    ),
+                    completeness: transaction.response.map { BodyCompleteness($0) } ?? .complete,
+                    isRequest: false,
                     metadata: transaction.response?.bodyOmission
                 )
             }
         }
     }
 
-    private func bodyOmissionNotice(title: String, metadata: BodyOmissionMetadata?) -> some View {
+    private func bodyOmissionNotice(
+        completeness: BodyCompleteness,
+        isRequest: Bool,
+        metadata: BodyOmissionMetadata?
+    )
+        -> some View
+    {
         ContextInspectorFullRow {
             VStack(alignment: .leading, spacing: 4) {
-                Label(title, systemImage: "scissors")
-                    .font(.system(size: metrics.metadataFontSize))
-                    .foregroundStyle(.orange)
+                Label(
+                    BodyCompleteness.detailsTitle(forRequest: isRequest, completeness: completeness),
+                    systemImage: completeness.isUnknown ? "questionmark.circle" : "scissors"
+                )
+                .font(.system(size: metrics.metadataFontSize))
+                .foregroundStyle(completeness.isUnknown ? Color.secondary : Color.orange)
                 if let metadata {
                     LabeledContent(
                         String(localized: "Body omission reason", bundle: RockxyLocalization.bundle),
-                        value: metadata.reason
+                        value: BodyCompleteness.reasonDescription(metadata.reason)
                     )
                     LabeledContent(
                         String(localized: "Observed bytes", bundle: RockxyLocalization.bundle),
@@ -402,7 +377,7 @@ struct ContextDetailsView: View {
     }
 
     private func relatedSection(_ transaction: HTTPTransaction) -> some View {
-        let related = Array(relatedTransactions(to: transaction).prefix(6))
+        let related = coordinator.nearestTransactions(toSameHostAs: transaction, limit: 6)
         return ContextInspectorDisclosureTable(
             title: String(localized: "Related Requests", bundle: RockxyLocalization.bundle),
             isExpanded: $isRelatedExpanded,
@@ -608,6 +583,44 @@ struct ContextDetailsView: View {
         DurationFormatter.format(seconds: duration)
     }
 
+    private static func transferredText(of selected: [HTTPTransaction]) -> String {
+        let bytes = selected.reduce(Int64(0)) { partial, transaction in
+            partial + Int64(transaction.request.body?.count ?? 0)
+                + Int64(transaction.response?.body?.count ?? 0)
+        }
+        return SizeFormatter.format(bytes: bytes)
+    }
+
+    /// Takes the resolved selection rather than reading it, because every field used to
+    /// read a computed property that re-resolved the whole selection: six resolutions for
+    /// five fields, on top of the one the plurality test already cost.
+    private func multiSelectionFields(_ selected: [HTTPTransaction]) -> [ContextTableField] {
+        let errorCount = selected.count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
+        return [
+            ContextTableField(
+                label: String(localized: "Requests", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(selected.count)
+            ),
+            ContextTableField(
+                label: String(localized: "Hosts", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(Set(selected.map(\.request.host)).count)
+            ),
+            ContextTableField(
+                label: String(localized: "Errors", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(errorCount),
+                color: errorCount > 0 ? .red : .primary
+            ),
+            ContextTableField(
+                label: String(localized: "Rules Hit", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(selected.count { $0.matchedRuleID != nil })
+            ),
+            ContextTableField(
+                label: String(localized: "Transferred", bundle: RockxyLocalization.bundle),
+                value: Self.transferredText(of: selected)
+            ),
+        ]
+    }
+
     private func babylonCaptureFields(_ metadata: BabylonCaptureMetadata) -> [ContextTableField] {
         var fields = [
             ContextTableField(
@@ -706,16 +719,8 @@ struct ContextDetailsView: View {
         if let timing = metadata.urlSessionTiming {
             appendURLSessionTiming(timing, to: &fields)
         }
-        if let code = metadata.errorCode {
-            let error = [metadata.errorDomain, "\(code)", metadata.failurePhase, metadata.errorMessage]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-            fields.append(ContextTableField(
-                label: String(localized: "Captured Error", bundle: RockxyLocalization.bundle),
-                value: error,
-                monospaced: false,
-                color: .red
-            ))
+        if let error = BabylonCaptureErrorPresentation.field(from: metadata) {
+            fields.append(error)
         }
         if !metadata.compatibilityDiagnostics.isEmpty {
             fields.append(ContextTableField(
@@ -995,7 +1000,7 @@ struct ContextDetailsView: View {
                 id: "request-truncated",
                 title: String(localized: "Request body is incomplete", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "The captured request body was omitted or truncated.",
+                    localized: "The captured body was omitted or truncated.",
                     bundle: RockxyLocalization.bundle
                 ),
                 systemImage: "scissors",
@@ -1007,16 +1012,19 @@ struct ContextDetailsView: View {
                 id: "truncated",
                 title: String(localized: "Response body is incomplete", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "The captured response exceeded the configured buffer limit.",
+                    localized: "The captured body was omitted or truncated.",
                     bundle: RockxyLocalization.bundle
                 ),
                 systemImage: "scissors",
                 color: .orange
             ))
         }
-        let relatedErrors = relatedTransactions(to: transaction).count {
-            ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed
-        }
+        // Bounded to the same neighbourhood the insight's own copy describes: counting
+        // every same-host row meant reading the response and state of each one from this
+        // `body`, which is how the pane came to re-render on every arriving response.
+        let relatedErrors = coordinator
+            .nearestTransactions(toSameHostAs: transaction, limit: Self.relatedNeighbourhoodLimit)
+            .count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
         if relatedErrors >= 2 {
             values.append(ContextInsight(
                 id: "repeated-errors",
@@ -1031,18 +1039,9 @@ struct ContextDetailsView: View {
         }
     }
 
-    private func relatedTransactions(to transaction: HTTPTransaction) -> [HTTPTransaction] {
-        coordinator.transactions
-            .filter { $0.id != transaction.id && $0.request.host == transaction.request.host }
-            .sorted {
-                abs($0.timestamp.timeIntervalSince(transaction.timestamp))
-                    < abs($1.timestamp.timeIntervalSince(transaction.timestamp))
-            }
-    }
-
     private func hostDurationBaseline(for transaction: HTTPTransaction) -> TimeInterval? {
-        let values = relatedTransactions(to: transaction)
-            .prefix(20)
+        let values = coordinator
+            .nearestTransactions(toSameHostAs: transaction, limit: Self.relatedNeighbourhoodLimit)
             .compactMap { $0.timingInfo?.totalDuration ?? $0.measuredDuration }
             .sorted()
         guard !values.isEmpty else {

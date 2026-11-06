@@ -47,6 +47,10 @@ Usually needs manual setup:
 - simulators and emulators,
 - Electron or framework-specific traffic.
 
+For manually configured apps or devices, turn off **Automatically set macOS system proxy when capture starts** in **Settings → General** or **Tools → Proxy Settings**. This saved choice applies to Start, Restart and capture at launch. The separate macOS system proxy control changes current routing only. Stopping capture still restores any system proxy override that Rockxy previously enabled.
+
+For iPhone and Android capture, enable LAN access in Proxy Settings, point the device at the Mac’s LAN address and Rockxy’s listening port, and install/trust the root CA on the device. This Mac can keep using its existing proxy while the device connects directly to Rockxy.
+
 If you are unsure, open [Developer Setup Hub](/getting-started/developer-setup-hub).
 
 ## 4. Check HTTPS trust

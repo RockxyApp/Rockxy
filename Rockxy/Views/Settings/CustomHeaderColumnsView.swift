@@ -23,8 +23,13 @@ struct HeaderColumnRow: Identifiable {
     let source: HeaderColumnSource
     /// Lowercased header name — the stable key component.
     let normalizedName: String
-    /// Saved spelling wins; discovered-only rows use the captured spelling.
+    /// Saved spelling wins; discovered-only rows use the captured spelling. For a body
+    /// column this is the EXPRESSION, which is what gets stored, searched and edited.
     let displayName: String
+    /// What the row is called. For a header or query column this is `displayName`; for a
+    /// body column it is the readable title, so the list does not name a column
+    /// `$.data.user.name`. The expression is still shown beside it.
+    let title: String
     /// Present only when a saved column backs this row.
     let savedColumnID: UUID?
     let isEnabled: Bool
@@ -102,7 +107,12 @@ final class CustomHeaderColumnsViewModel {
         guard !query.isEmpty else {
             return allRowsForSource
         }
-        return allRowsForSource.filter { $0.displayName.localizedCaseInsensitiveContains(query) }
+        // Match the expression as well as the title: a user looking for `$.data` must
+        // still find the column that reads as `name`.
+        return allRowsForSource.filter {
+            $0.title.localizedCaseInsensitiveContains(query)
+                || $0.displayName.localizedCaseInsensitiveContains(query)
+        }
     }
 
     var savedCount: Int {
@@ -318,6 +328,9 @@ final class CustomHeaderColumnsViewModel {
 
         var savedByNormalized: [String: Bool] = [:]
         var savedRows: [HeaderColumnRow] = []
+        // Titles are resolved over this source's whole saved set, because a title that
+        // collides with another column's falls back to the full expression.
+        let savedTitles = HeaderColumn.displayTitles(for: store.columns.filter { $0.source == source })
         for column in store.columns where column.source == source {
             let normalized = source.normalizedName(column.headerName)
             guard savedByNormalized[normalized] == nil else {
@@ -329,6 +342,7 @@ final class CustomHeaderColumnsViewModel {
                     source: source,
                     normalizedName: normalized,
                     displayName: column.headerName,
+                    title: savedTitles[column.id] ?? column.headerName,
                     savedColumnID: column.id,
                     isEnabled: column.isEnabled,
                     isAlsoDiscovered: discoveredSet.contains(normalized),
@@ -349,6 +363,7 @@ final class CustomHeaderColumnsViewModel {
                     source: source,
                     normalizedName: normalized,
                     displayName: name,
+                    title: name,
                     savedColumnID: nil,
                     isEnabled: false,
                     isAlsoDiscovered: true,
@@ -550,20 +565,34 @@ struct CustomHeaderColumnsView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .accessibilityLabel(
                     row.isEnabled
-                        ? String(localized: "Hide \(row.displayName) column", bundle: RockxyLocalization.bundle)
-                        : String(localized: "Show \(row.displayName) column", bundle: RockxyLocalization.bundle)
+                        ? String(localized: "Hide \(row.title) column", bundle: RockxyLocalization.bundle)
+                        : String(localized: "Show \(row.title) column", bundle: RockxyLocalization.bundle)
                 )
             }
             .width(60)
 
             TableColumn(nameColumnTitle) { row in
-                Text(row.displayName)
-                    .font(toolMetrics.font(monospaced: true))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(row.displayName)
-                    .foregroundStyle(row.state == .discovered ? .secondary : .primary)
-                    .opacity(row.state == .savedDisabled ? 0.55 : 1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(row.title)
+                        .font(toolMetrics.font(monospaced: true))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .foregroundStyle(row.state == .discovered ? .secondary : .primary)
+                    // The expression is what this row edits and stores, so it stays on
+                    // screen rather than only in the tooltip.
+                    if row.title != row.displayName {
+                        Text(row.displayName)
+                            .font(toolMetrics.font(monospaced: true))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help(row.displayName)
+                .opacity(row.state == .savedDisabled ? 0.55 : 1)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(row.title)
+                .accessibilityValue(row.title == row.displayName ? "" : row.displayName)
             }
             .width(min: 220, ideal: 440)
 
@@ -608,7 +637,10 @@ struct CustomHeaderColumnsView: View {
                         String(localized: "No Columns", bundle: RockxyLocalization.bundle),
                         systemImage: "tablecells.badge.ellipsis",
                         description: Text(model.source == .query
-                            ? String(localized: "Click + to show a query parameter as a column.", bundle: RockxyLocalization.bundle)
+                            ? String(
+                                localized: "Click + to show a query parameter as a column.",
+                                bundle: RockxyLocalization.bundle
+                            )
                             : String(
                                 localized: "Click + to show a value from the JSON body as a column.",
                                 bundle: RockxyLocalization.bundle
@@ -859,9 +891,9 @@ private struct AddHeaderColumnSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(footnote)
-                    .font(toolMetrics.secondaryFont())
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                        .font(toolMetrics.secondaryFont())
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 24)

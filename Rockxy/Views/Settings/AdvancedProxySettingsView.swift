@@ -95,6 +95,14 @@ struct AdvancedProxySettingsView: View {
     @State private var showingUninstallConfirmation = false
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(AutomaticSystemProxyRouting.modeDefaultsKey) private var storedRoutingMode = ""
+
+    private var systemProxyUnavailableReason: String? {
+        AutomaticSystemProxyRouting.acquisitionUnavailableReason(
+            storedMode: storedRoutingMode,
+            isOverrideActive: coordinator.isSystemProxyConfigured
+        )
+    }
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
@@ -135,14 +143,16 @@ struct AdvancedProxySettingsView: View {
         guard coordinator.isProxyRunning else {
             return "circle.slash"
         }
-        return coordinator.isSystemProxyConfigured ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+        return coordinator.isSystemProxyConfigured ? "checkmark.circle.fill"
+            : (coordinator.readiness.systemRoutingExpected ? "exclamationmark.triangle.fill" : "circle.slash")
     }
 
     private var routingColor: Color {
         guard coordinator.isProxyRunning else {
             return .secondary
         }
-        return coordinator.isSystemProxyConfigured ? .green : .orange
+        return coordinator.isSystemProxyConfigured ? .green
+            : (coordinator.readiness.systemRoutingExpected ? .orange : .secondary)
     }
 
     private var routingTitle: String {
@@ -365,6 +375,8 @@ struct AdvancedProxySettingsView: View {
             Text(String(localized: "System Routing", bundle: RockxyLocalization.bundle))
                 .font(toolMetrics.tableHeaderFont())
 
+            AutomaticSystemProxyRoutingControl()
+
             HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
                 Image(systemName: routingIcon)
                     .foregroundStyle(routingColor)
@@ -403,6 +415,8 @@ struct AdvancedProxySettingsView: View {
                     coordinator.toggleSystemProxyOverride()
                 }
                 .disabled(!coordinator.isProxyRunning)
+                .disabled(systemProxyUnavailableReason != nil)
+                .help(systemProxyUnavailableReason ?? "")
 
                 Spacer(minLength: 0)
             }

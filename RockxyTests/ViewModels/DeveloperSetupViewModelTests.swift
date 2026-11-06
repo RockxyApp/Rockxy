@@ -41,7 +41,7 @@ struct DeveloperSetupViewModelTests {
 
     @Test("Pinned targets can be added and removed from the source list")
     func pinnedTargetsCanBeToggled() throws {
-        let suiteName = "DeveloperSetupPinnedStoreTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "DeveloperSetupPinnedStoreTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -145,7 +145,7 @@ struct DeveloperSetupViewModelTests {
 
     @Test("Source list filter keeps pinned results in sync with the user's pinned set")
     func sourceListFilterRespectsPinnedTargets() throws {
-        let suiteName = "DeveloperSetupPinnedFilterTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "DeveloperSetupPinnedFilterTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 

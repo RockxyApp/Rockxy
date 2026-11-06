@@ -35,7 +35,7 @@ struct AppLanguagePreferenceTests {
 
     @Test("Applying a language writes and removes Rockxy's app preference")
     func applyingLanguagePersistsAppPreference() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaultsKey = "selectedLanguage"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -64,7 +64,7 @@ struct AppLanguagePreferenceTests {
 
     @Test("System Default removes a stale app-specific AppleLanguages override")
     func systemDefaultRemovesAppLanguageOverride() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaultsKey = "selectedLanguage"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -83,7 +83,7 @@ struct AppLanguagePreferenceTests {
 
     @Test("Unsupported language identifiers are rejected without replacing the current choice")
     func unsupportedLanguageIsRejected() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaultsKey = "selectedLanguage"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -101,7 +101,7 @@ struct AppLanguagePreferenceTests {
     @MainActor
     @Test("The runtime controller changes string catalogs without relaunching the app")
     func runtimeControllerChangesLanguageImmediately() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let controller = AppLanguageController(
@@ -120,7 +120,7 @@ struct AppLanguagePreferenceTests {
     @MainActor
     @Test("System Default keeps the Mac's full locale while an explicit choice pins the language")
     func systemDefaultLocaleFollowsTheMac() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let controller = AppLanguageController(
@@ -166,7 +166,7 @@ struct AppLanguagePreferenceTests {
     @MainActor
     @Test("System Default ignores a stale Chinese process preference and follows the Mac")
     func systemDefaultUsesGlobalMacLanguageOrder() throws {
-        let suiteName = "AppLanguagePreferenceTests.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "AppLanguagePreferenceTests.")
         let defaultsKey = "selectedLanguage"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }

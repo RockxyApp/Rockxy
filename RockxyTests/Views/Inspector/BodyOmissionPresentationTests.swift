@@ -16,22 +16,34 @@ struct BodyOmissionPresentationTests {
         #expect(!request.isBodyIncomplete)
         request.bodyOmission = BodyOmissionMetadata(reason: "bodyLimit", observedBytes: 4_096, originalBytes: 8_192)
         #expect(request.isBodyIncomplete)
+        #expect(InspectorTransactionSnapshot(transaction: HTTPTransaction(request: request)).request.isBodyIncomplete)
 
         request.bodyOmission = nil
         request.bodyTruncated = true
         #expect(request.isBodyIncomplete)
+        #expect(InspectorTransactionSnapshot(transaction: HTTPTransaction(request: request)).request.isBodyIncomplete)
     }
 
     @Test("Response omission metadata marks its body incomplete")
-    func responseOmissionMarksBodyIncomplete() {
+    func responseOmissionMarksBodyIncomplete() throws {
         var response = HTTPResponseData(statusCode: 200, statusMessage: "OK", headers: [])
 
         #expect(!response.isBodyIncomplete)
         response.bodyOmission = BodyOmissionMetadata(reason: "privacyPolicy", observedBytes: 0, originalBytes: 128)
         #expect(response.isBodyIncomplete)
 
+        let request = try HTTPRequestData(
+            method: "GET",
+            url: #require(URL(string: "https://example.test")),
+            httpVersion: "HTTP/2",
+            headers: []
+        )
+        let transaction = HTTPTransaction(request: request, response: response)
+        #expect(InspectorTransactionSnapshot(transaction: transaction).response?.isBodyIncomplete == true)
+
         response.bodyOmission = nil
         response.bodyTruncated = true
         #expect(response.isBodyIncomplete)
+        #expect(InspectorResponseSnapshot(response: response).isBodyIncomplete)
     }
 }

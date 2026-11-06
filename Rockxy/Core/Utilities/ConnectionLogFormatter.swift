@@ -202,7 +202,8 @@ enum ConnectionLogFormatter {
         }
         lines.append(ConnectionLogLine(marker: ">", text: "", role: .requestHeader))
         if let body = request.body, !body.isEmpty {
-            lines.append(event("Request body: \(SizeFormatter.format(bytes: body.count))"))
+            let note = BodyCompleteness(request).isUnknown ? BodyCompleteness.unknown.logNote : ""
+            lines.append(event("Request body: \(SizeFormatter.format(bytes: body.count))\(note)"))
         }
     }
 
@@ -222,7 +223,7 @@ enum ConnectionLogFormatter {
         }
         lines.append(ConnectionLogLine(marker: "<", text: "", role: .responseHeader))
         if let body = response.body, !body.isEmpty {
-            let note = response.bodyTruncated ? " (only the first part was kept)" : ""
+            let note = BodyCompleteness(response).logNote
             lines.append(event("Response body: \(SizeFormatter.format(bytes: body.count))\(note)"))
         }
         for trailer in response.trailers ?? [] {

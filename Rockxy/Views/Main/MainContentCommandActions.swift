@@ -16,6 +16,14 @@ struct MainContentCommandActions {
         coordinator.isProxyRunning
     }
 
+    var canStartProxy: Bool {
+        coordinator.canStartProxy
+    }
+
+    var canStopProxy: Bool {
+        coordinator.isProxyRunning && !coordinator.isProxyStopping && !coordinator.isProxyStarting
+    }
+
     var canToggleSystemProxyOverride: Bool {
         coordinator.isProxyRunning
     }

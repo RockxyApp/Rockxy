@@ -55,7 +55,8 @@ struct SettingsBackupTests {
         #expect(decoded.settings.ruleFolders["mapLocal"]?.first?.name == "API mocks")
         #expect(decoded.settings.ruleFolders["mapLocal"]?.first?.ruleIDs == [ruleID])
 
-        let defaults = UserDefaults(suiteName: "RockxyRuleFolderBackupTests-\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(suiteName: IsolatedDefaultsSuite
+            .uniqueName(prefix: "RockxyRuleFolderBackupTests-")) ?? .standard
         let store = RuleFolderStore(tool: "test", defaults: defaults)
         store.importFolders(decoded.settings.ruleFolders["mapLocal"] ?? [], replacing: false)
         #expect(store.folders.count == 1)
@@ -206,7 +207,10 @@ struct SettingsBackupTests {
     @Test("An import that only adds reverse proxies or DNS rules says so instead of 'already here'")
     @MainActor
     func reportCountsReverseProxiesAndDNSRules() {
-        let lines = SettingsBackupFlow.reportLines(SettingsBackupImportReport(reverseProxyCount: 1, dnsSpoofingCount: 2))
+        let lines = SettingsBackupFlow.reportLines(SettingsBackupImportReport(
+            reverseProxyCount: 1,
+            dnsSpoofingCount: 2
+        ))
         #expect(lines == ["1 reverse proxy added.", "2 DNS Spoofing rules added."])
         #expect(SettingsBackupFlow.reportLines(SettingsBackupImportReport()) == [
             "No new rules were added; the backup's rules are already here.",

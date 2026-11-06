@@ -88,6 +88,39 @@ enum CallerValidation {
         return false
     }
 
+    /// The code-signing requirement to hand to `NSXPCConnection.setCodeSigningRequirement(_:)`,
+    /// or `nil` when none can be expressed safely.
+    ///
+    /// Only produced for a team-signed helper: it is then exactly layer 1 (same team) plus layer 2
+    /// (allowed identifier, Apple-generic anchor), enforced by the XPC runtime on its own audit
+    /// token. Ad-hoc / certificate-chain-only helpers get `nil` and rely on the validators.
+    /// Every interpolated value is charset-checked and the result is compiled with
+    /// `SecRequirementCreateWithString` first, because a malformed string makes
+    /// `setCodeSigningRequirement` throw an Objective-C exception.
+    static func connectionCodeSigningRequirement(
+        helper: CodeSigningProfile?,
+        allowedIdentifiers: [String]
+    )
+        -> String?
+    {
+        guard let team = helper?.teamIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+              isSafeRequirementToken(team, allowed: .alphanumerics),
+              !allowedIdentifiers.isEmpty,
+              allowedIdentifiers.allSatisfy({ isSafeRequirementToken($0, allowed: identifierCharacters) }) else
+        {
+            return nil
+        }
+        let identifiers = allowedIdentifiers.map { "identifier \"\($0)\"" }.joined(separator: " or ")
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\" and (\(identifiers))"
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
+              requirement != nil else
+        {
+            return nil
+        }
+        return text
+    }
+
     /// Extracts DER certificate data from `SecCertificate` objects for comparison.
     static func certificateDERData(from certificates: [SecCertificate]) -> [Data] {
         certificates.map { SecCertificateCopyData($0) as Data }
@@ -191,9 +224,17 @@ enum CallerValidation {
         return code
     }
 
+    /// Both segments have to appear IN ORDER. Two unanchored `contains` checks also
+    /// accept a path that merely holds both somewhere -- for example
+    /// `/tmp/x/Build/Products/y/Library/Developer/Xcode/DerivedData/z`, which is no
+    /// Xcode build product at all. This gates a debug-helper install, so the laxer form
+    /// widened who could claim to be one. Every real layout, including a renamed
+    /// configuration, still has `/Build/Products/` below the DerivedData directory.
     static func isXcodeDerivedDataBuildProduct(path: String) -> Bool {
-        path.contains("/Library/Developer/Xcode/DerivedData/")
-            && path.contains("/Build/Products/")
+        guard let derivedData = path.range(of: "/Library/Developer/Xcode/DerivedData/") else {
+            return false
+        }
+        return path[derivedData.upperBound...].contains("/Build/Products/")
     }
 
     /// Obtains a `SecCode` from raw audit token data (32-byte `audit_token_t`).
@@ -254,6 +295,12 @@ enum CallerValidation {
         return signingProfile(from: selfCode)
     }()
 
+    private static let identifierCharacters: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: ".-_")
+        return set
+    }()
+
     private static func certificatesFromCode(_ code: SecCode) -> [SecCertificate]? {
         guard let dict = signingInformation(from: code),
               let certs = certificates(from: dict),
@@ -266,6 +313,10 @@ enum CallerValidation {
 
     private static func certificates(from signingInfo: [String: Any]) -> [SecCertificate]? {
         signingInfo[kSecCodeInfoCertificates as String] as? [SecCertificate]
+    }
+
+    private static func isSafeRequirementToken(_ value: String, allowed: CharacterSet) -> Bool {
+        !value.isEmpty && value.unicodeScalars.allSatisfy { allowed.contains($0) && $0.isASCII }
     }
 
     private static func callerSatisfiesAppleGenericIdentifier(

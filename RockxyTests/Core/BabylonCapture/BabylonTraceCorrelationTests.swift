@@ -44,6 +44,77 @@ struct BabylonTraceCorrelationTests {
         #expect(BabylonCorrelation(context: context) == nil)
     }
 
+    @Test("The client ID bound is 256 bytes: accepted at the limit, rejected one byte over, in every layer")
+    func clientIDBoundary() throws {
+        #expect(BabylonCaptureProtocol.maximumClientIDSize == 256)
+        let context = BabylonTrafficPackageDTO.CorrelationContext(
+            sessionID: "s", traceID: "t", stepID: "a", createdAt: 1
+        )
+        let atLimit = String(repeating: "c", count: BabylonCaptureProtocol.maximumClientIDSize)
+        let overLimit = atLimit + "c"
+        #expect(BabylonCorrelation(context: context, sourceClientID: atLimit) != nil)
+        #expect(BabylonCorrelation(context: context, sourceClientID: overLimit) == nil)
+
+        let payload = BabylonPayloadEnvelope(messageType: .heartbeat, sentAt: 1, content: Data("{}".utf8))
+        func encode(clientID: String) throws -> Data {
+            try BabylonSecureFrameCodec.encodeFrame(
+                payload: payload, sessionID: "session", clientID: clientID, sequence: 1, pairingToken: "token"
+            )
+        }
+        _ = try encode(clientID: atLimit)
+        #expect(throws: BabylonCaptureProtocolError.invalidIdentity) { try encode(clientID: overLimit) }
+    }
+
+    @Test("Persisted metadata with an over-bound client ID is rejected, never truncated")
+    func metadataRejectsOverBoundClientID() throws {
+        // Decoding reads stored records, so it uses the frozen storage bound (512), not ingress (256).
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
+        func decode(_ clientID: String) throws -> BabylonCaptureMetadata {
+            let json = try JSONSerialization.data(withJSONObject: ["clientID": clientID])
+            return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
+        }
+        let atLimit = String(repeating: "c", count: limit)
+        #expect(try decode(atLimit).clientID == atLimit)
+        // Two IDs sharing a full-length prefix must not both load as the same identifier.
+        #expect(throws: DecodingError.self) { try decode(atLimit + "a") }
+        #expect(throws: DecodingError.self) { try decode(atLimit + "b") }
+    }
+
+    @Test("Persisted correlation identifiers are bounded like the correlation, and rejected rather than truncated")
+    func metadataRejectsOverBoundCorrelationIdentifiers() throws {
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
+        func decode(_ key: String, _ value: String) throws -> BabylonCaptureMetadata {
+            let json = try JSONSerialization.data(withJSONObject: [key: value])
+            return try JSONDecoder().decode(BabylonCaptureMetadata.self, from: json)
+        }
+        let atLimit = String(repeating: "t", count: limit)
+        let atIngressLimit = String(repeating: "t", count: BabylonCaptureProtocol.maximumCorrelationIdentifierSize)
+        // Valid in memory at the ingress limit, so it must survive storage whole (it used to be cut at 128).
+        #expect(BabylonCorrelation(
+            context: .init(sessionID: "s", traceID: atIngressLimit, stepID: "a", createdAt: 1)
+        ) != nil)
+        #expect(try decode("traceID", atIngressLimit).traceID == atIngressLimit)
+        #expect(try decode("traceID", atLimit).traceID == atLimit)
+        for key in ["runtimeSessionID", "traceID", "stepID"] {
+            // Two values sharing a full-length prefix must never both load as the same key.
+            #expect(throws: DecodingError.self) { try decode(key, atLimit + "a") }
+            #expect(throws: DecodingError.self) { try decode(key, atLimit + "b") }
+        }
+        let encoded = BabylonCaptureMetadata(
+            identity: BabylonCaptureIdentity(
+                clientID: "c", sessionID: "s", projectName: "", bundleIdentifier: "",
+                deviceName: "", deviceModel: ""
+            ),
+            capabilities: nil,
+            correlation: BabylonTrafficPackageDTO.CorrelationContext(
+                sessionID: atIngressLimit, traceID: atIngressLimit, stepID: atIngressLimit, createdAt: 1
+            ),
+            error: nil,
+            compatibilityDiagnostics: []
+        )
+        #expect(encoded.traceID == atIngressLimit)
+    }
+
     @Test("Concurrent traces keep their own requests")
     func concurrentTracesDoNotCrossAttribute() throws {
         let first = try BabylonCaptureMapper.makeTransaction(
@@ -182,6 +253,91 @@ struct BabylonTraceCorrelationTests {
         let reloaded = try JSONDecoder().decode(CodableTransaction.self, from: data).toLiveModel()
 
         #expect(reloaded.babylonCorrelation == nil)
+    }
+
+    @Test("An imported over-long call type or identifier degrades to a request without that evidence")
+    func importedOverLongEvidenceDegradesRequest() throws {
+        let transaction = try BabylonCaptureMapper.makeTransaction(
+            from: makePackage(context: .init(sessionID: "s1", traceID: "checkout", stepID: "pay", createdAt: 1)),
+            identity: identity
+        )
+        var json = try #require(
+            JSONSerialization
+                .jsonObject(with: JSONEncoder().encode(CodableTransaction(from: transaction))) as? [String: Any]
+        )
+        json["babylonGRPCCallType"] = String(repeating: "g", count: 129)
+        json["babylonCorrelation"] = [
+            "sessionID": "s1",
+            "traceID": String(repeating: "t", count: BabylonCaptureProtocol.maximumStoredIdentifierSize + 1),
+            "stepID": "pay",
+        ]
+        let data = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try JSONDecoder().decode(CodableTransaction.self, from: data)
+        let restored = decoded.toLiveModel()
+        #expect(restored.id == transaction.id)
+        #expect(restored.babylonCorrelation == nil)
+        #expect(restored.babylonGRPCCallType == nil)
+
+        // Decode, encode, decode again: the request is still there and nothing over-long returns.
+        let again = try JSONDecoder().decode(CodableTransaction.self, from: JSONEncoder().encode(decoded))
+        #expect(again.toLiveModel().id == transaction.id)
+        #expect(again.toLiveModel().babylonCorrelation == nil)
+    }
+
+    @Test("Decode accepts identifiers up to the frozen stored bound and rejects what encode would refuse")
+    func decodeAgreesWithStoredBound() throws {
+        func decode(trace: String, step: String? = "pay") -> BabylonCorrelation? {
+            var object: [String: Any] = ["sessionID": "s", "traceID": trace]
+            object["stepID"] = step
+            let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+            return try? JSONDecoder().decode(BabylonCorrelation.self, from: data)
+        }
+        let limit = BabylonCaptureProtocol.maximumStoredIdentifierSize
+        #expect(decode(trace: String(repeating: "t", count: limit)) != nil)
+        #expect(decode(trace: String(repeating: "t", count: limit + 1)) == nil)
+        #expect(decode(trace: "has space") == nil)
+        #expect(decode(trace: "t", step: "bad\nstep") == nil)
+        #expect(decode(trace: "t", step: nil)?.stepID == nil)
+    }
+
+    @Test("A decoded identifier never carries leading or trailing whitespace, so filter trimming cannot mismatch")
+    func decodedIdentifiersHaveNoEdgeWhitespace() {
+        for value in [" trace", "trace ", "\ttrace", "trace\n", "\u{00A0}trace"] {
+            let object: [String: Any] = ["sessionID": "s", "traceID": value]
+            let data = (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
+            let decoded: BabylonCorrelation? = try? JSONDecoder().decode(BabylonCorrelation.self, from: data)
+            #expect(decoded == nil)
+        }
+    }
+
+    @Test("A trace identifier containing whitespace or quotes still selects exactly that trace")
+    func traceQueryEscapesIdentifiers() throws {
+        func make(_ id: String, trace: String) -> HTTPTransaction {
+            let transaction = TestFixtures.makeTransaction()
+            transaction.babylonCorrelation = BabylonCorrelation(
+                sourceClientID: nil,
+                sessionID: "s",
+                traceID: trace,
+                stepID: nil
+            )
+            return transaction
+        }
+        let spaced = make("a", trace: "check out step:other")
+        let plain = make("b", trace: "check")
+        let other = make("c", trace: "other")
+        let quoted = make("d", trace: "say \"hi\" \\ now")
+
+        for target in [spaced, quoted] {
+            let query = MainContentCoordinator.babylonTraceQuery(
+                sessionID: "s",
+                traceID: target.babylonCorrelation?.traceID ?? "",
+                stepID: nil
+            )
+            let filter = SmartTrafficFilter.parse(query)
+            #expect([spaced, plain, other, quoted].filter(filter.matches).map(\.id) == [target.id])
+            #expect(filter.remainingSearchText.isEmpty)
+        }
     }
 
     @Test("Redacted exports keep the correlation")

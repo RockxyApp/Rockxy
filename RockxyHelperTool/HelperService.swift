@@ -60,10 +60,20 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     }
 
     /// Runs helper launch recovery under the same system-wide lock used by direct mode.
+    ///
+    /// Settling an owed apply comes first. A previous helper can die after committing proxy
+    /// settings but before `configd` adopts them, which leaves the preferences file reading as
+    /// restored while the live system still routes through a port that is gone. Every reader
+    /// here reads preferences, so nothing downstream can notice; only the debt record can, and
+    /// this is the launch that has to honour it. Doing it before `restoreIfNeeded` also means
+    /// recovery judges a system that matches its own configuration.
     static func performStartupRecovery() -> CrashRecovery.StartupRecoveryOutcome {
         do {
             return try DirectProxySessionLock.withExclusiveAccess(userID: 0) {
-                CrashRecovery.restoreIfNeeded()
+                if ProxyConfigurator.settleOwedApply() == .stillOwed {
+                    logger.error("Proxy settings committed by an earlier helper are still not applied")
+                }
+                return CrashRecovery.restoreIfNeeded()
             }
         } catch {
             logger.error("Could not serialize helper startup recovery: \(error.localizedDescription)")
@@ -281,8 +291,11 @@ final class HelperService: NSObject, RockxyHelperProtocol {
 
     func getProxyStatus(withReply reply: @escaping (Bool, Int) -> Void) {
         IdleExitMonitor.resetIdleTimer()
-        let status = ProxyConfigurator.getCurrentStatus()
-        reply(status.isOverridden, status.port)
+        // The reply carries "cannot tell" as (true, -1) rather than the (false, 0) that means a
+        // clean machine; see `HelperProxyStatusReading`.
+        let reading = ProxyConfigurator.currentStatusReading()
+        let wire = reading.wire
+        reply(wire.isOverridden, wire.port)
     }
 
     func getHelperInfo(withReply reply: @escaping (String, Int, Int) -> Void) {
@@ -346,10 +359,21 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         IdleExitMonitor.resetIdleTimer()
         Self.logger.info("Preparing helper executable refresh without unregistering service")
 
+        // `getCurrentStatus()` answers `(false, 0)` only for a clean machine; when the restore
+        // point or the live `networksetup` settings cannot be read it answers `(true, -1)`
+        // ("cannot tell"), which counts as overridden here. The status is still not trusted on its
+        // own: an override that stopped on a secondary service leaves the routed one reading
+        // clean, and the helper exiting in the middle of one would leave the user's proxy
+        // settings with no live owner. `IdleExitMonitor` solved this by ORing in the on-disk
+        // restore point, which names exactly the services in that position; route through the
+        // same policy rather than trusting the status alone.
         let proxyStatus = ProxyConfigurator.getCurrentStatus()
-        guard !proxyStatus.isOverridden else {
+        guard !HelperOverrideResidencyPolicy.overrideNeedsHelper(
+            routedServiceIsOverridden: proxyStatus.isOverridden,
+            unresolvedBackupExists: CrashRecovery.hasBackup()
+        ) else {
             Self.logger.info(
-                "Deferring helper executable refresh while Rockxy proxy override is active on port \(proxyStatus.port)"
+                "Deferring helper executable refresh while Rockxy proxy override is active (\(Self.describeProxyStatus(proxyStatus)))"
             )
             reply(false)
             return
@@ -365,10 +389,13 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         // If proxy ownership changed, do not exit and restore the gate by restarting naturally
         // through the helper's idle lifecycle rather than risking an interrupted override.
         let confirmedProxyStatus = ProxyConfigurator.getCurrentStatus()
-        guard !confirmedProxyStatus.isOverridden else {
+        guard !HelperOverrideResidencyPolicy.overrideNeedsHelper(
+            routedServiceIsOverridden: confirmedProxyStatus.isOverridden,
+            unresolvedBackupExists: CrashRecovery.hasBackup()
+        ) else {
             Self.mutationGate.release(exitBarrier)
             Self.logger.info(
-                "Deferring helper executable refresh because proxy override became active on port \(confirmedProxyStatus.port)"
+                "Deferring helper executable refresh because proxy override became active (\(Self.describeProxyStatus(confirmedProxyStatus)))"
             )
             reply(false)
             return
@@ -394,6 +421,20 @@ final class HelperService: NSObject, RockxyHelperProtocol {
         guard domains.count <= 500 else {
             Self.logger.warning("SECURITY: Too many bypass domains: \(domains.count)")
             reply(false, "Too many bypass domains (max 500)")
+            return
+        }
+
+        // The count cap alone still admits a list whose `-getproxybypassdomains` reply no longer
+        // fits what the command layer will read back, which recovery depends on.
+        guard ProxyBypassDomainValidator.fitsTotalByteBound(domains) else {
+            Self.logger.warning("SECURITY: Bypass domain list exceeds the total byte bound")
+            // The unit precedes the figure because this reply crosses XPC to the app, and the
+            // shared size formatter lives in the app target. A copy of it here would be the
+            // drifting private duplicate the formatter rule exists to prevent.
+            reply(
+                false,
+                "Bypass domain list is too large (maximum byte count: \(ProxyBypassDomainValidator.maximumTotalBytes))"
+            )
             return
         }
 
@@ -717,6 +758,19 @@ final class HelperService: NSObject, RockxyHelperProtocol {
     private let boundConnectionPID: Int32
     private let boundConnectionStartSignature: String
     private let boundUserID: uid_t
+
+    /// Words for a status pair in a log line. The `-1` port of an overridden reply is
+    /// `HelperProxyStatusReading.undeterminablePort`, a "cannot tell" marker and never a port, so
+    /// it is described rather than printed.
+    private static func describeProxyStatus(_ status: (isOverridden: Bool, port: Int)) -> String {
+        guard status.isOverridden else {
+            return "routed service reads clean; an unresolved restore point is on disk"
+        }
+        if status.port == HelperProxyStatusReading.undeterminablePort {
+            return "proxy state could not be read, so it is treated as overridden"
+        }
+        return "on port \(status.port)"
+    }
 
     private static func invalidationAction(
         ownerPID: Int32?,

@@ -259,7 +259,7 @@ extension MainContentCoordinator {
                 await configureProxy(port: resolvedPort, settings: settings)
 
                 try await proxyServer.start()
-                await sessionManager.startBatchTimer()
+                await sessionManager.startBatchTimer(for: .proxy)
                 isProxyRunning = true
                 proxyStartedAt = Date()
                 runtimeListenerSnapshot = ProxyListenerSnapshot(
@@ -272,26 +272,39 @@ extension MainContentCoordinator {
                 startLogCapture()
 
                 installEvictionObserver()
+                installMemoryPressureEviction()
                 installReverseProxyObserver()
                 await applyReverseProxies()
 
                 readiness.startObserving()
-                readiness.setSystemRoutingExpected(true)
-
-                Self.logger.info("Configuring system proxy...")
+                readiness.clearProxyEnableFailure()
+                readiness.setSystemRoutingExpected(
+                    settings.automaticallySetSystemProxy && AutomaticSystemProxyRouting.isEnabled()
+                )
                 do {
-                    try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
-                    isSystemProxyConfigured = true
-                    isProxyOverridden = true
-                    readiness.setSystemRoutingReady(true)
-                    Self.logger.info("System proxy enabled on port \(resolvedPort)")
+                    let didEnable = try await AutomaticSystemProxyRouting.enableForCapture(
+                        enabledAtStart: settings.automaticallySetSystemProxy
+                    ) {
+                        try await enableSystemProxySyncingRefusal(port: resolvedPort)
+                    }
+                    if didEnable {
+                        isSystemProxyConfigured = true
+                        isProxyOverridden = true
+                        readiness.setSystemRoutingReady(true)
+                        Self.logger.info("System proxy enabled on port \(resolvedPort)")
+                    } else {
+                        readiness.setSystemRoutingExpected(false)
+                        // Observe any existing Rockxy override without changing the Mac's routing.
+                        _ = await reconcileProxyOverrideStatus()
+                        Self.logger.info("Listener started with manually configured client routing")
+                    }
                 } catch {
                     isSystemProxyConfigured = false
                     isProxyOverridden = false
                     readiness.setSystemRoutingReady(false)
-                    readiness.setProxyEnableFailed(message: error.localizedDescription)
+                    reportEnableFailure(error)
                     Self.logger.warning(
-                        "System proxy not configured: \(error.localizedDescription). Proxy still running on 127.0.0.1:\(resolvedPort)"
+                        "System proxy not configured: \(error.localizedDescription). Proxy listener remains available"
                     )
                 }
 
@@ -347,6 +360,13 @@ extension MainContentCoordinator {
     }
 
     private func installEvictionObserver() {
+        // Guarded like `installReverseProxyObserver`: capture stop removes this one, but
+        // its teardown sits behind an early return, and a start after one of those would
+        // otherwise stack a second live observer on the first and evict the requested
+        // count once per registration.
+        guard evictionObserver == nil else {
+            return
+        }
         evictionObserver = NotificationCenter.default.addObserver(
             forName: .bufferEvictionRequested,
             object: nil,
@@ -366,6 +386,9 @@ extension MainContentCoordinator {
     /// started first, its exact resolved port is awaited, and only then may macOS routing change.
     /// This also coalesces with an in-flight start instead of enabling a configured-but-dead port.
     func enableSystemProxyFromWelcome() async throws {
+        guard systemProxyAcquisitionAllowed() else {
+            throw SystemProxyRoutingBlocked()
+        }
         if !isProxyRunning {
             if canStartProxy {
                 startProxy()
@@ -404,7 +427,7 @@ extension MainContentCoordinator {
             isSystemProxyConfigured = false
             isProxyOverridden = false
             readiness.setSystemRoutingReady(false)
-            readiness.setProxyEnableFailed(message: error.localizedDescription)
+            reportEnableFailure(error)
             throw error
         }
     }
@@ -415,23 +438,22 @@ extension MainContentCoordinator {
         guard isProxyRunning, !isProxyStopping, !isProxyStarting else {
             return
         }
-        stopProxy()
-        Task { @MainActor in
-            let deadline = ContinuousClock.now.advanced(by: .seconds(15))
-            while isProxyStopping || isProxyRunning {
-                guard ContinuousClock.now < deadline else {
-                    Self.logger.error("Restart aborted: the proxy did not stop in time")
-                    return
-                }
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            startProxy()
+        guard let stopTask = stopProxy() else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            await CaptureRestartSequencer.restart(
+                after: { await stopTask.value },
+                canStart: { self?.canStartProxy == true },
+                start: { self?.startProxy() }
+            )
         }
     }
 
-    func stopProxy() {
+    @discardableResult
+    func stopProxy() -> Task<Void, Never>? {
         guard isProxyRunning, !isProxyStopping else {
-            return
+            return nil
         }
         isProxyStopping = true
         captureHealthTask?.cancel()
@@ -445,14 +467,24 @@ extension MainContentCoordinator {
         let serverToStop = proxyServer
         let probeServer = captureProbeServer
         let probeTracker = captureProbeTracker
+        let stopRequestedAt = ContinuousClock.now
 
-        Task {
+        return Task {
+            Self.logger
+                .info(
+                    "Capture stop dispatched after \(String(describing: stopRequestedAt.duration(to: .now)), privacy: .public)"
+                )
             defer {
                 isProxyStopping = false
+                Self.logger
+                    .info(
+                        "Capture stop task ended after \(String(describing: stopRequestedAt.duration(to: .now)), privacy: .public)"
+                    )
             }
+            let restoreStartedAt = ContinuousClock.now
             let restoreReport: SystemProxyRestoreReport
             do {
-                restoreReport = try await SystemProxyManager.shared.disableSystemProxy()
+                restoreReport = try await disableSystemProxySyncingRefusal()
                 readiness.clearProxyRestoreFailure()
                 Self.logger.info("System proxy disabled")
             } catch {
@@ -464,6 +496,10 @@ extension MainContentCoordinator {
                 return
             }
 
+            Self.logger
+                .info(
+                    "Capture stop routing restore took \(String(describing: restoreStartedAt.duration(to: .now)), privacy: .public)"
+                )
             isProxyRunning = false
             if let evictionObserver {
                 NotificationCenter.default.removeObserver(evictionObserver)
@@ -477,6 +513,7 @@ extension MainContentCoordinator {
                 NotificationCenter.default.removeObserver(socksListenerObserver)
                 self.socksListenerObserver = nil
             }
+            cancelMemoryPressureEviction()
             ReverseProxyStore.shared.markProxyStopped()
             SOCKSListenerSettings.shared.markProxyStopped()
             probeTracker.cancel()
@@ -494,8 +531,18 @@ extension MainContentCoordinator {
             // resolution can never forward the original request to the origin. Resolving
             // before the stop would complete promises while channels were still active
             // and initiate exactly that origin work.
+            let drainStartedAt = ContinuousClock.now
             await serverToStop.stop()
+            Self.logger
+                .info(
+                    "Capture stop connection drain took \(String(describing: drainStartedAt.duration(to: .now)), privacy: .public)"
+                )
             breakpointManager.resolveAll(decision: .cancel)
+            // After the channels are drained and the paused items resolved, so the final
+            // flush inside this call carries every row the proxy produced. The loop only
+            // ends if Babylon ingest is not also registered -- stopping it here regardless
+            // would stall Babylon's delivery, which does not depend on the proxy at all.
+            await sessionManager.stopBatchTimer(for: .proxy)
             stopLogCapture()
             stopBandwidthTimer()
             resetInstantaneousSpeeds()
@@ -634,31 +681,6 @@ extension MainContentCoordinator {
         }
     }
 
-    func retrySystemProxy() {
-        guard isProxyRunning else {
-            return
-        }
-        readiness.clearProxyEnableFailure()
-        readiness.setSystemRoutingExpected(true)
-
-        Task {
-            do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
-                isSystemProxyConfigured = true
-                isProxyOverridden = true
-                readiness.setSystemRoutingReady(true)
-                runCaptureHealthCheck()
-                Self.logger.info("System proxy enabled on retry")
-            } catch {
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingReady(false)
-                readiness.setProxyEnableFailed(message: error.localizedDescription)
-                Self.logger.warning("System proxy retry failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
     func refreshProxyOverrideStatus() {
         Task { @MainActor in
             _ = await reconcileProxyOverrideStatus()
@@ -685,7 +707,7 @@ extension MainContentCoordinator {
 
     @discardableResult
     func reconcileProxyOverrideStatus() async -> Bool {
-        let owner = await SystemProxyManager.shared.effectiveOverrideOwner()
+        let owner = await effectiveOverrideOwnerSyncingRefusal()
         let reconciliation = Self.reconcileProxyOverride(
             overridePort: Self.proxyOverridePort(for: owner),
             activeProxyPort: activeProxyPort
@@ -726,64 +748,6 @@ extension MainContentCoordinator {
         )
     }
 
-    /// Returns the task that applies the change, so a caller can wait for macOS to finish.
-    @discardableResult
-    func switchOffSystemProxyOverride() -> Task<Void, Never> {
-        Task { @MainActor in
-            do {
-                let report = try await SystemProxyManager.shared.disableSystemProxy()
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingExpected(false)
-                readiness.setSystemRoutingReady(false)
-                await readiness.refresh()
-                Self.logger.info("System proxy override switched off")
-                await PreviousProxyRestorePresenter.resolve(report)
-            } catch {
-                readiness.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
-                Self.logger.error("Failed to switch off system proxy override: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Returns the task that applies the change, or nil when the proxy is not running.
-    @discardableResult
-    func switchOnSystemProxyOverride() -> Task<Void, Never>? {
-        guard isProxyRunning else {
-            return nil
-        }
-        readiness.clearProxyEnableFailure()
-        readiness.setSystemRoutingExpected(true)
-
-        return Task { @MainActor in
-            do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
-                isSystemProxyConfigured = true
-                isProxyOverridden = true
-                readiness.setSystemRoutingReady(true)
-                runCaptureHealthCheck()
-                await readiness.refresh()
-                Self.logger.info("System proxy override switched on")
-            } catch {
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingReady(false)
-                readiness.setProxyEnableFailed(message: error.localizedDescription)
-                Self.logger.error("Failed to switch on system proxy override: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func toggleSystemProxyOverride() {
-        // Only disable when the live routing is confirmed to point at this listener.
-        // A stale/foreign override must be reclaimed, not switched off as if Rockxy owned it.
-        if isSystemProxyConfigured {
-            switchOffSystemProxyOverride()
-        } else {
-            switchOnSystemProxyOverride()
-        }
-    }
-
     func clearSession() async {
         // Reentry guard: if a clear is already in flight, skip so the in-flight
         // clear's deferredSessionBatches and clearingTargetGeneration are not clobbered.
@@ -805,7 +769,7 @@ extension MainContentCoordinator {
         // Advance the actor-side generation first so any traffic arriving while
         // the main actor is suspended joins the new session instead of being
         // stamped with an old generation.
-        let rollover = await sessionManager.beginNewSessionPreservingPending()
+        let rollover = await sessionManager.beginNewSessionPreservingPending(clearingProjectInto: activeCaptureContext)
         let resolvedGeneration = rollover.generation
 
         // Validate that this clear is still the authoritative in-flight clear
@@ -839,10 +803,18 @@ extension MainContentCoordinator {
         // identity check as a second line of defense so a future direct store
         // mutation cannot clear another Project's active projection.
         if projectStore.activeProjectID == activeProjectID {
+            // Clearing the session kills every row, so every cached AI evidence entry is
+            // dead on the same terms as an eviction: the cache revalidates identity against
+            // a weak reference that is about to go nil. Discard by id here, while the ids
+            // are still at hand, or they sit until the count limit sheds them.
+            AITrafficDetector.discardCachedEvidence(for: transactions.lazy.map(\.id))
             transactions.removeAll()
             rebuildObservedDomainsByApp()
             logEntries.removeAll()
             errorCount = 0
+            erroredTransactionIDs.removeAll()
+            signalMaskByTransactionID.removeAll()
+            trafficSignalCounts.removeAll()
             sessionProvenance = nil
             importPreview = nil
             exportScopeContext = nil
@@ -877,12 +849,6 @@ extension MainContentCoordinator {
     func clearCaptureAndFilters() async {
         await clearSession()
         clearFiltersAcrossAllWorkspaces()
-    }
-
-    func recomputeErrorCount() {
-        errorCount = transactions.count { transaction in
-            (transaction.response?.statusCode ?? 0) >= 400
-        }
     }
 
     // MARK: - Proxy Configuration
@@ -939,6 +905,17 @@ extension MainContentCoordinator {
             }
         )
 
+        await configureSessionDeliveryCallbacks()
+        let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
+        liveHistoryLimit = max(1, effectiveBufferSize)
+        await sessionManager.setMaxBufferSize(effectiveBufferSize)
+        await sessionManager.setProxyPort(resolvedPort)
+        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
+    }
+
+    /// Proxy and Babylon intake must install the same delivery paths, including terminal
+    /// updates for rows opened before Pause or before the local proxy was started.
+    func configureSessionDeliveryCallbacks() async {
         await sessionManager.setOnBatchReady { [weak self] batch, generation in
             guard let self else {
                 return
@@ -960,14 +937,9 @@ extension MainContentCoordinator {
                 return
             }
             Task { @MainActor in
-                self.handleLiveTransactionUpdate(updatedTransactions)
+                self.enqueueLiveTransactionUpdates(updatedTransactions)
             }
         }
-        let effectiveBufferSize = min(settings.maxBufferSize, policy.maxLiveHistoryEntries)
-        liveHistoryLimit = max(1, effectiveBufferSize)
-        await sessionManager.setMaxBufferSize(effectiveBufferSize)
-        await sessionManager.setProxyPort(resolvedPort)
-        Self.logger.info("Proxy configured on \(settings.effectiveListenAddress):\(resolvedPort)")
     }
 
     // MARK: - Transaction Processing
@@ -1025,37 +997,43 @@ extension MainContentCoordinator {
             var history = transactionsByProjectID[projectID] ?? []
             var sequence = nextSequenceNumberByProjectID[projectID]
                 ?? ((history.map(\.sequenceNumber).max() ?? -1) + 1)
-            // A WebSocket session is delivered when it opens (so the row and frames are
-            // visible live) and again when it closes with its final state. The second
-            // delivery updates the row that is already in history instead of appending
-            // a duplicate.
+            // Index only live-row batches; ordinary HTTP intake keeps its append fast path.
+            // One lookup pass replaces a history scan for every WebSocket in the batch.
+            var liveHistoryIDs: Set<UUID> = []
+            if routedBatch.contains(where: { $0.deliversLiveRow || $0.webSocketConnection != nil }) {
+                liveHistoryIDs = Set(history.map(\.id))
+            }
             var projectBatch: [HTTPTransaction] = []
             var updatedTransactions: [HTTPTransaction] = []
             for transaction in routedBatch {
-                if transaction.webSocketConnection != nil,
-                   history.contains(where: { $0.id == transaction.id })
-                {
-                    // The lifecycle only re-delivers a session when it has closed.
-                    transaction.state = .completed
+                let isLiveDelivery = transaction.deliversLiveRow || transaction.webSocketConnection != nil
+                if isLiveDelivery, liveHistoryIDs.contains(transaction.id) {
+                    // Preserve the producer's failed/blocked/completed state. A duplicate open
+                    // must not finish the stream, and a failed close must not become success.
                     updatedTransactions.append(transaction)
                     continue
                 }
                 transaction.sequenceNumber = sequence
                 sequence += 1
+                if isLiveDelivery {
+                    liveHistoryIDs.insert(transaction.id)
+                }
                 history.append(transaction)
                 projectBatch.append(transaction)
             }
             nextSequenceNumberByProjectID[projectID] = sequence
-            if !updatedTransactions.isEmpty, projectID == projectStore.activeProjectID {
-                refreshRowsAfterMutation()
-            }
             guard !projectBatch.isEmpty else {
                 transactionsByProjectID[projectID] = history
+                if !updatedTransactions.isEmpty, projectID == projectStore.activeProjectID {
+                    transactions = history
+                    handleLiveTransactionUpdate(updatedTransactions)
+                }
                 continue
             }
 
             // Only live-captured rows count toward the cap; imported rows are never trimmed.
             var evictionCount = 0
+            var removedTransactions: [HTTPTransaction] = []
             if history.count > liveHistoryLimit {
                 let liveCount = history.count { !$0.isImported }
                 let overflow = liveCount - liveHistoryLimit
@@ -1069,6 +1047,7 @@ extension MainContentCoordinator {
                         count: min(liveCount, max(overflow, evictionHeadroom)),
                         includesImported: false
                     )
+                    removedTransactions = history.filter { evictedIDs.contains($0.id) }
                     history.removeAll { evictedIDs.contains($0.id) }
                     evictionCount = evictedIDs.count
                 }
@@ -1083,13 +1062,18 @@ extension MainContentCoordinator {
             transactions = history
             nextSequenceNumber = sequence
             if evictionCount > 0 {
-                rebuildObservedDomainsByApp()
-                debugAssistantTransactionsByHost.removeAll()
-                debugAssistantIndexedTransactionIDs.removeAll()
-                debugAssistantIndexedLiveCount = 0
-                debugAssistantTrafficIndexGeneration &+= 1
-                appendToDebugAssistantTrafficIndex(history)
-                rebuildAllWorkspacesForCaptureReplacement()
+                // Both of these used to rebuild from the whole retained history, which is
+                // 1,000-10,000 rows, and eviction only starts once the cap is reached and
+                // then runs for the rest of the session -- the shape that made issue #416
+                // look unreproducible. They already receive the rows that left, which is
+                // the one thing a rebuild needed the whole history for.
+                CaptureRetentionProfiler.measure(.observedDomains) {
+                    retainObservedDomainsByApp(removing: removedTransactions, appending: projectBatch)
+                }
+                CaptureRetentionProfiler.measure(.assistantIndex) {
+                    retainDebugAssistantTrafficIndex(removing: removedTransactions, appending: projectBatch)
+                }
+                retainAllWorkspaces(removing: removedTransactions, appending: projectBatch)
             } else {
                 updateAllWorkspaces(with: projectBatch)
                 appendToDebugAssistantTrafficIndex(projectBatch)
@@ -1098,19 +1082,23 @@ extension MainContentCoordinator {
 
             recordTrafficMetrics(for: projectBatch)
             if evictionCount > 0 {
-                recomputeErrorCount()
+                CaptureRetentionProfiler.measure(.errorCount) {
+                    retainErrorAndSignalCounts(removing: removedTransactions, appending: projectBatch)
+                }
             } else {
-                errorCount += projectBatch.count { ($0.response?.statusCode ?? 0) >= 400 }
+                updateErrorCount(for: projectBatch)
             }
             followLatestVisibleTransaction(from: projectBatch)
             selectPendingReplayTransaction(from: projectBatch)
             headerColumnStore.updateDiscoveredHeaders(fromBatch: projectBatch)
+            if !updatedTransactions.isEmpty {
+                handleLiveTransactionUpdate(updatedTransactions)
+            }
         }
     }
 
     func handleClientAppEnrichment(_ enrichedTransactions: [HTTPTransaction]) {
-        let activeIDs = Set(transactions.map(\.id))
-        let enrichedTransactions = enrichedTransactions.filter { activeIDs.contains($0.id) }
+        let enrichedTransactions = updatesForActiveCaptureHistory(enrichedTransactions)
         guard !enrichedTransactions.isEmpty else {
             return
         }
@@ -1122,24 +1110,59 @@ extension MainContentCoordinator {
         moveObservedDomainsFromUnknown(for: enrichedTransactions)
 
         for workspace in workspaceStore.allWorkspaces {
+            // Both paths inside this call publish the app nodes themselves, so refreshing
+            // them again here only repeated the work.
             updateAppGroupingForEnrichedTransactions(enrichedTransactions, in: workspace)
-            refreshAppNodes(for: workspace)
-
             if workspaceUsesClientDependentOrderingOrFiltering(workspace) {
                 recomputeFilteredTransactions(for: workspace)
             } else {
                 rewriteVisibleRowsInPlace(from: enrichedByID, in: workspace)
             }
         }
-        TrafficDomainSnapshot.shared.update(appNodes: appNodes, domainTree: domainTree)
+        publishTrafficDomainSnapshot()
+    }
+
+    /// Stop can finish thousands of streams in one burst. The session actor limits each
+    /// message to 50 rows, but rebuilding derived state per message still repeats history
+    /// scans. Merge messages for one display interval and refresh each identity once.
+    func enqueueLiveTransactionUpdates(_ updates: [HTTPTransaction]) {
+        let context = activeCaptureContext
+        for update in updates where update.captureContext == nil || update.captureContext == context {
+            pendingLiveRowUpdates[update.id] = update
+        }
+        guard !pendingLiveRowUpdates.isEmpty, liveRowRefreshTask == nil else {
+            return
+        }
+        liveRowRefreshTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(16))
+            guard !Task.isCancelled else {
+                // The guard above only schedules a flush while this handle is nil, and a
+                // cancelled sleep is the one exit that does not reach the flush that
+                // clears it. Leaving it set would stop every later flush from being
+                // scheduled: live rows would freeze for the rest of the session and the
+                // pending map would only grow. Today the sole outside canceller is
+                // `deinit`, so this is a trap for the next one rather than a live defect.
+                self?.liveRowRefreshTask = nil
+                return
+            }
+            self?.flushQueuedLiveTransactionUpdates()
+        }
+    }
+
+    func flushQueuedLiveTransactionUpdates() {
+        liveRowRefreshTask?.cancel()
+        liveRowRefreshTask = nil
+        let updates = Array(pendingLiveRowUpdates.values)
+        pendingLiveRowUpdates.removeAll(keepingCapacity: true)
+        // Ownership and history membership are rechecked after the scheduling suspension.
+        handleLiveTransactionUpdate(updates)
     }
 
     /// Refreshes rows for long-lived transactions (WebSocket connections) whose state, response,
     /// or duration changed after they were already delivered as live rows. The transaction
     /// objects are shared, so only the derived row snapshots and state-dependent views need work.
     func handleLiveTransactionUpdate(_ updatedTransactions: [HTTPTransaction]) {
-        let activeIDs = Set(transactions.map(\.id))
-        let updatedTransactions = updatedTransactions.filter { activeIDs.contains($0.id) }
+        let updatedTransactions = updatesForActiveCaptureHistory(updatedTransactions)
         guard !updatedTransactions.isEmpty else {
             return
         }
@@ -1149,42 +1172,83 @@ extension MainContentCoordinator {
             uniquingKeysWith: { _, latest in latest }
         )
         for workspace in workspaceStore.allWorkspaces {
-            if workspaceUsesStateDependentOrderingOrFiltering(workspace) {
+            refreshSidebarContributions(updatedTransactions, in: workspace)
+            // A search term, a status pill, or any other state-dependent filter used to
+            // escalate every live flush into a full re-filter of the retained capture. The
+            // rows this flush changed are the only ones whose membership can have changed,
+            // so re-test just those against the same predicate the recompute folds over the
+            // history, and keep the recompute for the flushes that really do move a row.
+            if workspaceUsesStateDependentOrderingOrFiltering(workspace),
+               !liveUpdatesPreserveRowMembership(updatedTransactions, in: workspace)
+            {
                 recomputeFilteredTransactions(for: workspace)
             } else {
                 rewriteVisibleRowsInPlace(from: updatedByID, in: workspace)
             }
         }
-        recomputeErrorCount()
+        // These rows are already known to be in the history, and a refresh never removes
+        // one, so the count follows from the batch alone.
+        updateErrorCount(for: updatedTransactions)
+    }
+
+    /// Reject stale ownership before scanning history. Temporary membership storage scales
+    /// with the incoming batch, rather than the entire retained capture on every refresh.
+    private func updatesForActiveCaptureHistory(_ updates: [HTTPTransaction]) -> [HTTPTransaction] {
+        let context = activeCaptureContext
+        let candidates = updates.filter { $0.captureContext == nil || $0.captureContext == context }
+        var missing = Set(candidates.map(\.id))
+        guard !missing.isEmpty else {
+            return []
+        }
+        var present: Set<UUID> = []
+        // Newest first. The early exit only fires once every update has been accounted
+        // for, and a refresh is almost always for a row near the end of the history -- an
+        // open stream, or one that just finished -- so scanning from the oldest row walked
+        // nearly the whole retained capture before finding them. Iteration order cannot
+        // change which ids are found, only how soon.
+        for transaction in transactions.reversed() where missing.remove(transaction.id) != nil {
+            present.insert(transaction.id)
+            if missing.isEmpty {
+                break
+            }
+        }
+        return candidates.filter { present.contains($0.id) }
     }
 
     /// Rewrites the `RequestListRow` snapshots of already-visible rows without a full derive.
+    ///
+    /// Costs the rows the update names, not the rows on screen, and publishes exactly which
+    /// indexes it replaced so the table can reload those rows alone. A row whose projection
+    /// is still current is left as it is: `canReuseProjection(of:)` is the same guard the
+    /// full derive trusts, and a pass that rewrote nothing must not invalidate the table.
     private func rewriteVisibleRowsInPlace(
         from transactionsByID: [UUID: HTTPTransaction],
         in workspace: WorkspaceState
     ) {
-        var didUpdateRows = false
+        var rewritten = IndexSet()
         for (id, transaction) in transactionsByID {
             guard let entry = workspace.trafficSelectionIndex[id],
                   workspace.filteredRows.indices.contains(entry.rowIndex),
-                  workspace.filteredRows[entry.rowIndex].id == id else {
+                  workspace.filteredRows[entry.rowIndex].id == id else
+            {
+                continue
+            }
+            if workspace.filteredRows[entry.rowIndex].canReuseProjection(of: transaction) {
                 continue
             }
             workspace.filteredRows[entry.rowIndex] = RequestListRow(
                 from: transaction,
                 sslState: sslState(for: transaction)
             )
-            didUpdateRows = true
+            rewritten.insert(entry.rowIndex)
         }
-        guard didUpdateRows else {
+        guard !rewritten.isEmpty else {
             return
         }
         // In-place rewrites change existing rows without a full derive, so they must
         // invalidate the append provenance themselves — otherwise a later coalesced append
         // could insert against a prefix this update already mutated.
-        workspace.lastDeriveWasAppendOnly = false
-        workspace.appendChainOriginToken = nil
-        workspace.refreshToken += 1
+        workspace.recordInPlaceRowRewrite(at: rewritten)
     }
 
     private func workspaceUsesStateDependentOrderingOrFiltering(_ workspace: WorkspaceState) -> Bool {
@@ -1196,7 +1260,7 @@ extension MainContentCoordinator {
             || criteria.sidebarScope != .allTraffic
             || !criteria.activeProtocolFilters.isEmpty
             || workspace.activeSortDescriptors
-            .contains(where: { ["status", "code", "duration", "responseSize"].contains($0.key ?? "") })
+            .contains(where: { RequestListRow.requiresResortAfterLiveUpdate(columnID: $0.key ?? "") })
             || workspace.activeFocusSet != nil
         {
             return true
@@ -1211,26 +1275,7 @@ extension MainContentCoordinator {
         _ transactions: [HTTPTransaction],
         in workspace: WorkspaceState
     ) {
-        let unknownApp = String(localized: "Unknown", bundle: RockxyLocalization.bundle)
-        for transaction in transactions {
-            let destinationApp = transaction.clientApp?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !destinationApp.isEmpty else {
-                continue
-            }
-
-            switch workspace.filterCriteria.sidebarApp {
-            case nil:
-                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
-                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
-            case unknownApp:
-                workspace.appGroupingIndex.remove(transaction, appName: unknownApp)
-            case destinationApp:
-                // The row was omitted from this app-scoped index while attribution was unknown.
-                workspace.appGroupingIndex.add(transaction, appName: destinationApp)
-            default:
-                break
-            }
-        }
+        refreshSidebarContributions(transactions, in: workspace)
     }
 
     private func workspaceUsesClientDependentOrderingOrFiltering(_ workspace: WorkspaceState) -> Bool {

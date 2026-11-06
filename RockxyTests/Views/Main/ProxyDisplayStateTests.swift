@@ -173,7 +173,8 @@ struct ProxyDisplayStateTests {
         )
 
         #expect(presentation.title == "Capturing Traffic")
-        #expect(presentation.systemRouting.value == "Manual app setup")
+        #expect(presentation.systemRouting.value == "macOS proxy off")
+        #expect(presentation.systemRouting.level == .neutral)
     }
 
     @Test("Diagnostic transactions are consumed only for registered private tokens")

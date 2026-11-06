@@ -16,7 +16,7 @@ private func makeIsolatedDiscoveryDir() throws -> URL {
 }
 
 private func makeIsolatedDefaults() -> UserDefaults {
-    let suiteName = "RockxyTests-\(UUID().uuidString)"
+    let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "RockxyTests-")
     guard let defaults = UserDefaults(suiteName: suiteName) else {
         fatalError("Failed to create isolated UserDefaults suite: \(suiteName)")
     }

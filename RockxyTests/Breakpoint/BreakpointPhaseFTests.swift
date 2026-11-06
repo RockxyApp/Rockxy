@@ -5,7 +5,9 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct BreakpointPhaseFTests {
-    // BP_F1a
+    // MARK: Internal
+
+    /// BP_F1a
     @Test("templateStorePersistsToDisk")
     func templateStorePersistsToDisk() {
         let (defaults, key) = makeDefaults()
@@ -17,10 +19,14 @@ struct BreakpointPhaseFTests {
         #expect(fresh.requestTemplates.first?.name == "Persisted")
     }
 
-    // BP_F1b
+    /// BP_F1b
     @Test("templateRoundTripFieldsIntact")
     func templateRoundTripFieldsIntact() throws {
-        let template = BreakpointTemplate(kind: .response, name: "Response", rawMessage: "HTTP/1.1 202 Accepted\nX-A: B\n\nok")
+        let template = BreakpointTemplate(
+            kind: .response,
+            name: "Response",
+            rawMessage: "HTTP/1.1 202 Accepted\nX-A: B\n\nok"
+        )
         let data = try JSONEncoder().encode(template)
         let decoded = try JSONDecoder().decode(BreakpointTemplate.self, from: data)
         #expect(decoded.id == template.id)
@@ -29,7 +35,7 @@ struct BreakpointPhaseFTests {
         #expect(decoded.rawMessage == template.rawMessage)
     }
 
-    // BP_F2
+    /// BP_F2
     @Test("createNewTemplateOfSelectedKind")
     func createNewTemplateOfSelectedKind() {
         let (defaults, key) = makeDefaults()
@@ -40,7 +46,7 @@ struct BreakpointPhaseFTests {
         #expect(store.selectedTemplateID == template.id)
     }
 
-    // BP_F3
+    /// BP_F3
     @Test("editTemplateName")
     func editTemplateName() {
         let (defaults, key) = makeDefaults()
@@ -50,7 +56,7 @@ struct BreakpointPhaseFTests {
         #expect(store.selectedTemplate?.name == "Renamed")
     }
 
-    // BP_F4a
+    /// BP_F4a
     @Test("validationRunsOnEachRawChange")
     func validationRunsOnEachRawChange() {
         let valid = BreakpointTemplateValidator.validate(rawMessage: "GET /get HTTP/1.1\n\n", kind: .request)
@@ -59,8 +65,8 @@ struct BreakpointPhaseFTests {
         #expect(!invalid.isValid)
     }
 
-    // BP_F4b
-    // Invalid raw templates remain persistable editable drafts; only the application payload is withheld.
+    /// BP_F4b
+    /// Invalid raw templates remain persistable editable drafts; only the application payload is withheld.
     @Test("invalidTemplateProducesNoApplicationPayload")
     func invalidTemplateProducesNoApplicationPayload() {
         let template = BreakpointTemplate(kind: .response, name: "Bad", rawMessage: "not a response")
@@ -68,7 +74,7 @@ struct BreakpointPhaseFTests {
         #expect(template.applicationPayload == nil)
     }
 
-    // BP_F5
+    /// BP_F5
     @Test("deleteTemplate")
     func deleteTemplate() {
         let (defaults, key) = makeDefaults()
@@ -78,7 +84,7 @@ struct BreakpointPhaseFTests {
         #expect(store.templates.isEmpty)
     }
 
-    // BP_F6
+    /// BP_F6
     @Test("duplicateTemplate")
     func duplicateTemplate() throws {
         let (defaults, key) = makeDefaults()
@@ -90,7 +96,7 @@ struct BreakpointPhaseFTests {
         #expect(duplicate.rawMessage == "POST /post HTTP/1.1\n\nbody")
     }
 
-    // BP_F7
+    /// BP_F7
     @Test("resetRawMessage")
     func resetRawMessage() throws {
         let (defaults, key) = makeDefaults()
@@ -102,7 +108,7 @@ struct BreakpointPhaseFTests {
         #expect(reset.rawMessage == BreakpointTemplateKind.response.sampleMessage)
     }
 
-    // BP_F8
+    /// BP_F8
     @Test("persistAcrossSimulatedRestart")
     func persistAcrossSimulatedRestart() {
         let (defaults, key) = makeDefaults()
@@ -113,7 +119,7 @@ struct BreakpointPhaseFTests {
         #expect(fresh.requestTemplates.map(\.name) == ["Restart"])
     }
 
-    // BP_F9
+    /// BP_F9
     @Test("applyTemplateDuringPauseAtomic")
     func applyTemplateDuringPauseAtomic() throws {
         let template = BreakpointTemplate(
@@ -128,7 +134,7 @@ struct BreakpointPhaseFTests {
         #expect(updated.body == "{\"ok\":true}")
     }
 
-    // BP_F10
+    /// BP_F10
     @Test("seedTemplatesNotRecreatedAfterDeletion")
     func seedTemplatesNotRecreatedAfterDeletion() {
         let (defaults, key) = makeDefaults()
@@ -140,8 +146,10 @@ struct BreakpointPhaseFTests {
         #expect(fresh.templates.isEmpty)
     }
 
+    // MARK: Private
+
     private func makeDefaults() -> (UserDefaults, String) {
-        let suiteName = "com.amunx.rockxy.tests.breakpoint.phasef.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "com.amunx.rockxy.tests.breakpoint.phasef.")
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             preconditionFailure("Could not create isolated Breakpoint Phase F test defaults.")
         }
