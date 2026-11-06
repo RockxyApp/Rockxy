@@ -34,15 +34,18 @@ enum HelperRegistrationGuard {
     /// `performUninstall()`, a sleep, then `performInstall()`; a guard that answered differently
     /// between those two calls could leave the helper unregistered.
     nonisolated static let isCurrentProcessTestHost: Bool = isTestHost(
-        isTestFrameworkLoaded: loadedImagePaths().contains(where: isTestFrameworkImagePath)
+        isTestFrameworkLoaded: RockxyIdentity.isRunningTests
     )
 
     /// Whether a loaded Mach-O image path belongs to XCTest or Swift Testing.
     nonisolated static func isTestFrameworkImagePath(_ path: String) -> Bool {
-        path.contains("/XCTest.framework/") || path.contains("/Testing.framework/")
+        RockxyIdentity.isTestFrameworkImagePath(path)
     }
 
     /// Whether this process is a test host, decided solely by whether a test framework is loaded.
+    ///
+    /// The scan itself lives in `RockxyIdentity.isRunningTests` (`Shared/`), so there is one
+    /// definition of "test host" for the whole codebase; this guard only adds the refusal policy.
     ///
     /// The loaded-image scan is the only signal, because it is the only one that cannot be set
     /// from outside the process. A hardened-runtime app with library validation does not load a
@@ -95,10 +98,4 @@ enum HelperRegistrationGuard {
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "HelperRegistrationGuard"
     )
-
-    private static func loadedImagePaths() -> [String] {
-        (0 ..< _dyld_image_count()).compactMap { index in
-            _dyld_get_image_name(index).map { String(cString: $0) }
-        }
-    }
 }

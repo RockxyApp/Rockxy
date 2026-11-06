@@ -31,8 +31,8 @@ enum ScriptSourceValidator {
         runOnRequest: Bool,
         runOnResponse: Bool,
         runAsMock: Bool
-    ) async
-        -> ScriptSourceValidationResult
+    )
+        async -> ScriptSourceValidationResult
     {
         if !runOnRequest, !runOnResponse {
             return .invalid("Enable Request or Response before validating.")
@@ -63,7 +63,9 @@ enum ScriptSourceValidator {
             thread.start()
 
             DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                claim(.invalid("Validation did not finish within \(Int(timeout)) seconds. The script may not terminate."))
+                claim(
+                    .invalid("Validation did not finish within \(Int(timeout)) seconds. The script may not terminate.")
+                )
             }
         }
     }
@@ -88,9 +90,10 @@ enum ScriptSourceValidator {
             exceptionMessage = exception?.toString() ?? "Unknown JavaScript error"
         }
 
-        let suiteName = "RockxyScriptValidation-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName) ?? .standard
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        // Validation storage never touches disk: a named suite leaves a plist behind even
+        // after `removePersistentDomain`, and falling back to `.standard` would let an
+        // untrusted script write into the user's real defaults domain.
+        let defaults = ScriptValidationDefaults()
 
         let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptValidation")
         ScriptBridge.install(in: context, pluginID: "validation", logger: logger, defaults: defaults)
@@ -137,4 +140,40 @@ enum ScriptSourceValidator {
         }
         return false
     }
+}
+
+// MARK: - ScriptValidationDefaults
+
+/// A `UserDefaults` whose storage is a private in-memory dictionary.
+///
+/// `ScriptBridge` only reads, writes, and removes keys through `object(forKey:)`,
+/// `set(_:forKey:)`, and `removeObject(forKey:)`; all three are overridden, so nothing a
+/// validated script does reaches `cfprefsd`, creates a preference file, or lands in the
+/// real app domain. The inherited `init()` is used as-is -- the SDK documents it as
+/// equivalent to `initWithSuiteName:nil`, and it is non-failable, so there is no degraded
+/// path to guard. No inherited accessor that would write to the real domain is reachable
+/// from the bridge.
+final class ScriptValidationDefaults: UserDefaults {
+    // MARK: Internal
+
+    var storedKeys: [String] {
+        lock.withLock { values.keys.sorted() }
+    }
+
+    override func object(forKey defaultName: String) -> Any? {
+        lock.withLock { values[defaultName] }
+    }
+
+    override func set(_ value: Any?, forKey defaultName: String) {
+        lock.withLock { values[defaultName] = value }
+    }
+
+    override func removeObject(forKey defaultName: String) {
+        lock.withLock { values[defaultName] = nil }
+    }
+
+    // MARK: Private
+
+    private let lock = OSAllocatedUnfairLock()
+    private var values: [String: Any] = [:]
 }

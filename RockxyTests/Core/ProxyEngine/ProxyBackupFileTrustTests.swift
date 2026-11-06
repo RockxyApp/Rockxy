@@ -248,7 +248,137 @@ struct ProxyBackupFileTrustTests {
         #expect(Self.validate(bypassCount: tooMany) != nil)
     }
 
+    // MARK: Extended ACLs
+
+    //
+    // These build real ACLs with `/bin/chmod +a`. The tests that need one are disabled, with the
+    // reason below, on an environment whose temporary directory refuses to hold an ACL.
+
+    @Test("A chain with no extended ACL loads")
+    func noACLLoads() throws {
+        let file = try Self.makeFile(in: Self.makeRoot().appendingPathComponent("leaf"))
+        #expect(throws: Never.self) {
+            try ProxyBackupFileTrust.readTrustedFile(at: file, trustedOwner: getuid())
+        }
+    }
+
+    @Test(
+        "An ACL that grants the current user write on the directory is refused",
+        .enabled(if: Self.aclsAreSupported, "the temporary directory cannot hold an extended ACL")
+    )
+    func writeACLOnDirectoryRefused() throws {
+        let file = try Self.makeFile()
+        let directory = file.deletingLastPathComponent()
+        try Self.addACL("\(NSUserName()) allow add_file,write", to: directory)
+
+        guard case let .writableByExtendedACL(path, entry) = Self.refusal(for: file) else {
+            Issue.record("expected writableByExtendedACL")
+            return
+        }
+        #expect(path == Self.resolved(directory))
+        #expect(entry.contains("write"))
+    }
+
+    @Test(
+        "An ACL on an ANCESTOR that grants delete_child is refused",
+        .enabled(if: Self.aclsAreSupported, "the temporary directory cannot hold an extended ACL")
+    )
+    func writeACLOnAncestorRefused() throws {
+        let root = try Self.makeRoot()
+        let file = try Self.makeFile(in: root.appendingPathComponent("leaf"))
+        try Self.addACL("\(NSUserName()) allow delete_child", to: root)
+
+        guard case let .writableByExtendedACL(path, _) = Self.refusal(for: file) else {
+            Issue.record("expected writableByExtendedACL")
+            return
+        }
+        #expect(path == Self.resolved(root))
+        #expect(throws: ProxyBackupFileTrust.Refusal.self) {
+            try ProxyBackupFileTrust.verifyDirectory(
+                at: file.deletingLastPathComponent(),
+                trustedOwner: getuid()
+            )
+        }
+    }
+
+    @Test(
+        "An ACL that lets someone rewrite the ACL itself is refused",
+        .enabled(if: Self.aclsAreSupported, "the temporary directory cannot hold an extended ACL")
+    )
+    func writeSecurityACLRefused() throws {
+        let file = try Self.makeFile()
+        try Self.addACL("\(NSUserName()) allow writesecurity", to: file.deletingLastPathComponent())
+        guard case .writableByExtendedACL = Self.refusal(for: file) else {
+            Issue.record("expected writableByExtendedACL")
+            return
+        }
+    }
+
+    @Test(
+        "An ACL that grants write on the file itself is refused",
+        .enabled(if: Self.aclsAreSupported, "the temporary directory cannot hold an extended ACL")
+    )
+    func writeACLOnFileRefused() throws {
+        let file = try Self.makeFile()
+        try Self.addACL("\(NSUserName()) allow write,append", to: file)
+        guard case let .writableByExtendedACL(path, _) = Self.refusal(for: file) else {
+            Issue.record("expected writableByExtendedACL")
+            return
+        }
+        #expect(path == file.path)
+    }
+
+    @Test(
+        "A read-only allow ACL and a deny ACL are accepted: neither can modify anything",
+        .enabled(if: Self.aclsAreSupported, "the temporary directory cannot hold an extended ACL")
+    )
+    func readOnlyAndDenyACLsLoad() throws {
+        let file = try Self.makeFile()
+        let directory = file.deletingLastPathComponent()
+        try Self.addACL("\(NSUserName()) allow read,list,search,readattr", to: directory)
+        try Self.addACL("\(NSUserName()) deny write,delete", to: directory)
+        #expect(throws: Never.self) {
+            try ProxyBackupFileTrust.readTrustedFile(at: file, trustedOwner: getuid())
+        }
+    }
+
+    @Test("The stock system directories the helper's locations sit under pass the gate")
+    func realSystemChainPasses() {
+        for path in ["/", "/private/var", "/Library"] {
+            #expect(throws: Never.self, "\(path)") {
+                try ProxyBackupFileTrust.verifyDirectory(at: URL(fileURLWithPath: path), trustedOwner: 0)
+            }
+        }
+    }
+
     // MARK: Private
+
+    private struct ACLSetupFailure: Error {
+        let status: Int32
+    }
+
+    /// True when a throwaway directory under the temporary location accepts a real ACL.
+    private static let aclsAreSupported: Bool = {
+        let probe = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProxyBackupFileTrustTests-acl-probe-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: probe, withIntermediateDirectories: true)) != nil else {
+            return false
+        }
+        defer { try? FileManager.default.removeItem(at: probe) }
+        return (try? addACL("\(NSUserName()) deny delete", to: probe)) != nil
+    }()
+
+    private static func addACL(_ rule: String, to url: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/chmod")
+        process.arguments = ["+a", rule, url.path]
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw ACLSetupFailure(status: process.terminationStatus)
+        }
+    }
 
     private static func validate(
         ownedPort: Int? = 9_090,

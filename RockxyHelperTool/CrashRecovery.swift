@@ -416,8 +416,14 @@ enum CrashRecovery {
         // written permanently unreadable. Check the encoded size for the same reason the content
         // is checked: a refusal here costs the user nothing, a wedge costs them their network.
         for data in [authoritativeData, mirrorData] where data.count > ProxyBackupFileTrust.maximumFileBytes {
-            let reason = "it encodes to \(data.count) bytes, over the \(ProxyBackupFileTrust.maximumFileBytes) byte limit"
-            logger.fault("Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public)")
+            // The helper target cannot see `SizeFormatter`, and a second copy here would be the
+            // drifting private formatter the source-pinning test exists to prevent. So the error
+            // that travels to the user names the limit without a figure, and the exact unrounded
+            // counts, which only diagnosis needs, stay inside the log call.
+            let reason = "it is larger than the recovery file size limit"
+            logger.fault(
+                "Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public); it encodes to \(data.count) bytes, limit \(ProxyBackupFileTrust.maximumFileBytes) bytes"
+            )
             throw CrashRecoveryError.backupWouldNotBeReadable(reason: reason)
         }
 

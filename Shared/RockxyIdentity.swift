@@ -92,15 +92,38 @@ struct RockxyIdentity {
 
     static let current = RockxyIdentity(bundle: .main)
 
-    static var isRunningTests: Bool {
-        let environment = ProcessInfo.processInfo.environment
-        let arguments = ProcessInfo.processInfo.arguments
-        return NSClassFromString("XCTestCase") != nil
-            || NSClassFromString("XCTest.XCTestCase") != nil
-            || NSClassFromString("Testing.Test") != nil
-            || !(environment["XCTestConfigurationFilePath"] ?? "").isEmpty
-            || environment.keys.contains { $0.hasPrefix("XCTest") }
-            || arguments.contains { $0.contains(".xctest") || $0.contains("XCTest") }
+    /// Whether this process is a test host, decided solely by whether a test framework image is loaded.
+    ///
+    /// This is the one definition of "test host" in the codebase; `HelperRegistrationGuard` delegates
+    /// here (the app target depends on `Shared/`, never the reverse). The loaded-image scan is the only
+    /// signal another process cannot set. `XCTestConfigurationFilePath`, any `XCTest*` environment key,
+    /// and argv are deliberately NOT consulted: any process running as the user can plant environment
+    /// keys for every future app launch with `launchctl setenv` (it survives logout), and a user can
+    /// open a file whose name contains "XCTest" or ".xctest". Trusting them made a shipped Rockxy read
+    /// as a test host and redirect its persistent state to throwaway test locations.
+    ///
+    /// A real test run always loads the framework before app code runs: the host is launched with
+    /// `libXCTestBundleInject.dylib`, which links `XCTest.framework`. A hardened-runtime app with
+    /// library validation does not load a foreign framework and has `DYLD_INSERT_LIBRARIES` stripped.
+    ///
+    /// Latched once per process so every call site agrees for the life of the process.
+    static let isRunningTests: Bool = isTestHost(imagePaths: loadedImagePaths())
+
+    /// Whether a loaded Mach-O image path belongs to XCTest or Swift Testing.
+    static func isTestFrameworkImagePath(_ path: String) -> Bool {
+        path.contains("/XCTest.framework/") || path.contains("/Testing.framework/")
+    }
+
+    /// Pure decision over an injected image list, so the contract is testable without a real process.
+    static func isTestHost(imagePaths: [String]) -> Bool {
+        imagePaths.contains(where: isTestFrameworkImagePath)
+    }
+
+    /// Paths of every Mach-O image currently loaded into this process.
+    static func loadedImagePaths() -> [String] {
+        (0 ..< _dyld_image_count()).compactMap { index in
+            _dyld_get_image_name(index).map { String(cString: $0) }
+        }
     }
 
     let displayName: String

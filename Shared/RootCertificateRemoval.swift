@@ -74,7 +74,9 @@ enum RootCertificateRemovalError: LocalizedError, Equatable {
         case .emptyCertificateData:
             "No certificate data was supplied"
         case let .oversizedCertificateData(bytes):
-            "Certificate data too large (\(bytes) bytes) — maximum \(RootCertificateRemover.maximumCertificateByteCount)"
+            // `Shared/` cannot see the app's `SizeFormatter`, and this is a helper diagnostic with
+            // no localized surface, so the exact counts are labelled instead of suffixed with a unit.
+            "Certificate data too large (byte count: \(bytes), maximum byte count: \(RootCertificateRemover.maximumCertificateByteCount))"
         case .unreadableCertificateData:
             "Invalid certificate data — could not create SecCertificate"
         // Ownership validation is shared by installation and removal, so its diagnostics name
@@ -187,22 +189,6 @@ enum RootCertificateRemover {
         return Target(derData: derData, serialNumber: serialNumber, fingerprint: fingerprint(of: derData))
     }
 
-    /// New roots append exactly twelve uppercase hexadecimal characters derived from their
-    /// public key. Keep accepting the legacy exact name while rejecting arbitrary lookalikes
-    /// that merely begin with the Rockxy prefix.
-    private static func ownsCommonName(_ commonName: String) -> Bool {
-        guard commonName != expectedCommonName else {
-            return true
-        }
-        guard commonName.hasPrefix(keySpecificCommonNamePrefix) else {
-            return false
-        }
-        let suffix = commonName.dropFirst(keySpecificCommonNamePrefix.count)
-        return suffix.count == 12 && suffix.allSatisfy { character in
-            "0123456789ABCDEF".contains(character)
-        }
-    }
-
     /// Removes exactly the certificate described by `derData`, plus its admin trust settings.
     ///
     /// A target with no installed copy but leftover admin trust is a real state — the
@@ -304,6 +290,22 @@ enum RootCertificateRemover {
     }
 
     // MARK: Private
+
+    /// New roots append exactly twelve uppercase hexadecimal characters derived from their
+    /// public key. Keep accepting the legacy exact name while rejecting arbitrary lookalikes
+    /// that merely begin with the Rockxy prefix.
+    private static func ownsCommonName(_ commonName: String) -> Bool {
+        guard commonName != expectedCommonName else {
+            return true
+        }
+        guard commonName.hasPrefix(keySpecificCommonNamePrefix) else {
+            return false
+        }
+        let suffix = commonName.dropFirst(keySpecificCommonNamePrefix.count)
+        return suffix.count == 12 && suffix.allSatisfy { character in
+            "0123456789ABCDEF".contains(character)
+        }
+    }
 
     /// The installed items whose bytes are exactly the target's.
     ///

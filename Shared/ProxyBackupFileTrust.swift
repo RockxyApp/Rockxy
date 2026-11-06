@@ -13,7 +13,9 @@ import Foundation
 /// A file is trusted only when its directory and the file itself are both owned by the trusted
 /// user, are real (not symlinks), and are not writable by group or other, and when every ancestor
 /// of that directory is owned by the trusted user or root and is not writable by group or other
-/// either. The chain is walked with `openat`, so the directory that was checked is the directory
+/// either, and when none of those directories (nor the file) carries an extended ACL that grants
+/// modifying access to anyone but root. The chain is walked with `openat`, so the directory that was checked is the
+/// directory
 /// the file is opened in. Every refusal is
 /// thrown with the path and the failing condition so a caller can log it. Nothing here falls back
 /// silently.
@@ -23,6 +25,7 @@ enum ProxyBackupFileTrust {
     enum Refusal: Error, Equatable, CustomStringConvertible {
         case notOwnedByTrustedUser(path: String, owner: UInt32)
         case writableByGroupOrOther(path: String, mode: UInt16)
+        case writableByExtendedACL(path: String, entry: String)
         case symbolicLink(path: String)
         case notRegularFile(path: String)
         case notDirectory(path: String)
@@ -47,6 +50,8 @@ enum ProxyBackupFileTrust {
                 "\(path) is owned by uid \(owner), not the trusted owner"
             case let .writableByGroupOrOther(path, mode):
                 "\(path) is writable by group or other (mode \(String(mode, radix: 8)))"
+            case let .writableByExtendedACL(path, entry):
+                "\(path) has an extended ACL entry that lets someone other than root modify it (\(entry))"
             case let .symbolicLink(path):
                 "\(path) is a symbolic link"
             case let .notRegularFile(path):
@@ -54,7 +59,7 @@ enum ProxyBackupFileTrust {
             case let .notDirectory(path):
                 "\(path) is not a directory"
             case let .tooLarge(path, bytes):
-                "\(path) is \(bytes) bytes, over the \(ProxyBackupFileTrust.maximumFileBytes) byte limit"
+                "\(path) is over the size limit (byte count: \(bytes), maximum byte count: \(ProxyBackupFileTrust.maximumFileBytes))"
             case let .unreadable(path, code):
                 "\(path) could not be read: \(String(cString: strerror(code)))"
             }
@@ -74,7 +79,7 @@ enum ProxyBackupFileTrust {
 
     /// Checks one directory and every ancestor above it. See `openVerifiedDirectory`.
     static func verifyDirectory(at url: URL, trustedOwner: uid_t = 0) throws {
-        close(try openVerifiedDirectory(at: url, trustedOwner: trustedOwner))
+        try close(openVerifiedDirectory(at: url, trustedOwner: trustedOwner))
     }
 
     /// Reads `url` only if its whole directory chain and the file are trusted, and never more than
@@ -116,6 +121,7 @@ enum ProxyBackupFileTrust {
         guard info.st_mode & (S_IWGRP | S_IWOTH) == 0 else {
             throw Refusal.writableByGroupOrOther(path: path, mode: info.st_mode & 0o7777)
         }
+        try verifyNoForeignWriteACL(descriptor, path: path)
         guard info.st_size <= Int64(maximumFileBytes) else {
             throw Refusal.tooLarge(path: path, bytes: info.st_size)
         }
@@ -143,6 +149,24 @@ enum ProxyBackupFileTrust {
     }
 
     // MARK: Private
+
+    /// Permissions that let a principal change the object, its contents, its children, or the
+    /// rules that govern it. `WRITE_SECURITY` and `CHANGE_OWNER` count because holding either
+    /// is the ability to grant oneself everything else.
+    private static let modifyingACLPermissions: UInt64 = [
+        ACL_WRITE_DATA, ACL_ADD_FILE, ACL_APPEND_DATA, ACL_ADD_SUBDIRECTORY, ACL_DELETE,
+        ACL_DELETE_CHILD, ACL_WRITE_ATTRIBUTES, ACL_WRITE_EXTATTRIBUTES, ACL_WRITE_SECURITY,
+        ACL_CHANGE_OWNER
+    ].reduce(0) { $0 | UInt64($1.rawValue) }
+
+    /// The well-known GUID of uid 0: the fixed prefix `FFFFEEEE-DDDD-CCCC-BBBB-AAAA` followed by
+    /// the uid as 32 big-endian bits. Compared as bytes so no directory-service lookup (which a
+    /// helper may not be able to reach, and which could be answered by something other than root)
+    /// stands between an ACL entry and the verdict. Group GUIDs use a different prefix, so a
+    /// `wheel` entry is not mistaken for root.
+    private static let rootUserGUID: [UInt8] = [
+        0xFF, 0xFF, 0xEE, 0xEE, 0xDD, 0xDD, 0xCC, 0xCC, 0xBB, 0xBB, 0xAA, 0xAA, 0x00, 0x00, 0x00, 0x00
+    ]
 
     /// Resolves `url` once, then opens every component of the RESOLVED path with
     /// `O_NOFOLLOW | O_DIRECTORY` relative to the previous component's descriptor, judging each
@@ -240,6 +264,77 @@ enum ProxyBackupFileTrust {
         guard info.st_mode & (S_IWGRP | S_IWOTH) == 0 else {
             throw Refusal.writableByGroupOrOther(path: path, mode: info.st_mode & 0o7777)
         }
+        try verifyNoForeignWriteACL(descriptor, path: path)
+    }
+
+    /// Refuses an object whose extended ACL lets anyone but root modify it.
+    ///
+    /// POSIX mode bits are not the whole access decision on macOS: an `allow` ACL entry can give
+    /// write, append, delete, or the right to rewrite the ACL itself to a user or group while the
+    /// mode reads `0755`. Policy: any `ACL_EXTENDED_ALLOW` entry carrying a modifying permission
+    /// (see `modifyingACLPermissions`) whose qualifier is not uid 0 fails the gate. Read-only
+    /// allows and `deny` entries are ignored (a deny only narrows access; ignoring it is the
+    /// conservative reading). Inherit-only entries still count, since they stamp the grant onto
+    /// every child created later. A qualifier that cannot be resolved to a uid is treated as foreign.
+    ///
+    /// The ACL is read with `acl_get_fd_np(fd, ACL_TYPE_EXTENDED)` on the descriptor the walk
+    /// already opened and `fstat`ed, so it describes that inode and no path is resolved again.
+    /// "No ACL" (`ENOENT`) and a filesystem that cannot carry ACLs (`ENOTSUP`) pass; any other
+    /// error fails closed.
+    private static func verifyNoForeignWriteACL(_ descriptor: Int32, path: String) throws {
+        errno = 0
+        guard let acl = acl_get_fd_np(descriptor, ACL_TYPE_EXTENDED) else {
+            if errno == ENOENT || errno == ENOTSUP {
+                return
+            }
+            throw Refusal.unreadable(path: path, errnoCode: errno)
+        }
+        defer { acl_free(UnsafeMutableRawPointer(acl)) }
+
+        var entry: acl_entry_t?
+        var selector = Int32(ACL_FIRST_ENTRY.rawValue)
+        while acl_get_entry(acl, selector, &entry) == 0, let current = entry {
+            selector = Int32(ACL_NEXT_ENTRY.rawValue)
+
+            var tag = ACL_UNDEFINED_TAG
+            guard acl_get_tag_type(current, &tag) == 0 else {
+                throw Refusal.writableByExtendedACL(path: path, entry: "unreadable entry")
+            }
+            guard tag == ACL_EXTENDED_ALLOW else {
+                continue
+            }
+            var permissions: UInt64 = 0
+            guard acl_get_permset_mask_np(current, &permissions) == 0 else {
+                throw Refusal.writableByExtendedACL(path: path, entry: "unreadable permissions")
+            }
+            guard permissions & modifyingACLPermissions != 0 else {
+                continue
+            }
+            if !aclQualifierIsRootUser(current) {
+                throw Refusal.writableByExtendedACL(path: path, entry: aclEntryDescription(permissions))
+            }
+        }
+    }
+
+    private static func aclQualifierIsRootUser(_ entry: acl_entry_t) -> Bool {
+        guard let raw = acl_get_qualifier(entry) else {
+            return false
+        }
+        defer { acl_free(raw) }
+        let bytes = UnsafeRawBufferPointer(start: raw, count: rootUserGUID.count)
+        return Array(bytes) == rootUserGUID
+    }
+
+    private static func aclEntryDescription(_ permissions: UInt64) -> String {
+        let names: [(acl_perm_t, String)] = [
+            (ACL_WRITE_DATA, "write"), (ACL_ADD_FILE, "add_file"), (ACL_APPEND_DATA, "append"),
+            (ACL_ADD_SUBDIRECTORY, "add_subdirectory"), (ACL_DELETE, "delete"),
+            (ACL_DELETE_CHILD, "delete_child"), (ACL_WRITE_ATTRIBUTES, "writeattr"),
+            (ACL_WRITE_EXTATTRIBUTES, "writeextattr"), (ACL_WRITE_SECURITY, "writesecurity"),
+            (ACL_CHANGE_OWNER, "chown")
+        ]
+        let granted = names.filter { permissions & UInt64($0.0.rawValue) != 0 }.map(\.1)
+        return "allow " + granted.joined(separator: ",")
     }
 }
 
