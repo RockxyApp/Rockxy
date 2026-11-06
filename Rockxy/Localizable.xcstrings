@@ -2696,6 +2696,16 @@
         }
       }
     },
+    "This Mac's proxy settings cannot be saved for recovery, so Rockxy did not change them": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法保存此 Mac 的代理设置以便日后还原，因此 Rockxy 未更改这些设置。"
+          }
+        }
+      }
+    },
     "This request could not be saved, so the change was undone.": {
       "localizations": {
         "zh-Hans": {

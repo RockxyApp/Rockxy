@@ -411,6 +411,15 @@ enum CrashRecovery {
         let encoder = PropertyListEncoder()
         let authoritativeData = try encoder.encode(backup.markedAs(.authoritative))
         let mirrorData = try encoder.encode(backup.markedAs(.mirror))
+        // The content bounds above admit 64 services of 2,048 bypass entries each, which encodes
+        // past the reader's byte limit, so a record can satisfy every field check and still be
+        // written permanently unreadable. Check the encoded size for the same reason the content
+        // is checked: a refusal here costs the user nothing, a wedge costs them their network.
+        for data in [authoritativeData, mirrorData] where data.count > ProxyBackupFileTrust.maximumFileBytes {
+            let reason = "it encodes to \(data.count) bytes, over the \(ProxyBackupFileTrust.maximumFileBytes) byte limit"
+            logger.fault("Refusing to save a proxy backup that could not be read back: \(reason, privacy: .public)")
+            throw CrashRecoveryError.backupWouldNotBeReadable(reason: reason)
+        }
 
         try ProxyBackupCommit.run(
             prepareCompatibilityCopies: {

@@ -28,6 +28,9 @@ enum SystemProxyError: LocalizedError {
     case noActiveNetworkService
     case proxyActivationNotConfirmed(port: Int)
     case proxyRestoreFailed
+    /// The proxy settings captured from this Mac cannot be saved in a form the restore path
+    /// would accept, so the override was not applied rather than left unrestorable.
+    case directBackupWouldNotBeReadable(reason: String)
     case proxySessionInUse
     /// macOS already routes through a loopback proxy whose listener could not be identified, so
     /// direct mode cannot tell another Rockxy session from another proxy app.
@@ -73,6 +76,11 @@ enum SystemProxyError: LocalizedError {
         case .proxySessionInUse:
             String(
                 localized: "Another running Rockxy instance owns the current system proxy session",
+                bundle: RockxyLocalization.bundle
+            )
+        case .directBackupWouldNotBeReadable:
+            String(
+                localized: "This Mac's proxy settings cannot be saved for recovery, so Rockxy did not change them",
                 bundle: RockxyLocalization.bundle
             )
         case let .loopbackProxyOwnerUnknown(port):
@@ -2303,7 +2311,41 @@ final class SystemProxyManager: @unchecked Sendable {
             [.posixPermissions: ProxyBackupFilePublication.ownerOnlyDirectoryPermissions],
             ofItemAtPath: parentDir.path
         )
-        try ProxyBackupFilePublication.publish(PropertyListEncoder().encode(backup), to: url)
+        // Validate with exactly the bounds the reader enforces, before the record becomes the
+        // thing a `networksetup` command is issued against. Writing one the reader will refuse
+        // strands the Mac: the override is applied to every service, the watchdog's own
+        // classification refuses the same record and it exits within seconds, `loadDirectBackup`
+        // then returns nil, and the next crash leaves every service pointing at a dead Rockxy
+        // port with nothing left to restore it. The bypass list is captured from the Mac's
+        // existing settings, so a managed list of a few thousand entries reaches these bounds
+        // honestly. Refusing to take the proxy over is the safe failure; stranding it is not.
+        if let reason = ProxyBackupContentValidation.failure(
+            ownedPort: backup.rockxyPort,
+            serviceNames: backup.services.map(\.service),
+            servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
+            allowsEmptyServices: true
+        ) {
+            Self.logger
+                .fault("Refusing to write a direct backup that could not be read back: \(reason, privacy: .public)")
+            throw SystemProxyError.directBackupWouldNotBeReadable(reason: reason)
+        }
+        let encoded = try PropertyListEncoder().encode(backup)
+        // Content bounds admit 64 services of 2,048 bypass entries each, which encodes well past
+        // the reader's byte limit, so the size has to be checked too or a content-valid record is
+        // still written permanently unreadable.
+        guard encoded.count <= ProxyBackupFileTrust.maximumFileBytes else {
+            // The reason travels with the error, so it spells its size through the shared
+            // formatter like every other size this app reports. The exact count stays in the log
+            // beside it, where an unrounded number is what diagnosing a refused write needs.
+            let reason =
+                "its encoded size is over the \(SizeFormatter.format(bytes: ProxyBackupFileTrust.maximumFileBytes)) limit"
+            Self.logger.fault(
+                "Refusing to write a direct backup that could not be read back: \(reason, privacy: .public); it encodes to \(encoded.count) bytes"
+            )
+            throw SystemProxyError.directBackupWouldNotBeReadable(reason: reason)
+        }
+        try ProxyBackupFilePublication.publish(encoded, to: url)
         Self.logger.info("Persisted direct backup for \(backup.services.count) service(s) at port \(backup.rockxyPort)")
     }
 
