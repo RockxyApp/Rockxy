@@ -90,6 +90,13 @@ nonisolated enum AITrafficDetector {
         discardCachedFilterFacts(for: ids)
     }
 
+    /// Test seam: stops `NSCache` shedding from removing signal and filter-facts entries, so a
+    /// test can assert that an explicit discard removed them. Never called by production code.
+    static func pinCachedEvidenceAgainstSheddingForTesting() {
+        signalCache.pinEntriesAgainstShedding()
+        pinCachedFilterFactsAgainstShedding()
+    }
+
     /// The cached signal when it is still valid for the transaction's current evidence.
     static func cachedSignal(transaction: HTTPTransaction) -> AITrafficSignal? {
         guard let cached = signalCache.entry(for: transaction.id),

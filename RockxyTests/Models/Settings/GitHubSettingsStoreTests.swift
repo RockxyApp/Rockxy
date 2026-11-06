@@ -7,7 +7,7 @@ import Testing
 struct GitHubSettingsStoreTests {
     @Test("Stores only GitHub auth metadata in defaults, never token")
     func tokenNeverEntersUserDefaults() throws {
-        let suiteName = "GitHubSettingsStoreTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "GitHubSettingsStoreTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer {
             defaults.removePersistentDomain(forName: suiteName)

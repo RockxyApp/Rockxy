@@ -44,6 +44,11 @@ extension AITrafficDetector {
         factsCache.discard(ids)
     }
 
+    /// Pins the filter-facts cache for tests; see `pinCachedEvidenceAgainstSheddingForTesting()`.
+    static func pinCachedFilterFactsAgainstShedding() {
+        factsCache.pinEntriesAgainstShedding()
+    }
+
     /// The cached filter facts when they are still valid for the transaction's current evidence.
     static func cachedFilterFacts(transaction: HTTPTransaction) -> AIFilterFacts? {
         guard let cached = factsCache.entry(for: transaction.id),

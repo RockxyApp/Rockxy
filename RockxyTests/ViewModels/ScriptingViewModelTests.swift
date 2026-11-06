@@ -569,7 +569,7 @@ struct ScriptingViewModelTests {
     }
 
     @Test("Concurrent create requests are gated to one coherent discovery result")
-    func concurrentCreateRequestsAreGated() async throws {
+    func concurrentCreateRequestsAreGated() async {
         let env = TestFixtures.makeIsolatedPluginEnv()
         defer { env.cleanup() }
         let vm = ScriptingListViewModel(
@@ -920,7 +920,7 @@ struct ScriptingViewModelTests {
     }
 
     @Test("testRule handles matches misses and invalid regex")
-    func testRulePreviewCases() {
+    func rulePreviewCases() {
         let vm = ScriptEditorViewModel()
         vm.urlPattern = "https://api.example.com/v1/*"
         vm.patternMode = .wildcard
@@ -1149,7 +1149,7 @@ struct ScriptingViewModelTests {
             .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let suite = "ScriptingViewModelTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ScriptingViewModelTests-")
         guard let defaults = UserDefaults(suiteName: suite) else {
             Issue.record("Failed to create isolated UserDefaults suite: \(suite)")
             return

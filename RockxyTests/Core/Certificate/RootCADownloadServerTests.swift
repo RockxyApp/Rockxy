@@ -86,14 +86,10 @@ struct RootCADownloadServerAddressTests {
     }
 }
 
-// MARK: - RootCADownloadServerLifecycleTests
+// MARK: - RootCADownloadServerPreferredInterfaceTests
 
 struct RootCADownloadServerPreferredInterfaceTests {
-    private let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
-        (interfaceName: "en0", address: "192.168.1.20"),
-        (interfaceName: "en7", address: "10.0.0.5"),
-        (interfaceName: "utun3", address: "100.64.0.2"),
-    ])
+    // MARK: Internal
 
     @Test("With no choice, devices get the best-ranked address")
     func defaultsToBestRanked() {
@@ -117,7 +113,8 @@ struct RootCADownloadServerPreferredInterfaceTests {
         let chosen = RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0|192.168.50.2")
         #expect(chosen?.address == "192.168.50.2")
         // A bare interface name saved by an earlier build still resolves to that interface.
-        #expect(RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0")?.interfaceName == "en0")
+        #expect(RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0")?
+            .interfaceName == "en0")
     }
 
     @Test("A chosen interface that disconnected falls back instead of pointing at a dead address")
@@ -129,7 +126,7 @@ struct RootCADownloadServerPreferredInterfaceTests {
 
     @Test("The preferred address reads the remembered interface from defaults")
     func readsRememberedInterface() throws {
-        let suite = "RootCAPreferredInterface-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "RootCAPreferredInterface-")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set("no-such-interface", forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
@@ -137,7 +134,17 @@ struct RootCADownloadServerPreferredInterfaceTests {
         #expect(RootCADownloadServer.preferredLANAddress(defaults: defaults)
             == RootCADownloadServer.rankedLANIPv4AddressCandidates().first?.address)
     }
+
+    // MARK: Private
+
+    private let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+        (interfaceName: "en0", address: "192.168.1.20"),
+        (interfaceName: "en7", address: "10.0.0.5"),
+        (interfaceName: "utun3", address: "100.64.0.2"),
+    ])
 }
+
+// MARK: - RootCADownloadServerLifecycleTests
 
 struct RootCADownloadServerLifecycleTests {
     @Test("Concurrent starts publish only the newest share session")
@@ -207,6 +214,8 @@ struct RootCADownloadServerLifecycleTests {
 // MARK: - RootCADownloadResponderTests
 
 struct RootCADownloadResponderTests {
+    // MARK: Internal
+
     @Test("valid token returns public PEM with download headers")
     func validTokenReturnsPublicPEM() throws {
         let now = Date()
@@ -294,6 +303,8 @@ struct RootCADownloadResponderTests {
         #expect(String(bytes: postResponse.body, encoding: .utf8)?.contains("BEGIN CERTIFICATE") == false)
         #expect(String(bytes: pathResponse.body, encoding: .utf8)?.contains("BEGIN CERTIFICATE") == false)
     }
+
+    // MARK: Private
 
     private func header(_ name: String, in response: RootCADownloadResponse) -> String? {
         response.headers.first { $0.0.caseInsensitiveCompare(name) == .orderedSame }?.1

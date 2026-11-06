@@ -30,6 +30,25 @@ struct TransactionEvidenceCacheTests {
         #expect(entries.suffix(3).allSatisfy { cache.entry(for: $0.cacheID) === $0 })
     }
 
+    @Test("A pinned cache keeps every entry past the count limit until it is discarded")
+    func pinnedEntriesSurviveSheddingAndStillDiscard() {
+        let cache = TransactionEvidenceCache<Entry>(countLimit: 1)
+        cache.pinEntriesAgainstShedding()
+        let entries = (0 ..< 6).map { _ in Entry() }
+        entries.forEach { cache.store($0) }
+
+        #expect(cache.count == 6)
+        #expect(entries.allSatisfy { cache.entry(for: $0.cacheID) === $0 })
+
+        let removed = cache.discard(entries.prefix(4).map(\.cacheID))
+
+        #expect(removed == 4)
+        #expect(cache.count == 2)
+        #expect(entries.prefix(4).allSatisfy { cache.entry(for: $0.cacheID) == nil })
+        #expect(entries.suffix(2).allSatisfy { cache.entry(for: $0.cacheID) === $0 })
+        #expect(cache.discard(entries.prefix(4).map(\.cacheID)) == 0)
+    }
+
     @Test("Discarding an id that was never cached is a no-op")
     func discardingAnUnknownIDChangesNothing() {
         let cache = TransactionEvidenceCache<Entry>(countLimit: 100)
@@ -165,7 +184,7 @@ struct TransactionEvidenceCacheTests {
     private func makeTransaction() -> HTTPTransaction {
         let request = HTTPRequestData(
             method: "GET",
-            url: URL(string: "https://example.test/evidence-\(UUID().uuidString)")!,
+            url: URL(string: "https://example.test/evidence-\(UUID().uuidString)") ?? URL(fileURLWithPath: "/"),
             httpVersion: "HTTP/1.1",
             headers: [],
             body: nil,

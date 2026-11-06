@@ -54,7 +54,8 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             String,
             ClientApplicationIdentity?,
             ProxyConnectionDescriptor?
-        ) -> Bool,
+        )
+            -> Bool,
         shouldResolveApplicationNow: @escaping @Sendable () -> Bool = { false },
         resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)? = nil
     ) {
@@ -188,7 +189,8 @@ final class LiveTunnelRegistry: @unchecked Sendable {
         String,
         ClientApplicationIdentity?,
         ProxyConnectionDescriptor?
-    ) -> Bool
+    )
+        -> Bool
     private let shouldResolveApplicationNow: @Sendable () -> Bool
     private let resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)?
     private var tunnels: [ObjectIdentifier: Entry] = [:]
@@ -231,7 +233,8 @@ final class LiveTunnelRegistry: @unchecked Sendable {
 
         lock.lock()
         guard let entry = tunnels[identifier], entry.application == nil,
-              let descriptor = entry.connectionDescriptor else {
+              let descriptor = entry.connectionDescriptor else
+        {
             lock.unlock()
             return false
         }
@@ -270,6 +273,10 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             liveTunnelLogger.info(
                 "Resetting resolved application tunnel for \(currentEntry.host, privacy: .public) after SSL policy change"
             )
+            // Runs on a cooperative-pool thread, not the channel's event loop. That is correct
+            // because `Channel.close` and `ChannelPipeline` are documented thread-safe and hop to
+            // the loop themselves. Tests must therefore use a channel whose loop tolerates this
+            // (`NIOAsyncTestingChannel`), never `EmbeddedChannel`, which traps off its own thread.
             currentEntry.channel.close(promise: nil)
         }
 
@@ -292,7 +299,9 @@ final class LiveTunnelRegistry: @unchecked Sendable {
     private func finishApplicationResolution(
         identifier: ObjectIdentifier,
         application: ClientApplicationIdentity?
-    ) -> Entry? {
+    )
+        -> Entry?
+    {
         lock.lock()
         defer { lock.unlock() }
         resolvingApplications.remove(identifier)

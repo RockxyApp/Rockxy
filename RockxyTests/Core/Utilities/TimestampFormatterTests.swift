@@ -110,6 +110,12 @@ struct TimestampFormatterTests {
         "Rockxy/Core/MCPServer/MCPProtocolMessages.swift",
     ]
 
+    /// The app plus the three targets that ship beside it. `Shared/`, `RockxyHelperTool/` and
+    /// `RockxyMCP/` cannot see `TimestampFormatter`, but scanning only `Rockxy/` let a pinned date
+    /// pattern there pass while the identical one in the app was caught. They hold no offender
+    /// today; a new one needs a reasoned entry in `fixedPatternOwners`.
+    private static let sourceDirectories = ["Rockxy", "Shared", "RockxyHelperTool", "RockxyMCP"]
+
     private static func reference(locale identifier: String, template: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: identifier)
@@ -126,17 +132,23 @@ struct TimestampFormatterTests {
             throw ResolveError.rootNotFound(filePath: #filePath)
         }
         root.deleteLastPathComponent()
-        let sourceRoot = root.appendingPathComponent("Rockxy")
         let prefix = root.path + "/"
-        let enumerator = FileManager.default.enumerator(at: sourceRoot, includingPropertiesForKeys: nil)
         var sources: [(path: String, source: String)] = []
-        while let url = enumerator?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else {
-                continue
+        for directory in sourceDirectories {
+            let sourceRoot = root.appendingPathComponent(directory)
+            var contributed = 0
+            let enumerator = FileManager.default.enumerator(at: sourceRoot, includingPropertiesForKeys: nil)
+            while let url = enumerator?.nextObject() as? URL {
+                guard url.pathExtension == "swift" else {
+                    continue
+                }
+                let resolved = url.resolvingSymlinksInPath().path
+                let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
+                try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+                contributed += 1
             }
-            let resolved = url.resolvingSymlinksInPath().path
-            let path = resolved.hasPrefix(prefix) ? String(resolved.dropFirst(prefix.count)) : resolved
-            try sources.append((path, String(contentsOf: url, encoding: .utf8)))
+            // A directory that is renamed or removed would silently shrink the scan.
+            #expect(contributed > 0, "Scanned directory contributes no Swift sources: \(directory)")
         }
         return sources
     }

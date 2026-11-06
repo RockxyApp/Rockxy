@@ -6,7 +6,7 @@ import Testing
 struct FilterPresetStoreTests {
     @Test("Saved presets persist rules and connectors")
     func savedPresetsPersistRulesAndConnectors() throws {
-        let suiteName = "FilterPresetStoreTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "FilterPresetStoreTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let key = "filter-presets"
@@ -34,7 +34,7 @@ struct FilterPresetStoreTests {
 
     @Test("Preset save ignores disabled and empty rules")
     func presetSaveIgnoresInactiveRules() throws {
-        let suiteName = "FilterPresetStoreTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "FilterPresetStoreTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
@@ -51,7 +51,7 @@ struct FilterPresetStoreTests {
 
     @Test("Presets can be renamed and updated with the current filter, and both persist")
     func renameAndOverwrite() throws {
-        let suiteName = "FilterPresetStoreTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "FilterPresetStoreTests-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = FilterPresetStore(userDefaults: defaults, storageKey: "p")

@@ -37,7 +37,7 @@ struct BabylonCaptureSessionAttributionTests {
 
         let coordinator = MainContentCoordinator()
         coordinator.configureBabylonCaptureIntake()
-        let suiteName = "BabylonSessionAttribution-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "BabylonSessionAttribution-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
         defer {
@@ -116,7 +116,7 @@ struct BabylonCaptureSessionAttributionTests {
 
         let coordinator = MainContentCoordinator()
         coordinator.configureBabylonCaptureIntake()
-        let suiteName = "BabylonEvictedFloor-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "BabylonEvictedFloor-")
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         let receiver = BabylonCaptureReceiver(preferredPort: port, defaults: defaults)
         defer {

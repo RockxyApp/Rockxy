@@ -128,7 +128,7 @@ struct UseCaseViewSnapshotTests {
 
     @Test("Access Control settings")
     func accessControl() async throws {
-        let defaults = UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "snapshot-")) ?? .standard
         let settings = RemoteAccessSettings(defaults: defaults, gate: RemoteAccessGate())
         settings.setMode(.listedDevices)
         settings.addEntry("192.168.1.20")
@@ -158,7 +158,7 @@ struct UseCaseViewSnapshotTests {
             FilterRule(connector: .or, field: .graphQLOperation, filterOperator: .is, value: "GetUser"),
         ]
         let store = FilterPresetStore(
-            userDefaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard,
+            userDefaults: UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "snapshot-")) ?? .standard,
             storageKey: "presets"
         )
         try await render(
@@ -217,7 +217,9 @@ struct UseCaseViewSnapshotTests {
     @Test("Request and response inspectors show conditional tabs")
     func inspectorTabs() async throws {
         let coordinator = MainContentCoordinator()
-        let store = PreviewTabStore(defaults: UserDefaults(suiteName: "snapshot-\(UUID().uuidString)") ?? .standard)
+        let store =
+            PreviewTabStore(defaults: UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "snapshot-")) ??
+                .standard)
         let upload = TestFixtures.makeTransaction(method: "POST", url: "https://api.example.com/upload")
         upload.request = HTTPRequestData(
             method: "POST",

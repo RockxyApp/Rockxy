@@ -1004,7 +1004,7 @@ struct BabylonCaptureTCPCompatibilityTests {
     }
 
     private static func isolatedDefaults() throws -> (UserDefaults, String) {
-        let suiteName = "BabylonCaptureTCP-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "BabylonCaptureTCP-")
         return try (#require(UserDefaults(suiteName: suiteName)), suiteName)
     }
 

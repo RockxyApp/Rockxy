@@ -7,7 +7,7 @@ struct BreakpointTemplateStoreTests {
     // MARK: Internal
 
     @Test("Store seeds valid request and response defaults")
-    func storeSeedsValidDefaults() throws {
+    func storeSeedsValidDefaults() {
         let store = makeStore()
 
         #expect(store.requestTemplates.count == 1)
@@ -18,7 +18,7 @@ struct BreakpointTemplateStoreTests {
     }
 
     @Test("Add and update request template persists")
-    func addAndUpdateRequestTemplatePersists() throws {
+    func addAndUpdateRequestTemplatePersists() {
         let defaults = makeDefaults()
         let store = BreakpointTemplateStore(defaults: defaults, storageKey: storageKey, seedDefaults: false)
         let template = store.addTemplate(kind: .request)
@@ -222,7 +222,7 @@ struct BreakpointTemplateStoreTests {
     }
 
     @Test("Deleting selected template falls back within the same kind")
-    func deleteSelectedTemplateFallsBackWithinSameKind() throws {
+    func deleteSelectedTemplateFallsBackWithinSameKind() {
         let store = BreakpointTemplateStore(defaults: makeDefaults(), storageKey: storageKey, seedDefaults: false)
         let first = store.addTemplate(kind: .request)
         let second = store.addTemplate(kind: .request)
@@ -429,7 +429,7 @@ struct BreakpointTemplateStoreTests {
     }
 
     private func makeDefaults() -> UserDefaults {
-        let suiteName = "com.amunx.rockxy.tests.breakpointTemplates.\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "com.amunx.rockxy.tests.breakpointTemplates.")
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             preconditionFailure("Could not create isolated Breakpoint template test defaults.")
         }

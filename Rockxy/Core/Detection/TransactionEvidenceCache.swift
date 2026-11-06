@@ -67,7 +67,25 @@ final class TransactionEvidenceCache<Entry: TransactionCacheEntry>: NSObject, NS
     }
 
     func entry(for id: UUID) -> Entry? {
-        cache.object(forKey: id as NSUUID)
+        if let hit = cache.object(forKey: id as NSUUID) {
+            return hit
+        }
+        // Only a miss pays for the lock; `pinned` is nil outside tests, so a hit is unchanged.
+        return trackedLock.withLock { pinned?[id] }
+    }
+
+    /// Test seam: from now on every stored entry is also held strongly, so `NSCache` shedding
+    /// (memory pressure, count limit) can no longer make an entry vanish before a test looks.
+    /// Discarding still removes it, so a test observes exactly what the code under test did.
+    /// Idempotent and never undone: entries stored before the call are not pinned. Production
+    /// code never calls this. Pinned entries only hold a weak transaction reference, so the
+    /// retained footprint is the small derived value.
+    func pinEntriesAgainstShedding() {
+        trackedLock.withLock {
+            if pinned == nil {
+                pinned = [:]
+            }
+        }
     }
 
     func store(_ entry: Entry) {
@@ -79,7 +97,10 @@ final class TransactionEvidenceCache<Entry: TransactionCacheEntry>: NSObject, NS
             if cache.object(forKey: id as NSUUID) === entry {
                 return
             }
-            trackedLock.withLock { tracked[id] = identity }
+            trackedLock.withLock {
+                tracked[id] = identity
+                pinned?[id] = entry
+            }
             cache.setObject(entry, forKey: id as NSUUID)
         }
     }
@@ -91,7 +112,11 @@ final class TransactionEvidenceCache<Entry: TransactionCacheEntry>: NSObject, NS
         var removed = 0
         writerLock.withLock {
             for id in ids {
-                if trackedLock.withLock({ tracked.removeValue(forKey: id) != nil }) {
+                let wasTracked = trackedLock.withLock {
+                    pinned?.removeValue(forKey: id)
+                    return tracked.removeValue(forKey: id) != nil
+                }
+                if wasTracked {
                     removed += 1
                 }
                 cache.removeObject(forKey: id as NSUUID)
@@ -109,7 +134,8 @@ final class TransactionEvidenceCache<Entry: TransactionCacheEntry>: NSObject, NS
         trackedLock.withLock {
             // A replaced key evicts its old entry after the new one is tracked; only the entry
             // that is still the tracked one may clear the key.
-            if tracked[entry.cacheID] == ObjectIdentifier(entry) {
+            // A pinned entry is still held, so the cache shedding its copy does not drop the key.
+            if tracked[entry.cacheID] == ObjectIdentifier(entry), pinned?[entry.cacheID] !== entry {
                 tracked.removeValue(forKey: entry.cacheID)
             }
         }
@@ -121,4 +147,6 @@ final class TransactionEvidenceCache<Entry: TransactionCacheEntry>: NSObject, NS
     private let writerLock = NSLock()
     private let trackedLock = NSLock()
     private var tracked: [UUID: ObjectIdentifier] = [:]
+    /// Strong copies, present only after `pinEntriesAgainstShedding()`. Guarded by `trackedLock`.
+    private var pinned: [UUID: Entry]?
 }

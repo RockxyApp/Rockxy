@@ -10,7 +10,15 @@ import Testing
 /// Records whether a channel's `closeFuture` has fired. Proves the *actual* downstream
 /// channel was closed, not merely that a predicate returned true.
 private final class CloseFlag: @unchecked Sendable {
+    // MARK: Internal
+
     private(set) var isClosed = false
+
+    var closed: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isClosed
+    }
 
     func observe(_ channel: Channel) {
         channel.closeFuture.whenComplete { [self] _ in
@@ -20,14 +28,12 @@ private final class CloseFlag: @unchecked Sendable {
         }
     }
 
-    var closed: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return isClosed
-    }
+    // MARK: Private
 
     private let lock = NSLock()
 }
+
+// MARK: - LiveTunnelIntegrationError
 
 private enum LiveTunnelIntegrationError: Error {
     case missingBoundPort
@@ -35,12 +41,18 @@ private enum LiveTunnelIntegrationError: Error {
     case timeout(String)
 }
 
+// MARK: - ConnectResponseHandler
+
 private final class ConnectResponseHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = ByteBuffer
+    // MARK: Lifecycle
 
     init(responsePromise: EventLoopPromise<Void>) {
         self.responsePromise = responsePromise
     }
+
+    // MARK: Internal
+
+    typealias InboundIn = ByteBuffer
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
@@ -65,25 +77,33 @@ private final class ConnectResponseHandler: ChannelInboundHandler, @unchecked Se
         context.close(promise: nil)
     }
 
+    // MARK: Private
+
     private let responsePromise: EventLoopPromise<Void>
     private var received = ""
     private var completed = false
 }
 
+// MARK: - ResolutionGate
+
 /// Records that the injected application resolver ran, so a test can wait for asynchronous
 /// identity resolution to complete before asserting a preserve/close outcome deterministically.
 private final class ResolutionGate: @unchecked Sendable {
-    func markResolved() {
-        lock.lock()
-        resolvedCount += 1
-        lock.unlock()
-    }
+    // MARK: Internal
 
     var resolved: Bool {
         lock.lock()
         defer { lock.unlock() }
         return resolvedCount > 0
     }
+
+    func markResolved() {
+        lock.lock()
+        resolvedCount += 1
+        lock.unlock()
+    }
+
+    // MARK: Private
 
     private let lock = NSLock()
     private var resolvedCount = 0
@@ -95,17 +115,7 @@ private final class ResolutionGate: @unchecked Sendable {
 /// so this distinguishes "the registry cancelled the resolution" from "the resolution ran to
 /// completion", which is what proves a closed tunnel no longer leaves work behind.
 private final class ResolutionCancellationFlag: @unchecked Sendable {
-    func markCancelled() {
-        lock.lock()
-        outcome = .cancelled
-        lock.unlock()
-    }
-
-    func markCompleted() {
-        lock.lock()
-        outcome = .completed
-        lock.unlock()
-    }
+    // MARK: Internal
 
     var settled: Bool {
         lock.lock()
@@ -119,6 +129,20 @@ private final class ResolutionCancellationFlag: @unchecked Sendable {
         return outcome == .cancelled
     }
 
+    func markCancelled() {
+        lock.lock()
+        outcome = .cancelled
+        lock.unlock()
+    }
+
+    func markCompleted() {
+        lock.lock()
+        outcome = .completed
+        lock.unlock()
+    }
+
+    // MARK: Private
+
     private enum Outcome {
         case cancelled
         case completed
@@ -128,7 +152,11 @@ private final class ResolutionCancellationFlag: @unchecked Sendable {
     private var outcome: Outcome?
 }
 
+// MARK: - FutureCompletionGate
+
 private final class FutureCompletionGate: @unchecked Sendable {
+    // MARK: Internal
+
     func complete(_ result: Result<Void, Error>, promise: EventLoopPromise<Void>) {
         lock.lock()
         guard !completed else {
@@ -139,6 +167,8 @@ private final class FutureCompletionGate: @unchecked Sendable {
         lock.unlock()
         promise.completeWith(result)
     }
+
+    // MARK: Private
 
     private let lock = NSLock()
     private var completed = false
@@ -152,6 +182,8 @@ private final class FutureCompletionGate: @unchecked Sendable {
 /// downstream channel is genuinely closed (or preserved) after a policy change.
 @MainActor
 struct LiveTunnelRegistryTests {
+    // MARK: Internal
+
     @Test("enabling SSL proxying closes a real live CONNECT tunnel through ProxyServer")
     func proxyServerClosesLiveConnectAfterRuleEnabled() async throws {
         let sslManager = makeSSLProxyingManager()
@@ -273,7 +305,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("policy change resets the matching raw tunnel but preserves unrelated hosts")
-    func resetsMatchingPreservesUnrelated() throws {
+    func resetsMatchingPreservesUnrelated() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         sslManager.setEnabled(true)
@@ -316,7 +348,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("application Decrypt resets only matching application's live tunnel")
-    func applicationDecryptResetsOnlyMatchingApplication() throws {
+    func applicationDecryptResetsOnlyMatchingApplication() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let appA = ClientApplicationIdentity.bundle(identifier: "com.example.AppA", displayName: "App A")
@@ -405,8 +437,8 @@ struct LiveTunnelRegistryTests {
                 descriptor.clientPort == 51_001 ? chrome : safari
             }
         )
-        let chromeChannel = EmbeddedChannel()
-        let safariChannel = EmbeddedChannel()
+        let chromeChannel = NIOAsyncTestingChannel()
+        let safariChannel = NIOAsyncTestingChannel()
         let chromeFlag = CloseFlag()
         let safariFlag = CloseFlag()
         chromeFlag.observe(chromeChannel)
@@ -432,8 +464,8 @@ struct LiveTunnelRegistryTests {
         registry.invalidateTunnelsNowRequiringInterception()
 
         for _ in 0 ..< 100 {
-            drain(chromeChannel)
-            drain(safariChannel)
+            await drain(chromeChannel)
+            await drain(safariChannel)
             if chromeFlag.closed {
                 break
             }
@@ -444,8 +476,8 @@ struct LiveTunnelRegistryTests {
         #expect(!safariFlag.closed)
         #expect(registry.trackedTunnelCount() == 1)
 
-        _ = try? chromeChannel.finish()
-        _ = try? safariChannel.finish()
+        _ = try? await chromeChannel.finish()
+        _ = try? await safariChannel.finish()
     }
 
     @Test("host Decrypt preserves an unresolved tunnel whose resolved application has a Tunnel rule")
@@ -470,7 +502,7 @@ struct LiveTunnelRegistryTests {
 
         // The tunnel is registered while no application rules exist, so its identity stays
         // unresolved (host-only fast path). Only the later mutation makes it resolvable.
-        let channel = EmbeddedChannel()
+        let channel = NIOAsyncTestingChannel()
         let flag = CloseFlag()
         flag.observe(channel)
         registry.registerRawTunnel(
@@ -491,7 +523,7 @@ struct LiveTunnelRegistryTests {
         #expect(!flag.closed)
         #expect(registry.trackedTunnelCount() == 1)
 
-        _ = try? channel.finish()
+        _ = try? await channel.finish()
     }
 
     @Test("host Decrypt closes an unresolved tunnel once resolution returns nil")
@@ -514,7 +546,7 @@ struct LiveTunnelRegistryTests {
             return nil
         }
 
-        let channel = EmbeddedChannel()
+        let channel = NIOAsyncTestingChannel()
         let flag = CloseFlag()
         flag.observe(channel)
         registry.registerRawTunnel(
@@ -532,7 +564,7 @@ struct LiveTunnelRegistryTests {
         registry.invalidateTunnelsNowRequiringInterception()
 
         for _ in 0 ..< 200 {
-            drain(channel)
+            await drain(channel)
             if flag.closed {
                 break
             }
@@ -542,7 +574,7 @@ struct LiveTunnelRegistryTests {
         #expect(gate.resolved)
         #expect(flag.closed)
 
-        _ = try? channel.finish()
+        _ = try? await channel.finish()
     }
 
     @Test("raced registration defers to an asynchronously resolved application Tunnel")
@@ -574,7 +606,7 @@ struct LiveTunnelRegistryTests {
         sslManager.addApplicationRule(ApplicationSSLProxyingRule(identity: tunneledApp, listType: .exclude))
         registry.invalidateTunnelsNowRequiringInterception()
 
-        let channel = EmbeddedChannel()
+        let channel = NIOAsyncTestingChannel()
         let flag = CloseFlag()
         flag.observe(channel)
         registry.registerRawTunnel(
@@ -590,7 +622,7 @@ struct LiveTunnelRegistryTests {
         #expect(!flag.closed)
         #expect(registry.trackedTunnelCount() == 1)
 
-        _ = try? channel.finish()
+        _ = try? await channel.finish()
     }
 
     @Test("non-raced unresolved registration does not enter a reconnect loop")
@@ -614,7 +646,7 @@ struct LiveTunnelRegistryTests {
             gate.markResolved()
             return application
         }
-        let channel = EmbeddedChannel()
+        let channel = NIOAsyncTestingChannel()
         let flag = CloseFlag()
         flag.observe(channel)
 
@@ -626,17 +658,17 @@ struct LiveTunnelRegistryTests {
             decisionGeneration: registry.currentGeneration()
         )
         try await Task.sleep(for: .milliseconds(50))
-        drain(channel)
+        await drain(channel)
 
         #expect(!gate.resolved)
         #expect(!flag.closed)
         #expect(registry.trackedTunnelCount() == 1)
 
-        _ = try? channel.finish()
+        _ = try? await channel.finish()
     }
 
     @Test("raced registration falls back to the host decision when no resolver is available")
-    func racedRegistrationWithoutResolverStillCloses() throws {
+    func racedRegistrationWithoutResolverStillCloses() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let application = ClientApplicationIdentity.bundle(
@@ -680,7 +712,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("application Tunnel preserves its connection when host Decrypt resets others")
-    func applicationTunnelBeatsHostDecryptDuringReset() throws {
+    func applicationTunnelBeatsHostDecryptDuringReset() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let appA = ClientApplicationIdentity.bundle(identifier: "com.example.AppA", displayName: "App A")
@@ -727,7 +759,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("raw classification that raced a policy mutation is closed at registration")
-    func racedRawClassificationClosedAtRegistration() throws {
+    func racedRawClassificationClosedAtRegistration() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         sslManager.setEnabled(true)
@@ -762,7 +794,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("closing a channel drains it from the registry (shutdown compatibility)")
-    func channelCloseDrainsRegistry() throws {
+    func channelCloseDrainsRegistry() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let registry = makeRegistry(sslManager: sslManager, bypassManager: bypassManager)
@@ -819,7 +851,7 @@ struct LiveTunnelRegistryTests {
             }
         )
 
-        let channel = EmbeddedChannel()
+        let channel = NIOAsyncTestingChannel()
         registry.registerRawTunnel(
             channel: channel,
             host: "shared.example.com",
@@ -833,21 +865,21 @@ struct LiveTunnelRegistryTests {
         try await Task.sleep(for: .milliseconds(50))
 
         channel.close(promise: nil)
-        drain(channel)
+        await drain(channel)
 
         for _ in 0 ..< 200 where !flag.settled {
-            drain(channel)
+            await drain(channel)
             try await Task.sleep(for: .milliseconds(10))
         }
 
         #expect(flag.wasCancelled)
         #expect(registry.trackedTunnelCount() == 0)
 
-        _ = try? channel.finish()
+        _ = try? await channel.finish()
     }
 
     @Test("retryInterception closes a live auto-passthrough tunnel via the manager notification")
-    func retryClearsAutoPassthroughTunnel() throws {
+    func retryClearsAutoPassthroughTunnel() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         sslManager.setEnabled(true)
@@ -893,7 +925,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("explicit retry resets stale tunnel without churning a later pinned tunnel")
-    func acceptedHandshakeRecoveryDoesNotChurnPinnedTunnel() throws {
+    func acceptedHandshakeRecoveryDoesNotChurnPinnedTunnel() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let application = ClientApplicationIdentity.bundle(
@@ -956,7 +988,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("clearing all auto-passthrough hosts closes newly interceptable live raw tunnels")
-    func clearAllAutoPassthroughClosesTunnelViaNotification() throws {
+    func clearAllAutoPassthroughClosesTunnelViaNotification() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         sslManager.setEnabled(true)
@@ -995,7 +1027,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("removing a bypass entry closes the now-interceptable live raw tunnel")
-    func bypassRemovalClosesTunnelViaNotification() throws {
+    func bypassRemovalClosesTunnelViaNotification() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         let host = "bypass-removal.example.com"
@@ -1034,7 +1066,7 @@ struct LiveTunnelRegistryTests {
     }
 
     @Test("bypassed host tunnel is never reset by a policy change")
-    func bypassedHostPreserved() throws {
+    func bypassedHostPreserved() {
         let sslManager = makeSSLProxyingManager()
         let bypassManager = makeBypassProxyManager()
         sslManager.setEnabled(true)
@@ -1155,19 +1187,19 @@ struct LiveTunnelRegistryTests {
 
     /// Drains the embedded channel until the injected resolver has run, then a few more cycles so
     /// any post-resolution close is flushed — leaving a definitive preserve/close state to assert.
-    private func settleResolution(gate: ResolutionGate, channel: EmbeddedChannel) async throws {
+    private func settleResolution(gate: ResolutionGate, channel: NIOAsyncTestingChannel) async throws {
         for _ in 0 ..< 200 {
-            drain(channel)
+            await drain(channel)
             if gate.resolved {
                 break
             }
             try await Task.sleep(for: .milliseconds(5))
         }
         for _ in 0 ..< 5 {
-            drain(channel)
+            await drain(channel)
             try await Task.sleep(for: .milliseconds(5))
         }
-        drain(channel)
+        await drain(channel)
     }
 
     private func makeSSLProxyingManager() -> SSLProxyingManager {
@@ -1195,7 +1227,9 @@ struct LiveTunnelRegistryTests {
         for future: EventLoopFuture<Void>,
         timeout: TimeAmount,
         label: String
-    ) async throws {
+    )
+        async throws
+    {
         let resultPromise = future.eventLoop.makePromise(of: Void.self)
         let gate = FutureCompletionGate()
         future.whenComplete { result in
@@ -1218,5 +1252,13 @@ struct LiveTunnelRegistryTests {
 
     private func drain(_ channel: EmbeddedChannel) {
         channel.embeddedEventLoop.run()
+    }
+
+    /// Async-test counterpart of `drain(_:)`. `EmbeddedChannel` traps when touched from any thread
+    /// but the one that built it, and an `async` test body resumes on whichever cooperative thread
+    /// is free after each suspension, so async tests use `NIOAsyncTestingChannel`, whose loop is
+    /// thread-safe and is pumped with `await`.
+    private func drain(_ channel: NIOAsyncTestingChannel) async {
+        await channel.testingEventLoop.run()
     }
 }

@@ -66,7 +66,7 @@ struct ReverseProxyRuleTests {
 
     @Test("Rules persist, and only enabled rules become listener targets")
     func storePersistenceAndTargets() throws {
-        let suite = "ReverseProxyRuleTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ReverseProxyRuleTests-")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
