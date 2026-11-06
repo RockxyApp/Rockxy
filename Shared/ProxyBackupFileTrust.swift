@@ -348,6 +348,14 @@ enum ProxyBackupContentValidation {
     static let maximumServiceCount = 64
     static let maximumServiceNameLength = 256
     static let maximumBypassDomainCount = 2_048
+    /// A hostname cannot exceed 253 characters; the few spare bytes keep an IPv6 literal in scope.
+    static let maximumHostLength = 255
+    /// A PAC URL is remote JavaScript that decides where every request goes, so it is the single
+    /// highest-value field in the record and the one worth bounding hardest.
+    static let maximumPACURLLength = 2_048
+    /// Schemes `networksetup` accepts for an automatic proxy configuration. Anything else in a
+    /// record means the record is not describing a proxy configuration macOS produced.
+    static let allowedPACSchemes: Set<String> = ["http", "https", "file"]
 
     /// Returns the reason a record is not plausible, or nil when it is.
     ///
@@ -359,6 +367,8 @@ enum ProxyBackupContentValidation {
         ownedPort: Int?,
         serviceNames: [String],
         servicePorts: [Int] = [],
+        serviceHosts: [String] = [],
+        pacURLs: [String] = [],
         largestBypassListCount: Int = 0,
         allowsEmptyServices: Bool = false
     )
@@ -382,6 +392,55 @@ enum ProxyBackupContentValidation {
         }
         if largestBypassListCount > maximumBypassDomainCount {
             return "a bypass list has \(largestBypassListCount) entries, over \(maximumBypassDomainCount)"
+        }
+        // Hosts and PAC URLs are what the restore actually writes back, so bound them too. An
+        // endpoint that is switched off keeps whatever host was last written, including none, so
+        // an empty value is ordinary and only a present one is judged.
+        if let host = serviceHosts.first(where: { !$0.isEmpty && hostFailureReason($0) != nil }) {
+            return "a proxy host \(hostFailureReason(host) ?? "is not usable")"
+        }
+        if let url = pacURLs.first(where: { !$0.isEmpty && pacURLFailureReason($0) != nil }) {
+            return "a PAC URL \(pacURLFailureReason(url) ?? "is not usable")"
+        }
+        return nil
+    }
+
+    /// Why a non-empty proxy host cannot be written back, or nil when it can.
+    ///
+    /// A leading `-` matters beyond tidiness: these values become `networksetup` arguments, and an
+    /// argument that starts with a dash is read as a flag.
+    static func hostFailureReason(_ host: String) -> String? {
+        if host.utf8.count > maximumHostLength {
+            return "is longer than \(maximumHostLength) characters"
+        }
+        if host.contains(where: { $0.isWhitespace || $0.isNewline }) {
+            return "contains whitespace"
+        }
+        if host.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
+            return "contains a control character"
+        }
+        if host.hasPrefix("-") {
+            return "starts with a dash, which networksetup would read as a flag"
+        }
+        return nil
+    }
+
+    /// Why a non-empty PAC URL cannot be written back, or nil when it can.
+    static func pacURLFailureReason(_ pacURL: String) -> String? {
+        if pacURL.utf8.count > maximumPACURLLength {
+            return "is longer than \(maximumPACURLLength) characters"
+        }
+        if pacURL.contains(where: { $0.isWhitespace || $0.isNewline }) {
+            return "contains whitespace"
+        }
+        if pacURL.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) {
+            return "contains a control character"
+        }
+        guard let scheme = URL(string: pacURL)?.scheme?.lowercased() else {
+            return "has no scheme"
+        }
+        guard allowedPACSchemes.contains(scheme) else {
+            return "uses the \(scheme) scheme, which is not one macOS configures"
         }
         return nil
     }

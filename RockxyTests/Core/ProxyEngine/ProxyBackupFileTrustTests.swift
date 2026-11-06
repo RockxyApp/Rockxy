@@ -351,6 +351,39 @@ struct ProxyBackupFileTrustTests {
         }
     }
 
+    // MARK: Hosts and PAC URLs
+
+    /// Hosts and PAC URLs are what a restore writes back, so the record bounds them too. An
+    /// endpoint that is switched off keeps whatever host was last written, so empty is ordinary.
+    @Test("An ordinary record's hosts and PAC URL are accepted, including empty ones")
+    func plausibleHostsAndPACURLsAreAccepted() {
+        #expect(Self.validate(serviceHosts: ["127.0.0.1", "proxy.corp.example", ""]) == nil)
+        #expect(Self.validate(pacURLs: ["http://wpad.corp.example/proxy.pac", ""]) == nil)
+        #expect(Self.validate(pacURLs: ["https://wpad.corp.example/proxy.pac"]) == nil)
+        #expect(Self.validate(pacURLs: ["file:///etc/proxy.pac"]) == nil)
+    }
+
+    /// A host that starts with a dash would be read as a flag by `networksetup`, which takes
+    /// these values as arguments.
+    @Test("A host that is overlong, spaced, or dash-led is refused")
+    func implausibleHostsAreRefused() {
+        #expect(Self.validate(serviceHosts: [String(repeating: "a", count: 256)]) != nil)
+        #expect(Self.validate(serviceHosts: ["proxy .corp.example"]) != nil)
+        #expect(Self.validate(serviceHosts: ["-proxy.corp.example"]) != nil)
+        #expect(Self.validate(serviceHosts: ["proxy\u{0}.example"]) != nil)
+    }
+
+    /// A PAC URL is remote JavaScript that decides where every request goes, so a record carrying
+    /// one with no scheme, an unexpected scheme, or past the length bound is not usable.
+    @Test("A PAC URL with no scheme, an odd scheme, or past the bound is refused")
+    func implausiblePACURLsAreRefused() {
+        #expect(Self.validate(pacURLs: ["wpad.corp.example/proxy.pac"]) != nil)
+        #expect(Self.validate(pacURLs: ["javascript:alert(1)"]) != nil)
+        #expect(Self.validate(pacURLs: ["ftp://wpad.corp.example/proxy.pac"]) != nil)
+        #expect(Self.validate(pacURLs: ["http://e.example/" + String(repeating: "a", count: 2_048)]) != nil)
+        #expect(Self.validate(pacURLs: ["http://wpad.corp.example/a b.pac"]) != nil)
+    }
+
     // MARK: Private
 
     private struct ACLSetupFailure: Error {
@@ -384,6 +417,8 @@ struct ProxyBackupFileTrustTests {
         ownedPort: Int? = 9_090,
         services: [String] = ["Wi-Fi"],
         servicePorts: [Int] = [],
+        serviceHosts: [String] = [],
+        pacURLs: [String] = [],
         bypassCount: Int = 0,
         allowsEmpty: Bool = false
     )
@@ -393,6 +428,8 @@ struct ProxyBackupFileTrustTests {
             ownedPort: ownedPort,
             serviceNames: services,
             servicePorts: servicePorts,
+            serviceHosts: serviceHosts,
+            pacURLs: pacURLs,
             largestBypassListCount: bypassCount,
             allowsEmptyServices: allowsEmpty
         )

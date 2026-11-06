@@ -397,6 +397,8 @@ enum CrashRecovery {
             ownedPort: backup.rockxyPort,
             serviceNames: backup.services.map(\.service),
             servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+            serviceHosts: backup.services.flatMap { [$0.httpHost, $0.httpsHost, $0.socksHost] },
+            pacURLs: backup.services.map(\.pacURL),
             largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
             allowsEmptyServices: true
         ) {
@@ -737,6 +739,8 @@ enum CrashRecovery {
                     ownedPort: backup.rockxyPort,
                     serviceNames: backup.services.map(\.service),
                     servicePorts: backup.services.flatMap { [$0.httpPort, $0.httpsPort, $0.socksPort] },
+                    serviceHosts: backup.services.flatMap { [$0.httpHost, $0.httpsHost, $0.socksHost] },
+                    pacURLs: backup.services.map(\.pacURL),
                     largestBypassListCount: backup.services.map(\.bypassDomains.count).max() ?? 0,
                     allowsEmptyServices: index == 0
                 ) {
