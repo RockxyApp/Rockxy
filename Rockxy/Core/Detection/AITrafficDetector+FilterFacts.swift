@@ -44,11 +44,6 @@ extension AITrafficDetector {
         factsCache.discard(ids)
     }
 
-    /// Pins the filter-facts cache for tests; see `pinCachedEvidenceAgainstSheddingForTesting()`.
-    static func pinCachedFilterFactsAgainstShedding() {
-        factsCache.pinEntriesAgainstShedding()
-    }
-
     /// The cached filter facts when they are still valid for the transaction's current evidence.
     static func cachedFilterFacts(transaction: HTTPTransaction) -> AIFilterFacts? {
         guard let cached = factsCache.entry(for: transaction.id),
@@ -100,9 +95,14 @@ extension AITrafficDetector {
         let facts: AIFilterFacts
     }
 
-    private static let factsCache = TransactionEvidenceCache<FactsCacheEntry>(
-        countLimit: 100_000
-    )
+    /// Pinned against shedding inside a test host; see `AITrafficDetector.signalCache`.
+    private static let factsCache: TransactionEvidenceCache<FactsCacheEntry> = {
+        let cache = TransactionEvidenceCache<FactsCacheEntry>(countLimit: 100_000)
+        if RockxyIdentity.isRunningTests {
+            cache.pinEntriesAgainstShedding()
+        }
+        return cache
+    }()
 
     /// Field names that only appear when a tool is called or answered, across the
     /// OpenAI, Anthropic, and Gemini wire formats.

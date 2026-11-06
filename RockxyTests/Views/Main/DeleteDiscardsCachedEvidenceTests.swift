@@ -8,16 +8,11 @@ import Testing
 @MainActor
 @Suite("Delete discards cached evidence", .serialized, .sharedPolicyState)
 struct DeleteDiscardsCachedEvidenceTests {
-    // MARK: Lifecycle
-
-    /// `NSCache` may shed an entry at any time (memory pressure from other suites in a full run),
-    /// which made the "was cached" precondition flaky. Pinning keeps every entry stored from here
-    /// on until an explicit discard removes it, so absence after the action can only mean the
-    /// delete discarded it. Idempotent and process-wide; it only adds strong references to small
-    /// derived values.
-    init() {
-        AITrafficDetector.pinCachedEvidenceAgainstSheddingForTesting()
-    }
+    // `NSCache` may shed an entry at any time (memory pressure from other suites in a full run),
+    // which made the "was cached" precondition flaky. Pinning keeps every entry stored from here
+    // on until an explicit discard removes it, so absence after the action can only mean the
+    // delete discarded it. Idempotent and process-wide; it only adds strong references to small
+    // derived values.
 
     // MARK: Internal
 

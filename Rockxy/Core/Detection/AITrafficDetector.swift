@@ -90,13 +90,6 @@ nonisolated enum AITrafficDetector {
         discardCachedFilterFacts(for: ids)
     }
 
-    /// Test seam: stops `NSCache` shedding from removing signal and filter-facts entries, so a
-    /// test can assert that an explicit discard removed them. Never called by production code.
-    static func pinCachedEvidenceAgainstSheddingForTesting() {
-        signalCache.pinEntriesAgainstShedding()
-        pinCachedFilterFactsAgainstShedding()
-    }
-
     /// The cached signal when it is still valid for the transaction's current evidence.
     static func cachedSignal(transaction: HTTPTransaction) -> AITrafficSignal? {
         guard let cached = signalCache.entry(for: transaction.id),
@@ -676,9 +669,22 @@ nonisolated enum AITrafficDetector {
     /// `NSCache` is thread-safe and sheds entries under memory pressure; the count limit keeps
     /// it in step with the largest live session buffer. Rows that leave the list are discarded
     /// through `discardCachedEvidence(for:)`, so the limit is a backstop rather than the bound.
-    private static let signalCache = TransactionEvidenceCache<SignalCacheEntry>(
-        countLimit: 100_000
-    )
+    /// Pinned against shedding inside a test host.
+    ///
+    /// Tests observe this shared cache indirectly and assert that a warmed entry is still
+    /// there. `NSCache` may shed at any moment, so those assertions were order- and
+    /// pressure-dependent: `CaptureDeliveryCostTests` passed in one full run and failed the
+    /// next with no code change between them. Pinning is applied only to the two shared
+    /// detector caches, so `TransactionEvidenceCacheTests`, which builds its own instances to
+    /// test eviction at a count limit, still sees real shedding. `isRunningTests` is decided
+    /// from the loaded images, which a shipped app cannot be made to fake.
+    private static let signalCache: TransactionEvidenceCache<SignalCacheEntry> = {
+        let cache = TransactionEvidenceCache<SignalCacheEntry>(countLimit: 100_000)
+        if RockxyIdentity.isRunningTests {
+            cache.pinEntriesAgainstShedding()
+        }
+        return cache
+    }()
 
     /// Byte-wise substring search. Foundation's `StringProtocol.contains` walks the text with
     /// locale-aware comparison and dominated request-list derivation on busy sessions.
