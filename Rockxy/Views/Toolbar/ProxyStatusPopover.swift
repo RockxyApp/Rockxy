@@ -34,7 +34,8 @@ struct CaptureStatusPresentation: Equatable {
         isSystemProxyConfigured: Bool,
         isSystemRoutingExpected: Bool = true,
         captureHealth: CaptureHealthState = .verified,
-        isRestoreRecordUnverified: Bool = false
+        isRestoreRecordUnverified: Bool = false,
+        isWatchdogNotRunning: Bool = false
     ) {
         let header = Self.captureHeader(
             displayState: displayState,
@@ -60,7 +61,8 @@ struct CaptureStatusPresentation: Equatable {
             helperReadiness: helperReadiness,
             isConfigured: isSystemProxyConfigured,
             isExpected: isSystemRoutingExpected,
-            isRestoreRecordUnverified: isRestoreRecordUnverified
+            isRestoreRecordUnverified: isRestoreRecordUnverified,
+            isWatchdogNotRunning: isWatchdogNotRunning
         )
         capturePath = Self.capturePathItem(displayState: displayState, captureHealth: captureHealth)
     }
@@ -248,13 +250,21 @@ struct CaptureStatusPresentation: Equatable {
         helperReadiness: HelperManager.HelperStatus,
         isConfigured: Bool,
         isExpected: Bool,
-        isRestoreRecordUnverified: Bool
+        isRestoreRecordUnverified: Bool,
+        isWatchdogNotRunning: Bool
     )
         -> CaptureReadinessItem
     {
         if isRestoreRecordUnverified {
             return CaptureReadinessItem(
                 value: String(localized: "Restore not verified", bundle: RockxyLocalization.bundle),
+                systemImage: "exclamationmark.triangle.fill",
+                level: .attention
+            )
+        }
+        if isWatchdogNotRunning {
+            return CaptureReadinessItem(
+                value: String(localized: "No automatic restore", bundle: RockxyLocalization.bundle),
                 systemImage: "exclamationmark.triangle.fill",
                 level: .attention
             )
@@ -329,6 +339,7 @@ struct ProxyStatusPopover: View {
     let readiness: ReadinessCoordinator
     let isSystemProxyConfigured: Bool
     var isRestoreRecordUnverified = false
+    var isWatchdogNotRunning = false
     let onToggleCapture: () -> Void
 
     @Binding var showPopover: Bool
@@ -415,7 +426,8 @@ struct ProxyStatusPopover: View {
             isSystemRoutingExpected: displayState == .stopped
                 ? AppSettingsManager.shared.settings.automaticallySetSystemProxy : readiness.systemRoutingExpected,
             captureHealth: readiness.captureHealth,
-            isRestoreRecordUnverified: isRestoreRecordUnverified
+            isRestoreRecordUnverified: isRestoreRecordUnverified,
+            isWatchdogNotRunning: isWatchdogNotRunning
         )
     }
 

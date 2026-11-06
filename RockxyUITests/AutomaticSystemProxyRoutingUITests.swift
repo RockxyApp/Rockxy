@@ -11,7 +11,7 @@ final class AutomaticSystemProxyRoutingUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testPreferencePersistsAndManualCapturePreservesSystemProxy() throws {
+    func testModePersistsAndManualCapturePreservesSystemProxy() throws {
         let identifier = ProcessInfo.processInfo.environment["ROCKXY_QA_BUNDLE_ID"] ?? ""
         guard identifier.hasPrefix("com.rockxy.qa."), identifier.count > "com.rockxy.qa.".count else {
             throw XCTSkip("Requires an isolated QA bundle identifier")
@@ -64,21 +64,27 @@ final class AutomaticSystemProxyRoutingUITests: XCTestCase {
         app.launchArguments = safeLaunchArguments + ["-\(identifier).recordOnLaunch", "NO"]
         app.launch()
         app.typeKey(",", modifierFlags: .command)
-        let setting = app.checkBoxes["settings.automaticallySetSystemProxy"].firstMatch
-        XCTAssertTrue(setting.waitForExistence(timeout: 10))
-        if setting.value as? String == "1" {
-            setting.click()
+        let group = app.radioGroups["settings.systemProxyRoutingMode"].firstMatch
+        XCTAssertTrue(group.waitForExistence(timeout: 10))
+        func radio(_ prefix: String) -> XCUIElement {
+            group.radioButtons.matching(NSPredicate(format: "label BEGINSWITH %@", prefix)).firstMatch
         }
-        XCTAssertEqual(setting.value as? String, "0")
-        setting.click()
-        XCTAssertEqual(setting.value as? String, "1")
+        let automatic = radio("Automatic")
+        let manual = radio("Manual")
+        let never = radio("Never")
+        manual.click()
+        XCTAssertEqual(manual.value as? String, "1")
+        automatic.click()
+        XCTAssertEqual(automatic.value as? String, "1")
         app.terminate()
         app.launch()
         app.typeKey(",", modifierFlags: .command)
-        XCTAssertTrue(setting.waitForExistence(timeout: 10))
-        XCTAssertEqual(setting.value as? String, "1")
-        setting.click()
-        XCTAssertEqual(setting.value as? String, "0")
+        XCTAssertTrue(group.waitForExistence(timeout: 10))
+        XCTAssertEqual(automatic.value as? String, "1")
+        never.click()
+        XCTAssertEqual(never.value as? String, "1")
+        manual.click()
+        XCTAssertEqual(manual.value as? String, "1")
         app.typeKey("w", modifierFlags: .command)
         try assertSystemProxyEquals(baseline)
 

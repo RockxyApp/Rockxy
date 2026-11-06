@@ -345,6 +345,15 @@ final class SystemProxyManager: @unchecked Sendable {
         lock.withLock { directWatchdogRefusedRecord }
     }
 
+    /// Whether a watchdog armed for this session is not running without having refused anything:
+    /// launchd reported `EX_CONFIG` (it never ran), or it started and was killed or exited with
+    /// some other status. Either way there is no automatic restore behind the override. A different
+    /// fault from a refusal: nothing was read or rejected. The user's remedy is the same manual
+    /// restore.
+    var directWatchdogNeverRan: Bool {
+        lock.withLock { directWatchdogNeverRanFlag }
+    }
+
     nonisolated static func shouldAttemptHelperEmergencyRestore(
         wasUsingHelper: Bool,
         helperBackupExists: Bool,
@@ -708,6 +717,11 @@ final class SystemProxyManager: @unchecked Sendable {
     // MARK: - Public API
 
     func enableSystemProxy(port: Int) async throws {
+        // Backstop: "Never" refuses every acquisition here, before the supersession mark, the
+        // gate, or any backup or network change. Callers guard earlier for a readable outcome;
+        // this one exists so a future caller that forgets still cannot take the proxy.
+        // Releasing (`disableSystemProxy`, restores, recovery) is deliberately not gated.
+        try AutomaticSystemProxyRouting.requireExplicitAcquisition()
         // Taken now, before waiting for the gate: a Stop requested from this point on is ordered
         // after this enable and makes it stale, whether it is queued or already running.
         let requestMark = Self.supersession.mark()
@@ -1087,6 +1101,10 @@ final class SystemProxyManager: @unchecked Sendable {
     /// process -- is what puts the settings back. Cleared when a new watchdog is armed or the
     /// session's watchers are retired as resolved.
     private var directWatchdogRefusedRecord = false
+    /// Set when a direct-mode watchdog is not running and did not refuse: launchd reported
+    /// `EX_CONFIG` (never ran), or it died by signal or other status. Cleared at the same points
+    /// as `directWatchdogRefusedRecord`.
+    private var directWatchdogNeverRanFlag = false
     /// Which override session the manager is on. Bumped by everything that ends one, and read
     /// inside the operation gate, so work queued for a session that has since ended never runs.
     private var sessionGeneration: UInt64 = 0
@@ -1200,20 +1218,52 @@ final class SystemProxyManager: @unchecked Sendable {
         )
     }
 
-    /// Reads the watchdogs' last exit statuses from launchd and records a refusal. Returns whether
-    /// one was found. `launchctl list` keeps a submitted job's last status after it exits, which is
-    /// the only channel a watchdog that has already stopped can still speak through.
+    /// Reads the watchdogs' last exit statuses from launchd and records any that failed. Returns
+    /// whether any watchdog fault was found, of either kind. `launchctl list` keeps a submitted
+    /// job's last status after it exits, which is the only channel a watchdog that has already
+    /// stopped can still speak through.
+    ///
+    /// A refusal (the watchdog ran and would not act on its record) and a watchdog that is simply
+    /// not running (launchd could not set it up, it was killed by a signal, or it exited with some
+    /// other status) are different faults with their own copy. Both mean no automatic restore
+    /// stands behind the override.
     @discardableResult
-    private func noteRefusedDirectWatchdogs(context: String) -> Bool {
-        let refused = Self.discoverRefusedDirectWatchdogLabels()
-        guard !refused.isEmpty else {
+    private func noteFailedDirectWatchdogs(context: String) -> Bool {
+        guard let output = try? Self.runLaunchctl(["list"]) else {
             return false
         }
-        Self.logger.fault(
-            "A direct proxy watchdog refused its backup record (\(context, privacy: .public)) — the proxy has no automatic restore until Stop or relaunch recovery runs: \(refused.joined(separator: ", "), privacy: .public)"
+        return noteDirectWatchdogFailures(in: output, context: context)
+    }
+
+    /// The classification and flag-setting half of `noteFailedDirectWatchdogs`, taking the
+    /// `launchctl list` text so the wiring can be driven without launchd.
+    @discardableResult
+    func noteDirectWatchdogFailures(in launchctlListOutput: String, context: String) -> Bool {
+        let failures = DirectProxyWatchdogJobDiscovery.failures(
+            in: launchctlListOutput,
+            baseLabel: Self.directWatchdogLabel
         )
-        lock.withLock { directWatchdogRefusedRecord = true }
-        return true
+        if !failures.neverRan.isEmpty {
+            Self.logger.fault(
+                "A direct proxy watchdog never ran: launchd reported EX_CONFIG, the job could not be set up (\(context, privacy: .public)) — the proxy has no automatic restore until Stop or relaunch recovery runs: \(failures.neverRan.joined(separator: ", "), privacy: .public)"
+            )
+        }
+        if !failures.other.isEmpty {
+            let described = failures.other.map { "\($0.label) (status \($0.status))" }.joined(separator: ", ")
+            Self.logger.fault(
+                "A direct proxy watchdog stopped without restoring the proxy: it exited with an unexpected status or was killed by a signal (\(context, privacy: .public)) — the proxy has no automatic restore until Stop or relaunch recovery runs: \(described, privacy: .public)"
+            )
+        }
+        if !failures.notRunning.isEmpty {
+            lock.withLock { directWatchdogNeverRanFlag = true }
+        }
+        if !failures.refused.isEmpty {
+            Self.logger.fault(
+                "A direct proxy watchdog ran and refused its backup record (\(context, privacy: .public)) — the proxy has no automatic restore until Stop or relaunch recovery runs: \(failures.refused.joined(separator: ", "), privacy: .public)"
+            )
+            lock.withLock { directWatchdogRefusedRecord = true }
+        }
+        return !failures.isEmpty
     }
 
     private func effectiveOverrideOwnerOnWorker() async -> ProxyOverrideOwner {
@@ -1232,7 +1282,7 @@ final class SystemProxyManager: @unchecked Sendable {
             {
                 // The watchdog is this override's only automatic restore. If it ended by refusing
                 // its record, say so now instead of leaving it to be discovered after a crash.
-                noteRefusedDirectWatchdogs(context: "ownership check")
+                noteFailedDirectWatchdogs(context: "ownership check")
                 return .direct(backup: backup)
             }
         }
@@ -2741,6 +2791,7 @@ extension SystemProxyManager {
             lock.lock()
             activeDirectWatchdogLabel = activeLabel
             directWatchdogRefusedRecord = false
+            directWatchdogNeverRanFlag = false
             lock.unlock()
             Self.logger
                 .info(
@@ -2815,13 +2866,6 @@ extension SystemProxyManager {
     /// Includes jobs from builds that did not yet persist the registry, plus the narrow crash
     /// window where launchd accepted a UUID label but the app died before its registry write
     /// became visible. Discovery is intentionally used only after the proxy session is resolved.
-    private static func discoverRefusedDirectWatchdogLabels() -> [String] {
-        guard let output = try? runLaunchctl(["list"]) else {
-            return []
-        }
-        return DirectProxyWatchdogJobDiscovery.refusedLabels(in: output, baseLabel: directWatchdogLabel)
-    }
-
     private static func discoverDirectWatchdogLabels() -> [String] {
         guard let output = try? runLaunchctl(["list"]) else {
             return []
@@ -3275,6 +3319,7 @@ extension SystemProxyManager {
         try? Self.writeKnownDirectWatchdogLabels(retainedLabels)
         lock.lock()
         directWatchdogRefusedRecord = false
+        directWatchdogNeverRanFlag = false
         if let label, !retainedLabels.contains(label) {
             activeDirectWatchdogLabel = nil
         }
@@ -3574,7 +3619,7 @@ extension SystemProxyManager {
             lock.withLock { directRestorePending = true }
             // Recovery could not finish and a watchdog that refused the same record cannot either:
             // both automatic routes are closed and only the manual restore remains.
-            noteRefusedDirectWatchdogs(context: "launch recovery")
+            noteFailedDirectWatchdogs(context: "launch recovery")
         case .preserved:
             Self.logger.info("A live app process owns the direct proxy backup — preserving its session")
         case .noBackup,

@@ -103,16 +103,6 @@ final class CaptureProbeTracker: @unchecked Sendable {
 /// flow through `TrafficSessionManager` which batches updates (every 100ms or 50
 /// transactions) before delivering them to the main actor to avoid UI churn.
 extension MainContentCoordinator {
-    /// A Stop that superseded an in-flight enable is the user getting what they asked
-    /// for, so it must not surface as an enable failure. Everything else still does.
-    private func reportEnableFailure(_ error: Error) {
-        if let proxyError = error as? SystemProxyError, case .enableSupersededByStop = proxyError {
-            Self.logger.info("System proxy enable gave way to Stop")
-            return
-        }
-        readiness.setProxyEnableFailed(message: error.localizedDescription)
-    }
-
     // MARK: - Proxy Lifecycle
 
     /// Revalidates the active Root CA before removing protected TLS fallbacks. Clearing
@@ -396,6 +386,9 @@ extension MainContentCoordinator {
     /// started first, its exact resolved port is awaited, and only then may macOS routing change.
     /// This also coalesces with an in-flight start instead of enabling a configured-but-dead port.
     func enableSystemProxyFromWelcome() async throws {
+        guard systemProxyAcquisitionAllowed() else {
+            throw SystemProxyRoutingBlocked()
+        }
         if !isProxyRunning {
             if canStartProxy {
                 startProxy()
@@ -688,31 +681,6 @@ extension MainContentCoordinator {
         }
     }
 
-    func retrySystemProxy() {
-        guard isProxyRunning else {
-            return
-        }
-        readiness.clearProxyEnableFailure()
-        readiness.setSystemRoutingExpected(true)
-
-        Task {
-            do {
-                try await enableSystemProxySyncingRefusal(port: self.activeProxyPort)
-                isSystemProxyConfigured = true
-                isProxyOverridden = true
-                readiness.setSystemRoutingReady(true)
-                runCaptureHealthCheck()
-                Self.logger.info("System proxy enabled on retry")
-            } catch {
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingReady(false)
-                reportEnableFailure(error)
-                Self.logger.warning("System proxy retry failed: \(error.localizedDescription)")
-            }
-        }
-    }
-
     func refreshProxyOverrideStatus() {
         Task { @MainActor in
             _ = await reconcileProxyOverrideStatus()
@@ -778,64 +746,6 @@ extension MainContentCoordinator {
             isOverridden: true,
             matchesActiveProxyPort: overridePort == activeProxyPort
         )
-    }
-
-    /// Returns the task that applies the change, so a caller can wait for macOS to finish.
-    @discardableResult
-    func switchOffSystemProxyOverride() -> Task<Void, Never> {
-        Task { @MainActor in
-            do {
-                let report = try await disableSystemProxySyncingRefusal()
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingExpected(false)
-                readiness.setSystemRoutingReady(false)
-                await readiness.refresh()
-                Self.logger.info("System proxy override switched off")
-                await PreviousProxyRestorePresenter.resolve(report)
-            } catch {
-                readiness.setProxyRestoreFailed(retryAction: .retryDisableSystemRouting)
-                Self.logger.error("Failed to switch off system proxy override: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Returns the task that applies the change, or nil when the proxy is not running.
-    @discardableResult
-    func switchOnSystemProxyOverride() -> Task<Void, Never>? {
-        guard isProxyRunning else {
-            return nil
-        }
-        readiness.clearProxyEnableFailure()
-        readiness.setSystemRoutingExpected(true)
-
-        return Task { @MainActor in
-            do {
-                try await enableSystemProxySyncingRefusal(port: self.activeProxyPort)
-                isSystemProxyConfigured = true
-                isProxyOverridden = true
-                readiness.setSystemRoutingReady(true)
-                runCaptureHealthCheck()
-                await readiness.refresh()
-                Self.logger.info("System proxy override switched on")
-            } catch {
-                isSystemProxyConfigured = false
-                isProxyOverridden = false
-                readiness.setSystemRoutingReady(false)
-                reportEnableFailure(error)
-                Self.logger.error("Failed to switch on system proxy override: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    func toggleSystemProxyOverride() {
-        // Only disable when the live routing is confirmed to point at this listener.
-        // A stale/foreign override must be reclaimed, not switched off as if Rockxy owned it.
-        if isSystemProxyConfigured {
-            switchOffSystemProxyOverride()
-        } else {
-            switchOnSystemProxyOverride()
-        }
     }
 
     func clearSession() async {

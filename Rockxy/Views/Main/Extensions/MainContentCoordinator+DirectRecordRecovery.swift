@@ -12,6 +12,10 @@ extension MainContentCoordinator {
         if isDirectProxyRecordUnverified != refused {
             isDirectProxyRecordUnverified = refused
         }
+        let neverRan = directWatchdogNeverRanProbe()
+        if isDirectWatchdogNotRunning != neverRan {
+            isDirectWatchdogNotRunning = neverRan
+        }
     }
 
     /// The banner's recovery. While capture is running this is the manual Stop path, which restores
@@ -67,6 +71,9 @@ extension MainContentCoordinator {
 
     func enableSystemProxySyncingRefusal(port: Int) async throws {
         defer { syncDirectWatchdogRefusal() }
+        // Choke point for every coordinator acquisition. "Never" is refused here before the
+        // manager is asked, so a new caller that skips its own guard is still stopped.
+        try AutomaticSystemProxyRouting.requireExplicitAcquisition()
         try await SystemProxyManager.shared.enableSystemProxy(port: port)
     }
 }

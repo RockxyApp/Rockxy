@@ -2,6 +2,8 @@ import Foundation
 @testable import Rockxy
 import Testing
 
+// MARK: - DirectProxyRecordRefusalSurfaceTests
+
 /// The banner that tells the user the Mac's proxy settings cannot be restored automatically
 /// because the saved record could not be verified. Everything here drives the coordinator's
 /// observable state through the injected probe, so no live proxy setting is ever read or written.
@@ -268,5 +270,45 @@ struct DirectProxyRecordRefusalSurfaceTests {
             }
         }
         throw CocoaError(.fileNoSuchFile)
+    }
+}
+
+// MARK: - DirectWatchdogNeverRanSurfaceTests
+
+/// A second, separate fault from a refused record: the watchdog job never started (launchd
+/// `EX_CONFIG`). It has its own flag and honest copy, and leads to the same restore action.
+@Suite(.serialized, .sharedPolicyState)
+@MainActor
+struct DirectWatchdogNeverRanSurfaceTests {
+    @Test("A watchdog that never ran shows its own copy and the existing restore action")
+    func warningUsesOwnCopy() {
+        let coordinator = MainContentCoordinator()
+        coordinator.directWatchdogRefusalProbe = { false }
+        coordinator.directWatchdogNeverRanProbe = { true }
+        coordinator.syncDirectWatchdogRefusal()
+
+        let warning = coordinator.systemProxyWarning
+        #expect(coordinator.isDirectWatchdogNotRunning)
+        #expect(!coordinator.isDirectProxyRecordUnverified)
+        #expect(warning?.action == .restoreProxySettings)
+        #expect(warning?.message == SystemProxyWarning.directWatchdogNotRunningMessage)
+        #expect(warning?.message != SystemProxyWarning.directRecordUnverifiedMessage)
+        #expect(!SystemProxyWarning.directWatchdogNotRunningMessage.contains("verify"))
+        #expect(warning?.isDismissible == false)
+    }
+
+    @Test("A refused record outranks, and clearing the flag removes the banner")
+    func priorityAndClearing() {
+        let coordinator = MainContentCoordinator()
+        coordinator.directWatchdogRefusalProbe = { true }
+        coordinator.directWatchdogNeverRanProbe = { true }
+        coordinator.syncDirectWatchdogRefusal()
+        #expect(coordinator.systemProxyWarning?.message == SystemProxyWarning.directRecordUnverifiedMessage)
+
+        coordinator.directWatchdogRefusalProbe = { false }
+        coordinator.directWatchdogNeverRanProbe = { false }
+        coordinator.syncDirectWatchdogRefusal()
+        #expect(!coordinator.isDirectWatchdogNotRunning)
+        #expect(coordinator.systemProxyWarning?.action != .restoreProxySettings)
     }
 }

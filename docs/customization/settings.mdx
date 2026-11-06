@@ -25,7 +25,7 @@ app.
 |---------|---------|-------------|
 | Port Number | `9090` | Local proxy server port. Change it if another service occupies the port. |
 | Auto Start Recording Traffic at Launch | On | Begin recording network traffic as soon as Rockxy launches. |
-| Automatically set macOS system proxy when capture starts | On | Turn off to start or restart capture without changing the Mac’s proxy settings. The separate system proxy control still works. |
+| macOS system proxy | Automatic | `Automatic` sets the Mac’s proxy when capture starts or restarts. `Manual` never sets it automatically, but the separate system proxy control still works. `Never` stops Rockxy from setting the system proxy by any route and disables the control with an explanation. Stop and Restart still restore an override Rockxy enabled earlier in every mode. Installations that previously turned the automatic checkbox off start as `Manual`. |
 | Advanced Proxy Setting | N/A | Opens the Advanced Proxy Settings window for listen-address, helper, and proxy diagnostics. |
 | Root CA Certificate | Generated per install | Generate, install and trust, export, share, recheck, or reset the Rockxy root CA. |
 

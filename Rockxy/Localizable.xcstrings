@@ -51137,6 +51137,116 @@
         }
       }
     },
+    "macOS system proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 系统代理"
+          }
+        }
+      }
+    },
+    "Automatic: set when capture starts": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动：开始捕获时设置"
+          }
+        }
+      }
+    },
+    "Manual: set only from the system proxy control": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手动：仅通过系统代理控制项设置"
+          }
+        }
+      }
+    },
+    "Never: Rockxy does not change the system proxy": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从不：Rockxy 不更改系统代理"
+          }
+        }
+      }
+    },
+    "Starting or restarting capture sets this Mac's proxy settings for you.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始或重新开始捕获时，会自动设置这台 Mac 的代理设置。"
+          }
+        }
+      }
+    },
+    "Capture does not take over this Mac's proxy settings. Manually configured apps and devices can still connect, and the system proxy control stays available. Stop and Restart still restore any proxy override that Rockxy enabled.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获不会接管这台 Mac 的代理设置。手动配置的应用和设备仍可连接，系统代理控制项仍然可用。停止和重新开始仍会恢复 Rockxy 启用的任何代理覆盖。"
+          }
+        }
+      }
+    },
+    "Rockxy never sets this Mac's proxy settings, and the system proxy control is unavailable. Stop and Restart still restore any proxy override that Rockxy enabled earlier.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 不会设置这台 Mac 的代理设置，系统代理控制项也不可用。停止和重新开始仍会恢复 Rockxy 之前启用的任何代理覆盖。"
+          }
+        }
+      }
+    },
+    "System proxy changes are turned off in Settings. Choose Automatic or Manual to use this.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置中已关闭系统代理更改。请选择“自动”或“手动”后再使用。"
+          }
+        }
+      }
+    },
+    "No automatic restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无自动恢复"
+          }
+        }
+      }
+    },
+    "Your Mac's proxy settings point at Rockxy, but the helper that restores them automatically is not running. If Rockxy quits unexpectedly, your network may stay behind a proxy that is no longer running. You can put the settings back now.": {
+      "extractionState": "manual",
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 的代理设置指向 Rockxy，但负责自动恢复这些设置的辅助程序未在运行。如果 Rockxy 意外退出，你的网络可能会一直停留在已不再运行的代理之后。你现在可以将这些设置恢复。"
+          }
+        }
+      }
+    },
     "macOS proxy off": {
       "extractionState": "manual",
       "localizations": {

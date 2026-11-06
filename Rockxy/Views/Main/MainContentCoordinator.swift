@@ -360,6 +360,15 @@ final class MainContentCoordinator {
         SystemProxyManager.shared.directWatchdogRefusedItsRecord
     }
 
+    /// Mirrors `SystemProxyManager.directWatchdogNeverRan`: the watchdog job never started, so no
+    /// automatic restore exists. Separate from `isDirectProxyRecordUnverified`, which means the
+    /// watchdog ran and rejected its record. Both lead to the same manual restore.
+    var isDirectWatchdogNotRunning = false
+    /// Reads the manager's never-ran flag. Injectable so state-level tests never touch live proxy state.
+    @ObservationIgnored var directWatchdogNeverRanProbe: () -> Bool = {
+        SystemProxyManager.shared.directWatchdogNeverRan
+    }
+
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
     nonisolated(unsafe) var memoryPressureSource: DispatchSourceMemoryPressure?
     /// Throttles pressure-driven eviction; see `evictForMemoryPressure(isCritical:now:)`.
@@ -531,6 +540,14 @@ final class MainContentCoordinator {
         if isDirectProxyRecordUnverified, !restoreAlreadyFailed {
             return SystemProxyWarning(
                 message: SystemProxyWarning.directRecordUnverifiedMessage,
+                action: .restoreProxySettings,
+                isDismissible: false,
+                isActionInProgress: false
+            )
+        }
+        if isDirectWatchdogNotRunning, !restoreAlreadyFailed {
+            return SystemProxyWarning(
+                message: SystemProxyWarning.directWatchdogNotRunningMessage,
                 action: .restoreProxySettings,
                 isDismissible: false,
                 isActionInProgress: false
@@ -983,6 +1000,19 @@ struct SystemProxyWarning {
             Your Mac's proxy settings still point at Rockxy, and Rockxy could not verify the saved copy it \
             would restore them from. If Rockxy quits unexpectedly, your network may stay behind a proxy \
             that is no longer running. You can put the settings back now.
+            """,
+            bundle: RockxyLocalization.bundle
+        )
+    }
+
+    /// Shown when the watchdog that would restore the Mac's proxy settings is not running: it never
+    /// started, or it started and was stopped, as opposed to running and rejecting its saved copy.
+    static var directWatchdogNotRunningMessage: String {
+        String(
+            localized: """
+            Your Mac's proxy settings point at Rockxy, but the helper that restores them automatically \
+            is not running. If Rockxy quits unexpectedly, your network may stay behind a proxy that is \
+            no longer running. You can put the settings back now.
             """,
             bundle: RockxyLocalization.bundle
         )

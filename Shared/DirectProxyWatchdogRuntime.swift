@@ -177,11 +177,42 @@ enum DirectProxyWatchdogInstallation {
 /// label itself or a UUID suffix is accepted, so cleanup cannot broaden to unrelated jobs that
 /// merely share a textual prefix.
 enum DirectProxyWatchdogJobDiscovery {
+    // MARK: Internal
+
     static func labels(in launchctlListOutput: String, baseLabel: String) -> [String] {
         let labels = launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line -> String? in
             line.split(whereSeparator: \.isWhitespace).last.flatMap { ownedLabel(String($0), baseLabel: baseLabel) }
         }
         return Array(Set(labels)).sorted()
+    }
+
+    /// Every owned watchdog job that is not running and did not end cleanly, classified by
+    /// `DirectProxyWatchdogExit.diagnosis(forStatus:)`. This is the one place production turns a
+    /// `launchctl list` status into a fault, so a signal (launchd lists those as negative numbers,
+    /// e.g. SIGKILL under memory pressure) or any other non-zero status is not silently dropped.
+    ///
+    /// A job with a live PID is still running, so a stale status beside it is not a failure.
+    /// Statuses 78 and 79 are classified whatever the PID column says, as they always were.
+    static func failures(in launchctlListOutput: String, baseLabel: String) -> DirectProxyWatchdogFailures {
+        var failures = DirectProxyWatchdogFailures()
+        for (label, diagnosis, isRunning) in diagnosedJobs(in: launchctlListOutput, baseLabel: baseLabel) {
+            switch diagnosis {
+            case .resolved:
+                break
+            case .refusedBackup:
+                failures.refused.append(label)
+            case .neverRan:
+                failures.neverRan.append(label)
+            case let .other(status):
+                if !isRunning {
+                    failures.other.append(.init(label: label, status: status))
+                }
+            }
+        }
+        failures.refused = Array(Set(failures.refused)).sorted()
+        failures.neverRan = Array(Set(failures.neverRan)).sorted()
+        failures.other = Array(Set(failures.other)).sorted { $0.label < $1.label }
+        return failures
     }
 
     /// The Rockxy watchdog jobs whose last exit was a refusal to trust their own backup.
@@ -192,16 +223,48 @@ enum DirectProxyWatchdogJobDiscovery {
     /// no connection to it, but the app already lists these jobs to retire them, so the answer is
     /// there to be read before they are removed.
     static func refusedLabels(in launchctlListOutput: String, baseLabel: String) -> [String] {
-        let refused = launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+        labels(in: launchctlListOutput, baseLabel: baseLabel, lastExitStatus: DirectProxyWatchdogExit.refusedBackup)
+    }
+
+    /// The Rockxy watchdog jobs whose last exit status is `EX_CONFIG` (78): the status launchd
+    /// itself reports when it could not set the job up, so the watchdog never ran. Builds before
+    /// the refusal had its own code also used 78 for a refusal, so a stale job can be either; the
+    /// status alone cannot say which, and this list is deliberately kept apart from `refusedLabels`.
+    static func neverRanLabels(in launchctlListOutput: String, baseLabel: String) -> [String] {
+        labels(in: launchctlListOutput, baseLabel: baseLabel, lastExitStatus: DirectProxyWatchdogExit.jobSetupFailed)
+    }
+
+    // MARK: Private
+
+    private static func diagnosedJobs(
+        in launchctlListOutput: String,
+        baseLabel: String
+    )
+        -> [(label: String, diagnosis: DirectProxyWatchdogExit.Diagnosis, isRunning: Bool)]
+    {
+        launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line in
             let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
             guard fields.count >= 3,
-                  fields[1] == String(DirectProxyWatchdogExit.refusedBackup) else
+                  let status = Int32(fields[1]),
+                  let label = ownedLabel(fields[fields.count - 1], baseLabel: baseLabel) else
+            {
+                return nil
+            }
+            return (label, DirectProxyWatchdogExit.diagnosis(forStatus: status), Int32(fields[0]) != nil)
+        }
+    }
+
+    private static func labels(in launchctlListOutput: String, baseLabel: String, lastExitStatus: Int32) -> [String] {
+        let matched = launchctlListOutput.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+            let fields = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard fields.count >= 3,
+                  fields[1] == String(lastExitStatus) else
             {
                 return nil
             }
             return ownedLabel(fields[fields.count - 1], baseLabel: baseLabel)
         }
-        return Array(Set(refused)).sorted()
+        return Array(Set(matched)).sorted()
     }
 
     private static func ownedLabel(_ candidate: String, baseLabel: String) -> String? {
@@ -218,14 +281,76 @@ enum DirectProxyWatchdogJobDiscovery {
     }
 }
 
+// MARK: - DirectProxyWatchdogFailures
+
+/// The owned watchdog jobs that are not running and did not resolve their session, grouped by what
+/// the user should be told.
+struct DirectProxyWatchdogFailures: Equatable {
+    /// A job that ended with a non-zero status other than 78 or 79.
+    struct Other: Equatable, Hashable {
+        let label: String
+        let status: Int32
+    }
+
+    /// Ran and refused its record (`DirectProxyWatchdogExit.refusedBackup`).
+    var refused: [String] = []
+    /// `EX_CONFIG`: launchd could not set the job up.
+    var neverRan: [String] = []
+    /// Any other non-zero status, including a signal. The job started and then stopped.
+    var other: [Other] = []
+
+    /// Jobs that are no longer watching and did not refuse a record: never started, or started and
+    /// died. The user-visible fact is the same for both, that no automatic restore stands behind
+    /// the override.
+    var notRunning: [String] {
+        (neverRan + other.map(\.label)).sorted()
+    }
+
+    var isEmpty: Bool {
+        refused.isEmpty && neverRan.isEmpty && other.isEmpty
+    }
+}
+
 // MARK: - DirectProxyWatchdogExit
 
 /// How a watchdog that gave up ends, in the one form the helper that exits and the app that reads
 /// the exit status agree on.
 enum DirectProxyWatchdogExit {
-    /// `EX_CONFIG`. The watchdog could not vouch for its backup record and stopped. Distinct from
-    /// zero, which means the session resolved, so a job that exited this way is a job to look at.
-    static let refusedBackup: Int32 = 78
+    /// What a watchdog job's last exit status means.
+    enum Diagnosis: Equatable {
+        /// Status 0: the session resolved.
+        case resolved
+        /// `refusedBackup`: the watchdog ran, read its record, and would not act on it.
+        case refusedBackup
+        /// `jobSetupFailed` (`EX_CONFIG`): the status launchd and sysexits use for "the job could
+        /// not be set up", which Rockxy's own watchdog never emits. It did not run.
+        case neverRan
+        /// Anything else, including a signal (launchd lists those as negative numbers).
+        case other(Int32)
+    }
+
+    /// Exit status of a watchdog that ran and refused its backup record.
+    ///
+    /// 79 sits just above `EX__MAX` (78), the top of the range `sysexits.h` reserves (64...78),
+    /// so it equals no sysexits value; it is below the shell's 126/127 and 128+signal conventions;
+    /// and `launchctl list` prints a job's last status verbatim, with no special meaning attached
+    /// to 79 (negative numbers are signals). It was `EX_CONFIG` (78) before, which is also what
+    /// launchd reports when a job could not be set up at all, so "refused" and "never ran" were
+    /// indistinguishable.
+    static let refusedBackup: Int32 = 79
+
+    /// `EX_CONFIG`. Never emitted by the watchdog; recognised only so a job that reports it is
+    /// diagnosed as one that did not run, not as a refusal.
+    static let jobSetupFailed: Int32 = 78
+
+    static func diagnosis(forStatus status: Int32) -> Diagnosis {
+        switch status {
+        case 0: .resolved
+        case refusedBackup: .refusedBackup
+        case jobSetupFailed: .neverRan
+        default: .other(status)
+        }
+    }
 }
 
 // MARK: - DirectProxyWatchdogOutcome

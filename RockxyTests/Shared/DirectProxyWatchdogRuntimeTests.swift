@@ -222,8 +222,109 @@ struct DirectProxyWatchdogRuntimeTests {
 
         #expect(DirectProxyWatchdogJobDiscovery.refusedLabels(in: output, baseLabel: base) == [refused])
         // Discovery of owned jobs is unchanged by the status column.
-        #expect(Set(DirectProxyWatchdogJobDiscovery.labels(in: output, baseLabel: base)) == [refused, resolved, running])
+        #expect(Set(DirectProxyWatchdogJobDiscovery.labels(in: output, baseLabel: base)) == [
+            refused,
+            resolved,
+            running
+        ])
         #expect(DirectProxyWatchdogExit.refusedBackup != 0)
+    }
+
+    @Test("The refusal status collides with no sysexits value, and 78 is read as never having run")
+    func refusalExitCodeIsDistinctFromSysexitsAndLaunchdSetupFailure() {
+        let sysexitsReserved: ClosedRange<Int32> = 64 ... 78
+        #expect(!sysexitsReserved.contains(DirectProxyWatchdogExit.refusedBackup))
+        #expect(DirectProxyWatchdogExit.refusedBackup != 78)
+        #expect(DirectProxyWatchdogExit.refusedBackup != 0)
+        #expect(DirectProxyWatchdogExit.refusedBackup < 126)
+        #expect(DirectProxyWatchdogExit.jobSetupFailed == 78)
+
+        #expect(DirectProxyWatchdogExit.diagnosis(forStatus: 0) == .resolved)
+        #expect(DirectProxyWatchdogExit.diagnosis(forStatus: DirectProxyWatchdogExit.refusedBackup) == .refusedBackup)
+        #expect(DirectProxyWatchdogExit.diagnosis(forStatus: 78) == .neverRan)
+        #expect(DirectProxyWatchdogExit.diagnosis(forStatus: -9) == .other(-9))
+        #expect(DirectProxyWatchdogExit.diagnosis(forStatus: 1) == .other(1))
+    }
+
+    @Test("The job table separates a refusal from a job that never ran")
+    func jobTableSeparatesRefusedFromNeverRan() {
+        let base = "app.test.direct-proxy-watchdog"
+        let refused = "\(base).\(UUID().uuidString)"
+        let neverRan = "\(base).\(UUID().uuidString)"
+        let output = """
+        PID\tStatus\tLabel
+        -\t\(DirectProxyWatchdogExit.refusedBackup)\t\(refused)
+        -\t78\t\(neverRan)
+        -\t78\tcom.apple.unrelated
+        """
+
+        #expect(DirectProxyWatchdogJobDiscovery.refusedLabels(in: output, baseLabel: base) == [refused])
+        #expect(DirectProxyWatchdogJobDiscovery.neverRanLabels(in: output, baseLabel: base) == [neverRan])
+    }
+
+    @Test("A watchdog killed by a signal or exiting with another status is classified, not dropped")
+    func jobTableClassifiesSignalsAndOtherStatuses() {
+        let base = "app.test.direct-proxy-watchdog"
+        let killed = "\(base).\(UUID().uuidString)"
+        let exitedOne = "\(base).\(UUID().uuidString)"
+        let stillRunning = "\(base).\(UUID().uuidString)"
+        let clean = "\(base).\(UUID().uuidString)"
+        let output = """
+        PID\tStatus\tLabel
+        -\t-9\t\(killed)
+        -\t1\t\(exitedOne)
+        4242\t1\t\(stillRunning)
+        -\t0\t\(clean)
+        -\t-9\tcom.apple.unrelated
+        """
+
+        let failures = DirectProxyWatchdogJobDiscovery.failures(in: output, baseLabel: base)
+
+        #expect(failures.refused.isEmpty)
+        #expect(failures.neverRan.isEmpty)
+        #expect(Set(failures.other) == [.init(label: killed, status: -9), .init(label: exitedOne, status: 1)])
+        #expect(Set(failures.notRunning) == [killed, exitedOne])
+    }
+
+    @Test("Production discovery surfaces a signal-killed or oddly-exited watchdog as not running")
+    func managerSurfacesNonRefusalFailures() {
+        let base = SystemProxyManager.directWatchdogLabel
+        let killed = "\(base).\(UUID().uuidString)"
+        let exitedOne = "\(base).\(UUID().uuidString)"
+        let output = """
+        PID\tStatus\tLabel
+        -\t-9\t\(killed)
+        -\t1\t\(exitedOne)
+        """
+        let manager = SystemProxyManager()
+
+        #expect(!manager.directWatchdogNeverRan)
+        #expect(manager.noteDirectWatchdogFailures(in: output, context: "test"))
+        // Surfaced on the existing "no automatic restore" state, not the refusal one: nothing was
+        // read or rejected, and the remedy is the same manual restore.
+        #expect(manager.directWatchdogNeverRan)
+        #expect(!manager.directWatchdogRefusedItsRecord)
+    }
+
+    @Test("The reported fault matches the flag for each kind of failed watchdog")
+    func managerReturnValueMeansAnyFaultWasFound() {
+        let base = SystemProxyManager.directWatchdogLabel
+        func table(status: String) -> String {
+            "PID\tStatus\tLabel\n-\t\(status)\t\(base).\(UUID().uuidString)"
+        }
+
+        let neverRan = SystemProxyManager()
+        #expect(neverRan.noteDirectWatchdogFailures(in: table(status: "78"), context: "test"))
+        #expect(neverRan.directWatchdogNeverRan && !neverRan.directWatchdogRefusedItsRecord)
+
+        let refused = SystemProxyManager()
+        let refusedStatus = String(DirectProxyWatchdogExit.refusedBackup)
+        #expect(refused.noteDirectWatchdogFailures(in: table(status: refusedStatus), context: "test"))
+        #expect(refused.directWatchdogRefusedItsRecord && !refused.directWatchdogNeverRan)
+
+        let healthy = SystemProxyManager()
+        #expect(!healthy.noteDirectWatchdogFailures(in: table(status: "0"), context: "test"))
+        #expect(!healthy.directWatchdogNeverRan && !healthy.directWatchdogRefusedItsRecord)
     }
 
     @Test("The backup is what decides, not the parent")

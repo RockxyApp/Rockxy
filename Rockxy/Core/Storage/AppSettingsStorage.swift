@@ -97,7 +97,11 @@ enum AppSettingsStorage {
         let defaults = UserDefaults.standard
         defaults.set(settings.proxyPort, forKey: proxyPortKey)
         defaults.set(settings.autoStartProxy, forKey: autoStartKey)
-        defaults.set(settings.automaticallySetSystemProxy, forKey: AutomaticSystemProxyRouting.defaultsKey)
+        // An explicit routing mode is authoritative; a stale in-memory Bool must never flip
+        // Manual or Never back to Automatic. Only the legacy-only state is written from the Bool.
+        if defaults.string(forKey: AutomaticSystemProxyRouting.modeDefaultsKey) == nil {
+            defaults.set(settings.automaticallySetSystemProxy, forKey: AutomaticSystemProxyRouting.defaultsKey)
+        }
         defaults.set(settings.recordOnLaunch, forKey: recordOnLaunchKey)
         defaults.set(settings.onlyListenOnLocalhost, forKey: onlyListenOnLocalhostKey)
         defaults.set(settings.listenIPv6, forKey: listenIPv6Key)

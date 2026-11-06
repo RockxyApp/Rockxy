@@ -95,6 +95,14 @@ struct AdvancedProxySettingsView: View {
     @State private var showingUninstallConfirmation = false
     @Environment(\.appUIDisplayMetrics) private var appMetrics
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(AutomaticSystemProxyRouting.modeDefaultsKey) private var storedRoutingMode = ""
+
+    private var systemProxyUnavailableReason: String? {
+        AutomaticSystemProxyRouting.acquisitionUnavailableReason(
+            storedMode: storedRoutingMode,
+            isOverrideActive: coordinator.isSystemProxyConfigured
+        )
+    }
 
     private var toolMetrics: ToolWindowDisplayMetrics {
         ToolWindowDisplayMetrics(appMetrics: appMetrics)
@@ -407,6 +415,8 @@ struct AdvancedProxySettingsView: View {
                     coordinator.toggleSystemProxyOverride()
                 }
                 .disabled(!coordinator.isProxyRunning)
+                .disabled(systemProxyUnavailableReason != nil)
+                .help(systemProxyUnavailableReason ?? "")
 
                 Spacer(minLength: 0)
             }
