@@ -117,10 +117,17 @@ enum AutomaticSystemProxyRouting {
 
     /// Every listener start uses this gate, including launch and restart. Recheck the saved
     /// preference immediately before mutation so opting out during startup is respected.
+    ///
+    /// This is where Manual is enforced, and the only place: `requireExplicitAcquisition`, the
+    /// backstop inside `SystemProxyManager.enableSystemProxy`, deliberately permits Manual
+    /// because an explicit toggle has to keep working there. The default predicate asks
+    /// `permits(.acquireAutomatically:)` rather than comparing the mode inline, so the rule has a
+    /// single definition and an acquisition nobody asked for is refused by the same table that
+    /// describes every other operation.
     @MainActor
     static func enableForCapture(
         enabledAtStart: Bool,
-        currentPreference: () -> Bool = { currentMode() == .automatic },
+        currentPreference: () -> Bool = { permits(.acquireAutomatically, mode: currentMode()) },
         enable: () async throws -> Void
     )
         async throws -> Bool
