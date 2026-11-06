@@ -29,6 +29,30 @@ struct LoopbackProxyOwnershipTests {
         #expect(LoopbackProxyOwnershipPolicy.enabledLoopbackPorts(in: [leftover, corporate]).isEmpty)
     }
 
+    /// Rockxy always writes the literal `127.0.0.1`, but these settings are the user's and another
+    /// proxy app may write any loopback spelling. Recognising one spelling meant such a machine
+    /// produced no ports to probe, so the baseline check decided there was no loopback proxy and
+    /// skipped the ownership question entirely.
+    @Test("Every loopback spelling counts, and nothing else does")
+    func loopbackHostsAreRecognisedInEverySpelling() {
+        for host in ["localhost", "LocalHost", "::1", "[::1]", "127.0.0.2", "127.1.2.3", " 127.0.0.1 "] {
+            #expect(LoopbackProxyOwnershipPolicy.isLoopbackHost(host), "\(host) should be loopback")
+        }
+        for host in ["proxy.corp.example", "128.0.0.1", "10.0.0.1", "", "127.0.0.256", "127.0.0"] {
+            #expect(!LoopbackProxyOwnershipPolicy.isLoopbackHost(host), "\(host) should not be loopback")
+        }
+
+        let viaName = snapshot(http: (true, "localhost", 7_890))
+        let viaIPv6 = snapshot(https: (true, "::1", 8_080))
+        let viaAlias = snapshot(socks: (true, "127.0.0.2", 1_080))
+
+        #expect(LoopbackProxyOwnershipPolicy.enabledLoopbackPorts(in: [viaName, viaIPv6, viaAlias]) == [
+            1_080,
+            7_890,
+            8_080
+        ])
+    }
+
     @Test("Another proxy app's endpoint becomes the restore point")
     func anotherApplicationIsCaptured() {
         #expect(
