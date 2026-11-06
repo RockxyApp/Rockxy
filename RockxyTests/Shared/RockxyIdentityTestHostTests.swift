@@ -42,6 +42,37 @@ struct RockxyIdentityTestHostTests {
         #expect(!RockxyIdentity.isTestFrameworkImagePath("/tmp/Planted.xctest/Contents/MacOS/Planted"))
     }
 
+    /// Measured on macOS: a binary copied into a directory named `Testing.framework` is reported
+    /// by `_dyld_get_image_name(0)` at that path, so matching the framework name anywhere in the
+    /// path would hand the decision to anyone who can place a copy of the app. A symlink does not
+    /// do it, because dyld reports the resolved path, but a copy does.
+    @Test("an app relocated under a directory named like a test framework is not a test host")
+    func relocatedBundleIsNotATestHost() {
+        let relocated = "/Users/me/Library/Caches/Testing.framework/Rockxy.app/Contents/MacOS/Rockxy"
+        #expect(!RockxyIdentity.isTestFrameworkImagePath(relocated))
+        #expect(!RockxyIdentity.isTestFrameworkImagePath(
+            "/Users/me/XCTest.framework/Rockxy.app/Contents/MacOS/Rockxy"
+        ))
+        #expect(!RockxyIdentity.isTestHost(imagePaths: [relocated, "/usr/lib/libSystem.B.dylib"]))
+    }
+
+    /// The main executable is the one image whose path someone outside the process chooses — a
+    /// shipped Rockxy is image 0 — and it can never be a test framework, so the scan skips it.
+    ///
+    /// Asserted as "image 0 and nothing else is missing" rather than by name: under a test host
+    /// image 0 is the runner, not the app, and naming either would pin the harness instead of the
+    /// behaviour.
+    @Test("the loaded-image scan leaves out the main executable")
+    func loadedImagePathsLeaveOutTheMainExecutable() {
+        let images = RockxyIdentity.loadedImagePaths()
+        let mainExecutable = _dyld_get_image_name(0).map { String(cString: $0) }
+
+        #expect(!images.isEmpty)
+        #expect(images.count == Int(_dyld_image_count()) - 1)
+        #expect(images.first != mainExecutable)
+        #expect(images.first == _dyld_get_image_name(1).map { String(cString: $0) })
+    }
+
     @Test("the test-host decision takes only loaded images, never environment or arguments")
     func decisionDoesNotReadEnvironmentOrArguments() throws {
         let source = try String(contentsOf: Self.identitySourceURL(), encoding: .utf8)
