@@ -83,7 +83,7 @@ struct AddBlockRuleSheet: View {
 
                 ruleDetailsSection
                 decisionSection
-                RuleURLTesterSection(toolMetrics: toolMetrics) {
+                RuleURLTesterSection(toolMetrics: toolMetrics, ruleID: editingRuleID) {
                     let subpaths = matchType == .wildcard ? includeSubpaths : false
                     return RuleMatchCondition(
                         urlPattern: RulePatternBuilder.regexSource(
@@ -146,6 +146,13 @@ struct AddBlockRuleSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appUIDisplayMetrics) private var appMetrics
+
+    private var editingRuleID: UUID? {
+        if case let .edit(rule) = session.mode {
+            return rule.id
+        }
+        return nil
+    }
     @State private var ruleName: String
     @State private var urlPattern: String
     @State private var hidesMatchedTraffic: Bool

@@ -33,7 +33,7 @@ struct BabylonRuntimeWindowReadabilityTests {
         let sceneSource = scenesAfter[..<nextScene.lowerBound]
 
         #expect(sceneSource.contains("ToolWindowDisplayMetricsProvider"))
-        #expect(sceneSource.contains("BabylonRuntimeView()"))
+        #expect(sceneSource.contains("BabylonRuntimeView(coordinator: mainCoordinator)"))
         #expect(sceneSource.contains(".commandsRemoved()"))
         #expect(sceneSource.contains(".windowResizability(.contentSize)"))
         #expect(sceneSource.contains(".defaultPosition(.center)"))
@@ -167,7 +167,7 @@ struct BabylonRuntimeWindowReadabilityTests {
 
         // Bounded batch size + short max latency constants.
         #expect(source.contains("private static let runtimeBatchSize = 128"))
-        #expect(source.contains("private static let runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)"))
+        #expect(source.contains("runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)"))
         #expect(source.contains("static let maximumRuntimePayloadSize = 2 * 1_024 * 1_024"))
         #expect(source.contains("try Self.validateRuntimePayloadSize(payload.content.count)"))
         #expect(source.contains("runtimeFlushWorkItem?.cancel()"))

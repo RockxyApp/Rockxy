@@ -383,7 +383,7 @@ struct ScriptingRegressionTests {
     func toolToggleBypassesRequestHook() async throws {
         // Use an injected `settingsProvider` so this test owns its own master
         // toggle state and never races other suites that touch UserDefaults.standard.
-        let suite = "ScriptingRegressionTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ScriptingRegressionTests-")
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
@@ -449,7 +449,7 @@ struct ScriptingRegressionTests {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let suite = "ScriptingRegressionTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ScriptingRegressionTests-")
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let discovery = PluginDiscovery(pluginsDirectory: dir, defaults: defaults)
         let manager = ScriptPluginManager(
@@ -495,7 +495,7 @@ struct ScriptingRegressionTests {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let suite = "ScriptingRegressionTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "ScriptingRegressionTests-")
         let defaults = UserDefaults(suiteName: suite) ?? .standard
         let discovery = PluginDiscovery(pluginsDirectory: dir, defaults: defaults)
         let manager = ScriptPluginManager(
@@ -516,7 +516,8 @@ struct ScriptingRegressionTests {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("RockxyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let defaults = UserDefaults(suiteName: "ScriptingRegressionTests-\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "ScriptingRegressionTests-")) ??
+            .standard
         let discovery = PluginDiscovery(pluginsDirectory: dir, defaults: defaults)
         let manager = ScriptPluginManager(discovery: discovery, defaults: defaults)
 

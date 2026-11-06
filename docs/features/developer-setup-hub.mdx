@@ -107,6 +107,10 @@ These targets depend on behavior Rockxy does not drive from macOS (physical-devi
 - `tvOS / watchOS` — reuse the iOS Device and iOS Simulator paths (including **Install in Booted Simulators…**). An Apple Watch has no proxy setting: trust the certificate on the paired iPhone and the watch, point the iPhone at Rockxy, and turn off the watch's Wi-Fi and cellular.
 - `Vision Pro` — follows the iOS Device path on the device itself; the simulator supports **Install in Booted Simulators…**. There is no dedicated Vision Pro pairing workflow.
 
+### Device endpoint on a Mac with several networks
+
+Physical devices use this Mac's LAN address and the proxy port, shown as **Device Endpoint** in the overview. When the Mac is on more than one network at once (for example Wi-Fi and Ethernet, or a VPN), a **Network** picker lists every address, best first, so you choose the one your device is on. Rockxy remembers the choice and uses the same address for the device endpoint, the toolbar proxy status, and certificate sharing links. If the chosen network disconnects, Rockxy falls back to the best remaining address. Changing the network stops an open certificate sharing link, because it pointed at the previous address.
+
 ### What guide-only does NOT do
 
 - It does not pair with devices or simulators.

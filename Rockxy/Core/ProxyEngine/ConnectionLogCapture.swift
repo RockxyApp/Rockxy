@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import NIOCore
+import NIOHTTP2
 import NIOPosix
 @preconcurrency import NIOSSL
 import SwiftASN1
@@ -183,6 +184,12 @@ nonisolated enum ConnectionLogCapture {
         if let channelError = error as? ChannelError, case let .connectTimeout(amount) = channelError {
             let millis = amount.nanoseconds / 1_000_000
             return ConnectionLog.Failure(stage: .connect, message: "Connection timed out after \(millis) ms")
+        }
+        if let reset = error as? NIOHTTP2Errors.StreamClosed {
+            return ConnectionLog.Failure(
+                stage: .response,
+                message: "HTTP/2 stream reset by the server (\(UpstreamResponseHandler.http2ErrorName(reset.errorCode)))"
+            )
         }
         if error is UpstreamProxyError {
             return ConnectionLog.Failure(stage: .proxy, message: "External proxy: \(error.localizedDescription)")

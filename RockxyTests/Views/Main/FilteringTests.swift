@@ -469,6 +469,107 @@ struct FilteringTests {
         #expect(coordinator.filteredTransactions.map(\.id) == [ai.id])
     }
 
+    @Test("Smart search finds AI tool calls and streamed responses")
+    func smartSearchToolCallsAndStreaming() {
+        let coordinator = MainContentCoordinator()
+        let toolCall = TestFixtures.makeTransaction(method: "POST", url: "https://api.openai.com/v1/chat/completions")
+        toolCall.request.body = Data(#"{"model":"gpt-4o","messages":[]}"#.utf8)
+        toolCall.response?.body = Data(
+            #"{"choices":[{"message":{"tool_calls":[{"id":"call_1","function":{"name":"lookup"}}]}}]}"#.utf8
+        )
+        let streamed = TestFixtures.makeTransaction(method: "POST", url: "https://api.anthropic.com/v1/messages")
+        streamed.request.body = Data(#"{"model":"claude-sonnet-4-5","stream":true,"messages":[]}"#.utf8)
+        let plain = TestFixtures.makeTransaction(method: "POST", url: "https://api.openai.com/v1/responses")
+        plain.request.body = Data(#"{"model":"gpt-4o","input":"hi"}"#.utf8)
+        coordinator.transactions = [toolCall, streamed, plain]
+
+        coordinator.filterCriteria.searchText = "has:tool_call"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [toolCall.id])
+
+        coordinator.filterCriteria.searchText = "streaming:true"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [streamed.id])
+
+        coordinator.filterCriteria.searchText = "is:ai streaming:false"
+        coordinator.recomputeFilteredTransactions()
+        #expect(Set(coordinator.filteredTransactions.map(\.id)) == [toolCall.id, plain.id])
+    }
+
+    @Test("Smart search matches Web3 chains, transaction hashes, and x402 payment flows")
+    func smartSearchChainTxHashAndX402() {
+        let coordinator = MainContentCoordinator()
+        let mainnet = TestFixtures.makeWeb3RPCTransaction(method: "eth_chainId")
+        let broadcast = TestFixtures.makeWeb3RPCTransaction(method: "eth_sendRawTransaction")
+        broadcast.web3RPCInfo = Web3RPCInfo(
+            family: .evm,
+            providerHost: "rpc.example.com",
+            method: "eth_sendRawTransaction",
+            requestID: "1",
+            batch: nil,
+            error: nil,
+            chainHint: Web3RPCChainHint(chainID: "0x2105"),
+            transactionHash: "0xabc",
+            blockIdentifier: nil,
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+        let paywall = TestFixtures.makeTransaction(url: "https://paid.example.com/report", statusCode: 402)
+        paywall.x402Info = X402Info(
+            stage: .paymentRequired,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: true,
+            hasPaymentProof: false,
+            hasChallenge: true,
+            hasPaymentMetadata: false,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: [],
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+        coordinator.transactions = [mainnet, broadcast, paywall]
+
+        coordinator.filterCriteria.searchText = "has:tx_hash"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [broadcast.id])
+
+        for query in ["chain:base", "chain:8453", "chain:0x2105"] {
+            coordinator.filterCriteria.searchText = query
+            coordinator.recomputeFilteredTransactions()
+            #expect(coordinator.filteredTransactions.map(\.id) == [broadcast.id], "\(query)")
+        }
+
+        coordinator.filterCriteria.searchText = "is:x402"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [paywall.id])
+    }
+
+    @Test("streaming: applies to any streamed response, not only AI traffic")
+    func streamingAppliesToAllTraffic() {
+        let coordinator = MainContentCoordinator()
+        let events = TestFixtures.makeTransaction(url: "https://api.example.com/events")
+        events.response?.headers = [HTTPHeader(name: "Content-Type", value: "text/event-stream")]
+        let page = TestFixtures.makeTransaction(url: "https://www.example.com/index.html")
+        coordinator.transactions = [events, page]
+
+        coordinator.filterCriteria.searchText = "streaming:true"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [events.id])
+
+        coordinator.filterCriteria.searchText = "streaming:false"
+        coordinator.recomputeFilteredTransactions()
+        #expect(coordinator.filteredTransactions.map(\.id) == [page.id])
+    }
+
+    @Test("Unknown values for new tokens fall back to plain text search")
+    func smartSearchUnknownValues() {
+        let filter = SmartTrafficFilter.parse("has:nothing streaming:maybe chain: chain:moonbase hello")
+        #expect(!filter.hasPredicates)
+        #expect(filter.remainingSearchText == "has:nothing streaming:maybe chain: chain:moonbase hello")
+    }
+
     @Test("Smart model search matches the requested model in the request body")
     func smartSearchAIModel() {
         let coordinator = MainContentCoordinator()
@@ -937,6 +1038,78 @@ struct FilteringTests {
         coordinator.saveFocusSet(focusSet)
 
         #expect(second.filteredTransactions.map(\.id) == [web.id])
+    }
+
+    // MARK: - Search Debounce
+
+    @Test("Typing coalesces into one filter pass instead of one per keystroke")
+    func searchTextDebouncesTheFilterPass() async throws {
+        let coordinator = MainContentCoordinator(searchRecomputeDebounce: .milliseconds(50))
+        coordinator.transactions = TestFixtures.makeBulkTransactions(count: 20)
+        coordinator.recomputeFilteredTransactions()
+        let unfilteredCount = coordinator.filteredTransactions.count
+        coordinator.filterCriteria.searchField = .path
+
+        // A burst of keystrokes, the way the search field delivers them.
+        for keystroke in ["/", "/u", "/us", "/use", "/user", "/users"] {
+            coordinator.searchTextDidChange(keystroke)
+        }
+
+        // The text lands at once so the field stays responsive, but the pass over every
+        // captured transaction has not run yet. That is what keeps typing cheap after a
+        // long capture, where the list is far larger than this fixture.
+        #expect(coordinator.filterCriteria.searchText == "/users")
+        #expect(coordinator.filteredTransactions.count == unfilteredCount)
+
+        try await Task.sleep(for: .milliseconds(500))
+
+        // One pass, and it used the final text rather than any intermediate prefix.
+        #expect(coordinator.filteredTransactions.count < unfilteredCount)
+        #expect(!coordinator.filteredTransactions.isEmpty)
+        #expect(coordinator.filteredTransactions.allSatisfy {
+            $0.request.path.lowercased().contains("/users")
+        })
+    }
+
+    /// Guards the invariant that makes row reuse on the filter path correct. Reuse keeps the
+    /// previously projected row whenever the transaction's identity and
+    /// `listPresentationRevision` are unchanged, so anything a row displays must bump that
+    /// revision when it changes. This asserts the no-stale-row contract per mutation class
+    /// rather than that reuse occurred -- reuse is a performance property and belongs to the
+    /// profiler, while a stale row would be a visible defect.
+    @Test("A reused row refreshes when the evidence it displays changes")
+    func reusedRowRefreshesWhenDisplayedEvidenceChanges() throws {
+        let coordinator = makeCoordinator(transactions: TestFixtures.makeBulkTransactions(count: 8))
+        coordinator.filterCriteria.searchField = .path
+        coordinator.searchTextDidChange("/users")
+        coordinator.recomputeFilteredTransactions()
+
+        let target = try #require(coordinator.filteredTransactions.first)
+        let rowID = target.id
+        func row() throws -> RequestListRow {
+            try #require(coordinator.filteredRows.first { $0.id == rowID })
+        }
+
+        // An HTTPS transaction with no recorded disposition reads as decrypted application
+        // traffic, which is what `sslState(for:)` derives for a non-CONNECT capture.
+        #expect(try row().sslState == .secureIntercepted)
+
+        // The hazard reuse was once assumed to have: SSL state is handed to the row
+        // separately, so a late disposition could leave a stale badge. It cannot -- the
+        // property bumps the revision, so the guard rejects the retained row.
+        target.sslCapture = .tunneled
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().sslState == .secureTunneled)
+
+        // Response evidence is the other class a long capture mutates in place.
+        target.response = TestFixtures.makeResponse(statusCode: 503)
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().statusCode == 503)
+
+        // A cosmetic flag, to cover the class that does not touch request or response at all.
+        target.isStruckThrough = true
+        coordinator.recomputeFilteredTransactions()
+        #expect(try row().isStruckThrough)
     }
 
     // MARK: Private

@@ -206,6 +206,7 @@ final class ScriptEditorViewModel {
         self.policyGate = policyGate
         self.pluginsDirectoryOverride = pluginsDirectory
         installRuntimeConsoleObserver()
+        installRunReportObserver()
     }
 
     // MARK: Internal
@@ -229,6 +230,9 @@ final class ScriptEditorViewModel {
     private(set) var savedAndActive: Bool = false
     private(set) var statusMessage: String = ""
     private(set) var statusTone: ScriptEditorStatusTone = .neutral
+    /// The most recent time this script ran on live traffic, shown next to the status line so
+    /// a JavaScript exception or timeout is visible without opening the console.
+    private(set) var lastRun: ScriptRunReport?
 
     /// Editor
     var code: String = ScriptTemplates.defaultSource
@@ -466,7 +470,7 @@ final class ScriptEditorViewModel {
         // async reload cannot make the completion baseline newer content.
         let draft = currentDraft
 
-        if let failure = preflightFailure(for: draft) {
+        if let failure = await preflightFailure(for: draft) {
             savedAndActive = false
             statusTone = .error
             statusMessage = failure.status
@@ -660,8 +664,8 @@ final class ScriptEditorViewModel {
         }
     }
 
-    func validateScript() {
-        let result = ScriptSourceValidator.validate(
+    func validateScript() async {
+        let result = await ScriptSourceValidator.validate(
             source: code,
             runOnRequest: runOnRequest,
             runOnResponse: runOnResponse,
@@ -769,7 +773,10 @@ final class ScriptEditorViewModel {
     private let pluginsDirectoryOverride: URL?
     private var pluginBundlePath: URL?
     private var loadGeneration: UInt = 0
-    private var runtimeConsoleObserver: NSObjectProtocol?
+    /// Removes the notification observations when this view model goes away. See
+    /// `NotificationObserverTokens` for why the tokens live in a box rather than in a
+    /// `deinit` here.
+    private let observerTokens = NotificationObserverTokens()
 
     private var effectivePolicyGate: ScriptPolicyGate {
         policyGate ?? ScriptPolicyGate.shared
@@ -863,6 +870,7 @@ final class ScriptEditorViewModel {
         statusMessage = ""
         sampleURL = "https://api.example.com/path"
         consoleEntries.removeAll()
+        lastRun = nil
     }
 
     private func loadExisting(pluginID: String, generation: UInt) async {
@@ -910,7 +918,7 @@ final class ScriptEditorViewModel {
     /// Validate the draft before touching disk or the runtime. Returns a
     /// failure describing the first blocking problem, or `nil` when the draft is
     /// safe to persist. Never mutates state.
-    private func preflightFailure(for draft: ScriptEditorDraft) -> (status: String, consoleMessage: String)? {
+    private func preflightFailure(for draft: ScriptEditorDraft) async -> (status: String, consoleMessage: String)? {
         let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
             return (
@@ -934,7 +942,7 @@ final class ScriptEditorViewModel {
             )
         }
 
-        switch ScriptSourceValidator.validate(
+        switch await ScriptSourceValidator.validate(
             source: draft.code,
             runOnRequest: draft.runOnRequest,
             runOnResponse: draft.runOnResponse,
@@ -988,7 +996,7 @@ final class ScriptEditorViewModel {
     }
 
     private func installRuntimeConsoleObserver() {
-        runtimeConsoleObserver = NotificationCenter.default.addObserver(
+        observerTokens.keep(NotificationCenter.default.addObserver(
             forName: .scriptConsoleDidAppend,
             object: nil,
             queue: .main
@@ -999,7 +1007,34 @@ final class ScriptEditorViewModel {
             Task { @MainActor [weak self] in
                 self?.appendRuntimeConsoleEvent(event)
             }
+        })
+    }
+
+    private func installRunReportObserver() {
+        observerTokens.keep(NotificationCenter.default.addObserver(
+            forName: .scriptRunDidFinish,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let report = notification.object as? ScriptRunReport else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                self?.receiveRunReport(report)
+            }
+        })
+    }
+
+    func receiveRunReport(_ report: ScriptRunReport) {
+        guard report.pluginID == pluginID else {
+            return
         }
+        // Keep a failure visible until a newer success replaces it; a success only needs updating
+        // when nothing newer has arrived.
+        if let lastRun, lastRun.timestamp > report.timestamp {
+            return
+        }
+        lastRun = report
     }
 
     private func appendRuntimeConsoleEvent(_ event: ScriptConsoleEvent) {

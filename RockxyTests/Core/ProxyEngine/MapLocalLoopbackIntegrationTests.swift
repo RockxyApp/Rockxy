@@ -101,7 +101,8 @@ struct MapLocalLoopbackIntegrationTests {
             let failure = try #require(row?.connectionLog?.failure)
             #expect(failure.stage == .connect)
             #expect(failure.message.contains("port \(closedPort)"))
-            #expect(failure.attempts.contains { $0.hasPrefix("127.0.0.1 port \(closedPort):") && $0.contains("refused") })
+            #expect(failure.attempts
+                .contains { $0.hasPrefix("127.0.0.1 port \(closedPort):") && $0.contains("refused") })
         }
     }
 
@@ -282,9 +283,9 @@ struct MapLocalLoopbackIntegrationTests {
         try await MapLocalLoopbackHarness.run { harness in
             let file = try harness.writeFixtureFile(named: "replayed.json", contents: Data(#"{"from":"rule"}"#.utf8))
             await harness.addRule(harness.mapLocalRule(name: "Replay", path: "/replay-target", filePath: file.path))
-            let request = HTTPRequestData(
+            let request = try HTTPRequestData(
                 method: "GET",
-                url: try #require(URL(string: harness.absoluteURLString(path: "/replay-target"))),
+                url: #require(URL(string: harness.absoluteURLString(path: "/replay-target"))),
                 httpVersion: "HTTP/1.1",
                 headers: []
             )
@@ -369,12 +370,20 @@ struct MapLocalLoopbackIntegrationTests {
             ))
 
             let blocked = try await Task.detached {
-                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: originPort)
+                try SOCKS5TestClient.connectReply(
+                    socksPort: socksPort,
+                    destinationIPv4: [127, 0, 0, 1],
+                    destinationPort: originPort
+                )
             }.value
             #expect(blocked.count >= 2 && blocked[1] == 0x02)
 
             let loop = try await Task.detached {
-                try SOCKS5TestClient.connectReply(socksPort: socksPort, destinationIPv4: [127, 0, 0, 1], destinationPort: socksPort)
+                try SOCKS5TestClient.connectReply(
+                    socksPort: socksPort,
+                    destinationIPv4: [127, 0, 0, 1],
+                    destinationPort: socksPort
+                )
             }.value
             #expect(loop.count >= 2 && loop[1] == 0x02)
         }
@@ -587,12 +596,22 @@ struct MapLocalLoopbackIntegrationTests {
                 name: "CORS",
                 matchCondition: RuleMatchCondition(urlPattern: ".*127\\.0\\.0\\.1.*"),
                 action: .modifyHeader(operations: [
-                    HeaderOperation(type: .replace, headerName: "Access-Control-Allow-Origin", headerValue: "*", phase: .response),
+                    HeaderOperation(
+                        type: .replace,
+                        headerName: "Access-Control-Allow-Origin",
+                        headerValue: "*",
+                        phase: .response
+                    ),
                     HeaderOperation(type: .add, headerName: "X-Debug", headerValue: "1", phase: .request),
                 ])
             ))
             let file = try harness.writeFixtureFile(named: "mock.json", contents: Data(#"{"mock":true}"#.utf8))
-            await harness.addRule(harness.mapLocalRule(name: "Mock", path: "/mocked", filePath: file.path, statusCode: 404))
+            await harness.addRule(harness.mapLocalRule(
+                name: "Mock",
+                path: "/mocked",
+                filePath: file.path,
+                statusCode: 404
+            ))
 
             let mocked = try await harness.get("/mocked")
             #expect(mocked.status == 404)
@@ -762,6 +781,47 @@ struct MapLocalLoopbackIntegrationTests {
             }
         }
     }
+
+    /// Regression lock for the rule-evaluation and script-hook rewrite in `HTTPProxyHandler`
+    /// (issue #416): both hooks are now retained in a `ProxyHookTaskSlot`, and their outcome is
+    /// dropped once the client channel is gone. The two ways that change could break the proxy
+    /// are a request that never finishes and a Block rule quietly becoming a pass-through, so
+    /// both are asserted against one live proxy.
+    @Test("A live client still gets a complete response, and a Block rule still blocks")
+    func gatedRuleHookStillCompletesAndStillBlocks() async throws {
+        try await MapLocalLoopbackHarness.run { harness in
+            // No rule matches, so the whole origin response has to come back. `ProxyHTTPClient`
+            // resolves only on the terminating `.end`, so reaching the expectations below
+            // proves the response was framed and finished rather than merely started.
+            let forwarded = try await harness.get("/gated-live")
+            #expect(forwarded.status == 200)
+            #expect(forwarded.body == Data("origin:/gated-live".utf8))
+            #expect(forwarded.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == "true")
+
+            let absolute = harness.absoluteURLString(path: "/gated-blocked")
+            await harness.addRule(ProxyRule(
+                name: "Block gated",
+                matchCondition: RuleMatchCondition(
+                    urlPattern: absolute,
+                    sourceURLPattern: absolute,
+                    matchType: .wildcard,
+                    includeSubpaths: false
+                ),
+                action: .block(statusCode: 403)
+            ))
+
+            let blocked = try await harness.get("/gated-blocked")
+            #expect(blocked.status == 403)
+            // The liveness gate must never downgrade an evaluation to "no rule matched".
+            #expect(blocked.headerValue(MapLocalLoopbackHarness.originMarkerHeader) == nil)
+
+            try await Task.sleep(for: .milliseconds(300))
+            let rows = await harness.capturedTransactions()
+            #expect(rows.first { $0.request.url.path == "/gated-blocked" }?.state == .blocked)
+            // The forwarded request still produced its own completed row.
+            #expect(rows.contains { $0.request.url.path == "/gated-live" && $0.response?.statusCode == 200 })
+        }
+    }
 }
 
 // MARK: - MapLocalLoopbackHarness
@@ -793,6 +853,14 @@ private actor MapLocalLoopbackHarness {
     static let originMarkerHeader = "X-Rockxy-Origin"
 
     nonisolated let fixtureDirectory: URL
+
+    nonisolated var originPort: Int {
+        origin.boundPort
+    }
+
+    nonisolated var listenerPort: Int {
+        proxyPort
+    }
 
     static func start() async throws -> MapLocalLoopbackHarness {
         let fixtureDirectory = FileManager.default.temporaryDirectory
@@ -967,10 +1035,6 @@ private actor MapLocalLoopbackHarness {
         return port
     }
 
-    nonisolated var originPort: Int {
-        origin.boundPort
-    }
-
     /// Opens a reverse proxy listener that forwards to the origin fixture and returns its port.
     func startReverseProxy() async throws -> Int {
         let port = try Self.reserveLoopbackPort()
@@ -1022,10 +1086,6 @@ private actor MapLocalLoopbackHarness {
             proxyPort: proxyPort,
             method: .CONNECT
         )
-    }
-
-    nonisolated var listenerPort: Int {
-        proxyPort
     }
 
     /// A loopback port nothing listens on, for connection-failure tests.
@@ -1204,6 +1264,8 @@ private final class MapLocalPortBox: @unchecked Sendable {
 // MARK: - LoopbackTransactionRecorder
 
 private final class LoopbackTransactionRecorder: @unchecked Sendable {
+    // MARK: Internal
+
     func record(_ transaction: HTTPTransaction) {
         lock.lock()
         transactions.append(transaction)
@@ -1215,6 +1277,8 @@ private final class LoopbackTransactionRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         return transactions
     }
+
+    // MARK: Private
 
     private let lock = NSLock()
     private var transactions: [HTTPTransaction] = []
@@ -1446,12 +1510,17 @@ private enum MapLocalLoopbackError: Error, CustomStringConvertible {
 
 /// Blocking POSIX SOCKS5 client used only by the loopback tests.
 private enum SOCKS5TestClient {
+    // MARK: Internal
+
     static func connectReply(socksPort: Int, destinationIPv4: [UInt8], destinationPort: Int) throws -> [UInt8] {
         let fd = try connect(port: socksPort)
         defer { close(fd) }
         try send(fd, [0x05, 0x01, 0x00])
         _ = try receive(fd, count: 2)
-        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        try send(
+            fd,
+            [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)]
+        )
         return try receive(fd, count: 10)
     }
 
@@ -1467,14 +1536,19 @@ private enum SOCKS5TestClient {
         destinationIPv4: [UInt8],
         destinationPort: Int,
         payload: String
-    ) throws -> String {
+    )
+        throws -> String
+    {
         let fd = try connect(port: socksPort)
         defer { close(fd) }
         try send(fd, [0x05, 0x01, 0x00])
         guard try receive(fd, count: 2) == [0x05, 0x00] else {
             throw MapLocalLoopbackError.connectionFailed("SOCKS greeting refused")
         }
-        try send(fd, [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)])
+        try send(
+            fd,
+            [0x05, 0x01, 0x00, 0x01] + destinationIPv4 + [UInt8(destinationPort >> 8), UInt8(destinationPort & 0xFF)]
+        )
         let reply = try receive(fd, count: 10)
         guard reply.count == 10, reply[1] == 0x00 else {
             throw MapLocalLoopbackError.connectionFailed("SOCKS CONNECT refused: \(reply)")
@@ -1491,6 +1565,8 @@ private enum SOCKS5TestClient {
         }
         return String(decoding: response, as: UTF8.self)
     }
+
+    // MARK: Private
 
     private static func connect(port: Int) throws -> Int32 {
         let fd = socket(AF_INET, SOCK_STREAM, 0)

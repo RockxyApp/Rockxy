@@ -3,6 +3,8 @@ import AppKit
 import SwiftUI
 import Testing
 
+// MARK: - NativeWorkspaceSplitViewTests
+
 @MainActor
 struct NativeWorkspaceSplitViewTests {
     // MARK: Internal
@@ -1093,11 +1095,11 @@ struct NativeWorkspaceSplitViewTests {
     }
 
     private func uniqueAutosaveName() -> String {
-        "NativeWorkspaceSplitViewTests-\(UUID().uuidString)"
+        AppKitAutosaveTestKeys.uniqueSplitViewAutosaveName(for: .workspaceSplitView)
     }
 
     private func uniqueToolbarIdentifier() -> NSToolbar.Identifier {
-        NSToolbar.Identifier("NativeWorkspaceSplitViewTests.Toolbar.\(UUID().uuidString)")
+        AppKitAutosaveTestKeys.uniqueToolbarIdentifier(for: .workspaceSplitView)
     }
 
     private func waitUntil(
@@ -1136,5 +1138,7 @@ struct NativeWorkspaceSplitViewTests {
         UserDefaults.standard.removeObject(forKey: "NSToolbar Configuration \(identifier)")
     }
 }
+
+// MARK: - NativeWorkspaceSplitViewTestTimeout
 
 private struct NativeWorkspaceSplitViewTestTimeout: Error {}

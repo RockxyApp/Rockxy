@@ -119,6 +119,9 @@ struct ExportScopeTests {
     @Test("Export format copy describes scope and privacy without fidelity guarantees")
     func exportFormatCopy() {
         #expect(TrafficExportFormat.har.subtitle.contains("HAR archive"))
+        #expect(TrafficExportFormat.har.limitationNote?.contains("WebSocket frames") == true)
+        #expect(TrafficExportFormat.csv.limitationNote?.contains("Headers, bodies") == true)
+        #expect(TrafficExportFormat.rockxySession.limitationNote == nil)
         #expect(TrafficExportFormat.har.privacyNote.contains("can include"))
         #expect(!TrafficExportFormat.har.privacyNote.contains("exactly"))
         #expect(TrafficExportFormat.openAPIYAML.subtitle.contains("eligible HTTP requests"))

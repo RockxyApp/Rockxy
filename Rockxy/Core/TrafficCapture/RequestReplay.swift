@@ -115,6 +115,82 @@ enum RequestReplay {
 // MARK: - ReplayError
 
 /// Errors that can occur during request replay.
-enum ReplayError: Error {
+enum ReplayError: LocalizedError {
     case invalidResponse
+
+    // MARK: Internal
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            String(
+                localized: "The server closed the connection without sending a response.",
+                bundle: RockxyLocalization.bundle
+            )
+        }
+    }
+}
+
+// MARK: - ReplayFailureReason
+
+/// Turns a replay failure into a short sentence a person can act on, instead of the generic
+/// "The operation couldn't be completed" text Foundation produces for many network errors.
+enum ReplayFailureReason {
+    static func message(for error: Error, host: String?) -> String {
+        if let urlError = error as? URLError {
+            return message(for: urlError, host: host)
+        }
+        if let localized = error as? LocalizedError, let description = localized.errorDescription {
+            return description
+        }
+        return error.localizedDescription
+    }
+
+    // MARK: Private
+
+    private static func message(for error: URLError, host: String?) -> String {
+        let server = host ?? String(localized: "the server", bundle: RockxyLocalization.bundle)
+        switch error.code {
+        case .timedOut:
+            return String(localized: "The request to \(server) timed out.", bundle: RockxyLocalization.bundle)
+        case .cannotFindHost,
+             .dnsLookupFailed:
+            return String(localized: "Couldn't find \(server). Check the host name.", bundle: RockxyLocalization.bundle)
+        case .cannotConnectToHost:
+            return String(
+                localized: "Couldn't connect to \(server). It may be down or refusing connections.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .networkConnectionLost:
+            return String(
+                localized: "The connection to \(server) was lost before the response finished.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .notConnectedToInternet:
+            return String(localized: "This Mac is offline.", bundle: RockxyLocalization.bundle)
+        case .secureConnectionFailed,
+             .serverCertificateUntrusted,
+             .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired:
+            return String(
+                localized: "A secure connection to \(server) couldn't be established.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .badServerResponse,
+             .zeroByteResource,
+             .cannotParseResponse:
+            return String(
+                localized: "The response from \(server) couldn't be read.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .unsupportedURL,
+             .badURL:
+            return String(localized: "The request URL isn't valid.", bundle: RockxyLocalization.bundle)
+        default:
+            return error.localizedDescription
+        }
+    }
 }

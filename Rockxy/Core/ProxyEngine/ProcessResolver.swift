@@ -418,6 +418,32 @@ extension ProcessResolver {
         return parsed
     }
 
+    /// The processes listening on a local TCP port, or nil when `lsof` could not be run or did
+    /// not answer before the deadline. Sockets owned by another user (a root daemon, say) are
+    /// not visible to `lsof` without privileges and are absent from the result.
+    static func listeningProcessIDs(onLocalPort port: Int, deadline: DispatchTime) -> [Int32]? {
+        guard let execution = runBoundedLsof(
+            arguments: ["-nP", "-iTCP:\(port)", "-sTCP:LISTEN", "-Fp"],
+            deadline: deadline
+        ) else {
+            return nil
+        }
+        // `lsof` exits 1 when nothing matches, so an empty listing is an answer, not a failure.
+        return parseListeningProcessIDs(String(data: execution.data, encoding: .utf8) ?? "")
+    }
+
+    /// Parses the `p<pid>` records of `lsof -Fp` output, in order and without duplicates.
+    static func parseListeningProcessIDs(_ output: String) -> [Int32] {
+        var pids: [Int32] = []
+        for line in output.split(separator: "\n", omittingEmptySubsequences: true) where line.first == "p" {
+            guard let pid = Int32(line.dropFirst()), pid > 0, !pids.contains(pid) else {
+                continue
+            }
+            pids.append(pid)
+        }
+        return pids
+    }
+
     /// Parses `lsof -Fpcn` output into directional connection records. Kept pure and internal
     /// so parsing can be verified deterministically without shelling out.
     static func parseConnectionTable(_ output: String) -> [ProxyConnectionRecord] {

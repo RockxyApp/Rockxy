@@ -35,6 +35,77 @@ struct DebugAssistantEngineTests {
         #expect(DebugAssistantRecipe.suggestedRecipe(for: "why did this fail?") == .explainFailure)
     }
 
+    @Test("Why Is This Slow attributes time to the dominant phase and compares with the endpoint median")
+    func whySlowUsesPhasesAndPeers() throws {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let slow = makeTransaction(timestamp: base, statusCode: 200)
+        slow.timingInfo = TimingInfo(
+            dnsLookup: 0.01,
+            tcpConnection: 0.02,
+            tlsHandshake: 0.03,
+            timeToFirstByte: 3.6,
+            contentTransfer: 0.1
+        )
+        let peers = (1 ... 3).map { offset -> HTTPTransaction in
+            let peer = makeTransaction(timestamp: base.addingTimeInterval(Double(offset)), statusCode: 200)
+            peer.timingInfo = TimingInfo(
+                dnsLookup: 0,
+                tcpConnection: 0.01,
+                tlsHandshake: 0.02,
+                timeToFirstByte: 0.3,
+                contentTransfer: 0.05
+            )
+            return peer
+        }
+        let snapshots = ([slow] + peers).map(InvestigationTransactionSnapshot.init(transaction:))
+
+        let result = try DebugAssistantEngine().investigate(
+            recipe: .whyIsThisSlow,
+            selected: [snapshots[0]],
+            session: snapshots
+        )
+
+        #expect(result.summary.contains("server wait"))
+        #expect(result.summary.contains("longer than usual"))
+        #expect(result.evidence.contains { $0.kind == .derived && $0.title.contains("median") })
+        #expect(result.nextStep.contains("server"))
+        #expect(DebugAssistantRecipe.suggestedRecipe(for: "why is this so slow?") == .whyIsThisSlow)
+    }
+
+    @Test("Why Is This Slow says so when no duration was captured")
+    func whySlowWithoutTiming() throws {
+        let transaction = makeTransaction(statusCode: 200)
+        transaction.timingInfo = nil
+        transaction.measuredDuration = nil
+        let snapshot = InvestigationTransactionSnapshot(transaction: transaction)
+
+        let result = try DebugAssistantEngine().investigate(recipe: .whyIsThisSlow, selected: [snapshot], session: [snapshot])
+
+        #expect(result.evidence.contains { $0.kind == .unknown })
+    }
+
+    @Test("Find Related Requests lists same-endpoint requests first and flags failing ones")
+    func findRelatedRequests() throws {
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        let primary = makeTransaction(timestamp: base, statusCode: 200)
+        let failingPeer = makeTransaction(timestamp: base.addingTimeInterval(5), statusCode: 500)
+        let otherPath = makeTransaction(timestamp: base.addingTimeInterval(1), url: "https://api.example.com/v1/models", statusCode: 200)
+        let otherHost = makeTransaction(timestamp: base.addingTimeInterval(1), url: "https://cdn.example.net/app.js", statusCode: 200)
+        let snapshots = [primary, failingPeer, otherPath, otherHost].map(InvestigationTransactionSnapshot.init(transaction:))
+
+        let result = try DebugAssistantEngine().investigate(
+            recipe: .findRelatedRequests,
+            selected: [snapshots[0]],
+            session: snapshots
+        )
+
+        #expect(result.scopeTransactionIDs.first == primary.id)
+        #expect(result.scopeTransactionIDs.dropFirst().first == failingPeer.id)
+        #expect(!result.scopeTransactionIDs.contains(otherHost.id))
+        #expect(result.evidence.first?.detail == "Same endpoint")
+        #expect(result.nextStep.contains("did not succeed"))
+    }
+
     @Test("429 investigation separates observed, derived, inferred, and unknown evidence")
     func explainRateLimit() throws {
         let base = Date(timeIntervalSince1970: 1_700_000_000)

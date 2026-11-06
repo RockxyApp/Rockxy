@@ -136,6 +136,42 @@ struct MCPToolRegistryTests {
         #expect(text.contains("api.example.com"))
     }
 
+    @Test("export_flow_curl redacts query and body secrets end to end when redaction is on")
+    func exportCurlToolRedacts() async throws {
+        let flowProvider = MockFlowProvider()
+        let transaction = TestFixtures.makeTransaction(
+            method: "POST",
+            url: "https://api.example.com/orders?token=query-secret&page=2"
+        )
+        transaction.request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/orders?token=query-secret&page=2")),
+            httpVersion: "HTTP/1.1",
+            headers: [
+                HTTPHeader(name: "Content-Type", value: "application/json"),
+                HTTPHeader(name: "Authorization", value: "Bearer header-secret"),
+            ],
+            body: Data(#"{"item":"book","api_key":"body-secret"}"#.utf8),
+            contentType: .json
+        )
+        flowProvider.transactions = [transaction]
+        let registry = makeTestRegistry(flowProvider: flowProvider, redactionEnabled: true)
+
+        let result = await registry.callTool(
+            params: MCPToolCallParams(
+                name: "export_flow_curl",
+                arguments: ["flow_id": .string(transaction.id.uuidString)]
+            )
+        )
+
+        let text = try #require(result.content.first?.text)
+        #expect(!text.contains("query-secret"))
+        #expect(!text.contains("header-secret"))
+        #expect(!text.contains("body-secret"))
+        #expect(text.contains("page=2"))
+        #expect(text.contains("book"))
+    }
+
     @Test("get_proxy_status dispatches to status service")
     func proxyStatusTool() async throws {
         let stateProvider = MockProxyStateProvider()
@@ -236,7 +272,8 @@ struct MCPToolRegistryTests {
 
     private func makeTestRegistry(
         flowProvider: MockFlowProvider? = nil,
-        stateProvider: MockProxyStateProvider? = nil
+        stateProvider: MockProxyStateProvider? = nil,
+        redactionEnabled: Bool = false
     )
         -> MCPToolRegistry
     {
@@ -250,7 +287,7 @@ struct MCPToolRegistryTests {
         }
         let flowService = MCPFlowQueryService(
             serverCoordinator: coordinator,
-            redactionPolicy: MCPRedactionPolicy(isEnabled: false)
+            redactionPolicy: MCPRedactionPolicy(isEnabled: redactionEnabled)
         )
         let statusService = MCPStatusService(serverCoordinator: coordinator)
         let ruleService = MCPRuleQueryService(ruleEngine: RuleEngine())

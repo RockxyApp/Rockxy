@@ -17,11 +17,36 @@ private enum BodyEncoding {
         return (data.base64EncodedString(), false, nil)
     }
 
-    static func decode(base64: String?, truncated: Bool) -> Data? {
-        guard !truncated, let base64 else {
+    static func decode(base64: String?) -> Data? {
+        // Truncation describes completeness, not whether retained bytes are usable.
+        // The encoder represents storage omissions by leaving bodyBase64 absent.
+        guard let base64 else {
             return nil
         }
         return Data(base64Encoded: base64)
+    }
+
+    static func restoredOmission(
+        captured: BodyOmissionMetadata?,
+        base64: String?,
+        truncated: Bool,
+        originalSize: Int?
+    )
+        -> BodyOmissionMetadata?
+    {
+        if let captured {
+            return captured
+        }
+        // Older sessions recorded the inline omission's size outside capture metadata.
+        // Recover only valid storage omissions; never invent or overwrite capture evidence.
+        guard truncated, base64 == nil, let originalSize,
+              originalSize > maxInlineSize, originalSize <= 1_000_000_000 else
+        {
+            return nil
+        }
+        return BodyOmissionMetadata(
+            reason: "sessionStorageLimit", observedBytes: originalSize, originalBytes: originalSize
+        )
     }
 }
 
@@ -62,6 +87,9 @@ struct CodableTransaction: Codable {
             .map { CodableGraphQLInfo(from: $0) }
         self.web3RPCInfo = transaction.web3RPCInfo
             .map { CodableWeb3RPCInfo(from: $0) }
+        self.x402Info = transaction.x402Info
+        self.streamDiagnostics = transaction.streamDiagnostics
+            .map { CodableStreamDiagnostics(from: $0) }
         self.sourcePort = transaction.sourcePort
         self.clientApp = transaction.clientApp
         self.measuredDuration = transaction.measuredDuration
@@ -80,6 +108,10 @@ struct CodableTransaction: Codable {
         self.noCachingApplied = transaction.noCachingApplied ? true : nil
         self.serverHTTPVersion = transaction.serverHTTPVersion
         self.connectionLog = transaction.connectionLog
+        self.tunnelReason = transaction.tunnelReason
+        self.babylonCaptureMetadata = transaction.babylonCaptureMetadata
+        self.babylonGRPCCallType = transaction.babylonGRPCCallType
+        self.babylonCorrelation = transaction.babylonCorrelation
     }
 
     init(from decoder: Decoder) throws {
@@ -95,6 +127,11 @@ struct CodableTransaction: Codable {
         )
         graphQLInfo = try container.decodeIfPresent(CodableGraphQLInfo.self, forKey: .graphQLInfo)
         web3RPCInfo = try container.decodeIfPresent(CodableWeb3RPCInfo.self, forKey: .web3RPCInfo)
+        // Optional and lenient: a newer stage this build doesn't know must not fail the whole file.
+        x402Info = try? container.decodeIfPresent(X402Info.self, forKey: .x402Info)
+        streamDiagnostics = try container.decodeIfPresent(
+            CodableStreamDiagnostics.self, forKey: .streamDiagnostics
+        )
         sourcePort = try container.decodeIfPresent(UInt16.self, forKey: .sourcePort)
         clientApp = try container.decodeIfPresent(String.self, forKey: .clientApp)
         measuredDuration = try container.decodeIfPresent(TimeInterval.self, forKey: .measuredDuration)
@@ -113,6 +150,28 @@ struct CodableTransaction: Codable {
         noCachingApplied = try container.decodeIfPresent(Bool.self, forKey: .noCachingApplied)
         serverHTTPVersion = try container.decodeIfPresent(String.self, forKey: .serverHTTPVersion)
         connectionLog = try? container.decodeIfPresent(ConnectionLog.self, forKey: .connectionLog)
+        tunnelReason = try? container.decodeIfPresent(TunnelReason.self, forKey: .tunnelReason)
+        babylonCaptureMetadata = try? container.decodeIfPresent(
+            BabylonCaptureMetadata.self,
+            forKey: .babylonCaptureMetadata
+        )
+        // Over the stored bound the call type is dropped, not the request: the write side
+        // refuses to store it, so keeping it would let the row load and then fail to pin or save.
+        // The nesting is explicit: a mistyped value reads as absent, a present value is bounded.
+        let decodedCallType: String?
+        if let attempt = try? container.decodeIfPresent(String.self, forKey: .babylonGRPCCallType) {
+            decodedCallType = attempt
+        } else {
+            decodedCallType = nil
+        }
+        if let callType = decodedCallType,
+           callType.utf8.count <= BabylonCaptureProtocol.maximumStoredGRPCCallTypeSize
+        {
+            babylonGRPCCallType = callType
+        } else {
+            babylonGRPCCallType = nil
+        }
+        babylonCorrelation = try? container.decodeIfPresent(BabylonCorrelation.self, forKey: .babylonCorrelation)
     }
 
     // MARK: Internal
@@ -127,6 +186,8 @@ struct CodableTransaction: Codable {
         case webSocketConnection
         case graphQLInfo
         case web3RPCInfo
+        case x402Info
+        case streamDiagnostics
         case sourcePort
         case clientApp
         case measuredDuration
@@ -145,6 +206,10 @@ struct CodableTransaction: Codable {
         case noCachingApplied
         case serverHTTPVersion
         case connectionLog
+        case tunnelReason
+        case babylonCaptureMetadata
+        case babylonGRPCCallType
+        case babylonCorrelation
     }
 
     let id: UUID
@@ -156,6 +221,9 @@ struct CodableTransaction: Codable {
     let webSocketConnection: CodableWebSocketConnection?
     let graphQLInfo: CodableGraphQLInfo?
     let web3RPCInfo: CodableWeb3RPCInfo?
+    /// Lifecycle hints only; X402Info never holds payment proofs or challenges.
+    let x402Info: X402Info?
+    let streamDiagnostics: CodableStreamDiagnostics?
     let sourcePort: UInt16?
     let clientApp: String?
     /// Wall-clock lifetime for rows without a timing breakdown (WebSocket connections,
@@ -176,6 +244,10 @@ struct CodableTransaction: Codable {
     let noCachingApplied: Bool?
     let serverHTTPVersion: String?
     let connectionLog: ConnectionLog?
+    let tunnelReason: TunnelReason?
+    let babylonCaptureMetadata: BabylonCaptureMetadata?
+    let babylonGRPCCallType: String?
+    let babylonCorrelation: BabylonCorrelation?
 
     func toLiveModel() -> HTTPTransaction {
         let transaction = HTTPTransaction(
@@ -187,11 +259,13 @@ struct CodableTransaction: Codable {
             timingInfo: timingInfo?.toLiveModel(),
             webSocketConnection: webSocketConnection?.toLiveModel(),
             graphQLInfo: graphQLInfo?.toLiveModel(),
-            web3RPCInfo: web3RPCInfo?.toLiveModel()
+            web3RPCInfo: web3RPCInfo?.toLiveModel(),
+            x402Info: x402Info
         )
         transaction.clientApp = clientApp
         transaction.sourcePort = sourcePort
         transaction.measuredDuration = measuredDuration
+        transaction.streamDiagnostics = streamDiagnostics?.toLiveModel()
         transaction.comment = comment
         transaction.highlightColor = highlightColor.flatMap { HighlightColor(rawValue: $0) }
         transaction.isPinned = isPinned
@@ -207,6 +281,10 @@ struct CodableTransaction: Codable {
         transaction.noCachingApplied = noCachingApplied ?? false
         transaction.serverHTTPVersion = serverHTTPVersion
         transaction.connectionLog = connectionLog
+        transaction.tunnelReason = tunnelReason
+        transaction.babylonCaptureMetadata = babylonCaptureMetadata
+        transaction.babylonGRPCCallType = babylonGRPCCallType
+        transaction.babylonCorrelation = babylonCorrelation
         return transaction
     }
 }
@@ -223,7 +301,8 @@ struct CodableRequest: Codable {
         self.headers = request.headers.map { CodableHeader(from: $0) }
         let encoded = BodyEncoding.encode(request.body)
         self.bodyBase64 = encoded.base64
-        self.bodyTruncated = encoded.truncated
+        self.bodyTruncated = encoded.truncated || request.bodyTruncated
+        self.bodyOmission = request.bodyOmission
         self.originalBodySize = encoded.originalSize
         self.contentType = request.contentType?.rawValue
     }
@@ -236,6 +315,7 @@ struct CodableRequest: Codable {
     let headers: [CodableHeader]
     let bodyBase64: String?
     let bodyTruncated: Bool
+    let bodyOmission: BodyOmissionMetadata?
     let originalBodySize: Int?
     let contentType: String?
 
@@ -245,7 +325,12 @@ struct CodableRequest: Codable {
             url: URL(string: url) ?? URL(string: "about:blank")!,
             httpVersion: httpVersion,
             headers: headers.map { $0.toLiveModel() },
-            body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            body: BodyEncoding.decode(base64: bodyBase64),
+            bodyTruncated: bodyTruncated,
+            bodyOmission: BodyEncoding.restoredOmission(
+                captured: bodyOmission, base64: bodyBase64,
+                truncated: bodyTruncated, originalSize: originalBodySize
+            ),
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
     }
@@ -262,7 +347,8 @@ struct CodableResponse: Codable {
         self.headers = response.headers.map { CodableHeader(from: $0) }
         let encoded = BodyEncoding.encode(response.body)
         self.bodyBase64 = encoded.base64
-        self.bodyTruncated = encoded.truncated
+        self.bodyTruncated = encoded.truncated || response.bodyTruncated
+        self.bodyOmission = response.bodyOmission
         self.originalBodySize = encoded.originalSize
         self.contentType = response.contentType?.rawValue
         self.trailers = response.trailers?.map { CodableHeader(from: $0) }
@@ -275,6 +361,7 @@ struct CodableResponse: Codable {
     let headers: [CodableHeader]
     let bodyBase64: String?
     let bodyTruncated: Bool
+    let bodyOmission: BodyOmissionMetadata?
     let originalBodySize: Int?
     let contentType: String?
     /// Absent in sessions saved before trailers were recorded.
@@ -285,7 +372,12 @@ struct CodableResponse: Codable {
             statusCode: statusCode,
             statusMessage: statusMessage,
             headers: headers.map { $0.toLiveModel() },
-            body: BodyEncoding.decode(base64: bodyBase64, truncated: bodyTruncated),
+            body: BodyEncoding.decode(base64: bodyBase64),
+            bodyTruncated: bodyTruncated,
+            bodyOmission: BodyEncoding.restoredOmission(
+                captured: bodyOmission, base64: bodyBase64,
+                truncated: bodyTruncated, originalSize: originalBodySize
+            ),
             trailers: trailers?.map { $0.toLiveModel() },
             contentType: contentType.flatMap { ContentType(rawValue: $0) }
         )
@@ -344,6 +436,108 @@ struct CodableTiming: Codable {
     }
 }
 
+// MARK: - CodableStreamDiagnostics
+
+/// Codable mirror of `StreamDiagnostics`. Persists only the bounded structural
+/// summary — never raw SSE payloads. Additive optional field on the transaction;
+/// old sessions omit it and decode via `decodeIfPresent`.
+struct CodableStreamDiagnostics: Codable {
+    // MARK: Lifecycle
+
+    init(from diagnostics: StreamDiagnostics) {
+        self.events = diagnostics.events.map { CodableSSEEventMetadata(from: $0) }
+        self.eventCount = diagnostics.eventCount
+        self.firstEventTime = diagnostics.firstEventTime
+        self.lastEventTime = diagnostics.lastEventTime
+        self.terminalEventTime = diagnostics.terminalEventTime
+        self.maxInterEventGap = diagnostics.maxInterEventGap
+        self.terminalMarker = diagnostics.terminalMarker?.rawValue
+        self.outcome = Self.encode(diagnostics.outcome)
+        self.didReachMetadataLimit = diagnostics.didReachMetadataLimit
+        self.didObserveMalformedFrame = diagnostics.didObserveMalformedFrame
+        self.hasUnterminatedPartialFrame = diagnostics.hasUnterminatedPartialFrame
+    }
+
+    // MARK: Internal
+
+    let events: [CodableSSEEventMetadata]
+    let eventCount: Int
+    let firstEventTime: TimeInterval?
+    let lastEventTime: TimeInterval?
+    let terminalEventTime: TimeInterval?
+    let maxInterEventGap: TimeInterval?
+    let terminalMarker: String?
+    let outcome: String
+    let didReachMetadataLimit: Bool
+    let didObserveMalformedFrame: Bool
+    let hasUnterminatedPartialFrame: Bool
+
+    func toLiveModel() -> StreamDiagnostics {
+        StreamDiagnostics(
+            events: events.map { $0.toLiveModel() },
+            eventCount: eventCount,
+            firstEventTime: firstEventTime,
+            lastEventTime: lastEventTime,
+            terminalEventTime: terminalEventTime,
+            maxInterEventGap: maxInterEventGap,
+            terminalMarker: terminalMarker.flatMap { SSETerminalMarker(rawValue: $0) },
+            outcome: Self.decode(outcome),
+            didReachMetadataLimit: didReachMetadataLimit,
+            didObserveMalformedFrame: didObserveMalformedFrame,
+            hasUnterminatedPartialFrame: hasUnterminatedPartialFrame
+        )
+    }
+
+    // MARK: Private
+
+    private static func encode(_ outcome: StreamTerminalOutcome) -> String {
+        switch outcome {
+        case .completedWithTerminalMarker: "completedWithTerminalMarker"
+        case .endedWithoutTerminalMarker: "endedWithoutTerminalMarker"
+        case .transportInterrupted: "transportInterrupted"
+        case .timedOut: "timedOut"
+        }
+    }
+
+    private static func decode(_ raw: String) -> StreamTerminalOutcome {
+        switch raw {
+        case "completedWithTerminalMarker": .completedWithTerminalMarker
+        case "endedWithoutTerminalMarker": .endedWithoutTerminalMarker
+        case "timedOut": .timedOut
+        default: .transportInterrupted
+        }
+    }
+}
+
+// MARK: - CodableSSEEventMetadata
+
+struct CodableSSEEventMetadata: Codable {
+    // MARK: Lifecycle
+
+    init(from metadata: SSEEventMetadata) {
+        self.index = metadata.index
+        self.eventName = metadata.eventName
+        self.relativeTime = metadata.relativeTime
+        self.byteCount = metadata.byteCount
+    }
+
+    // MARK: Internal
+
+    let index: Int
+    let eventName: String?
+    let relativeTime: TimeInterval
+    let byteCount: Int
+
+    func toLiveModel() -> SSEEventMetadata {
+        SSEEventMetadata(
+            index: index,
+            eventName: eventName,
+            relativeTime: relativeTime,
+            byteCount: byteCount
+        )
+    }
+}
+
 // MARK: - CodableWebSocketConnection
 
 struct CodableWebSocketConnection: Codable {
@@ -379,6 +573,10 @@ struct CodableWebSocketFrame: Codable {
         self.opcode = frame.opcode.rawValue
         self.payloadBase64 = frame.payload.base64EncodedString()
         self.isFinal = frame.isFinal
+        self.closeCode = frame.closeCode
+        self.closeReason = frame.closeReason
+        self.closeOrigin = frame.closeOrigin
+        self.isAbnormalTermination = frame.isAbnormalTermination
     }
 
     // MARK: Internal
@@ -389,6 +587,10 @@ struct CodableWebSocketFrame: Codable {
     let opcode: UInt8
     let payloadBase64: String
     let isFinal: Bool
+    let closeCode: Int?
+    let closeReason: String?
+    let closeOrigin: String?
+    let isAbnormalTermination: Bool?
 
     func toLiveModel() -> WebSocketFrameData {
         WebSocketFrameData(
@@ -397,7 +599,11 @@ struct CodableWebSocketFrame: Codable {
             direction: FrameDirection(rawValue: direction) ?? .received,
             opcode: FrameOpcode(rawValue: opcode) ?? .text,
             payload: Data(base64Encoded: payloadBase64) ?? Data(),
-            isFinal: isFinal
+            isFinal: isFinal,
+            closeCode: closeCode,
+            closeReason: closeReason,
+            closeOrigin: closeOrigin,
+            isAbnormalTermination: isAbnormalTermination == true
         )
     }
 }

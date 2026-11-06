@@ -53,19 +53,21 @@ The named identifier extracted from the query (e.g., `GetUser`, `CreatePost`). A
 
 ### Operation Type
 
-Displays whether the operation is a **Query**, **Mutation**, or **Subscription**, with a color-coded badge.
+Shows whether the operation is a **Query**, **Mutation**, or **Subscription**.
 
 ### Query Text
 
-The full GraphQL query string with syntax highlighting. Field names, types, arguments, directives, and fragments are color-coded for readability.
+The full GraphQL document in a monospaced, selectable block.
 
 ### Variables
 
-The `variables` object from the request body, displayed as a collapsible JSON tree. Nested objects and arrays are expandable, and values are type-colored (strings, numbers, booleans, null).
+The `variables` object from the request, shown as selectable text when present.
 
-### Response Data
+### Response Errors
 
-The `data` field from the GraphQL response body, displayed as a collapsible JSON tree. Errors returned in the `errors` array are highlighted separately with their message, path, and location information.
+GraphQL servers usually answer with HTTP `200` even when an operation fails, and report the failure in the response body's `errors` array. When a response carries errors, the GraphQL tab lists each one with its message, its `extensions.code` (for example `UNAUTHENTICATED`), and the response path it applies to. If the response also returned `data`, the tab notes that the operation partly succeeded.
+
+Up to 50 errors are listed, and responses larger than 512 KB are not scanned. The full response body is always available in the Body tab.
 
 ## Operation Display
 

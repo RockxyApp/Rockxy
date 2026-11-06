@@ -14,6 +14,17 @@ struct SSLProxyingListView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
+            if let failure = viewModel.manager.persistenceFailure {
+                PersistenceFailureBanner(
+                    title: String(
+                        localized: "Couldn't save the HTTPS Decryption rules",
+                        bundle: RockxyLocalization.bundle
+                    ),
+                    reason: failure,
+                    retry: { viewModel.manager.save() }
+                )
+                Divider()
+            }
             infoBanner
             Divider()
             tableContent
@@ -303,7 +314,7 @@ struct SSLProxyingListView: View {
                 Text(
                     String(
                         localized:
-                "Rules decide which apps and hosts Rockxy decrypts. Other connections remain opaque TLS tunnels.",
+                        "Rules decide which apps and hosts Rockxy decrypts. Other connections remain opaque TLS tunnels.",
                         bundle: RockxyLocalization.bundle
                     )
                 )

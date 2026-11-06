@@ -20,16 +20,30 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     // MARK: Lifecycle
 
     /// `preferredPort` is the protocol's fixed port; tests pass another one.
-    init(preferredPort: UInt16 = BabylonCaptureProtocol.port) {
+    init(
+        preferredPort: UInt16 = BabylonCaptureProtocol.port,
+        defaults: UserDefaults = .standard,
+        runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)
+    ) {
         self.preferredPort = preferredPort
+        self.defaults = defaults
+        self.runtimeFlushMaxLatency = runtimeFlushMaxLatency
+        isEnabled = defaults.bool(forKey: Self.enabledDefaultsKey)
     }
 
     // MARK: Internal
 
     static let shared = BabylonCaptureReceiver()
     static let maximumRuntimePayloadSize = 2 * 1_024 * 1_024
+    static let enabledDefaultsKey = RockxyIdentity.current.defaultsKey("babylon.receiverEnabled")
+
+    static let maximumAggregateBufferedBytes = BabylonCaptureProtocol.maximumFrameSize + 64 * 1_024 + 8
 
     let preferredPort: UInt16
+
+    /// Whether this Mac accepts Babylon capture connections. Off until the person turns it on,
+    /// because an enabled receiver listens and advertises itself on the local network.
+    private(set) var isEnabled: Bool
 
     private(set) var listenerStatus = BabylonListenerStatus.stopped
     /// The port the listener actually bound. Devices discover it through Bonjour, so it can differ
@@ -40,20 +54,112 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// Babylon clients that pin a host name must use this value.
     private(set) var advertisedServiceName: String?
 
+    /// Number of live TCP connections. Increments before authentication, so a
+    /// non-zero value does not imply any paired/authenticated Babylon client.
+    private(set) var openConnectionCount = 0
+    /// Connections that have sent at least one authenticated frame: apps actually paired.
+    private(set) var pairedClientCount = 0
+    /// Captures skipped because one package could not be read; the connection stays open.
+    private(set) var skippedPackageCount = 0
+
     var isUsingFallbackPort: Bool {
         guard let listeningPort else {
             return false
         }
         return listeningPort != preferredPort
     }
-    /// Number of live TCP connections. Increments before authentication, so a
-    /// non-zero value does not imply any paired/authenticated Babylon client.
-    private(set) var openConnectionCount = 0
+
+    static func validateAggregateBufferedBytes(current: Int, adding: Int) throws {
+        guard current >= 0, adding >= 0,
+              adding <= maximumAggregateBufferedBytes,
+              current <= maximumAggregateBufferedBytes - adding else
+        {
+            throw BabylonCaptureProtocolError.frameTooLarge
+        }
+    }
 
     static func validateRuntimePayloadSize(_ byteCount: Int) throws {
         guard byteCount >= 0, byteCount <= maximumRuntimePayloadSize else {
             throw BabylonCaptureProtocolError.frameTooLarge
         }
+    }
+
+    static func isAddressInUse(_ error: NWError) -> Bool {
+        if case let .posix(code) = error {
+            return code == .EADDRINUSE
+        }
+        return false
+    }
+
+    static func compatibilityDiagnostics(
+        for capabilities: BabylonConnectionPackageDTO.Capabilities?
+    )
+        -> [String]
+    {
+        guard let capabilities else {
+            return []
+        }
+        let supportedSchemas = [
+            "connection": 1,
+            "traffic": 1,
+            "runtime": 1,
+            "grpcCapture": 1,
+            "urlSessionTiming": 1,
+        ]
+        var diagnostics = [String]()
+        if let majorVersion = Int(capabilities.sdkVersion.split(separator: ".").first ?? ""), majorVersion != 1 {
+            diagnostics.append(String(
+                localized: "Babylon SDK major version may not match this receiver. Update Rockxy and the Babylon SDK to compatible releases.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        for (name, version) in capabilities.payloadSchemaVersions.sorted(by: { $0.key < $1.key }).prefix(64) {
+            guard let supportedVersion = supportedSchemas[name] else {
+                diagnostics.append(String(
+                    localized: "Babylon advertises an optional schema that this Rockxy version does not consume. Update Rockxy or disable that producer capability.",
+                    bundle: RockxyLocalization.bundle
+                ))
+                continue
+            }
+            if version != supportedVersion {
+                diagnostics.append(String(
+                    localized: "Babylon advertises an incompatible schema version. Update Rockxy or the Babylon SDK before relying on that capture data.",
+                    bundle: RockxyLocalization.bundle
+                ))
+            }
+        }
+        let knownMessageTypes: Set = [
+            "connection",
+            "traffic",
+            "websocket",
+            "runtime",
+            "heartbeat",
+            "ack",
+            "error",
+            "rejection"
+        ]
+        for type in capabilities.supportedMessageTypes.prefix(64) where !knownMessageTypes.contains(type.lowercased()) {
+            diagnostics.append(String(
+                localized: "Babylon advertises an unsupported optional message type. Update Rockxy or disable that producer capability.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        let knownTrafficTypes: Set = ["http", "websocket", "grpc"]
+        for type in (capabilities.supportedTrafficTypes ?? []).prefix(64)
+            where !knownTrafficTypes.contains(type.lowercased())
+        {
+            diagnostics.append(String(
+                localized: "Babylon advertises an unsupported traffic type. Update Rockxy or disable that producer capability.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        if capabilities.maximumBodyBytes > BabylonCaptureProtocol.maximumCapturedBodySize {
+            diagnostics.append(String(
+                localized: "Babylon advertises a body limit larger than Rockxy's safe capture limit. Rockxy will keep its own limit and may omit larger bodies.",
+                bundle: RockxyLocalization.bundle
+            ))
+        }
+        return Array(diagnostics.prefix(16))
     }
 
     @MainActor
@@ -63,7 +169,25 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     ) {
         self.coordinator = coordinator
         self.pairingStore = pairingStore
-        startListening()
+        if isEnabled {
+            startListening()
+        }
+    }
+
+    /// Turns the receiver on or off and remembers the choice. Turning it off closes the listener,
+    /// withdraws the Bonjour advertisement, and disconnects every client.
+    @MainActor
+    func setEnabled(_ enabled: Bool) {
+        guard enabled != isEnabled else {
+            return
+        }
+        isEnabled = enabled
+        defaults.set(enabled, forKey: Self.enabledDefaultsKey)
+        if enabled {
+            startListening()
+        } else {
+            stop()
+        }
     }
 
     /// Bind and advertise the listener without attaching a coordinator. Frames that need one are
@@ -90,6 +214,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     /// connection/session limits, cryptography, protocol, and session handling are
     /// all unchanged; any stale listener error is cleared before rebinding.
     func retryListener() {
+        // A receiver the person turned off must stay off; Retry only restarts an enabled one.
+        guard isEnabled else {
+            return
+        }
         queue.async { [weak self] in
             self?.restartListener()
         }
@@ -134,14 +262,98 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let connection: NWConnection
         var accumulator = BabylonFrameAccumulator()
         var hasAuthenticatedFrame = false
+        /// Every client session this connection has carried, oldest first.
+        ///
+        /// This used to be one `sessionKey` that each frame overwrote. Nothing in the frame
+        /// format ties a connection to a single session ID — the key is built per frame from
+        /// `frame.clientID` and `frame.sessionID` — so on a connection that carried two
+        /// sessions, `remove(_:)` finished only the LAST session's open rows. The earlier
+        /// session's rows stayed active in the inspector for the rest of the run, and
+        /// `hasLiveConnection` stopped counting that session as connected the moment the key
+        /// was overwritten, which also made it the preferred eviction victim while its rows
+        /// were still live.
+        private(set) var sessionKeys: [String] = []
+
+        func carries(_ key: String) -> Bool {
+            sessionKeys.contains(key)
+        }
+
+        /// Marks `key` most recently used, appending it if new, and returns the key pushed out of the bounded list, if
+        /// any. `clientID` and `sessionID` arrive in the frame, so this list has to be
+        /// bounded like every other Babylon intake map even though the frame was
+        /// authenticated; the caller releases whatever comes back.
+        func noteSessionKey(_ key: String, limit: Int) -> String? {
+            if let index = sessionKeys.firstIndex(of: key) {
+                // Refresh recency. Without this the list is first-seen order, so a session that
+                // keeps sending is pushed out once 64 newer ones appear on the same connection,
+                // stops counting as live, and becomes the preferred eviction victim -- losing its
+                // replay window while it is the most recently used session.
+                if index != sessionKeys.count - 1 {
+                    sessionKeys.remove(at: index)
+                    sessionKeys.append(key)
+                }
+                return nil
+            }
+            sessionKeys.append(key)
+            guard sessionKeys.count > limit else {
+                return nil
+            }
+            return sessionKeys.removeFirst()
+        }
+    }
+
+    /// The sequence high-water marks of a session the cap released. A session's replay window
+    /// lives and dies with that session's identity: re-admitting the same client and session ID
+    /// resumes from here instead of from zero, so frames it already accepted stay rejected.
+    ///
+    /// The newest few message IDs travel with the floor so an idempotent retry of a frame the
+    /// session already accepted -- a mobile SDK re-sending an unacknowledged frame after a
+    /// reconnect is routine -- is still answered as a duplicate acknowledgement. Without them
+    /// the retry would fall under the floor and be treated as a sequence replay, which closes the
+    /// connection, and the SDK would retry into the same closure indefinitely. Only the newest
+    /// `maximumCarriedMessageIDs` per session are kept, so the whole table stays bounded at
+    /// `maximumEvictedSessionFloors * maximumCarriedMessageIDs` IDs. A replay of an older frame
+    /// is still rejected (fail closed), which is the accepted tradeoff.
+    private struct EvictedSessionFloor {
+        let inboundSequence: UInt64?
+        let outboundSequence: UInt64
+        let recentMessages: [BabylonMessageReplayGuard.RememberedMessage]
     }
 
     private final class SessionState: @unchecked Sendable {
+        // MARK: Lifecycle
+
+        init(resuming floor: EvictedSessionFloor? = nil) {
+            replayGuard = BabylonMessageReplayGuard(
+                sequenceFloor: floor?.inboundSequence,
+                remembering: floor?.recentMessages ?? []
+            )
+            outboundSequence = floor?.outboundSequence ?? 0
+        }
+
         // MARK: Internal
 
         var outboundSequence: UInt64 = 0
         var identity: BabylonCaptureIdentity?
+        var producerCapabilities: BabylonConnectionPackageDTO.Capabilities?
+        var compatibilityDiagnostics: [String] = []
         var transactions: [String: HTTPTransaction] = [:]
+        /// `transactions`' keys in the order they were first tracked. A dictionary's own key
+        /// order is bucket order, so it cannot answer which entry is the oldest, and the cap
+        /// in `remember` has to drop a chosen entry rather than an arbitrary one.
+        var transactionOrder: [String] = []
+        /// One inspector-refresh coalescer per tracked package, keyed like `transactions` so it
+        /// is released with the row it belongs to.
+        var frameRefreshCoalescers: [String: WebSocketFrameRefreshCoalescer] = [:]
+
+        /// What must outlive this state if the session is released.
+        var floor: EvictedSessionFloor {
+            EvictedSessionFloor(
+                inboundSequence: replayGuard.maximumSequence,
+                outboundSequence: outboundSequence,
+                recentMessages: replayGuard.recentMessages(limit: BabylonCaptureReceiver.maximumCarriedMessageIDs)
+            )
+        }
 
         func accept(frame: BabylonSecureFrame) throws -> BabylonReplayDisposition {
             try replayGuard.accept(messageID: frame.messageID, sequence: frame.sequence)
@@ -154,28 +366,34 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
 
         // MARK: Private
 
-        private var replayGuard = BabylonMessageReplayGuard()
+        private var replayGuard: BabylonMessageReplayGuard
     }
 
     private static let maximumConnectionCount = 8
     private static let maximumSessionCount = 64
+    /// Bound on remembered high-water marks (two integers each) for released sessions.
+    private static let maximumEvictedSessionFloors = 4_096
+    private static let maximumCarriedMessageIDs = 16
     private static let maximumTrackedTransactions = 10_000
     private static let authenticationTimeout: TimeInterval = 10
+    private static let disconnectReason = "The app disconnected before the WebSocket closed"
     private static let runtimeBatchSize = 128
-    private static let runtimeFlushMaxLatency: DispatchTimeInterval = .milliseconds(100)
-    private static let maximumAggregateBufferedBytes = BabylonCaptureProtocol.maximumFrameSize + 64 * 1_024 + 8
     private static let logger = Logger(
         subsystem: RockxyIdentity.current.logSubsystem,
         category: "BabylonCapture"
     )
 
     private let queue = DispatchQueue(label: "com.rockxy.macos.babylon-capture", qos: .userInitiated)
+    private let defaults: UserDefaults
+    private let runtimeFlushMaxLatency: DispatchTimeInterval
     private weak var coordinator: MainContentCoordinator?
     private weak var pairingStore: BabylonPairingStore?
     private var listener: NWListener?
     private var connections: [UUID: ConnectionContext] = [:]
     private var sessions: [String: SessionState] = [:]
     private var sessionOrder: [String] = []
+    private var evictedSessionFloors: [String: EvictedSessionFloor] = [:]
+    private var evictedSessionFloorOrder: [String] = []
     private var pairingObserver: NSObjectProtocol?
     private var aggregateBufferedByteCount = 0
     private var isListenerStarting = false
@@ -184,6 +402,34 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     private var runtimeIntake = BabylonRuntimeIntakeBuffer(batchSize: BabylonCaptureReceiver.runtimeBatchSize)
     private var runtimeFlushWorkItem: DispatchWorkItem?
     private let runtimePublicationGate = BabylonRuntimePublicationGate()
+
+    private static func sessionKey(clientID: String, sessionID: String) -> String {
+        "\(clientID):\(sessionID)"
+    }
+
+    /// The package to drop when a session is at its tracked-transaction cap: the oldest
+    /// closed row first, and a row whose WebSocket is still open only when every tracked
+    /// row is one.
+    ///
+    /// `state.transactions` is what lets a later package update the row it belongs to, so
+    /// evicting a live WebSocket makes its next frame look like a new capture — a duplicate
+    /// row, the original stuck active and no longer reachable by `finishOpenRows`, and the
+    /// frame log split in two. Plain oldest-first would pick exactly the overnight
+    /// connection that causes that, so an open row yields to any closed one; the cap still
+    /// holds because the second pass takes an open row when nothing else is left.
+    private static func evictionCandidateID(in state: SessionState) -> String? {
+        for takesOpenRows in [false, true] {
+            for packageID in state.transactionOrder {
+                // `webSocketConnection` is read off the main actor exactly as `finishOpenRows`
+                // reads it; the row's `state` is MainActor-owned and deliberately not read here.
+                let isOpen = state.transactions[packageID]?.webSocketConnection != nil
+                if isOpen == takesOpenRows {
+                    return packageID
+                }
+            }
+        }
+        return nil
+    }
 
     private func startListenerIfNeeded() {
         installPairingObserverIfNeeded()
@@ -370,11 +616,10 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
                 let previousBufferedByteCount = context.accumulator.bufferedByteCount
                 var reconciledBufferedByteCount = false
                 do {
-                    guard data.count <= Self.maximumAggregateBufferedBytes,
-                          aggregateBufferedByteCount <= Self.maximumAggregateBufferedBytes - data.count else
-                    {
-                        throw BabylonCaptureProtocolError.frameTooLarge
-                    }
+                    try Self.validateAggregateBufferedBytes(
+                        current: aggregateBufferedByteCount,
+                        adding: data.count
+                    )
                     let frames = try context.accumulator.append(data)
                     reconcileBufferedByteCount(for: context, previousByteCount: previousBufferedByteCount)
                     reconciledBufferedByteCount = true
@@ -404,7 +649,16 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             throw BabylonCaptureProtocolError.authenticationFailed
         }
         let (frame, payload) = try BabylonSecureFrameCodec.decodeFrame(frameData, pairingToken: token)
-        context.hasAuthenticatedFrame = true
+        if !context.hasAuthenticatedFrame {
+            context.hasAuthenticatedFrame = true
+            publishOpenConnectionCount()
+        }
+        let key = Self.sessionKey(clientID: frame.clientID, sessionID: frame.sessionID)
+        if let pushedOut = context.noteSessionKey(key, limit: Self.maximumSessionCount) {
+            // This connection can no longer be asked to finish that session's rows, so it is
+            // released here on the same terms `remove(_:)` uses.
+            releaseSessionIfUnreachable(pushedOut, reason: Self.disconnectReason)
+        }
         let state = sessionState(clientID: frame.clientID, sessionID: frame.sessionID)
         let replayDisposition = try state.accept(frame: frame)
         if replayDisposition == .duplicate {
@@ -414,20 +668,26 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             return
         }
 
-        switch payload.messageType {
-        case .connection:
-            try handleConnection(payload, frame: frame, state: state)
-        case .traffic:
-            try handleTraffic(payload, state: state)
-        case .websocket:
-            try handleWebSocket(payload, state: state)
-        case .runtime:
-            try handleRuntime(payload, state: state)
-        case .heartbeat,
-             .ack:
-            break
-        case .error:
-            _ = try? BabylonCaptureProtocol.decoder.decode(BabylonProtocolErrorPayload.self, from: payload.content)
+        // Authentication, framing, and replay failures above end the connection. A package that
+        // cannot be read is skipped on its own: one bad capture must not drop every capture after it.
+        do {
+            switch payload.messageType {
+            case .connection:
+                try handleConnection(payload, frame: frame, state: state)
+            case .traffic:
+                try handleTraffic(payload, state: state)
+            case .websocket:
+                try handleWebSocket(payload, state: state)
+            case .runtime:
+                try handleRuntime(payload, state: state)
+            case .heartbeat,
+                 .ack:
+                break
+            case .error:
+                handleClientError(payload, state: state)
+            }
+        } catch {
+            recordSkippedPackage(error, messageType: payload.messageType, state: state)
         }
         if payload.messageType != .ack {
             try sendAcknowledgement(for: frame, state: state, context: context, pairingToken: token)
@@ -451,6 +711,11 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             deviceModel: String(package.device.model.prefix(255))
         )
         state.identity = identity
+        state.producerCapabilities = package.capabilities
+        state.compatibilityDiagnostics = Self.compatibilityDiagnostics(for: package.capabilities)
+        for diagnostic in state.compatibilityDiagnostics {
+            publishDiagnosticEvent(name: "Babylon compatibility", message: diagnostic, identity: identity)
+        }
         Task { @MainActor [weak coordinator] in
             await coordinator?.registerBabylonCapture(identity: identity)
         }
@@ -461,10 +726,12 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             throw BabylonCaptureProtocolError.invalidIdentity
         }
         let package = try BabylonCaptureProtocol.decoder.decode(BabylonTrafficPackageDTO.self, from: payload.content)
-        guard state.transactions[package.id] == nil else {
+        if let existing = state.transactions[package.id] {
+            update(existing, with: package, state: state)
             return
         }
         let transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+        transaction.babylonCaptureMetadata = captureMetadata(package, identity: identity, state: state)
         remember(transaction: transaction, packageID: package.id, state: state)
         Task { [weak coordinator] in
             await coordinator?.receiveBabylonTransaction(transaction)
@@ -479,22 +746,194 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         let transaction: HTTPTransaction
         if let existing = state.transactions[package.id] {
             transaction = existing
+            update(existing, with: package, state: state)
         } else {
             transaction = try BabylonCaptureMapper.makeTransaction(from: package, identity: identity)
+            transaction.babylonCaptureMetadata = captureMetadata(package, identity: identity, state: state)
             remember(transaction: transaction, packageID: package.id, state: state)
             Task { [weak coordinator] in
                 await coordinator?.receiveBabylonTransaction(transaction)
             }
         }
-        let frame = try BabylonCaptureMapper.makeWebSocketFrame(from: package)
-        guard let connection = transaction.webSocketConnection,
-              connection.addFrame(frame, maximumTotalPayloadSize: ProxyLimits.maxWebSocketConnectionSize) else
-        {
+        // The closing package carries the final state but may have no frame of its own.
+        guard package.websocketMessagePackage != nil else {
+            return
+        }
+        guard let connection = transaction.webSocketConnection else {
             throw BabylonCaptureMappingError.oversizedBody
         }
-        Task { @MainActor in
-            transaction.webSocketFrameVersion += 1
+        // A connection reaches its caps once, not once per frame. Reporting every later frame
+        // would turn one exhausted connection into a skipped-package diagnostic per frame,
+        // which is the same flood in a different queue; the proxy path returns early here too
+        // (`WebSocketFrameHandler.captureFrame`).
+        guard !connection.isCaptureLimitReached else {
+            return
         }
+        let frame = try BabylonCaptureMapper.makeWebSocketFrame(from: package)
+        // The frame count is capped as well as the aggregate payload size, exactly as the proxy
+        // path caps it. Passing only the byte cap let a device streaming 20-byte ticks reach
+        // roughly 5 million frames -- a UUID, a Date, two enums, a `Data` and three optionals
+        // each -- before 100 MB of payload accumulated.
+        guard connection.addFrame(
+            frame,
+            maximumTotalPayloadSize: ProxyLimits.maxWebSocketConnectionSize,
+            maximumFrameCount: ProxyLimits.maxWebSocketFrameCount
+        ) else {
+            throw BabylonCaptureMappingError.oversizedBody
+        }
+        frameRefreshCoalescer(for: package.id, transaction: transaction, state: state).requestRefresh()
+    }
+
+    /// The inspector invalidation for a captured frame, coalesced through the same mechanism
+    /// the proxy path uses -- one `WebSocketFrameRefreshCoalescer` per connection, built by
+    /// `WebSocketFrameHandler.makeFrameRefreshCoalescer`, publishing at most every 100 ms.
+    ///
+    /// Bumping `webSocketFrameVersion` from its own `Task { @MainActor }` per frame meant a
+    /// streaming device scheduled a main-actor hop and an inspector rebuild per frame. The
+    /// coalescer is `Sendable` and its factory is `nonisolated`, so it is safe to build and
+    /// call from `queue`; only the publication it schedules touches the main actor.
+    ///
+    /// Held per tracked package so it lives and dies with the row it refreshes: `forget` and
+    /// `forgetTrackedTransactions` drop it, which keeps it inside the tracked-transaction cap.
+    private func frameRefreshCoalescer(
+        for packageID: String,
+        transaction: HTTPTransaction,
+        state: SessionState
+    )
+        -> WebSocketFrameRefreshCoalescer
+    {
+        if let existing = state.frameRefreshCoalescers[packageID] {
+            return existing
+        }
+        let coalescer = WebSocketFrameHandler.makeFrameRefreshCoalescer(for: transaction)
+        state.frameRefreshCoalescers[packageID] = coalescer
+        return coalescer
+    }
+
+    /// Applies a later package to a captured row on the main actor, then hands the row back to the
+    /// session so a live WebSocket row is updated in place when it closes.
+    private func update(_ transaction: HTTPTransaction, with package: BabylonTrafficPackageDTO, state: SessionState) {
+        let coordinator = coordinator
+        let updatedMetadata = state.identity.map { captureMetadata(package, identity: $0, state: state) }
+        Task { @MainActor in
+            let wasActive = transaction.state == .active
+            do {
+                try BabylonCaptureMapper.applyUpdate(package, to: transaction)
+            } catch {
+                Self.logger.warning("Ignored Babylon update: \(error.localizedDescription, privacy: .public)")
+                return
+            }
+            if let updatedMetadata {
+                transaction.babylonCaptureMetadata = updatedMetadata
+            }
+            transaction.webSocketFrameVersion += 1
+            if wasActive, transaction.state != .active {
+                await coordinator?.receiveBabylonTransaction(transaction, isUpdate: true)
+            }
+        }
+    }
+
+    private func captureMetadata(
+        _ package: BabylonTrafficPackageDTO,
+        identity: BabylonCaptureIdentity,
+        state: SessionState
+    )
+        -> BabylonCaptureMetadata
+    {
+        BabylonCaptureMetadata(
+            identity: identity,
+            capabilities: state.producerCapabilities,
+            correlation: package.correlationContext,
+            urlSessionTiming: package.urlSessionTiming,
+            error: package.error,
+            compatibilityDiagnostics: state.compatibilityDiagnostics
+        )
+    }
+
+    /// The SDK reports its own problems (a capture it had to drop, a protocol mismatch) as an error
+    /// message; show it in Runtime Events instead of discarding it.
+    private func handleClientError(_ payload: BabylonPayloadEnvelope, state: SessionState) {
+        guard let identity = state.identity,
+              let report = try? BabylonCaptureProtocol.decoder.decode(
+                  BabylonProtocolErrorPayload.self,
+                  from: payload.content
+              ) else
+        {
+            return
+        }
+        publishDiagnosticEvent(
+            name: "Babylon reported \(String(report.code.prefix(64)))",
+            message: report.message,
+            identity: identity
+        )
+    }
+
+    private func recordSkippedPackage(
+        _ error: Error,
+        messageType: BabylonCaptureMessageType,
+        state: SessionState
+    ) {
+        Self.logger.warning(
+            "Skipped Babylon \(messageType.rawValue, privacy: .public) package: \(error.localizedDescription, privacy: .public)"
+        )
+        DispatchQueue.main.async { [weak self] in
+            self?.skippedPackageCount += 1
+        }
+        guard let identity = state.identity else {
+            return
+        }
+        publishDiagnosticEvent(
+            name: "Rockxy skipped a \(messageType.rawValue) capture",
+            message: error.localizedDescription,
+            identity: identity
+        )
+    }
+
+    /// Rows a disconnected app left open (a WebSocket that never sent its close) are marked failed,
+    /// so they do not look live forever.
+    private func finishOpenRows(in state: SessionState, reason: String) {
+        let open = state.transactions.values.filter { $0.webSocketConnection != nil }
+        guard !open.isEmpty else {
+            return
+        }
+        let coordinator = coordinator
+        Task { @MainActor in
+            for transaction in open where transaction.state == .active {
+                transaction.state = .failed
+                transaction.measuredDuration = Date().timeIntervalSince(transaction.timestamp)
+                let secure = transaction.request.url.scheme?.lowercased() == "wss"
+                transaction.connectionLog = ConnectionLog(
+                    host: transaction.request.host,
+                    port: transaction.request.url.port ?? (secure ? 443 : 80),
+                    failure: ConnectionLog.Failure(stage: .response, message: reason)
+                )
+                transaction.webSocketFrameVersion += 1
+                await coordinator?.receiveBabylonTransaction(transaction, isUpdate: true)
+            }
+        }
+    }
+
+    private func publishDiagnosticEvent(name: String, message: String, identity: BabylonCaptureIdentity) {
+        let now = Date().timeIntervalSince1970
+        let package = BabylonRuntimePackageDTO(
+            id: UUID().uuidString,
+            kind: .error,
+            sessionID: identity.sessionID,
+            traceID: nil,
+            stepID: nil,
+            parentStepID: nil,
+            name: name,
+            createdAt: now,
+            startedAt: nil,
+            endedAt: nil,
+            duration: nil,
+            metadata: [:],
+            error: BabylonTrafficPackageDTO.CapturedError(code: 0, message: message)
+        )
+        guard let event = try? BabylonRuntimeEvent(validating: package, source: identity) else {
+            return
+        }
+        enqueueRuntimeEvent(event)
     }
 
     private func handleRuntime(_ payload: BabylonPayloadEnvelope, state: SessionState) throws {
@@ -532,7 +971,7 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
             self?.flushRuntimeEvents()
         }
         runtimeFlushWorkItem = workItem
-        queue.asyncAfter(deadline: .now() + Self.runtimeFlushMaxLatency, execute: workItem)
+        queue.asyncAfter(deadline: .now() + runtimeFlushMaxLatency, execute: workItem)
     }
 
     private func flushRuntimeEvents() {
@@ -563,12 +1002,23 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func remember(transaction: HTTPTransaction, packageID: String, state: SessionState) {
-        while state.transactions.count >= Self.maximumTrackedTransactions,
-              let oldest = state.transactions.keys.first
-        {
-            state.transactions[oldest] = nil
+        while state.transactions.count >= Self.maximumTrackedTransactions {
+            guard let evicted = Self.evictionCandidateID(in: state) else {
+                break
+            }
+            forget(packageID: evicted, in: state)
         }
-        state.transactions[packageID] = transaction
+        if state.transactions.updateValue(transaction, forKey: packageID) == nil {
+            state.transactionOrder.append(packageID)
+        }
+    }
+
+    private func forget(packageID: String, in state: SessionState) {
+        state.transactions[packageID] = nil
+        state.frameRefreshCoalescers[packageID] = nil
+        if let index = state.transactionOrder.firstIndex(of: packageID) {
+            state.transactionOrder.remove(at: index)
+        }
     }
 
     private func sendAcknowledgement(
@@ -601,17 +1051,80 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func sessionState(clientID: String, sessionID: String) -> SessionState {
-        let key = "\(clientID):\(sessionID)"
+        let key = Self.sessionKey(clientID: clientID, sessionID: sessionID)
         if let existing = sessions[key] {
+            touchSession(key)
             return existing
         }
         while sessionOrder.count >= Self.maximumSessionCount {
-            sessions[sessionOrder.removeFirst()] = nil
+            guard let evicted = sessionEvictionCandidateKey() else {
+                break
+            }
+            forgetSession(evicted)
         }
-        let state = SessionState()
+        let state = SessionState(resuming: takeEvictedFloor(for: key))
         sessions[key] = state
         sessionOrder.append(key)
         return state
+    }
+
+    /// Moves a session to the most-recently-used end of `sessionOrder`. `sessionOrder` used to
+    /// be creation order that nothing touched on use, which is what made the cap drop the
+    /// longest-lived session -- see `sessionEvictionCandidateKey()`.
+    private func touchSession(_ key: String) {
+        guard let index = sessionOrder.firstIndex(of: key),
+              index != sessionOrder.count - 1 else
+        {
+            return
+        }
+        sessionOrder.remove(at: index)
+        sessionOrder.append(key)
+    }
+
+    /// The session to drop at the cap: the least recently used session with no live connection
+    /// first, and a connected session only when every tracked session has one.
+    ///
+    /// Evicting by creation order dropped the OLDEST key, which in a long capture is the
+    /// connection that has been up the whole time while short-lived relaunches cycled through
+    /// the other 63 slots. Dropping a live session resets its `BabylonMessageReplayGuard` and
+    /// its outbound sequence counter, so replay and duplicate rejection for a session still
+    /// sending frames restart from zero -- a security guard lost, not a cosmetic glitch.
+    /// Recency plus a liveness preference keeps the victim a session that can no longer send
+    /// anything, the same rule `evictionCandidateID(in:)` applies to captured rows.
+    private func sessionEvictionCandidateKey() -> String? {
+        for takesLiveSessions in [false, true] {
+            for key in sessionOrder where hasLiveConnection(key) == takesLiveSessions {
+                return key
+            }
+        }
+        return nil
+    }
+
+    private func hasLiveConnection(_ sessionKey: String) -> Bool {
+        connections.values.contains { $0.carries(sessionKey) }
+    }
+
+    private func takeEvictedFloor(for key: String) -> EvictedSessionFloor? {
+        guard let floor = evictedSessionFloors.removeValue(forKey: key) else {
+            return nil
+        }
+        evictedSessionFloorOrder.removeAll { $0 == key }
+        return floor
+    }
+
+    private func forgetSession(_ key: String) {
+        if let state = sessions[key] {
+            evictedSessionFloors[key] = state.floor
+            evictedSessionFloorOrder.removeAll { $0 == key }
+            evictedSessionFloorOrder.append(key)
+            while evictedSessionFloorOrder.count > Self.maximumEvictedSessionFloors {
+                evictedSessionFloors[evictedSessionFloorOrder.removeFirst()] = nil
+            }
+        }
+        sessions[key] = nil
+        if let index = sessionOrder.firstIndex(of: key) {
+            sessionOrder.remove(at: index)
+        }
     }
 
     private func remove(_ context: ConnectionContext) {
@@ -621,6 +1134,42 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         aggregateBufferedByteCount -= context.accumulator.bufferedByteCount
         context.connection.cancel()
         publishOpenConnectionCount()
+        // Every session this connection carried, not just the last one it saw: otherwise one
+        // session's rows are finished against another session's state.
+        for key in context.sessionKeys {
+            releaseSessionIfUnreachable(key, reason: Self.disconnectReason)
+        }
+    }
+
+    /// Finishes `key`'s open rows and releases its tracked rows, once no remaining connection
+    /// can send another package for it.
+    private func releaseSessionIfUnreachable(_ key: String, reason: String) {
+        guard !hasLiveConnection(key), let state = sessions[key] else {
+            return
+        }
+        finishOpenRows(in: state, reason: reason)
+        // No further package can arrive for these IDs, so keeping the map would pin up
+        // to 10,000 captured rows and their bodies for the rest of the app's run, one
+        // such cache per relaunch of the instrumented app. `finishOpenRows` copied the
+        // rows it needs into its own array, so it does not read the map after this.
+        //
+        // The session itself stays: it owns the replay guard and the outbound sequence
+        // counter, and dropping it would reset both for a session that reconnects under
+        // the same session ID. `security.md` lists replay/duplicate rejection among the
+        // guards Babylon intake depends on, so disconnect is not allowed to clear it.
+        // What bounds the retained state instead is eviction: with no connection left,
+        // this key is the preferred victim at the session cap
+        // (`sessionEvictionCandidateKey()`), so it is released ahead of any live session.
+        //
+        // Pending frame-refresh publications are dropped with the coalescers, which costs
+        // nothing: `finishOpenRows` bumps `webSocketFrameVersion` for every row it fails.
+        forgetTrackedTransactions(in: state)
+    }
+
+    private func forgetTrackedTransactions(in state: SessionState) {
+        state.transactions.removeAll()
+        state.transactionOrder.removeAll()
+        state.frameRefreshCoalescers.removeAll()
     }
 
     private func reconcileBufferedByteCount(for context: ConnectionContext, previousByteCount: Int) {
@@ -629,6 +1178,8 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func disconnectAllClients() {
+        sessions.values
+            .forEach { finishOpenRows(in: $0, reason: "Babylon capture stopped before the WebSocket closed") }
         connections.values.forEach { $0.connection.cancel() }
         connections.removeAll()
         aggregateBufferedByteCount = 0
@@ -638,9 +1189,17 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
     }
 
     private func stopInternal() {
-        runtimePublicationGate.advance()
+        // Events already accepted are delivered, not dropped: stopping is not clearing.
         cancelRuntimeFlush()
-        runtimeIntake.discardPending()
+        let pending = runtimeIntake.hasPending ? runtimeIntake.drain() : []
+        runtimePublicationGate.advance()
+        if !pending.isEmpty {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    BabylonRuntimeEventStore.shared.appendBatch(pending)
+                }
+            }
+        }
         let active = listener
         listener = nil
         isListenerStarting = false
@@ -681,18 +1240,13 @@ final class BabylonCaptureReceiver: @unchecked Sendable {
         }
     }
 
-    static func isAddressInUse(_ error: NWError) -> Bool {
-        if case let .posix(code) = error {
-            return code == .EADDRINUSE
-        }
-        return false
-    }
-
     private func publishOpenConnectionCount() {
         dispatchPrecondition(condition: .onQueue(queue))
         let count = connections.count
+        let paired = connections.values.count(where: \.hasAuthenticatedFrame)
         DispatchQueue.main.async { [weak self] in
             self?.openConnectionCount = count
+            self?.pairedClientCount = paired
         }
     }
 }

@@ -242,8 +242,9 @@ final class ScriptingListViewModel {
 
     // MARK: - Script CRUD
 
+    /// Creates a script from `template`, or from the blank default source when `nil`.
     @discardableResult
-    func createNewScript() async -> String? {
+    func createNewScript(from template: ScriptStarterTemplate? = nil) async -> String? {
         guard !isCreatingOrDuplicating else {
             return nil
         }
@@ -252,13 +253,14 @@ final class ScriptingListViewModel {
         let selectionBeforeCreate = selectedRowID
         operationError = nil
         let id = UUID().uuidString.lowercased()
-        let name = "Untitled Script \(plugins.count + 1)"
+        let name = template?.title ?? "Untitled Script \(plugins.count + 1)"
         let pluginsDir = pluginDir(for: id)
         do {
             try ScriptPluginFactory.create(
                 id: id,
                 name: name,
-                source: ScriptTemplates.defaultSource,
+                source: template?.source ?? ScriptTemplates.defaultSource,
+                behavior: template?.behavior ?? .defaults(),
                 in: pluginsDir.deletingLastPathComponent()
             )
             await pluginManager.loadAllPlugins()

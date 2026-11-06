@@ -160,6 +160,47 @@ struct SensitiveDataRedactorTests {
         #expect(!redactedRequest.headers.contains { $0.name.lowercased() == "content-encoding" })
     }
 
+    /// `redactBody` returns a body it cannot decode to text UNCHANGED, so a body that is not
+    /// valid UTF-8 has to be omitted on that ground alone. It used to be omitted only when a
+    /// `Content-Encoding` header was also present, which left an ordinary binary payload --
+    /// protobuf, gRPC -- published to a Gist and written to exports verbatim while the UI
+    /// reported redaction as on.
+    @Test("A binary body with no Content-Encoding is omitted rather than published verbatim")
+    func uninspectableBodyWithoutEncodingIsOmitted() throws {
+        var payload = Data([0x08, 0x96, 0x01, 0xFF, 0xFE])
+        payload.append(Data("access_token=synthetic-secret".utf8))
+        payload.append(Data([0xFF, 0xC0]))
+        #expect(String(data: payload, encoding: .utf8) == nil, "the fixture must not be valid UTF-8")
+
+        let transaction = TestFixtures.makeTransaction(statusCode: 200)
+        transaction.request.body = payload
+        transaction.request.headers.append(HTTPHeader(name: "Content-Type", value: "application/grpc+proto"))
+
+        let redacted = SensitiveDataRedactor().redactTransaction(transaction).request
+        #expect(redacted.body == nil)
+        #expect(redacted.bodyTruncated)
+        // The point of the fix: the secret must not survive anywhere in the payload.
+        #expect(redacted.body?.range(of: Data("synthetic-secret".utf8)) == nil)
+
+        // Redaction is opt-in, so leaving it off still exports what was captured.
+        #expect(SensitiveDataRedactor(isEnabled: false).redactTransaction(transaction).request.body == payload)
+    }
+
+    /// The guard against over-correcting the fix above: a plain, uncompressed, readable body
+    /// has no `Content-Encoding` either, and omitting those would empty every ordinary export.
+    @Test("A plain readable body with no Content-Encoding is still redacted and kept")
+    func readableBodyWithoutEncodingIsKept() throws {
+        let transaction = TestFixtures.makeTransaction(statusCode: 200)
+        transaction.request.body = Data(#"{"access_token":"synthetic-secret","user":"stephen"}"#.utf8)
+        transaction.request.headers.append(HTTPHeader(name: "Content-Type", value: "application/json"))
+
+        let redacted = SensitiveDataRedactor().redactTransaction(transaction).request
+        let body = try #require(redacted.body.flatMap { String(data: $0, encoding: .utf8) })
+        #expect(body.contains("stephen"))
+        #expect(!body.contains("synthetic-secret"))
+        #expect(!redacted.bodyTruncated)
+    }
+
     @Test("Form body redacts a sensitive key and keeps an ordinary field")
     func formBodyRedaction() {
         let redactor = SensitiveDataRedactor()
@@ -251,6 +292,32 @@ struct SensitiveDataRedactorTests {
         #expect(redactor.redactHeaders(headers) == headers)
     }
 
+    // MARK: - Transaction
+
+    @Test("redactTransaction preserves structural stream diagnostics unchanged")
+    func transactionPreservesStreamDiagnostics() {
+        let redactor = SensitiveDataRedactor()
+        let transaction = TestFixtures.makeTransaction()
+        let diagnostics = StreamDiagnostics(
+            events: [SSEEventMetadata(index: 0, eventName: "message", relativeTime: 0.28, byteCount: 24)],
+            eventCount: 1,
+            firstEventTime: 0.28,
+            lastEventTime: 0.28,
+            terminalEventTime: nil,
+            maxInterEventGap: nil,
+            terminalMarker: nil,
+            outcome: .endedWithoutTerminalMarker,
+            didReachMetadataLimit: false,
+            didObserveMalformedFrame: false,
+            hasUnterminatedPartialFrame: false
+        )
+        transaction.streamDiagnostics = diagnostics
+
+        let redacted = redactor.redactTransaction(transaction)
+
+        #expect(redacted.streamDiagnostics == diagnostics)
+    }
+
     // MARK: Private
 
     // MARK: - Helpers
@@ -258,5 +325,26 @@ struct SensitiveDataRedactorTests {
     private func decodeJSON(_ text: String) throws -> [String: Any] {
         let data = try #require(text.data(using: .utf8))
         return try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    @Test("Redacting a transaction keeps its x402 lifecycle hints")
+    func redactionKeepsX402Hints() {
+        let transaction = TestFixtures.makeTransaction()
+        transaction.x402Info = X402Info(
+            stage: .paymentAccepted,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: nil,
+            hasPaymentProof: true,
+            hasChallenge: false,
+            hasPaymentMetadata: true,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: ["X-Payment"],
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+
+        #expect(SensitiveDataRedactor().redactTransaction(transaction).x402Info == transaction.x402Info)
     }
 }

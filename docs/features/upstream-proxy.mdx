@@ -58,6 +58,22 @@ The Community policy allows up to 3 upstream bypass entries. Bypassed hosts conn
 
 Localhost bypass is enabled by default so local development servers, device setup probes, and loopback validation flows do not accidentally leave the machine.
 
+## Using Rockxy With Another Proxy App
+
+If you already run a local proxy client such as Clash, Surge, or V2Ray, chain Rockxy in front of it:
+
+1. Find the client's local HTTP or mixed port (often `127.0.0.1:7890`).
+2. Open **Tools > Proxy Settings > External Proxy Settings...**, choose **HTTP**, and enter that host and port. Use **Test Connection** to confirm the route.
+3. Start capture. Rockxy points the macOS system proxy at itself and sends captured traffic on to your client.
+4. Stop capture or quit Rockxy. Rockxy puts your client's system proxy settings back.
+
+Keep the other client from fighting over the system proxy while Rockxy captures:
+
+- Turn off any setting that re-applies the client's system proxy automatically (for example **Proxy Guard** in Clash Verge Rev). Otherwise the client takes the system proxy back and macOS traffic stops reaching Rockxy.
+- Avoid toggling the client's own **System Proxy** switch, restarting its core, or quitting it during capture. Many clients switch every proxy setting off when they do this, even though Rockxy holds the system proxy at that moment.
+
+If the client changed the system proxy anyway, Rockxy leaves the newer settings in place and asks whether to restore the ones you had before capture. See [Traffic Capture](/features/traffic-capture#when-another-app-changes-the-proxy-during-capture).
+
 ## Test Connection
 
 The test action opens a short-lived outbound connection through the current upstream configuration and reports:
@@ -69,6 +85,12 @@ The test action opens a short-lived outbound connection through the current upst
 - the categorized failure when the proxy rejects or times out
 
 The default test target is `example.com:80`.
+
+## Seeing the active route
+
+While External Proxy is on, **Tools > Proxy Settings** shows the route new traffic takes under the toggle, for example **Routing via HTTP 127.0.0.1:7890** or **Routing via Automatic (PAC from config.example.com)**.
+
+When a request fails because of the external proxy, its Connection Log reports a **proxy** stage with the specific reason: authentication required or rejected, CONNECT refused, a PAC evaluation failure, an unavailable SOCKS5 route, a timeout, or an external proxy that is not reachable at all (for example "connection refused" when the other proxy app is not running). That last case is reported separately from failures to reach the site itself.
 
 ## Community UI Behavior
 
@@ -87,7 +109,7 @@ The UI only reflects store predicates. Store and service boundaries still enforc
 - HTTPS upstream proxy connections use normal certificate-chain validation against the proxy hostname.
 - PAC URLs must use `http` or `https`.
 - Upstream proxy passwords are not stored in UserDefaults.
-- Credentials are never included in surfaced error text.
+- Credentials are never included in surfaced error text, including `user:password@` embedded in a PAC URL, which is replaced with `[REDACTED]`.
 - Proxy handshake reads are bounded to avoid untrusted oversized responses.
 
 ## Limitations

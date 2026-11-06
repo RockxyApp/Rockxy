@@ -110,6 +110,31 @@ actor RuleEngine {
         }
     }
 
+    /// The enabled rule that would apply to this request before `ruleID` gets a chance, because it
+    /// sits earlier in the list and competes for the same decision. `ruleID` of `nil` means a rule
+    /// that is not saved yet, which is appended to the end of the list when it is saved.
+    func earlierMatchingRule(
+        than ruleID: UUID?,
+        slot: RuleEvaluationSlot,
+        method: String,
+        url: URL,
+        graphQLOperationName: String? = nil
+    )
+        -> ProxyRule?
+    {
+        let limit = ruleID.flatMap { id in rules.firstIndex { $0.id == id } } ?? rules.endIndex
+        return rules[..<limit].first { rule in
+            slot.includes(rule.action) && ruleApplies(
+                rule,
+                method: method,
+                url: url,
+                headers: [],
+                graphQLOperationName: graphQLOperationName,
+                clientApplication: nil
+            )
+        }
+    }
+
     /// Every enabled Modify Headers rule that matches, in list order, so a header rule
     /// also reaches Map Local, Map Remote and scripted traffic on the same URL.
     func matchingHeaderRules(
@@ -142,13 +167,16 @@ actor RuleEngine {
         rules.contains { $0.isEnabled && $0.matchCondition.requiredClientApplication != nil }
     }
 
+    /// Number of rules whose URL pattern is compiled. Exposed so a test can prove every
+    /// mutation path leaves a compiled pattern behind instead of falling back to
+    /// re-interpreting the pattern per request.
+    var compiledPatternCount: Int {
+        compiledPatterns.count
+    }
+
     func addRule(_ rule: ProxyRule) {
         rules.append(rule)
-        if let pattern = rule.matchCondition.runtimeURLPattern {
-            if case let .success(regex) = RegexValidator.compile(pattern) {
-                compiledPatterns[rule.id] = regex
-            }
-        }
+        compileRuntimePattern(for: rule)
     }
 
     func removeRule(id: UUID) {
@@ -179,12 +207,7 @@ actor RuleEngine {
     func updateRule(_ rule: ProxyRule) {
         if let index = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[index] = rule
-            compiledPatterns.removeValue(forKey: rule.id)
-            if let pattern = rule.matchCondition.runtimeURLPattern,
-               case let .success(regex) = RegexValidator.compile(pattern)
-            {
-                compiledPatterns[rule.id] = regex
-            }
+            compileRuntimePattern(for: rule)
         }
     }
 
@@ -324,6 +347,11 @@ actor RuleEngine {
         var enabledRule = rule
         enabledRule.isEnabled = true
         rules.append(enabledRule)
+        // This path used to append without compiling, so `ruleApplies` passed `nil` and
+        // `RuleMatchCondition.matches` fell back to re-interpreting the pattern through
+        // `range(of:options:.regularExpression)` on every request until the next `replaceAll`
+        // or relaunch. Every other mutation compiles here; so does this one.
+        compileRuntimePattern(for: enabledRule)
     }
 
     func disableAllNetworkConditions() {
@@ -506,6 +534,19 @@ actor RuleEngine {
     private var modifyHeaderToolEnabled: Bool = true
     private var compiledPatterns: [UUID: NSRegularExpression] = [:]
 
+    /// Compiles one rule's URL pattern, replacing any pattern the rule had before. Every
+    /// mutation that adds or replaces a rule routes through here so no path can leave
+    /// `compiledPatterns` without an entry the matcher expects.
+    private func compileRuntimePattern(for rule: ProxyRule) {
+        compiledPatterns.removeValue(forKey: rule.id)
+        guard let pattern = rule.matchCondition.runtimeURLPattern,
+              case let .success(regex) = RegexValidator.compile(pattern) else
+        {
+            return
+        }
+        compiledPatterns[rule.id] = regex
+    }
+
     private func compilePatterns() {
         compiledPatterns.removeAll()
         for i in rules.indices {
@@ -521,6 +562,35 @@ actor RuleEngine {
                     .warning("SECURITY: Disabling rule '\(ruleName)' — invalid regex: \(error.localizedDescription)")
                 rules[i].isEnabled = false
             }
+        }
+    }
+}
+
+// MARK: - RuleEvaluationSlot
+
+/// Rules that compete for the same decision about a request. A Breakpoint editor tests against
+/// other breakpoints, which are checked first on the request side; every other editor tests
+/// against the primary decision, where the first match in list order wins and an earlier
+/// breakpoint also takes the request (`evaluatePrimaryRule` skips only Modify Headers rules).
+enum RuleEvaluationSlot {
+    case breakpoint
+    case primary
+
+    // MARK: Internal
+
+    func includes(_ action: RuleAction) -> Bool {
+        switch (self, action) {
+        case (.breakpoint, .breakpoint):
+            true
+        case (.primary, .block),
+             (.primary, .breakpoint),
+             (.primary, .mapLocal),
+             (.primary, .mapRemote),
+             (.primary, .throttle),
+             (.primary, .networkCondition):
+            true
+        default:
+            false
         }
     }
 }

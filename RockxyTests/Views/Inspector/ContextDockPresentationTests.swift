@@ -512,7 +512,7 @@ struct ContextDockInvestigationReportTests {
         #expect(coordinator.contains("DebugAssistantRecipe.suggestedRecipe(for: prompt)"))
 
         // The grid renders all recipes exactly once, in existing order — no intent dropped/duplicated.
-        #expect(DebugAssistantRecipe.allCases.count == 5)
+        #expect(DebugAssistantRecipe.allCases.count == 7)
         #expect(DebugAssistantRecipe.allCases.first == .explainRequest)
         #expect(DebugAssistantRecipe.allCases.last == .prepareBugReport)
     }
@@ -595,6 +595,16 @@ struct ContextDockInvestigationReportTests {
         #expect(details.contains(#"title: String(localized: "Timing", bundle: RockxyLocalization.bundle)"#))
         #expect(details.contains(#"title: String(localized: "Related Requests", bundle: RockxyLocalization.bundle)"#))
 
+        // Babylon omission details distinguish incomplete bodies and preserve available byte counts.
+        #expect(details.contains("if transaction.request.isBodyIncomplete"))
+        #expect(details.contains("if transaction.response?.isBodyIncomplete == true"))
+        #expect(details.contains(#"String(localized: "Body omission reason", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains(#"String(localized: "Observed bytes", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains(#"String(localized: "Original bytes", bundle: RockxyLocalization.bundle)"#))
+        #expect(details.contains("metadata.reason"))
+        #expect(details.contains("SizeFormatter.format(bytes: metadata.observedBytes)"))
+        #expect(details.contains("SizeFormatter.format(bytes: originalBytes)"))
+
         // Rule Impact keeps truthful rows plus an in-table Open Rule action row.
         #expect(details.contains(#"label: String(localized: "Rule", bundle: RockxyLocalization.bundle)"#))
         #expect(details.contains(#"label: String(localized: "Action", bundle: RockxyLocalization.bundle)"#))
@@ -611,7 +621,7 @@ struct ContextDockInvestigationReportTests {
 
         // Behavior preserved: honest Open Rule routing, native Compare handoff, Notes identity.
         #expect(details.contains("matchedRuleNavigationTarget(transaction)"))
-        #expect(details.contains("coordinator.compareTransactions(transactions[0], transactions[1])"))
+        #expect(details.contains("coordinator.compareTransactions(selected[0], selected[1])"))
         #expect(details.contains("ContextNotesEditor(coordinator: coordinator, transaction: transaction)"))
     }
 

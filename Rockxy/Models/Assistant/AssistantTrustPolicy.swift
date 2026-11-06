@@ -118,6 +118,10 @@ enum AssistantTrustPolicy {
             [.compose, .export]
         case .checkAuthentication:
             [.compose]
+        case .whyIsThisSlow:
+            [.prepareReplay]
+        case .findRelatedRequests:
+            [.compose]
         case .prepareBugReport:
             [.export, .share]
         }

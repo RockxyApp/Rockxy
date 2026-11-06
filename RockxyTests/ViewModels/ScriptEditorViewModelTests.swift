@@ -342,10 +342,10 @@ struct ScriptEditorViewModelTests {
     // MARK: - Console bounding + filter state
 
     @Test("Editor console is bounded to the newest entries and evicts the oldest")
-    func consoleBoundedToNewestEntries() {
+    func consoleBoundedToNewestEntries() async {
         let vm = ScriptEditorViewModel()
         // A distinguishable oldest entry, then enough churn to overflow the cap.
-        vm.validateScript()
+        await vm.validateScript()
         #expect(vm.consoleEntries.contains { $0.message.contains("Validation passed") })
 
         for _ in 0 ..< 520 {
@@ -358,11 +358,11 @@ struct ScriptEditorViewModelTests {
     }
 
     @Test("Console empty state distinguishes truly empty from filtered-empty")
-    func consoleEmptyStateDistinguishesFilteredFromEmpty() {
+    func consoleEmptyStateDistinguishesFilteredFromEmpty() async {
         let vm = ScriptEditorViewModel()
         #expect(vm.consoleEmptyState == .empty)
 
-        vm.validateScript()
+        await vm.validateScript()
         #expect(vm.consoleEmptyState == .populated)
         #expect(vm.visibleConsoleEntries.isEmpty == false)
 

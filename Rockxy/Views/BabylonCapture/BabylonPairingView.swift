@@ -256,7 +256,14 @@ struct BabylonPairingView: View {
     private var statusSubtitle: String {
         switch availability {
         case .stopped:
-            String(localized: "Babylon capture is not running.", bundle: RockxyLocalization.bundle)
+            if receiver.isEnabled {
+                String(localized: "Babylon capture is not running.", bundle: RockxyLocalization.bundle)
+            } else {
+                String(
+                    localized: "Turn on Accept Babylon Connections to let clients on your local network connect.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
         case .starting:
             String(
                 localized: "Waiting for the local Babylon listener to come online.",
@@ -317,6 +324,24 @@ struct BabylonPairingView: View {
             Text(String(localized: "Connection", bundle: RockxyLocalization.bundle))
                 .font(toolMetrics.tableHeaderFont())
 
+            Toggle(isOn: Binding(
+                get: { receiver.isEnabled },
+                set: { receiver.setEnabled($0) }
+            )) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "Accept Babylon Connections", bundle: RockxyLocalization.bundle))
+                    Text(String(
+                        localized: "When on, this Mac listens on the local network and advertises itself over Bonjour. Clients still need the pairing token.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .font(toolMetrics.secondaryFont())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .toggleStyle(.switch)
+            .accessibilityIdentifier("babylon.acceptConnections")
+
             HStack(alignment: .top, spacing: toolMetrics.controlSpacing) {
                 statusGlyph
                 VStack(alignment: .leading, spacing: 3) {
@@ -339,7 +364,9 @@ struct BabylonPairingView: View {
                 fallbackPortRow
             }
 
-            connectionDetails
+            if receiver.isEnabled {
+                connectionDetails
+            }
         }
         .padding(toolMetrics.formHorizontalPadding)
         .cardStyle()
@@ -386,17 +413,36 @@ struct BabylonPairingView: View {
                     .textSelection(.enabled)
             }
             GridRow {
-                detailLabel(String(localized: "Open Connections", bundle: RockxyLocalization.bundle))
+                detailLabel(String(localized: "Paired Apps", bundle: RockxyLocalization.bundle))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(CountFormatter.format(receiver.openConnectionCount))
+                    Text(CountFormatter.format(receiver.pairedClientCount))
                         .font(toolMetrics.font(monospaced: true))
-                    Text(String(
-                        localized: "Open connections may still be authenticating.",
-                        bundle: RockxyLocalization.bundle
-                    ))
-                    .font(toolMetrics.metadataFont())
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    if receiver.openConnectionCount > receiver.pairedClientCount {
+                        Text(String(AttributedString(
+                            localized: "^[\(receiver.openConnectionCount - receiver.pairedClientCount) more connection](inflect: true) still authenticating.",
+                            bundle: RockxyLocalization.bundle,
+                            locale: RockxyLocalization.locale
+                        ).characters))
+                        .font(toolMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            if receiver.skippedPackageCount > 0 {
+                GridRow {
+                    detailLabel(String(localized: "Skipped Captures", bundle: RockxyLocalization.bundle))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(CountFormatter.format(receiver.skippedPackageCount))
+                            .font(toolMetrics.font(monospaced: true))
+                        Text(String(
+                            localized: "Captures Rockxy could not read. The reasons are listed in Runtime Events.",
+                            bundle: RockxyLocalization.bundle
+                        ))
+                        .font(toolMetrics.metadataFont())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }

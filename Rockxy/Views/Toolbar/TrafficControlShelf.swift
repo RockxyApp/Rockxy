@@ -133,10 +133,7 @@ struct TrafficControlShelf: View {
         SearchFilterBar(
             searchText: Binding(
                 get: { coordinator.filterCriteria.searchText },
-                set: {
-                    coordinator.filterCriteria.searchText = $0
-                    coordinator.recomputeFilteredTransactions()
-                }
+                set: { coordinator.searchTextDidChange($0) }
             ),
             filterField: Binding(
                 get: { coordinator.filterCriteria.searchField },

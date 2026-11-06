@@ -37,6 +37,14 @@ enum ProxyLimits {
 
     /// Maximum uploaded .proto schema file size (1 MB).
     static let maxProtobufSchemaFileSize = 1 * 1_024 * 1_024
+
+    /// Maximum number of per-event SSE metadata records retained per stream diagnostic.
+    /// Events beyond this bound are counted but not stored.
+    static let maxSSEEventRecords = 2_000
+
+    /// Maximum buffered bytes for an in-progress (unterminated) SSE frame before it is
+    /// treated as malformed and discarded (512 KB).
+    static let maxSSEPartialFrameBytes = 512 * 1_024
 }
 
 struct RequestBodyLimitState {

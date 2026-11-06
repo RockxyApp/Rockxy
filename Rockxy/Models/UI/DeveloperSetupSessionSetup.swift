@@ -111,16 +111,36 @@ protocol DeveloperSetupProcessRunning: Sendable {
 // MARK: - DeveloperSetupProcessRunner
 
 struct DeveloperSetupProcessRunner: DeveloperSetupProcessRunning {
-    func run(executableURL: URL, arguments: [String]) throws {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        let errorPipe = Pipe()
-        process.standardOutput = Pipe()
-        process.standardError = errorPipe
+    /// Upper bound on one launcher command.
+    ///
+    /// These are `osascript` telling Terminal or iTerm2 to open a window, and `/usr/bin/open`.
+    /// They answer in well under a second once macOS has already granted Automation control of
+    /// the target app — but the *first* time Rockxy asks, `osascript` blocks on the system's
+    /// Automation consent dialog, which nothing dismisses on its own. That is why a bound exists
+    /// at all; it is a human-in-the-loop budget, not a latency target, so it is deliberately far
+    /// past any plausible real answer.
+    static let launchTimeout: TimeInterval = 300
 
+    func run(executableURL: URL, arguments: [String]) throws {
+        // Both pipes are drained while the child runs, and only then is the exit awaited. The
+        // previous order waited first and read standard error afterwards, with standard output
+        // never read at all — a latent deadlock for any command that outgrows the pipe buffer,
+        // which is one command change away rather than impossible.
+        let result: BoundedProcessRun.Output
         do {
-            try process.run()
+            result = try BoundedProcessRun.run(
+                executable: executableURL,
+                arguments: arguments,
+                timeout: Self.launchTimeout
+            )
+        } catch let failure as BoundedProcessRun.Failure {
+            // A killed child reports no exit code of its own, so it is surfaced with the
+            // conventional 128-plus-SIGKILL encoding rather than a status the child never had.
+            throw DeveloperSetupLaunchError.processFailed(
+                command: executableURL.lastPathComponent,
+                status: failure == .timedOut ? 128 + SIGKILL : -1,
+                message: nil
+            )
         } catch {
             throw DeveloperSetupLaunchError.processFailed(
                 command: executableURL.lastPathComponent,
@@ -129,15 +149,12 @@ struct DeveloperSetupProcessRunner: DeveloperSetupProcessRunning {
             )
         }
 
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let raw = String(data: data, encoding: .utf8)?
+        guard result.status == 0 else {
+            let raw = String(bytes: result.standardError, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             throw DeveloperSetupLaunchError.processFailed(
                 command: executableURL.lastPathComponent,
-                status: process.terminationStatus,
+                status: result.status,
                 message: (raw?.isEmpty == false) ? raw : nil
             )
         }

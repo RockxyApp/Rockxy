@@ -34,6 +34,9 @@ struct SensitiveDataRedactor {
         "x-xsrf-token",
         "x-payment",
         "x-payment-response",
+        "payment-signature",
+        "payment-required",
+        "payment-response",
     ]
 
     /// Name fragments that mark a credential even when the exact name is not listed
@@ -42,60 +45,6 @@ struct SensitiveDataRedactor {
         "token", "secret", "password", "passwd", "apikey", "api-key", "api_key",
         "session", "signature", "credential", "private-key", "private_key",
     ]
-
-    static func isSensitiveName(_ name: String, exact: Set<String>) -> Bool {
-        let lowered = name.lowercased()
-        if isCORSPolicyName(lowered) {
-            return false
-        }
-        return exact.contains(lowered) || sensitiveNameFragments.contains { lowered.contains($0) }
-    }
-
-    /// CORS headers (`Access-Control-Allow-Credentials: true`, `Access-Control-Allow-Headers:
-    /// Authorization`) state what a browser may send. They never carry a credential and are
-    /// exactly what a CORS investigation needs to read, so the `credential` fragment skips them.
-    static func isCORSPolicyName(_ loweredName: String) -> Bool {
-        loweredName.hasPrefix("access-control-")
-    }
-
-    /// Whether a JSON key holds a credential: body-key names, header names that servers echo
-    /// into bodies (`Authorization`, `X-Api-Key`), and credential-like names. `token` only
-    /// counts at the end of a key, so usage counters such as `total_tokens` stay readable.
-    static func isSensitiveBodyKey(_ key: String) -> Bool {
-        let lowered = key.lowercased()
-        if isCORSPolicyName(lowered) {
-            return false
-        }
-        if sensitiveBodyKeys.contains(lowered) || sensitiveHeaders.contains(lowered) {
-            return true
-        }
-        if lowered.hasSuffix("token") {
-            return true
-        }
-        return bodyKeyFragments.contains { lowered.contains($0) }
-    }
-
-    /// Redacts credentials carried inside a JSON string value: sensitive query parameters
-    /// of an embedded URL and `Bearer`/`Basic` authorization values.
-    static func redactedStringValue(_ value: String, placeholder: String) -> String {
-        var result = value
-        if result.contains("?"), result.contains("="), var components = URLComponents(string: result),
-           components.scheme != nil, let items = components.queryItems, !items.isEmpty
-        {
-            components.queryItems = items.map { item in
-                isSensitiveName(item.name, exact: sensitiveQueryParams)
-                    ? URLQueryItem(name: item.name, value: placeholder)
-                    : item
-            }
-            result = components.string ?? result
-        }
-        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
-        return authorizationValueRegex.stringByReplacingMatches(
-            in: result,
-            range: range,
-            withTemplate: "$1\(NSRegularExpression.escapedTemplate(for: placeholder))"
-        )
-    }
 
     static let sensitiveQueryParams: Set<String> = [
         "api_key",
@@ -182,6 +131,11 @@ struct SensitiveDataRedactor {
             "system_prompt",
             "system-prompt",
             "systemprompt",
+            // Gemini request fields that carry the prompt and system instructions.
+            "contents",
+            "systeminstruction",
+            "system_instruction",
+            "system-instruction",
             "developer_message",
             "developer-message",
             "developermessage",
@@ -216,6 +170,60 @@ struct SensitiveDataRedactor {
 
     var redactedPlaceholder: String {
         "[REDACTED]"
+    }
+
+    static func isSensitiveName(_ name: String, exact: Set<String>) -> Bool {
+        let lowered = name.lowercased()
+        if isCORSPolicyName(lowered) {
+            return false
+        }
+        return exact.contains(lowered) || sensitiveNameFragments.contains { lowered.contains($0) }
+    }
+
+    /// CORS headers (`Access-Control-Allow-Credentials: true`, `Access-Control-Allow-Headers:
+    /// Authorization`) state what a browser may send. They never carry a credential and are
+    /// exactly what a CORS investigation needs to read, so the `credential` fragment skips them.
+    static func isCORSPolicyName(_ loweredName: String) -> Bool {
+        loweredName.hasPrefix("access-control-")
+    }
+
+    /// Whether a JSON key holds a credential: body-key names, header names that servers echo
+    /// into bodies (`Authorization`, `X-Api-Key`), and credential-like names. `token` only
+    /// counts at the end of a key, so usage counters such as `total_tokens` stay readable.
+    static func isSensitiveBodyKey(_ key: String) -> Bool {
+        let lowered = key.lowercased()
+        if isCORSPolicyName(lowered) {
+            return false
+        }
+        if sensitiveBodyKeys.contains(lowered) || sensitiveHeaders.contains(lowered) {
+            return true
+        }
+        if lowered.hasSuffix("token") {
+            return true
+        }
+        return bodyKeyFragments.contains { lowered.contains($0) }
+    }
+
+    /// Redacts credentials carried inside a JSON string value: sensitive query parameters
+    /// of an embedded URL and `Bearer`/`Basic` authorization values.
+    static func redactedStringValue(_ value: String, placeholder: String) -> String {
+        var result = value
+        if result.contains("?"), result.contains("="), var components = URLComponents(string: result),
+           components.scheme != nil, let items = components.queryItems, !items.isEmpty
+        {
+            components.queryItems = items.map { item in
+                isSensitiveName(item.name, exact: sensitiveQueryParams)
+                    ? URLQueryItem(name: item.name, value: placeholder)
+                    : item
+            }
+            result = components.string ?? result
+        }
+        let range = NSRange(result.startIndex ..< result.endIndex, in: result)
+        return authorizationValueRegex.stringByReplacingMatches(
+            in: result,
+            range: range,
+            withTemplate: "$1\(NSRegularExpression.escapedTemplate(for: placeholder))"
+        )
     }
 
     func redactHeaders(_ headers: [HTTPHeader]) -> [HTTPHeader] {
@@ -256,38 +264,6 @@ struct SensitiveDataRedactor {
         }
 
         return didRedact ? (components.url ?? url) : url
-    }
-
-    /// Decodes a bounded compressed body so redaction can inspect its text.
-    private static func readableBody(_ body: Data?, headers: [HTTPHeader]) -> (body: Data?, didDecode: Bool) {
-        guard let body, !body.isEmpty, body.count <= maxDecodableBodyBytes else {
-            return (body, false)
-        }
-        let contentEncoding = headers.first { $0.name.lowercased() == "content-encoding" }?.value
-        let decoded = BodyDecoder.decodeReportingChange(body, encoding: contentEncoding)
-        return decoded.didDecode ? (decoded.data, true) : (body, false)
-    }
-
-    private func redactedBodyAndHeaders(
-        body: Data?,
-        headers: [HTTPHeader],
-        contentType: ContentType?
-    ) -> (body: Data?, headers: [HTTPHeader], omitted: Bool) {
-        let readable = Self.readableBody(body, headers: headers)
-        let hasContentEncoding = headers.contains { $0.name.lowercased() == "content-encoding" }
-        let omitUninspectableBody = hasContentEncoding && body != nil
-            && (!readable.didDecode || readable.body.flatMap { String(data: $0, encoding: .utf8) } == nil)
-        let retainedHeaders = (readable.didDecode || omitUninspectableBody)
-            ? headers.filter { header in
-                let name = header.name.lowercased()
-                return name != "content-encoding" && name != "content-length"
-            }
-            : headers
-        return (
-            omitUninspectableBody ? nil : redactBody(readable.body, contentType: contentType),
-            redactHeaders(retainedHeaders),
-            omitUninspectableBody
-        )
     }
 
     func redactBody(_ body: Data?, contentType: ContentType?) -> Data? {
@@ -332,6 +308,8 @@ struct SensitiveDataRedactor {
             httpVersion: transaction.request.httpVersion,
             headers: redactedRequest.headers,
             body: redactedRequest.body,
+            bodyTruncated: transaction.request.bodyTruncated || redactedRequest.omitted,
+            bodyOmission: transaction.request.bodyOmission,
             contentType: transaction.request.contentType
         )
         let response = transaction.response.map { response in
@@ -350,6 +328,7 @@ struct SensitiveDataRedactor {
                 headers: redactedResponse.headers,
                 body: redactedResponse.body,
                 bodyTruncated: response.bodyTruncated || redactedResponse.omitted,
+                bodyOmission: response.bodyOmission,
                 contentType: response.contentType
             )
         }
@@ -362,9 +341,13 @@ struct SensitiveDataRedactor {
             timingInfo: transaction.timingInfo,
             webSocketConnection: transaction.webSocketConnection,
             graphQLInfo: transaction.graphQLInfo,
-            web3RPCInfo: transaction.web3RPCInfo
+            web3RPCInfo: transaction.web3RPCInfo,
+            x402Info: transaction.x402Info
         )
         redacted.measuredDuration = transaction.measuredDuration
+        // Stream diagnostics carry only structural metadata (event names, categories,
+        // offsets, byte counts) — no raw payloads — so they survive redaction unchanged.
+        redacted.streamDiagnostics = transaction.streamDiagnostics
         redacted.sourcePort = transaction.sourcePort
         redacted.clientApp = transaction.clientApp
         redacted.comment = transaction.comment
@@ -381,6 +364,10 @@ struct SensitiveDataRedactor {
         redacted.appliedScriptNames = transaction.appliedScriptNames
         redacted.noCachingApplied = transaction.noCachingApplied
         redacted.serverHTTPVersion = transaction.serverHTTPVersion
+        redacted.babylonCaptureMetadata = transaction.babylonCaptureMetadata
+        redacted.babylonGRPCCallType = transaction.babylonGRPCCallType
+        // Opaque runtime identifiers the app chose; they link the row to its trace, not to a user.
+        redacted.babylonCorrelation = transaction.babylonCorrelation
         // The local socket address identifies the capturing machine on its network.
         redacted.connectionLog = transaction.connectionLog.map {
             var log = $0
@@ -436,6 +423,52 @@ struct SensitiveDataRedactor {
         pattern: #"(?i)((?:\#(bodySecretKeyPattern))[\s]*[:=][\s]*)\S+"#,
         options: []
     )
+
+    /// Decodes a bounded compressed body so redaction can inspect its text.
+    private static func readableBody(_ body: Data?, headers: [HTTPHeader]) -> (body: Data?, didDecode: Bool) {
+        guard let body, !body.isEmpty, body.count <= maxDecodableBodyBytes else {
+            return (body, false)
+        }
+        let contentEncoding = headers.first { $0.name.lowercased() == "content-encoding" }?.value
+        let decoded = BodyDecoder.decodeReportingChange(body, encoding: contentEncoding)
+        return decoded.didDecode ? (decoded.data, true) : (body, false)
+    }
+
+    private func redactedBodyAndHeaders(
+        body: Data?,
+        headers: [HTTPHeader],
+        contentType: ContentType?
+    )
+        -> (body: Data?, headers: [HTTPHeader], omitted: Bool)
+    {
+        let readable = Self.readableBody(body, headers: headers)
+        let hasContentEncoding = headers.contains { $0.name.lowercased() == "content-encoding" }
+        // `redactBody` can only redact what it can read as text, and it returns a body it
+        // cannot decode UNCHANGED. So "not inspectable" has to be enough on its own to omit:
+        // gating it on `Content-Encoding` meant a binary body with no such header -- a
+        // protobuf or gRPC payload, say -- was handed back verbatim and then published to a
+        // Gist or written to an export in full, while the UI reported redaction as on and the
+        // headers beside it really had been scrubbed.
+        //
+        // The decode half stays as it was: a body whose declared encoding could not be
+        // decoded is omitted even when the raw bytes happen to read as text, because what
+        // redaction inspected is then not what the sender sent.
+        let bodyIsInspectable = readable.body.flatMap { String(data: $0, encoding: .utf8) } != nil
+        let omitUninspectableBody = body != nil
+            && (!bodyIsInspectable || (hasContentEncoding && !readable.didDecode))
+        let retainedHeaders = (readable.didDecode || omitUninspectableBody)
+            ? headers.filter { header in
+                let name = header.name.lowercased()
+                return name != "content-encoding" && name != "content-length"
+            }
+            : headers
+        return (
+            omitUninspectableBody ? nil : redactBody(readable.body, contentType: contentType),
+            redactHeaders(retainedHeaders),
+            omitUninspectableBody
+        )
+    }
+
     // swiftlint:enable force_try
 
     private func looksLikeJSON(_ text: String) -> Bool {

@@ -8,7 +8,7 @@ import Testing
 struct SOCKSListenerSettingsTests {
     @Test("The listener is off by default and requests a port only when enabled")
     func defaultsAndRequestedPort() throws {
-        let suite = "SOCKSListenerSettingsTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "SOCKSListenerSettingsTests-")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -27,7 +27,7 @@ struct SOCKSListenerSettingsTests {
 
     @Test("Status reflects the last listener result")
     func statusMapping() throws {
-        let suite = "SOCKSListenerSettingsTests-\(UUID().uuidString)"
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "SOCKSListenerSettingsTests-")
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = SOCKSListenerSettings(defaults: defaults)

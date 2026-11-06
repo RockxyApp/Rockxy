@@ -1,5 +1,6 @@
 import Foundation
 import NIOHTTP1
+import os
 
 // Applies anti-cache header mutations when the global no-caching mode is enabled.
 
@@ -17,8 +18,27 @@ enum NoCacheHeaderMutator {
     static let userDefaultsKey = RockxyIdentity.current.defaultsKey("noCaching")
 
     /// Returns `true` when the user has enabled the No Caching toggle.
+    ///
+    /// Answered from a cached snapshot. `HTTPProxyHandler` and `HTTPSProxyRelayHandler` ask
+    /// once per request from several NIO event-loop threads at a time; `UserDefaults` serves
+    /// from the in-process CFPreferences cache, so that was never a disk read, but it is a
+    /// lock acquisition plus a keyed lookup taken concurrently on the per-request path.
+    ///
+    /// The toggle is live, so the snapshot is invalidated on `UserDefaults.didChangeNotification`
+    /// rather than read once at launch — reading once would stop the toggle taking effect
+    /// until relaunch. This is `ScriptPluginManager.scriptingToolEnabledCache`'s shape and it
+    /// carries the same residual: the notification orders the flip against later reads, not
+    /// against a request already past this call, and a write from another process (the CLI)
+    /// is delivered when that process's change is noticed rather than at the write. The cost
+    /// of that window is one request served from the client's own cache, or one needlessly
+    /// revalidated; the next request is correct.
     static var isEnabled: Bool {
-        UserDefaults.standard.bool(forKey: userDefaultsKey)
+        if let cached = enabledCache.withLock({ $0 }) {
+            return cached
+        }
+        let value = UserDefaults.standard.bool(forKey: userDefaultsKey)
+        enabledCache.withLock { $0 = value }
+        return value
     }
 
     /// Mutates an array of `HTTPHeader` values by injecting anti-cache directives
@@ -49,4 +69,21 @@ enum NoCacheHeaderMutator {
         headers.add(name: "Pragma", value: "no-cache")
         headers.add(name: "Expires", value: "0")
     }
+
+    // MARK: Private
+
+    /// The toggle as the request path last read it; `nil` means it has to be read again.
+    /// The box and its observer live for the process, so the observer is never removed --
+    /// unlike `ScriptPluginManager`, which has one observer per instance and has to.
+    private static let enabledCache: OSAllocatedUnfairLock<Bool?> = {
+        let cache = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+        _ = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in
+            cache.withLock { $0 = nil }
+        }
+        return cache
+    }()
 }

@@ -70,7 +70,8 @@ struct PrivacySettingsTab: View {
                             String(
                                 localized: """
                                 HAR, session, and Gist exports can include captured headers, cookies, \
-                                authorization tokens, and request/response bodies. Review exports \
+                                authorization tokens, request/response bodies, and Babylon source, device, \
+                                session, trace, and timing metadata when present. Review exports \
                                 before sharing or publishing.
                                 """, bundle: RockxyLocalization.bundle
                             )

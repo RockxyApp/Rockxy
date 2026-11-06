@@ -57,7 +57,7 @@ struct ExternalCaptureDocumentTests {
     func charlesSessionIsConvertedAfterConsent() async throws {
         let session = try writeTemporaryFile(named: "bug-report.chls", contents: "binary")
         defer { try? FileManager.default.removeItem(at: session.deletingLastPathComponent()) }
-        let defaults = try #require(UserDefaults(suiteName: "chls-\(UUID().uuidString)"))
+        let defaults = try #require(UserDefaults(suiteName: IsolatedDefaultsSuite.uniqueName(prefix: "chls-")))
         let runner = ConvertingRunner(har: Self.harJSON)
         let converter = CharlesSessionConverter(runner: runner, locateCharles: { URL(fileURLWithPath: "/bin/echo") })
         let coordinator = MainContentCoordinator()

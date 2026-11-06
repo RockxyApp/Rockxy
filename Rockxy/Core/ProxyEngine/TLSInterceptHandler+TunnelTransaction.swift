@@ -84,3 +84,16 @@ extension TLSInterceptHandler {
         return transaction
     }
 }
+
+// MARK: - RawTunnelReason + TunnelReason
+
+extension TLSInterceptHandler.RawTunnelReason {
+    var tunnelReason: TunnelReason {
+        switch self {
+        case .bypassProxyList: .bypassList
+        case .noSSLProxyingRule: .noDecryptionRule
+        case .unresolvedApplicationIdentity: .unresolvedApplication
+        case .autoPassthrough: .autoPassthrough
+        }
+    }
+}

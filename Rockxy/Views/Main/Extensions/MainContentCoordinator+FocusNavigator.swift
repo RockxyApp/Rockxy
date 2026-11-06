@@ -10,7 +10,7 @@ extension MainContentCoordinator {
     }
 
     func trafficSignalCount(_ signal: TrafficSignal) -> Int {
-        transactions.count { !$0.isTLSFailure && signal.matches($0) }
+        trafficSignalCounts[signal] ?? 0
     }
 
     func applyFocusSet(_ focusSet: FocusSet?) {

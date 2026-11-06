@@ -17,6 +17,12 @@ enum AssistantProviderError: LocalizedError, Equatable {
     case server(statusCode: Int, message: String)
     case malformedResponse(String)
     case cancelled
+    /// The provider is temporarily overloaded (Anthropic 529, `overloaded_error`).
+    case overloaded(retryAfterSeconds: Int?)
+    /// The provider stopped or refused the answer for safety or content-policy reasons.
+    case contentBlocked(String)
+    /// The provider reported a failed response inside an otherwise successful HTTP stream.
+    case responseFailed(String)
 
     // MARK: Internal
 
@@ -80,6 +86,26 @@ enum AssistantProviderError: LocalizedError, Equatable {
             )
         case .cancelled:
             String(localized: "The provider request was cancelled.", bundle: RockxyLocalization.bundle)
+        case let .overloaded(retryAfterSeconds):
+            if let retryAfterSeconds {
+                String(AttributedString(
+                    localized: "The provider is overloaded right now. Try again in ^[\(retryAfterSeconds) second](inflect: true).",
+                    bundle: RockxyLocalization.bundle,
+                    locale: RockxyLocalization.locale
+                ).characters)
+            } else {
+                String(
+                    localized: "The provider is overloaded right now. Try again in a moment.",
+                    bundle: RockxyLocalization.bundle
+                )
+            }
+        case let .contentBlocked(reason):
+            String(
+                localized: "The provider blocked this answer for safety or content-policy reasons (\(reason)).",
+                bundle: RockxyLocalization.bundle
+            )
+        case let .responseFailed(message):
+            String(localized: "The provider stopped the response: \(message)", bundle: RockxyLocalization.bundle)
         }
     }
 }

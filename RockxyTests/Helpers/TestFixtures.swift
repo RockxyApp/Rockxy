@@ -581,7 +581,7 @@ enum TestFixtures {
     /// Returns an ephemeral `UserDefaults` suite isolated from `.standard`, together
     /// with the suite name so callers can clear the persistent domain on teardown.
     static func makeNamedIsolatedDefaults() -> (defaults: UserDefaults, suiteName: String) {
-        let suiteName = "RockxyPluginTests-\(UUID().uuidString)"
+        let suiteName = IsolatedDefaultsSuite.uniqueName(prefix: "RockxyPluginTests-")
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             preconditionFailure("Expected isolated UserDefaults suite")
         }

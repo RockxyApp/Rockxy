@@ -1,5 +1,5 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
-  - name: Discussions
+  - name: Questions and setup help
     url: https://github.com/RockxyApp/Rockxy/discussions
-    about: Ask questions and share ideas
+    about: Ask questions, get setup help, and share ideas in GitHub Discussions

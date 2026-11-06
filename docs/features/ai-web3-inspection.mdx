@@ -100,9 +100,11 @@ Traffic rules currently match URL, HTTP method, and headers. They do not yet mat
 ### Check x402-style payment flows
 
 1. Capture the payment-gated HTTP request.
-2. Look for payment-required status and header/body hints.
+2. Open the **Web3** tab. Its **Payment (x402)** section shows the stage (payment required, payment sent, accepted, or rejected), whether a payment proof was sent, whether payment requirements were included, and which fields hold sensitive values. The proof, requirements, and receipt themselves are never shown there.
 3. Compare the first response with the retry request or follow-up response.
 4. Keep sensitive headers and payloads local unless you explicitly export or publish selected traffic.
+
+Rockxy recognizes both x402 header styles: `X-PAYMENT` / `X-PAYMENT-RESPONSE` and `PAYMENT-REQUIRED` / `PAYMENT-SIGNATURE` / `PAYMENT-RESPONSE`. A generic `Authorization` header is not treated as a payment. The `error` text in a payment-required response explains why payment is needed; a request is only marked rejected when it already carried a payment and the server still refused it. Payment hints are saved with Rockxy sessions and detected again when you import a HAR file.
 
 ## Current Scope
 

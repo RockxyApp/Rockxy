@@ -14,6 +14,8 @@ enum HelperUpdateBlockReason: Equatable {
     case notInstalled
     case requiresApproval
     case unreachable
+    /// The registration is enabled but launchd has no job for it, so waiting cannot help.
+    case registrationBroken
     case signingMismatch
     case incompatibleProtocol
     case embeddedPackageInvalid
@@ -708,7 +710,10 @@ extension HelperManager {
                         registrationIsEnabled: false
                     )
                 }
-                let outcome = await reconcileEmbeddedHelper(reason: reason)
+                var outcome = await reconcileEmbeddedHelper(reason: reason)
+                if outcome == .blocked(.unreachable) {
+                    outcome = await outcomeAfterRegistrationRepair(current: outcome, reason: reason)
+                }
                 return HelperUpdateStartupRecoveryOrchestrator.Attempt(
                     outcome: outcome,
                     registrationIsEnabled: Self.registrationIsEnabled()
@@ -730,6 +735,29 @@ extension HelperManager {
             Self.appUpdateLogger.warning(
                 "Helper stayed unreachable for the whole automatic recovery window: \(String(describing: outcome)). The approved registration is unchanged."
             )
+        }
+    }
+
+    /// Gives a dead registration its one repair before the launch wait begins. A live job that is
+    /// merely slow to answer is left exactly as it was, so the existing wait still covers it.
+    ///
+    /// Every result other than "not the dead state" must end the wait: launchd has no job to
+    /// converge, so seven minutes of polling could only delay the truthful state.
+    private func outcomeAfterRegistrationRepair(
+        current: ReconciliationOutcome,
+        reason: String
+    )
+        async -> ReconciliationOutcome
+    {
+        switch await repairDeadRegistrationIfNeeded(reason: reason) {
+        case .notApplicable:
+            return current
+        case .recovered:
+            return await reconcileEmbeddedHelper(reason: "\(reason), after registration repair")
+        case .requiresApproval:
+            return .blocked(.requiresApproval)
+        case .stillBroken:
+            return .blocked(.registrationBroken)
         }
     }
 
@@ -835,6 +863,7 @@ extension HelperManager {
                 .helperPackageIncomplete
             case .notInstalled,
                  .unreachable,
+                 .registrationBroken,
                  .signingMismatch,
                  .incompatibleProtocol:
                 .helperUpdateUnavailable

@@ -54,7 +54,8 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             String,
             ClientApplicationIdentity?,
             ProxyConnectionDescriptor?
-        ) -> Bool,
+        )
+            -> Bool,
         shouldResolveApplicationNow: @escaping @Sendable () -> Bool = { false },
         resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)? = nil
     ) {
@@ -188,18 +189,29 @@ final class LiveTunnelRegistry: @unchecked Sendable {
         String,
         ClientApplicationIdentity?,
         ProxyConnectionDescriptor?
-    ) -> Bool
+    )
+        -> Bool
     private let shouldResolveApplicationNow: @Sendable () -> Bool
     private let resolveApplication: (@Sendable (ProxyConnectionDescriptor) async -> ClientApplicationIdentity?)?
     private var tunnels: [ObjectIdentifier: Entry] = [:]
     private var resolvingApplications: Set<ObjectIdentifier> = []
+    /// Retains the in-flight resolution task per tracked tunnel so `remove(_:)` can cancel it.
+    /// Keying on the channel identifier is safe because an entry is only ever removed from the
+    /// channel's own `closeFuture` and the entry holds that channel strongly, so an identifier
+    /// cannot be reused while its entry exists.
+    private var resolutionTasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var generation: UInt64 = 0
 
     private func remove(_ identifier: ObjectIdentifier) {
         lock.lock()
         tunnels.removeValue(forKey: identifier)
         resolvingApplications.remove(identifier)
+        let resolution = resolutionTasks.removeValue(forKey: identifier)
         lock.unlock()
+        // Cancelled outside the lock: the task's own completion path takes it. Without this,
+        // a resolution started by a policy change outlived the tunnel it was resolving and
+        // could still close a channel after the proxy had been stopped.
+        resolution?.cancel()
     }
 
     private func currentEntry(for identifier: ObjectIdentifier) -> Entry? {
@@ -221,7 +233,8 @@ final class LiveTunnelRegistry: @unchecked Sendable {
 
         lock.lock()
         guard let entry = tunnels[identifier], entry.application == nil,
-              let descriptor = entry.connectionDescriptor else {
+              let descriptor = entry.connectionDescriptor else
+        {
             lock.unlock()
             return false
         }
@@ -232,9 +245,12 @@ final class LiveTunnelRegistry: @unchecked Sendable {
         resolvingApplications.insert(identifier)
         lock.unlock()
 
-        Task { [weak self] in
+        let resolution = Task { [weak self] in
             let application = await resolver(descriptor)
-            guard let self else {
+            // A cancelled resolution belongs to a tunnel that has already gone away, or to a
+            // proxy that has stopped; closing a channel from here afterwards would act on
+            // state the registry no longer owns.
+            guard !Task.isCancelled, let self else {
                 return
             }
             guard let currentEntry = self.finishApplicationResolution(
@@ -257,8 +273,24 @@ final class LiveTunnelRegistry: @unchecked Sendable {
             liveTunnelLogger.info(
                 "Resetting resolved application tunnel for \(currentEntry.host, privacy: .public) after SSL policy change"
             )
+            // Runs on a cooperative-pool thread, not the channel's event loop. That is correct
+            // because `Channel.close` and `ChannelPipeline` are documented thread-safe and hop to
+            // the loop themselves. Tests must therefore use a channel whose loop tolerates this
+            // (`NIOAsyncTestingChannel`), never `EmbeddedChannel`, which traps off its own thread.
             currentEntry.channel.close(promise: nil)
         }
+
+        lock.lock()
+        guard tunnels[identifier] != nil else {
+            // The channel closed while the task was being created, so `remove(_:)` has already
+            // run and will never see this task. Cancel it here rather than storing an entry
+            // nothing would clear.
+            lock.unlock()
+            resolution.cancel()
+            return true
+        }
+        resolutionTasks[identifier] = resolution
+        lock.unlock()
         return true
     }
 
@@ -267,10 +299,14 @@ final class LiveTunnelRegistry: @unchecked Sendable {
     private func finishApplicationResolution(
         identifier: ObjectIdentifier,
         application: ClientApplicationIdentity?
-    ) -> Entry? {
+    )
+        -> Entry?
+    {
         lock.lock()
         defer { lock.unlock() }
         resolvingApplications.remove(identifier)
+        // The task calling this is finishing, so its retained reference is spent.
+        resolutionTasks.removeValue(forKey: identifier)
         guard var entry = tunnels[identifier] else {
             return nil
         }

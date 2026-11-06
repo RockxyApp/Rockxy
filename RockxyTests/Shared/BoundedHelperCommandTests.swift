@@ -51,6 +51,56 @@ struct BoundedHelperCommandTests {
         #expect(lenient.hasPrefix("fixture "))
     }
 
+    @Test("standard output larger than the pipe buffer is returned whole instead of deadlocking")
+    func capturesOutputPastThePipeBuffer() throws {
+        // 4,000 lines of 31 bytes is ~124 KB against a 64 KiB pipe buffer, which is what the
+        // previous reader — waitUntilExit() before reading the pipe — blocked forever on.
+        let result = try BoundedHelperCommand.runCapturingStandardOutput(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "i=0; while [ $i -lt 4000 ]; do printf 'fixture-stdout-line-0123456789\\n'; i=$((i+1)); done"],
+            timeout: 10
+        )
+        #expect(result.status == 0)
+        #expect(result.standardOutput.count == 4_000 * 31)
+    }
+
+    @Test("standard output and stderr stay separate, with the exit status preserved")
+    func separatesCapturedStreams() throws {
+        let result = try BoundedHelperCommand.runCapturingStandardOutput(
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "printf 'to stdout'; printf 'to stderr' >&2; exit 9"], timeout: 2
+        )
+        #expect(result.status == 9)
+        #expect(String(data: result.standardOutput, encoding: .utf8) == "to stdout")
+        #expect(String(data: result.diagnostic, encoding: .utf8) == "to stderr")
+    }
+
+    @Test("output past the budget fails the call rather than returning a shortened reading")
+    func refusesTruncatedOutput() {
+        #expect(throws: BoundedHelperCommand.Failure.outputTooLarge) {
+            try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "i=0; while [ $i -lt 4000 ]; do printf 'fixture-stdout-line-0123456789\\n'; i=$((i+1)); done"],
+                timeout: 10,
+                outputLimit: 8_192
+            )
+        }
+    }
+
+    @Test("a child flooding standard output is still bounded by the deadline")
+    func timesOutWhileFloodingStandardOutput() {
+        let start = ProcessInfo.processInfo.systemUptime
+        #expect(throws: BoundedHelperCommand.Failure.self) {
+            try BoundedHelperCommand.runCapturingStandardOutput(
+                executable: URL(fileURLWithPath: "/bin/sh"),
+                arguments: ["-c", "trap '' TERM; while :; do printf 'fixture'; done"],
+                timeout: 0.2,
+                outputLimit: 16_777_216
+            )
+        }
+        #expect(ProcessInfo.processInfo.systemUptime - start < 5)
+    }
+
     @Test(
         "a timeout outside the permitted range is rejected before anything is spawned",
         arguments: [0, -1, 31, TimeInterval.nan, .infinity]

@@ -49,6 +49,130 @@ struct HARImporterTests {
         #expect(transactions.map(\.clientApp) == ["Google Chrome", "okhttp"])
     }
 
+    @Test("Imported HAR entries get the same protocol detection as live capture")
+    func importedEntriesRunProtocolDetectors() throws {
+        let har = #"""
+        {"log":{"version":"1.2","entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.000Z","time":10,
+           "request":{"method":"POST","url":"https://rpc.example.com/","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":60,
+             "postData":{"mimeType":"application/json","text":"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_chainId\",\"params\":[]}"}},
+           "response":{"status":200,"statusText":"OK","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"cookies":[],
+             "content":{"size":40,"mimeType":"application/json","text":"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x1\"}"},
+             "redirectURL":"","headersSize":-1,"bodySize":40},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:01.000Z","time":10,
+           "request":{"method":"GET","url":"https://paid.example.com/report","httpVersion":"HTTP/1.1",
+             "headers":[],"queryString":[],"cookies":[],"headersSize":-1,"bodySize":0},
+           "response":{"status":402,"statusText":"Payment Required","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"cookies":[],
+             "content":{"size":60,"mimeType":"application/json","text":"{\"x402Version\":1,\"error\":\"X-PAYMENT header is required\",\"accepts\":[]}"},
+             "redirectURL":"","headersSize":-1,"bodySize":60},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}},
+          {"startedDateTime":"2026-10-04T15:00:02.000Z","time":10,
+           "request":{"method":"POST","url":"https://api.example.com/graphql","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Content-Type","value":"application/json"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":40,
+             "postData":{"mimeType":"application/json","text":"{\"query\":\"query GetUser { user { id } }\"}"}},
+           "cache":{},"timings":{"send":0,"wait":5,"receive":5}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        #expect(transactions[0].web3RPCInfo?.method == "eth_chainId")
+        #expect(transactions[1].x402Info?.isX402Like == true)
+        #expect(transactions[2].graphQLInfo?.operationName == "GetUser")
+
+        let preview = try HARImporter(runsProtocolDetection: false).importData(Data(har.utf8))
+        #expect(preview.allSatisfy { $0.web3RPCInfo == nil && $0.x402Info == nil && $0.graphQLInfo == nil })
+    }
+
+    @Test("Imports a Charles-style HAR with base64 bodies, pages, and unknown timings")
+    func importsCharlesStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Charles Proxy","version":"5.0"},
+          "pages":[{"startedDateTime":"2026-10-04T15:00:00.000+07:00","id":"page_1","title":"API","pageTimings":{}}],
+          "entries":[
+          {"pageref":"page_1","startedDateTime":"2026-10-04T15:00:00.125+07:00","time":42.5,
+           "request":{"method":"POST","url":"https://api.example.com/v1/login?debug=1","httpVersion":"HTTP/1.1",
+             "cookies":[{"name":"sid","value":"abc"}],
+             "headers":[{"name":"Content-Type","value":"application/json; charset=utf-8"}],
+             "queryString":[{"name":"debug","value":"1"}],
+             "postData":{"mimeType":"application/json; charset=utf-8","text":"{\"user\":\"ada\"}"},
+             "headersSize":120,"bodySize":14},
+           "response":{"_charlesStatus":"COMPLETE","status":201,"statusText":"Created","httpVersion":"HTTP/1.1",
+             "cookies":[],"headers":[{"name":"Content-Type","value":"application/json"}],
+             "content":{"size":11,"mimeType":"application/json","text":"eyJvayI6dHJ1ZX0=","encoding":"base64"},
+             "redirectURL":"","headersSize":80,"bodySize":11},
+           "serverIPAddress":"93.184.216.34","cache":{},
+           "timings":{"blocked":-1,"dns":-1,"connect":-1,"ssl":-1,"send":1.5,"wait":35,"receive":6}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        let transaction = try #require(transactions.first)
+        #expect(transaction.request.method == "POST")
+        #expect(transaction.request.url.absoluteString == "https://api.example.com/v1/login?debug=1")
+        #expect(transaction.request.body.flatMap { String(data: $0, encoding: .utf8) } == #"{"user":"ada"}"#)
+        #expect(transaction.response?.statusCode == 201)
+        #expect(transaction.response?.body.flatMap { String(data: $0, encoding: .utf8) } == #"{"ok":true}"#)
+        #expect(transaction.timingInfo?.dnsLookup ?? 0 >= 0)
+    }
+
+    @Test("Imports a Firefox-style HAR with a redirect and an aborted entry")
+    func importsFirefoxStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Firefox","version":"131.0"},"browser":{"name":"Firefox","version":"131.0"},
+          "pages":[],"entries":[
+          {"startedDateTime":"2026-10-04T08:00:00.000Z","time":12,
+           "request":{"bodySize":0,"method":"GET","url":"http://example.com/old","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Host","value":"example.com"}],"cookies":[],"queryString":[],"headersSize":200},
+           "response":{"status":301,"statusText":"Moved Permanently","httpVersion":"HTTP/1.1",
+             "headers":[{"name":"Location","value":"https://example.com/new"}],"cookies":[],
+             "content":{"mimeType":"text/html","size":0,"text":""},"redirectURL":"https://example.com/new",
+             "headersSize":150,"bodySize":0},
+           "cache":{},"timings":{"blocked":0,"dns":1,"connect":2,"ssl":0,"send":0,"wait":8,"receive":1},
+           "connection":"443"},
+          {"startedDateTime":"2026-10-04T08:00:01.000Z","time":0,
+           "request":{"bodySize":0,"method":"GET","url":"https://example.com/new","httpVersion":"HTTP/2",
+             "headers":[],"cookies":[],"queryString":[],"headersSize":-1},
+           "response":{"status":0,"statusText":"","httpVersion":"","headers":[],"cookies":[],
+             "content":{"mimeType":"x-unknown","size":0},"redirectURL":"","headersSize":-1,"bodySize":-1,
+             "_error":"NS_BINDING_ABORTED"},
+           "cache":{},"timings":{"blocked":-1,"dns":-1,"connect":-1,"ssl":-1,"send":0,"wait":0,"receive":0}}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        #expect(transactions.count == 2)
+        #expect(transactions[0].response?.statusCode == 301)
+        #expect(transactions[0].response?.headers.contains { $0.name == "Location" } == true)
+        #expect(transactions[1].request.url.absoluteString == "https://example.com/new")
+        #expect(transactions[1].response == nil)
+        #expect(transactions[1].state == .failed)
+    }
+
+    @Test("Imports a Proxyman-style HAR with gzip headers and a text body")
+    func importsProxymanStyleHAR() throws {
+        let har = #"""
+        {"log":{"version":"1.2","creator":{"name":"Proxyman","version":"5.10.0"},"entries":[
+          {"startedDateTime":"2026-10-04T15:00:00.5+07:00","time":120.25,
+           "request":{"method":"GET","url":"https://cdn.example.com/app.js","httpVersion":"HTTP/2.0",
+             "headers":[{"name":"accept-encoding","value":"gzip, br"}],"queryString":[],"cookies":[],
+             "headersSize":-1,"bodySize":0},
+           "response":{"status":200,"statusText":"OK","httpVersion":"HTTP/2.0",
+             "headers":[{"name":"content-encoding","value":"gzip"},{"name":"content-type","value":"application/javascript"}],
+             "cookies":[],"content":{"size":20,"compression":0,"mimeType":"application/javascript","text":"console.log('hi');"},
+             "redirectURL":"","headersSize":-1,"bodySize":20},
+           "cache":{},"timings":{"send":0.1,"wait":100,"receive":20.15},"comment":"from Proxyman"}]}}
+        """#
+        let transactions = try importer.importData(Data(har.utf8))
+
+        let transaction = try #require(transactions.first)
+        #expect(transaction.request.httpVersion == "HTTP/2.0" || transaction.request.httpVersion == "HTTP/2")
+        #expect(transaction.response?.statusCode == 200)
+        #expect(transaction.response?.body.flatMap { String(data: $0, encoding: .utf8) } == "console.log('hi');")
+    }
+
     @Test("A request body without a Content-Type header takes postData.mimeType")
     func postDataMimeTypeBecomesContentType() throws {
         let har = #"""
@@ -160,7 +284,7 @@ struct HARImporterTests {
 
     @Test("Rejects invalid JSON")
     func rejectsInvalidJSON() throws {
-        let badData = "not json".data(using: .utf8)!
+        let badData = Data("not json".utf8)
         #expect(throws: HARImportError.self) {
             try importer.importData(badData)
         }
@@ -459,7 +583,7 @@ struct HARImporterTests {
 
     @Test("HAR round-trip preserves core fields")
     func harRoundTripPreservesCoreFields() throws {
-        let bodyData = "{\"user\":\"alice\"}".data(using: .utf8)
+        let bodyData = Data("{\"user\":\"alice\"}".utf8)
         let request = try HTTPRequestData(
             method: "POST",
             url: #require(URL(string: "https://api.example.com/users")),
@@ -469,14 +593,31 @@ struct HARImporterTests {
                 HTTPHeader(name: "Authorization", value: "Bearer tok123")
             ],
             body: bodyData,
+            bodyOmission: .init(reason: "bodyLimit", observedBytes: 18, originalBytes: 42),
             contentType: .json
         )
         let transaction = HTTPTransaction(request: request, state: .completed)
+        transaction.babylonGRPCCallType = "serverStreaming"
+        transaction.babylonCaptureMetadata = BabylonCaptureMetadata(
+            identity: BabylonCaptureIdentity(
+                clientID: "fixture-client",
+                sessionID: "transport-session",
+                projectName: "Fixture App",
+                bundleIdentifier: "com.example.fixture",
+                deviceName: "iPhone",
+                deviceModel: "iPhone"
+            ),
+            capabilities: nil,
+            correlation: .init(sessionID: "runtime", traceID: "trace", stepID: "step", createdAt: 1),
+            error: .init(code: -1_001, message: "timed out", domain: "NSURLErrorDomain", phase: "response"),
+            compatibilityDiagnostics: ["Update Rockxy"]
+        )
         transaction.response = HTTPResponseData(
             statusCode: 201,
             statusMessage: "Created",
             headers: [HTTPHeader(name: "Content-Type", value: "application/json")],
-            body: "{\"id\":1}".data(using: .utf8),
+            body: Data("{\"id\":1}".utf8),
+            bodyOmission: .init(reason: "privacyPolicy", observedBytes: 0, originalBytes: 8),
             contentType: .json
         )
 
@@ -491,12 +632,49 @@ struct HARImporterTests {
         #expect(restored.request.headers.count == 2)
         #expect(restored.response?.statusCode == 201)
         #expect(restored.response?.statusMessage == "Created")
+        #expect(restored.request.bodyOmission == .init(reason: "bodyLimit", observedBytes: 18, originalBytes: 42))
+        #expect(restored.response?.bodyOmission == .init(reason: "privacyPolicy", observedBytes: 0, originalBytes: 8))
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.response?.bodyTruncated == true)
+        #expect(restored.babylonCaptureMetadata?.clientID == "fixture-client")
+        #expect(restored.babylonCaptureMetadata?.traceID == "trace")
+        #expect(restored.babylonCaptureMetadata?.errorDomain == "NSURLErrorDomain")
+        #expect(restored.babylonCaptureMetadata?.errorCode == -1_001)
+        #expect(restored.babylonGRPCCallType == "serverStreaming")
 
         let restoredBody = restored.request.body.flatMap { String(data: $0, encoding: .utf8) }
         #expect(restoredBody == "{\"user\":\"alice\"}")
 
         let respBody = restored.response?.body.flatMap { String(data: $0, encoding: .utf8) }
         #expect(respBody == "{\"id\":1}")
+    }
+
+    @Test("HAR round-trip keeps truncation without omission details")
+    func harRoundTripKeepsUnspecifiedTruncation() throws {
+        let request = try HTTPRequestData(
+            method: "POST",
+            url: #require(URL(string: "https://api.example.com/upload")),
+            httpVersion: "HTTP/2",
+            headers: [],
+            body: Data("partial".utf8),
+            bodyTruncated: true
+        )
+        let transaction = HTTPTransaction(request: request, state: .completed)
+        transaction.response = HTTPResponseData(
+            statusCode: 200,
+            statusMessage: "OK",
+            headers: [],
+            body: nil,
+            bodyTruncated: true
+        )
+
+        let harData = try HARExporter().export(transactions: [transaction])
+        let restored = try #require(importer.importData(harData).first)
+
+        #expect(restored.request.bodyTruncated)
+        #expect(restored.request.bodyOmission == nil)
+        #expect(restored.response?.bodyTruncated == true)
+        #expect(restored.response?.bodyOmission == nil)
     }
 
     @Test("HAR round-trip drops non-HAR fields")
@@ -511,7 +689,8 @@ struct HARImporterTests {
         let imported = try importer.importData(harData)
 
         let restored = imported[0]
-        #expect(restored.graphQLInfo == nil)
+        // HAR carries no GraphQL field, but import re-detects the operation from the body.
+        #expect(restored.graphQLInfo?.operationName == "GetUsers")
         #expect(restored.comment == nil)
         #expect(restored.highlightColor == nil)
         #expect(restored.isPinned == false)
@@ -573,7 +752,7 @@ struct HARImporterTests {
         let provider = MockFlowProvider()
         provider.transactions = imported
         let service = makeMCPFlowService(provider: provider, redactionEnabled: true)
-        let result = await service.getFlowDetail(flowId: try #require(imported.first).id)
+        let result = try await service.getFlowDetail(flowId: #require(imported.first).id)
         let text = try #require(result.content.first?.text)
 
         #expect(text.contains("[REDACTED]"))

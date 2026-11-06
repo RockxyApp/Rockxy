@@ -28,6 +28,8 @@ The built-in recipes are:
 - **Explain This Failure**
 - **Compare With Successful Request**
 - **Check Authentication**
+- **Why Is This Slow?** — splits the captured time into connection setup, server wait, and response transfer, and compares it with the median of other captured requests to the same endpoint
+- **Find Related Requests** — lists captured requests to the same endpoint first, then the same host, nearest in time, and points out the ones that did not succeed
 - **Prepare Bug Report**
 
 You can also ask a natural-language question. Rockxy chooses an initial analysis lens from the question, then keeps follow-up messages focused on the current request.

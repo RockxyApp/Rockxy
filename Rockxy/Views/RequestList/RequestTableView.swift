@@ -84,13 +84,15 @@ final class NavigableRequestTableView: NSTableView {
 /// with acceptable scroll performance — NSTableView provides native virtual scrolling,
 /// cell reuse, and column sorting out of the box.
 struct RequestTableView: NSViewRepresentable {
-    // MARK: Internal
-
     let workspaceID: UUID
     let rows: [RequestListRow]
     let refreshToken: Int
     let isAppendOnly: Bool
     var appendChainOrigin: Int?
+    /// Set while the only mutations since this token were in-place row rewrites, with the
+    /// indexes they replaced. Lets the table reload those rows instead of the whole list.
+    var rewriteChainOrigin: Int?
+    var rewrittenRowIndexes = IndexSet()
     var selectionIndex: [UUID: TrafficSelectionIndexEntry] = [:]
     var revealRequest: TrafficRevealRequest?
     var displayMetricsOverride: AppUIDisplayMetrics?
@@ -283,9 +285,12 @@ struct RequestTableView: NSViewRepresentable {
             tableView.addTableColumn(column)
         }
 
-        for headerCol in headerColumns.filter(\.isEnabled) {
+        let enabled = headerColumns.filter(\.isEnabled)
+        let titles = HeaderColumn.displayTitles(for: enabled)
+        for headerCol in enabled {
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(headerCol.columnIdentifier))
-            col.title = headerCol.headerName
+            col.title = titles[headerCol.id] ?? headerCol.headerName
+            col.headerToolTip = headerCol.headerName
             col.width = 100
             col.minWidth = 50
             col.resizingMask = .userResizingMask
@@ -295,12 +300,7 @@ struct RequestTableView: NSViewRepresentable {
 
         // Apply built-in column visibility
         if let store = mainCoordinator?.headerColumnStore {
-            for column in tableView.tableColumns {
-                let colID = column.identifier.rawValue
-                if !HeaderColumn.isCustomColumnID(colID) {
-                    column.isHidden = !store.isBuiltInColumnVisible(colID)
-                }
-            }
+            context.coordinator.syncBuiltInColumnVisibility(in: tableView, isVisible: store.isBuiltInColumnVisible)
         }
 
         let headerMenu = NSMenu()
@@ -314,12 +314,7 @@ struct RequestTableView: NSViewRepresentable {
 
         // Re-apply HeaderColumnStore visibility after AppKit restores autosaved state
         if let store = mainCoordinator?.headerColumnStore {
-            for column in tableView.tableColumns {
-                let colID = column.identifier.rawValue
-                if !HeaderColumn.isCustomColumnID(colID) {
-                    column.isHidden = !store.isBuiltInColumnVisible(colID)
-                }
-            }
+            context.coordinator.syncBuiltInColumnVisibility(in: tableView, isVisible: store.isBuiltInColumnVisible)
         }
 
         scrollView.documentView = tableView
@@ -327,6 +322,7 @@ struct RequestTableView: NSViewRepresentable {
         tableView.sizeLastColumnToFit()
         context.coordinator.tableView = tableView
         context.coordinator.observeUserScrolling(in: scrollView)
+        context.coordinator.environmentDisplayMetrics = context.environment.appUIDisplayMetrics
         context.coordinator.applyDisplayMetrics(to: tableView)
 
         return scrollView
@@ -343,7 +339,9 @@ struct RequestTableView: NSViewRepresentable {
         let oldWorkspaceID = coordinator.lastWorkspaceID
         let workspaceChanged = oldWorkspaceID != workspaceID
 
+        let previousRows = coordinator.rows
         coordinator.parent = self
+        coordinator.environmentDisplayMetrics = context.environment.appUIDisplayMetrics
         (tableView as? NavigableRequestTableView)?.onActivate = onActivate
         coordinator.rows = rows
         coordinator.mainCoordinator = mainCoordinator
@@ -373,7 +371,46 @@ struct RequestTableView: NSViewRepresentable {
                     coordinator.reloadVisibleRows(in: tableView)
                     reloadedVisibleRowsForMetrics = true
                 }
+            } else if coordinator.canReloadRewrittenRows(
+                newCount: newCount,
+                rewriteChainOrigin: rewriteChainOrigin,
+                rewrittenRowIndexes: rewrittenRowIndexes,
+                lastAppliedToken: oldToken,
+                workspaceChanged: workspaceChanged,
+                tableRowCount: tableView.numberOfRows,
+                previousRows: previousRows
+            ) {
+                // Enrichment and live-stream refreshes replace rows in place. Reloading the
+                // rows they named costs those rows; reloadData() re-requests every cell on
+                // screen, and it ran once per delivery batch for as long as capture did.
+                coordinator.reloadRewrittenRows(rewrittenRowIndexes, in: tableView)
+                if displayChange?.reloadVisibleRows == true {
+                    coordinator.reloadVisibleRows(in: tableView)
+                    reloadedVisibleRowsForMetrics = true
+                }
             } else {
+                // Everything the two incremental branches above cannot prove reloads: a
+                // recompute, a sort, a filter change, a workspace switch, and the eviction
+                // batch at the history cap.
+                //
+                // Eviction is deliberately not applied as `removeRows` + `insertRows`. Inside
+                // one `beginUpdates`/`endUpdates`, with the data source already reporting the
+                // final count, a batch that nets smaller fails AppKit's reconciliation and
+                // aborts the process. Measured on a real NSTableView: removing 140 and
+                // appending 100 exits 133, and so does removing 6 and appending 5, while
+                // 100/100 and 100/140 are accepted (TableRowWindowAppKitContractTests).
+                //
+                // A row-window fast path was built and removed because it does not pay at
+                // the cap. Eviction always trims 100 rows (a tenth of the 1,000 cap), and a
+                // 100 ms flush carries about 9 rows at 92 rps. So about one batch in eleven
+                // nets about 91 smaller and reloads here, and the other ten are pure appends
+                // the append branch already handles. The window would only apply once a
+                // batch appends at least what eviction trims, roughly 1,000 rps. What remains
+                // is about one `reloadData` a second, 2-3% of main-thread samples.
+                //
+                // Untried idea, if that reload ever matters: apply the net-shrink batch as
+                // two update transactions with the data source reporting a staged row count
+                // between them. The experiment belongs in TableRowWindowAppKitContractTests.
                 coordinator.performProgrammaticTableUpdate {
                     tableView.reloadData()
                 }
@@ -397,12 +434,7 @@ struct RequestTableView: NSViewRepresentable {
 
         // Re-apply HeaderColumnStore visibility on every update (single source of truth)
         if let store = mainCoordinator?.headerColumnStore {
-            for column in tableView.tableColumns {
-                let colID = column.identifier.rawValue
-                if !HeaderColumn.isCustomColumnID(colID) {
-                    column.isHidden = !store.isBuiltInColumnVisible(colID)
-                }
-            }
+            coordinator.syncBuiltInColumnVisibility(in: tableView, isVisible: store.isBuiltInColumnVisible)
         }
 
         // Sync per-workspace sort state into AppKit (e.g., after workspace switch).
@@ -439,13 +471,6 @@ struct RequestTableView: NSViewRepresentable {
     }
 
     // MARK: Private
-
-
-    @Environment(\.appUIDisplayMetrics) private var displayMetrics
-
-    private var effectiveDisplayMetrics: AppUIDisplayMetrics {
-        displayMetricsOverride ?? displayMetrics
-    }
 }
 
 // MARK: - ColumnSpec
@@ -585,6 +610,7 @@ extension RequestTableView {
 
         var parent: RequestTableView
         var rows: [RequestListRow]
+        var environmentDisplayMetrics = AppUIDisplayMetrics()
         var mainCoordinator: MainContentCoordinator?
         weak var tableView: NSTableView?
         var hasAutoSizedColumns = false
@@ -597,10 +623,40 @@ extension RequestTableView {
         /// selection from SwiftUI state, we suppress the delegate callback that would
         /// re-propagate the change back to SwiftUI.
         private(set) var isUpdatingSelection = false
-
         /// Guard flag to prevent feedback loops when syncing sort descriptors from
         /// coordinator state back into NSTableView.
         private(set) var isUpdatingSortDescriptors = false
+
+        var displayMetrics: AppUIDisplayMetrics {
+            parent.displayMetricsOverride ?? environmentDisplayMetrics
+        }
+
+        /// URL text led by a small marker for exchanges a rule or script changed.
+        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            if let symbol = RequestTableSymbolCache.configuredImage(
+                systemSymbolName: "wand.and.rays",
+                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle),
+                pointSize: (font?.pointSize ?? 12) - 1,
+                weight: .semibold
+            ) {
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                result.append(NSAttributedString(attachment: attachment))
+                result.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.systemOrange,
+                    range: NSRange(location: 0, length: result.length)
+                )
+                result.append(NSAttributedString(string: " "))
+            }
+            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
+            if let font {
+                attributes[.font] = font
+            }
+            result.append(NSAttributedString(string: address, attributes: attributes))
+            return result
+        }
 
         // MARK: - NSTableViewDataSource
 
@@ -650,6 +706,59 @@ extension RequestTableView {
                 && newCount > previousRowCount
         }
 
+        /// Row-targeted reload is valid only when nothing but in-place rewrites happened since
+        /// a state this table already applied: same workspace, same row count on both sides,
+        /// and a rewrite chain whose base the table has reached. Row views are not re-requested
+        /// by a cell reload, so a rewrite that changed a row's highlight also falls back.
+        func canReloadRewrittenRows(
+            newCount: Int,
+            rewriteChainOrigin: Int?,
+            rewrittenRowIndexes: IndexSet,
+            lastAppliedToken: Int,
+            workspaceChanged: Bool,
+            tableRowCount: Int,
+            previousRows: [RequestListRow]
+        )
+            -> Bool
+        {
+            guard let rewriteChainOrigin,
+                  !workspaceChanged,
+                  !rewrittenRowIndexes.isEmpty,
+                  previousRowCount > 0,
+                  newCount == previousRowCount,
+                  tableRowCount == previousRowCount,
+                  previousRows.count == newCount,
+                  rewriteChainOrigin <= lastAppliedToken,
+                  rewrittenRowIndexes.last.map({ $0 < newCount }) == true else
+            {
+                return false
+            }
+            return rewrittenRowIndexes.allSatisfy { index in
+                previousRows[index].id == rows[index].id
+                    && previousRows[index].highlightColor == rows[index].highlightColor
+            }
+        }
+
+        /// Reloads the rewritten rows that are on screen. Rows outside the visible range have
+        /// no view to refresh and are configured from `rows` when they scroll in.
+        func reloadRewrittenRows(_ indexes: IndexSet, in tableView: NSTableView) {
+            let visibleRange = tableView.rows(in: tableView.visibleRect)
+            guard visibleRange.location != NSNotFound, visibleRange.length > 0 else {
+                return
+            }
+            let visible = IndexSet(integersIn: visibleRange.location ..< visibleRange.location + visibleRange.length)
+            let onScreen = indexes.intersection(visible)
+            guard !onScreen.isEmpty else {
+                return
+            }
+            performProgrammaticTableUpdate {
+                tableView.reloadData(
+                    forRowIndexes: onScreen,
+                    columnIndexes: IndexSet(integersIn: 0 ..< tableView.numberOfColumns)
+                )
+            }
+        }
+
         /// AppKit may emit selection notifications while rows are inserted or reloaded. Treat the
         /// entire table mutation as coordinator-owned so those callbacks cannot re-enter SwiftUI
         /// selection/filter state halfway through applying a snapshot.
@@ -662,7 +771,7 @@ extension RequestTableView {
 
         @discardableResult
         func applyDisplayMetrics(to tableView: NSTableView) -> DisplayMetricsChange? {
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             let tableMetrics = RequestTableAppliedMetrics(metrics: metrics)
             guard lastAppliedRequestTableMetrics != tableMetrics else {
                 lastAppliedDisplayMetrics = metrics
@@ -692,7 +801,7 @@ extension RequestTableView {
         }
 
         func applyHeaderMetrics(to tableView: NSTableView) {
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             for column in tableView.tableColumns {
                 column.headerCell.font = .systemFont(ofSize: metrics.secondaryFontSize, weight: .medium)
             }
@@ -921,7 +1030,7 @@ extension RequestTableView {
             let visibleRange = tableView.rows(in: tableView.visibleRect)
             let start = max(0, visibleRange.location)
             let end = min(rows.count, visibleRange.location + visibleRange.length)
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
 
             for rowIdx in start ..< end {
                 let rowData = rows[rowIdx]
@@ -984,7 +1093,9 @@ extension RequestTableView {
                     font = metrics.appKitFont()
                 default:
                     if HeaderColumn.isCustomColumnID(columnID) {
-                        text = RequestListRow.resolveHeaderValue(for: columnID, row: rowData)
+                        // Sizing must not evaluate a JSON body on the main thread; an unresolved
+                        // value measures as its placeholder.
+                        text = CustomColumnCellResolution.value(columnID: columnID, row: rowData).displayText
                         font = metrics.appKitFont(monospaced: true)
                     } else {
                         text = ""
@@ -1528,7 +1639,7 @@ extension RequestTableView {
                     let col = NSTableColumn(
                         identifier: NSUserInterfaceItemIdentifier(headerCol.columnIdentifier)
                     )
-                    col.title = headerCol.headerName
+                    col.headerToolTip = headerCol.headerName
                     col.width = 100
                     col.minWidth = 50
                     col.resizingMask = .userResizingMask
@@ -1539,10 +1650,50 @@ extension RequestTableView {
                     columnsChanged = true
                 }
 
+                // Re-title every custom column, not just the ones just added: a title that
+                // collides falls back to the full expression, so adding or removing one
+                // column can change what another column should be called.
+                let titles = HeaderColumn.displayTitles(for: enabledColumns)
+                for headerCol in enabledColumns {
+                    guard let column = tableView.tableColumns
+                        .first(where: { $0.identifier.rawValue == headerCol.columnIdentifier }) else
+                    {
+                        continue
+                    }
+                    let title = titles[headerCol.id] ?? headerCol.headerName
+                    // Assigning the title it already has still dirties the header cell, and
+                    // this runs on every refresh, not only when a column changed.
+                    if column.title != title {
+                        column.title = title
+                    }
+                }
+
                 if columnsChanged {
                     applyHeaderMetrics(to: tableView)
                 }
             }
+        }
+
+        /// Applies built-in column visibility and returns how many columns actually changed.
+        ///
+        /// Runs on every refresh. Assigning `isHidden` unconditionally told AppKit the column
+        /// set might have changed on each capture batch; writing only a differing value keeps
+        /// a steady-state refresh from touching the header or the tile at all.
+        @discardableResult
+        func syncBuiltInColumnVisibility(in tableView: NSTableView, isVisible: (String) -> Bool) -> Int {
+            var changed = 0
+            for column in tableView.tableColumns {
+                let columnID = column.identifier.rawValue
+                guard !HeaderColumn.isCustomColumnID(columnID) else {
+                    continue
+                }
+                let shouldHide = !isVisible(columnID)
+                if column.isHidden != shouldHide {
+                    column.isHidden = shouldHide
+                    changed += 1
+                }
+            }
+            return changed
         }
 
         func syncSortDescriptors(from descriptors: [NSSortDescriptor], into tableView: NSTableView) {
@@ -1656,7 +1807,8 @@ extension RequestTableView {
 
         private static var appIconCache: [String: NSImage] = [:]
         private static var resizedAppIconCache: [AppIconCacheKey: NSImage] = [:]
-        private static var missingAppIconNames: Set<String> = []
+        /// Bounded: the name is client-controlled, the cache outlives the rows it was built for.
+        private static var missingAppIconNames = MissingIconNameCache()
 
         private static let bundleIDByAppName: [String: String] = [
             "Chrome": "com.google.Chrome",
@@ -1678,6 +1830,8 @@ extension RequestTableView {
             "Opera": "com.operasoftware.Opera",
         ]
 
+        private var customColumnSchedulerStorage: CustomColumnCellScheduler?
+
         private var autosizeGeneration = 0
         private var lastAppliedRequestTableMetrics: RequestTableAppliedMetrics?
         private var pendingContextSelectionIDs: Set<UUID>?
@@ -1688,11 +1842,95 @@ extension RequestTableView {
         private var lastSyncedSelectionIDs: Set<UUID> = []
         private var visibleMetricsRefreshGeneration = 0
 
+        /// Reads the scheduler lazily so the table only pays for it once a body column is shown.
+        @MainActor private var customColumnScheduler: CustomColumnCellScheduler {
+            if let existing = customColumnSchedulerStorage {
+                return existing
+            }
+            let scheduler = CustomColumnCellScheduler(
+                isStillWanted: { [weak self] key in
+                    self?.currentRowIndex(for: key) != nil
+                },
+                deliver: { [weak self] key, value in
+                    self?.fillResolvedCell(key: key, value: value)
+                }
+            )
+            customColumnSchedulerStorage = scheduler
+            return scheduler
+        }
+
         private static func colorFromHex(_ hex: UInt32) -> NSColor {
             let red = CGFloat((hex >> 16) & 0xFF) / 255.0
             let green = CGFloat((hex >> 8) & 0xFF) / 255.0
             let blue = CGFloat(hex & 0xFF) / 255.0
             return NSColor(srgbRed: red, green: green, blue: blue, alpha: 1.0)
+        }
+
+        private static func applyStrikethrough(to field: NSTextField) {
+            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
+            guard text.length > 0 else {
+                return
+            }
+            text.addAttribute(
+                .strikethroughStyle,
+                value: NSUnderlineStyle.single.rawValue,
+                range: NSRange(location: 0, length: text.length)
+            )
+            field.attributedStringValue = text
+        }
+
+        /// Thin consumer of `CustomColumnCellValue`: paints a state, decides nothing.
+        private func applyCustomColumn(_ state: CustomColumnCellValue, to cell: NSTextField) {
+            cell.stringValue = state.displayText
+            cell.font = displayMetrics.appKitFont(monospaced: true)
+            switch state {
+            case let .resolved(text):
+                cell.toolTip = text.isEmpty ? nil : text
+                cell.textColor = .secondaryLabelColor
+                // Back to the text field's own value; a recycled cell must not keep "Calculating".
+                cell.setAccessibilityValue(nil)
+            case .pending:
+                cell.toolTip = nil
+                cell.textColor = .tertiaryLabelColor
+                cell.setAccessibilityValue(CustomColumnCellValue.pendingAccessibilityValue)
+            }
+        }
+
+        /// Row index showing `key` now, searched among visible rows by identity. Never a stored index.
+        private func currentRowIndex(for key: CustomColumnCellKey) -> Int? {
+            guard let tableView else {
+                return nil
+            }
+            let range = tableView.rows(in: tableView.visibleRect)
+            guard range.length > 0 else {
+                return nil
+            }
+            let visible = range.location ..< (range.location + range.length)
+            return CustomColumnCellResolution.visibleRowIndex(of: key.rowID, among: visible) { [rows] index in
+                rows.indices.contains(index) ? rows[index].id : nil
+            }
+        }
+
+        /// Writes a late value into the one cell that still shows the row it was resolved for.
+        /// A recycled cell, a removed row, or a hidden column is left alone; the value is in the
+        /// transaction's cache, so the next population of that row reads it directly.
+        private func fillResolvedCell(key: CustomColumnCellKey, value: String) {
+            guard let tableView,
+                  let rowIndex = currentRowIndex(for: key) else
+            {
+                return
+            }
+            let columnIndex = tableView.column(withIdentifier: NSUserInterfaceItemIdentifier(key.columnID))
+            guard columnIndex >= 0,
+                  let cellView = tableView.view(atColumn: columnIndex, row: rowIndex, makeIfNecessary: false),
+                  let field = cellView.subviews.first as? NSTextField else
+            {
+                return
+            }
+            applyCustomColumn(.resolved(value), to: field)
+            if rows[rowIndex].isStruckThrough {
+                Self.applyStrikethrough(to: field)
+            }
         }
 
         // MARK: - Menu Building
@@ -2262,12 +2500,14 @@ extension RequestTableView {
             menu.addItem(.separator())
 
             let reqSubmenu = NSMenu()
+            let reqTitles = HeaderColumn.displayTitles(for: store.requestColumns)
             for col in store.requestColumns {
                 let item = NSMenuItem(
-                    title: col.headerName,
+                    title: reqTitles[col.id] ?? col.headerName,
                     action: #selector(handleToggleHeaderColumn(_:)),
                     keyEquivalent: ""
                 )
+                item.toolTip = col.headerName
                 item.target = self
                 item.representedObject = col.id
                 item.state = col.isEnabled ? .on : .off
@@ -2308,12 +2548,14 @@ extension RequestTableView {
             menu.addItem(reqItem)
 
             let resSubmenu = NSMenu()
+            let resTitles = HeaderColumn.displayTitles(for: store.responseColumns)
             for col in store.responseColumns {
                 let item = NSMenuItem(
-                    title: col.headerName,
+                    title: resTitles[col.id] ?? col.headerName,
                     action: #selector(handleToggleHeaderColumn(_:)),
                     keyEquivalent: ""
                 )
+                item.toolTip = col.headerName
                 item.target = self
                 item.representedObject = col.id
                 item.state = col.isEnabled ? .on : .off
@@ -2421,7 +2663,7 @@ extension RequestTableView {
             -> NSView
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_status")
-            let dotSize = parent.effectiveDisplayMetrics.tableStatusDotSize
+            let dotSize = displayMetrics.tableStatusDotSize
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView {
                 configureStatusDotCell(existing, row: row, dotSize: dotSize)
@@ -2440,7 +2682,7 @@ extension RequestTableView {
             -> NSView
         {
             let cellID = NSUserInterfaceItemIdentifier("Cell_ssl")
-            let iconSize = parent.effectiveDisplayMetrics.tableSSLIconSize
+            let iconSize = displayMetrics.tableSSLIconSize
 
             if let existing = tableView.makeView(withIdentifier: cellID, owner: nil) as? FixedIconCellView {
                 configureSSLImageView(existing.imageView, row: row)
@@ -2461,8 +2703,26 @@ extension RequestTableView {
         ) {
             cell.imageView.imageScaling = .scaleProportionallyUpOrDown
             cell.imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: dotSize, weight: .regular)
-            cell.imageView.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
+            cell.imageView.image = RequestTableSymbolCache.image(systemSymbolName: "circle.fill")
             cell.imageView.contentTintColor = statusDotColor(for: row)
+            cell.toolTip = row.source?.babylonCaptureMetadata.flatMap { metadata in
+                guard metadata.errorCode != nil || metadata.errorDomain != nil || metadata.errorMessage != nil
+                    || metadata.failurePhase != nil else
+                {
+                    return nil
+                }
+                let prefix = [
+                    metadata.errorDomain,
+                    metadata.errorCode.map(String.init),
+                    metadata.failurePhase,
+                ]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+                return [prefix, metadata.errorMessage]
+                    .compactMap { $0 }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: ": ")
+            }
             cell.updateIconSize(dotSize)
         }
 
@@ -2550,14 +2810,14 @@ extension RequestTableView {
                 ])
             }
 
-            label.font = parent.effectiveDisplayMetrics.appKitFont(weight: .bold)
+            label.font = displayMetrics.appKitFont(weight: .bold)
             label.stringValue = errorStatusBadgeTitle(for: row) ?? row.displayStatus
             label.layer?.backgroundColor = NSColor.systemRed.cgColor
             return container
         }
 
         private func configureSSLImageView(_ imageView: NSImageView, row: RequestListRow) {
-            let iconSize = parent.effectiveDisplayMetrics.tableSSLIconSize
+            let iconSize = displayMetrics.tableSSLIconSize
             let symbolName: String
             let tintColor: NSColor
 
@@ -2575,12 +2835,12 @@ extension RequestTableView {
 
             imageView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: iconSize, weight: .medium)
             imageView.imageScaling = .scaleProportionallyUpOrDown
-            imageView.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+            imageView.image = RequestTableSymbolCache.image(systemSymbolName: symbolName)
             imageView.contentTintColor = tintColor
         }
 
         private func appIcon(for appName: String) -> NSImage? {
-            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
+            let iconSize = displayMetrics.tableClientIconSize
             let cacheKey = AppIconCacheKey(appName: appName, iconSize: Int(iconSize.rounded()))
             if let cached = Self.resizedAppIconCache[cacheKey] {
                 return cached
@@ -2643,9 +2903,9 @@ extension RequestTableView {
         )
             -> NSView
         {
-            let iconSize = parent.effectiveDisplayMetrics.tableClientIconSize
+            let iconSize = displayMetrics.tableClientIconSize
             let gap: CGFloat = 4
-            let rowHeight = parent.effectiveDisplayMetrics.tableRowHeight
+            let rowHeight = displayMetrics.tableRowHeight
             let iconY = (rowHeight - iconSize) / 2
 
             // Reuse existing cell: subviews order is [imageView, fallbackView, nameLabel]
@@ -2666,7 +2926,7 @@ extension RequestTableView {
                     updateClientNameConstraints(nameLabel, in: existing, iconSize: iconSize, gap: gap)
                 }
                 nameLabel?.stringValue = clientDisplayName(for: appName)
-                nameLabel?.font = parent.effectiveDisplayMetrics.appKitFont()
+                nameLabel?.font = displayMetrics.appKitFont()
                 nameLabel?.textColor = appName.isEmpty ? .tertiaryLabelColor : .secondaryLabelColor
                 nameLabel?.toolTip = appName.isEmpty ? nil : appName
                 if let icon = appIcon(for: appName) {
@@ -2707,7 +2967,7 @@ extension RequestTableView {
 
             // Subview 2: app name label
             let nameLabel = NSTextField(labelWithString: "")
-            nameLabel.font = parent.effectiveDisplayMetrics.appKitFont()
+            nameLabel.font = displayMetrics.appKitFont()
             nameLabel.textColor = .secondaryLabelColor
             nameLabel.lineBreakMode = .byTruncatingTail
             nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2790,7 +3050,7 @@ extension RequestTableView {
                 textCell.usesSingleLineMode = true
                 textCell.truncatesLastVisibleLine = true
             }
-            field.font = parent.effectiveDisplayMetrics.appKitFont()
+            field.font = displayMetrics.appKitFont()
             field.textColor = .labelColor
             field.isBordered = false
             field.drawsBackground = false
@@ -2804,19 +3064,6 @@ extension RequestTableView {
             ])
 
             return container
-        }
-
-        private static func applyStrikethrough(to field: NSTextField) {
-            let text = NSMutableAttributedString(attributedString: field.attributedStringValue)
-            guard text.length > 0 else {
-                return
-            }
-            text.addAttribute(
-                .strikethroughStyle,
-                value: NSUnderlineStyle.single.rawValue,
-                range: NSRange(location: 0, length: text.length)
-            )
-            field.attributedStringValue = text
         }
 
         private func configureCellContent(
@@ -2836,7 +3083,7 @@ extension RequestTableView {
                 }
             }
 
-            let metrics = parent.effectiveDisplayMetrics
+            let metrics = displayMetrics
             cell.stringValue = ""
             cell.textColor = .labelColor
             cell.alignment = .left
@@ -2970,11 +3217,13 @@ extension RequestTableView {
 
             default:
                 if HeaderColumn.isCustomColumnID(column) {
-                    let headerValue = RequestListRow.resolveHeaderValue(for: column, row: rowData)
-                    cell.stringValue = headerValue
-                    cell.toolTip = headerValue.isEmpty ? nil : headerValue
-                    cell.font = metrics.appKitFont(monospaced: true)
-                    cell.textColor = .secondaryLabelColor
+                    let state = CustomColumnCellResolution.value(columnID: column, row: rowData)
+                    applyCustomColumn(state, to: cell)
+                    if state == .pending {
+                        MainActor.assumeIsolated {
+                            customColumnScheduler.request(columnID: column, row: rowData)
+                        }
+                    }
                 } else {
                     cell.stringValue = ""
                 }
@@ -2987,6 +3236,8 @@ extension RequestTableView {
                 .systemRed
             case "Web3":
                 .systemGreen
+            case "x402":
+                .systemOrange
             case "AI API",
                  "AI Session",
                  "Likely AI":
@@ -2998,32 +3249,6 @@ extension RequestTableView {
             default:
                 .secondaryLabelColor
             }
-        }
-
-        /// URL text led by a small marker for exchanges a rule or script changed.
-        static func modifiedURLString(_ address: String, font: NSFont?) -> NSAttributedString {
-            let result = NSMutableAttributedString()
-            let configuration = NSImage.SymbolConfiguration(pointSize: (font?.pointSize ?? 12) - 1, weight: .semibold)
-            if let symbol = NSImage(
-                systemSymbolName: "wand.and.rays",
-                accessibilityDescription: String(localized: "Modified by a rule", bundle: RockxyLocalization.bundle)
-            )?.withSymbolConfiguration(configuration) {
-                let attachment = NSTextAttachment()
-                attachment.image = symbol
-                result.append(NSAttributedString(attachment: attachment))
-                result.addAttribute(
-                    .foregroundColor,
-                    value: NSColor.systemOrange,
-                    range: NSRange(location: 0, length: result.length)
-                )
-                result.append(NSAttributedString(string: " "))
-            }
-            var attributes: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.labelColor]
-            if let font {
-                attributes[.font] = font
-            }
-            result.append(NSAttributedString(string: address, attributes: attributes))
-            return result
         }
 
         private func methodColor(for method: String) -> NSColor {

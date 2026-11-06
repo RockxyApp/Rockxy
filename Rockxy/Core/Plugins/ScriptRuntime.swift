@@ -20,6 +20,9 @@ enum ScriptRuntimeError: Error, LocalizedError {
     case pluginNotLoaded(String)
     case scriptLoadFailed(String)
     case executionTimeout
+    /// The plugin's script did not terminate, so its serial queue can never run
+    /// anything again and the runtime stopped handing it out.
+    case runawayScript(String)
     case jsException(String)
 
     // MARK: Internal
@@ -34,6 +37,11 @@ enum ScriptRuntimeError: Error, LocalizedError {
             String(localized: "Script load failed: \(reason)", bundle: RockxyLocalization.bundle)
         case .executionTimeout:
             String(localized: "Plugin script execution timed out", bundle: RockxyLocalization.bundle)
+        case let .runawayScript(id):
+            String(
+                localized: "Plugin script did not terminate and was disabled: \(id)",
+                bundle: RockxyLocalization.bundle
+            )
         case let .jsException(message):
             String(localized: "JS exception: \(message)", bundle: RockxyLocalization.bundle)
         }
@@ -59,7 +67,23 @@ actor ScriptRuntime {
 
     // MARK: Internal
 
-    func loadPlugin(_ info: PluginInfo) throws {
+    /// The serial queue every hook and the source evaluation of one plugin runs on.
+    ///
+    /// `autoreleaseFrequency: .workItem` is load-bearing. Everything a hook does through
+    /// the JavaScriptCore Objective-C API hands back autoreleased objects: each `JSValue`
+    /// wrapper pins its JS object (`JSValueProtect`) until the wrapper deallocates, and the
+    /// bridged `NSString`/`NSDictionary` copies of headers and bodies sit beside them. A
+    /// plain `DispatchQueue` uses `.inherit`, which pushes no pool per block; the worker
+    /// thread's pool is only popped when the queue runs dry. A plugin that is hit
+    /// continuously never lets it run dry, so wrappers from every call accumulate, JSC
+    /// cannot collect the request and response graphs they pin, and the footprint grows
+    /// with traffic instead of with live flows. One pool per work item releases them as
+    /// each hook returns.
+    nonisolated static func makeHookQueue(label: String) -> DispatchQueue {
+        DispatchQueue(label: label, qos: .userInitiated, autoreleaseFrequency: .workItem)
+    }
+
+    func loadPlugin(_ info: PluginInfo) async throws {
         guard let scriptEntry = info.manifest.entryPoints["script"] else {
             throw ScriptRuntimeError.scriptLoadFailed(
                 String(localized: "No script entry point defined", bundle: RockxyLocalization.bundle)
@@ -79,9 +103,8 @@ actor ScriptRuntime {
             )
         }
 
-        let queue = DispatchQueue(
-            label: RockxyIdentity.current.pluginRuntimePrefix(pluginID: info.id) + ".queue",
-            qos: .userInitiated
+        let queue = Self.makeHookQueue(
+            label: RockxyIdentity.current.pluginRuntimePrefix(pluginID: info.id) + ".queue"
         )
         guard let context = JSContext() else {
             throw ScriptRuntimeError.scriptLoadFailed(
@@ -107,49 +130,39 @@ actor ScriptRuntime {
             consoleSink: consoleSink
         )
 
-        // CommonJS compatibility: prime `module` and `exports` as globals BEFORE
-        // evaluating user source so scripts that use `module.exports = { ... }`
-        // pick them up. Evaluating the user source at the top level (not inside an
-        // IIFE) preserves direct-global declarations like `function onRequest()`,
-        // so both patterns continue to work.
-        context.evaluateScript("var module = { exports: {} }; var exports = module.exports;")
-        context.evaluateScript(source)
-        if let message = Self.consumeException(from: context, lock: exceptionLock) {
-            throw ScriptRuntimeError.jsException(message)
+        // Evaluating the source runs the script's TOP-LEVEL code, which can fail to
+        // terminate exactly as a hook can, and `evaluateScript` is synchronous with no
+        // public way to interrupt a running evaluation. Run on this actor it would hold
+        // the actor's executor forever: every later call for every OTHER plugin, and the
+        // unload that would retire this one, would never run again, and a saved runaway
+        // script would hang the runtime on every launch because startup reconciliation
+        // loads enabled plugins one after another. So it runs on the plugin's own queue
+        // behind the same watchdog the hooks use, and a load that does not finish
+        // abandons that queue and context instead of registering them.
+        //
+        // That suspension is also the one behavioral cost of moving the evaluation off the
+        // actor: `loadPlugin` used to register its tables with no suspension point, so no
+        // unload could interleave. `loadToken` closes that window. Without it, disabling a
+        // plugin while its source was still evaluating would unload nothing and then let
+        // the finishing load register itself, leaving a script the user had switched off
+        // still mutating traffic.
+        let token = beginLoad(of: info.id)
+        let products = try await evaluateSource(
+            source,
+            in: context,
+            on: queue,
+            pluginID: pluginID,
+            lock: exceptionLock
+        )
+        guard loadTokens[info.id] == token else {
+            // `pluginNotLoaded` rather than a new message: after the unload or the newer
+            // load won, that is exactly the state this id is in, and it needs no string
+            // the user would never see a reason for.
+            Self.logger.info("Discarded superseded load of script plugin: \(info.id, privacy: .public)")
+            throw ScriptRuntimeError.pluginNotLoaded(info.id)
         }
-
-        let moduleObj = context.objectForKeyedSubscript("module")
-        let moduleExports = moduleObj?.objectForKeyedSubscript("exports")
-
-        let onRequestFn: JSValue? = {
-            if let exports = moduleExports, !exports.isUndefined, !exports.isNull,
-               let fn = exports.objectForKeyedSubscript("onRequest"),
-               !fn.isUndefined, fn.isObject
-            {
-                return fn
-            }
-            if let global = context.objectForKeyedSubscript("onRequest"),
-               !global.isUndefined, global.isObject
-            {
-                return global
-            }
-            return nil
-        }()
-
-        let onResponseFn: JSValue? = {
-            if let exports = moduleExports, !exports.isUndefined, !exports.isNull,
-               let fn = exports.objectForKeyedSubscript("onResponse"),
-               !fn.isUndefined, fn.isObject
-            {
-                return fn
-            }
-            if let global = context.objectForKeyedSubscript("onResponse"),
-               !global.isUndefined, global.isObject
-            {
-                return global
-            }
-            return nil
-        }()
+        let onRequestFn = products.onRequest
+        let onResponseFn = products.onResponse
 
         contexts[info.id] = context
         queues[info.id] = queue
@@ -159,10 +172,18 @@ actor ScriptRuntime {
         flowStateStores[info.id] = ScriptFlowStateStore()
         onRequestArity[info.id] = ScriptMultiArgBridge.functionLength(onRequestFn) ?? 1
         onResponseArity[info.id] = ScriptMultiArgBridge.functionLength(onResponseFn) ?? 1
+        lastLoadGeneration += 1
+        loadGenerations[info.id] = lastLoadGeneration
         Self.logger.info("Loaded script plugin: \(info.id)")
     }
 
     func unloadPlugin(id: String) {
+        // Invalidates any load still evaluating this plugin's source, so it cannot
+        // register itself after this unload and leave a disabled script running.
+        invalidateInFlightLoad(of: id)
+        // Must clear, or reloading a corrected script would stay permanently retired.
+        wedgedPlugins.remove(id)
+        loadGenerations.removeValue(forKey: id)
         contexts.removeValue(forKey: id)
         queues.removeValue(forKey: id)
         exceptionLocks.removeValue(forKey: id)
@@ -177,6 +198,23 @@ actor ScriptRuntime {
     func hasPlugin(id: String) -> Bool {
         contexts[id] != nil
     }
+
+    #if DEBUG
+    /// Test seam: runs on the plugin's own queue at the start of every source evaluation,
+    /// before any script code. A test uses it to learn the instant a load is evaluating
+    /// and to hold the evaluation there while it unloads, so the interleaving is decided
+    /// by the test rather than by scheduling. Absent in release builds and nil unless a
+    /// test sets it, so the production path is the plain evaluation.
+    func setSourceEvaluationHook(_ hook: (@Sendable () -> Void)?) {
+        sourceEvaluationHook = hook
+    }
+
+    /// Test seam: flow states this plugin's store is still holding. A flow that no
+    /// response hook will ever end has to leave this at zero.
+    func pendingFlowStateCount(pluginID: String) -> Int {
+        flowStateStores[pluginID]?.count ?? 0
+    }
+    #endif
 
     // MARK: - Request hook
 
@@ -196,6 +234,9 @@ actor ScriptRuntime {
     )
         async throws -> RequestHookOutcome
     {
+        if wedgedPlugins.contains(pluginID) {
+            throw ScriptRuntimeError.runawayScript(pluginID)
+        }
         guard let jsContext = contexts[pluginID], let queue = queues[pluginID] else {
             throw ScriptRuntimeError.pluginNotLoaded(pluginID)
         }
@@ -205,13 +246,32 @@ actor ScriptRuntime {
         }
 
         let runAsMock = behavior.runAsMock
+        let loadGeneration = loadGenerations[pluginID] ?? 0
         let arity = onRequestArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
+        // The state `beginFlow` hands the script is only ever consumed by a forwarded
+        // request whose `onResponse` takes the multi-arg form; no other ending of this
+        // call reaches a response hook, and a legacy `onResponse` is not given the state
+        // at all. So every other ending has to release it, or on a long capture the
+        // store fills with flows nothing will ever end and evicts the live ones.
+        let beganFlow = arity >= 3
+        // `runOnResponse` is part of it because the caller skips the response hook
+        // entirely when it is off, as the request-only script templates have it.
+        let responseConsumesState = behavior.runOnResponse
+            && onResponseHandlers[pluginID] != nil
+            && (onResponseArity[pluginID] ?? 1) >= 4
+        let releaseFlowState: @Sendable (_ forwarded: Bool) -> Void = { forwarded in
+            guard beganFlow, !(forwarded && responseConsumesState) else {
+                return
+            }
+            flowStates?.discardFlow(originalRequest.flowID)
+        }
 
+        let gate = ScriptResumeGate()
+
+        return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
                 Self.clearException(in: jsContext, lock: exceptionLock)
                 // Arity dispatch: 1 => single-arg legacy `onRequest(ctx)`,
@@ -230,6 +290,9 @@ actor ScriptRuntime {
                     multiArgs = (triplet.context, triplet.url, triplet.request)
                     initialResult = onRequest.call(withArguments: [triplet.context, triplet.url, triplet.request])
                 } else {
+                    // `beginFlow` has already run when the arity matched, so a bridge that
+                    // could not build the arguments drops to the legacy path owing a release.
+                    releaseFlowState(false)
                     multiArgs = nil
                     let jsArg = requestContext.toJSValue(in: jsContext)
                     initialResult = onRequest.call(withArguments: [jsArg])
@@ -237,20 +300,14 @@ actor ScriptRuntime {
 
                 // `interpret` is the single point that decides .forward / .block / .mock
                 // from a (possibly Promise-resolved) JS value. It guards against
-                // double-resume via `resumed`.
+                // double-resume through the gate.
                 let interpret: (JSValue?) -> Void = { value in
-                    let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                        if alreadyResumed {
-                            return false
-                        }
-                        alreadyResumed = true
-                        return true
-                    }
-                    guard shouldResume else {
+                    guard gate.claimResume() else {
                         return
                     }
 
                     if let message = Self.consumeException(from: jsContext, lock: exceptionLock) {
+                        releaseFlowState(false)
                         continuation
                             .resume(throwing: ScriptRuntimeError.jsException(message))
                         return
@@ -265,6 +322,8 @@ actor ScriptRuntime {
                     }
 
                     if runAsMock {
+                        // A mock never goes upstream, so no ending below reaches `onResponse`.
+                        releaseFlowState(false)
                         guard let value, !value.isUndefined else {
                             continuation.resume(returning: .mockFailure(reason: "mock script returned undefined"))
                             return
@@ -283,9 +342,13 @@ actor ScriptRuntime {
                     }
 
                     if let value, value.isNull {
+                        releaseFlowState(false)
                         continuation.resume(returning: .blockLocally(reason: "script returned null"))
                         return
                     }
+                    // Everything below forwards, so only a state-carrying `onResponse`
+                    // keeps the flow alive from here.
+                    releaseFlowState(true)
                     if let multiArgs {
                         let modified = ScriptMultiArgBridge.readRequestMutations(
                             original: originalRequest,
@@ -315,16 +378,10 @@ actor ScriptRuntime {
                         queue.async { interpret(resolved) }
                     },
                     onReject: { errMsg in
-                        let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                            if alreadyResumed {
-                                return false
-                            }
-                            alreadyResumed = true
-                            return true
-                        }
-                        guard shouldResume else {
+                        guard gate.claimResume() else {
                             return
                         }
+                        releaseFlowState(false)
                         continuation.resume(throwing: ScriptRuntimeError.jsException(errMsg))
                     }
                 )
@@ -333,26 +390,49 @@ actor ScriptRuntime {
                 }
             }
 
-            queue.async(execute: workItem)
-
-            queue.asyncAfter(deadline: .now() + Self.timeout) {
-                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                    if alreadyResumed {
-                        return false
-                    }
-                    alreadyResumed = true
-                    return true
-                }
-                guard shouldResume else {
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
                     return
                 }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // script keeps spinning and this plugin's queue stays occupied. Retire
+                // the plugin so later requests fail immediately instead of each paying
+                // the full timeout behind a loop that will never end.
                 workItem.cancel()
-                continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                // The retirement below drops this plugin's whole store, but it has to hop
+                // to the actor first; release the flow here so the timeout path does not
+                // depend on that hop winning.
+                releaseFlowState(false)
+                // Retire the plugin BEFORE telling the caller, so by the time anyone sees
+                // this failure the next request already fails fast instead of racing the
+                // bookkeeping and queueing behind the loop for another full timeout. The
+                // hop is safe: the runaway holds the plugin's dispatch queue, not this
+                // actor, so the actor is free to run this.
+                Task {
+                    await self.markPluginWedged(pluginID, generation: loadGeneration)
+                    continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                }
             }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
         }
     }
 
     // MARK: - Response hook
+
+    /// Releases a flow that `onRequest` began and no response hook consumed. Only the
+    /// caller knows that: the response pass skips a plugin whose matcher no longer
+    /// matches, one disabled mid-exchange, one whose hook threw, and every plugin after
+    /// the first match when chaining is off -- and a request hook with a lower arity
+    /// never had a consumer to begin with. Left unreleased, the state sits in the store
+    /// until capacity evicts the OLDEST entry, which is a LIVE flow, so a dead flow here
+    /// silently costs a live plugin its `sharedState`.
+    ///
+    /// Idempotent for a flow already ended or never begun, which is what makes it safe
+    /// to call once per plugin after the pass instead of tracking which hooks ran.
+    func discardFlowState(pluginID: String, flowID: UUID) {
+        flowStateStores[pluginID]?.discardFlow(flowID)
+    }
 
     /// Invoke `onResponse(ctx)`. If the plugin mutates status/headers/body, the
     /// mutated response is returned. If the plugin has no `onResponse` function or
@@ -365,6 +445,9 @@ actor ScriptRuntime {
     )
         async throws -> HTTPResponseData
     {
+        if wedgedPlugins.contains(pluginID) {
+            throw ScriptRuntimeError.runawayScript(pluginID)
+        }
         guard let jsContext = contexts[pluginID], let queue = queues[pluginID] else {
             throw ScriptRuntimeError.pluginNotLoaded(pluginID)
         }
@@ -373,13 +456,14 @@ actor ScriptRuntime {
             return originalResponse
         }
 
+        let loadGeneration = loadGenerations[pluginID] ?? 0
         let arity = onResponseArity[pluginID] ?? 1
         let flowStates = flowStateStores[pluginID]
         let previewLedger = previewLedger
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
+        let gate = ScriptResumeGate()
 
+        return try await withCheckedThrowingContinuation { continuation in
             let workItem = DispatchWorkItem {
                 Self.clearException(in: jsContext, lock: exceptionLock)
                 let initialResult: JSValue?
@@ -404,14 +488,7 @@ actor ScriptRuntime {
                 }
 
                 let interpret: (JSValue?) -> Void = { value in
-                    let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                        if alreadyResumed {
-                            return false
-                        }
-                        alreadyResumed = true
-                        return true
-                    }
-                    guard shouldResume else {
+                    guard gate.claimResume() else {
                         return
                     }
 
@@ -454,14 +531,7 @@ actor ScriptRuntime {
                         queue.async { interpret(resolved) }
                     },
                     onReject: { errMsg in
-                        let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                            if alreadyResumed {
-                                return false
-                            }
-                            alreadyResumed = true
-                            return true
-                        }
-                        guard shouldResume else {
+                        guard gate.claimResume() else {
                             return
                         }
                         continuation.resume(throwing: ScriptRuntimeError.jsException(errMsg))
@@ -472,26 +542,91 @@ actor ScriptRuntime {
                 }
             }
 
-            queue.async(execute: workItem)
-
-            queue.asyncAfter(deadline: .now() + Self.timeout) {
-                let shouldResume = resumed.withLock { alreadyResumed -> Bool in
-                    if alreadyResumed {
-                        return false
-                    }
-                    alreadyResumed = true
-                    return true
-                }
-                guard shouldResume else {
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
                     return
                 }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // script keeps spinning and this plugin's queue stays occupied. Retire
+                // the plugin so later requests fail immediately instead of each paying
+                // the full timeout behind a loop that will never end.
                 workItem.cancel()
-                continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                // Retire the plugin BEFORE telling the caller, so by the time anyone sees
+                // this failure the next request already fails fast instead of racing the
+                // bookkeeping and queueing behind the loop for another full timeout. The
+                // hop is safe: the runaway holds the plugin's dispatch queue, not this
+                // actor, so the actor is free to run this.
+                Task {
+                    await self.markPluginWedged(pluginID, generation: loadGeneration)
+                    continuation.resume(throwing: ScriptRuntimeError.executionTimeout)
+                }
             }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
         }
     }
 
     // MARK: Private
+
+    /// Carries a load's extracted hook functions from the plugin's own queue back to
+    /// the actor. `JSValue` is not `Sendable`; the hand-off is safe because the queue
+    /// finishes writing before the continuation resumes, and nothing else holds the box.
+    private final class ScriptLoadProducts: @unchecked Sendable {
+        var onRequest: JSValue?
+        var onResponse: JSValue?
+    }
+
+    /// The single gate deciding which of a script call's possible endings resumes its
+    /// continuation, plus the watchdog that ending has to stop.
+    ///
+    /// GCD retains a scheduled block until it fires, and a watchdog block captures the
+    /// work item it would cancel — and through it the request or response and its body —
+    /// so a watchdog left pending after the call had already finished kept every hooked
+    /// exchange alive for the full timeout, at request rate. Cancelling a block that has
+    /// not started yet does take effect; the documented no-op cancel on the timeout path
+    /// is the script's own work item, which by then is already running.
+    private struct ScriptResumeGate {
+        // MARK: Internal
+
+        /// Schedules the watchdog and remembers it so the winning ending can stop it. Armed
+        /// before the script's work item is enqueued: a call that finished first would
+        /// otherwise find nothing to cancel and leak exactly the block this exists to drop.
+        ///
+        /// The watchdog must not share the plugin's serial queue: a serial queue runs one
+        /// block at a time, so while a runaway script holds it the watchdog could never be
+        /// dequeued and the timeout would never fire at all.
+        func arm(_ watchdog: DispatchWorkItem, timeout: TimeInterval) {
+            pendingWatchdog.withLock { $0 = watchdog }
+            DispatchQueue.global(qos: .userInitiated)
+                .asyncAfter(deadline: .now() + timeout, execute: watchdog)
+        }
+
+        /// Claims the right to resume the continuation. The claim is also what stops the
+        /// watchdog, so no ending can forget to.
+        func claimResume() -> Bool {
+            let claimed = resumed.withLock { alreadyResumed -> Bool in
+                if alreadyResumed {
+                    return false
+                }
+                alreadyResumed = true
+                return true
+            }
+            guard claimed else {
+                return false
+            }
+            let watchdog = pendingWatchdog.withLock { item -> DispatchWorkItem? in
+                defer { item = nil }
+                return item
+            }
+            watchdog?.cancel()
+            return true
+        }
+
+        // MARK: Private
+
+        private let resumed = OSAllocatedUnfairLock(initialState: false)
+        private let pendingWatchdog = OSAllocatedUnfairLock<DispatchWorkItem?>(initialState: nil)
+    }
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "ScriptRuntime")
     private static let timeout: TimeInterval = 5
@@ -500,6 +635,25 @@ actor ScriptRuntime {
     private let previewLedger: ScriptExecutionLedger?
     private let consoleSink: @Sendable (ScriptConsoleEvent) -> Void
     private var contexts: [String: JSContext] = [:]
+    /// Plugins whose serial queue is occupied forever by a script that did not
+    /// terminate. Their queue and `JSContext` are abandoned rather than reused: a
+    /// later call enqueued behind an infinite loop would wait the whole timeout and
+    /// then fail anyway, so failing it at once is both faster and more truthful.
+    private var wedgedPlugins: Set<String> = []
+    /// Which load a plugin's current context came from. A runaway script is detected
+    /// up to `timeout` seconds late, by which time the user may have fixed and
+    /// reloaded it, so the watchdog must prove it is retiring the load it timed out
+    /// on and not a healthy replacement.
+    private var loadGenerations: [String: Int] = [:]
+    private var lastLoadGeneration = 0
+    /// Which load attempt is currently entitled to register a plugin's tables. Separate
+    /// from `loadGenerations`, which identifies a load that already succeeded so the hook
+    /// watchdog can prove it is retiring the load it timed out on.
+    private var loadTokens: [String: Int] = [:]
+    #if DEBUG
+    private var sourceEvaluationHook: (@Sendable () -> Void)?
+    #endif
+    private var lastLoadToken = 0
     private var queues: [String: DispatchQueue] = [:]
     private var exceptionLocks: [String: OSAllocatedUnfairLock<String?>] = [:]
     private var onRequestHandlers: [String: JSValue] = [:]
@@ -507,6 +661,29 @@ actor ScriptRuntime {
     private var onRequestArity: [String: Int] = [:]
     private var onResponseArity: [String: Int] = [:]
     private var flowStateStores: [String: ScriptFlowStateStore] = [:]
+
+    /// Picks a hook out of `module.exports` first, then the globals, which is the order
+    /// the two supported authoring styles need.
+    private static func hookFunction(
+        named name: String,
+        in context: JSContext,
+        exports: JSValue?
+    )
+        -> JSValue?
+    {
+        if let exports, !exports.isUndefined, !exports.isNull,
+           let fn = exports.objectForKeyedSubscript(name),
+           !fn.isUndefined, fn.isObject
+        {
+            return fn
+        }
+        if let global = context.objectForKeyedSubscript(name),
+           !global.isUndefined, global.isObject
+        {
+            return global
+        }
+        return nil
+    }
 
     private static func clearException(in context: JSContext, lock: OSAllocatedUnfairLock<String?>?) {
         context.exception = nil
@@ -577,5 +754,114 @@ actor ScriptRuntime {
             bodyTruncated: false,
             contentType: ContentTypeDetector.detect(headers: headerPairs, body: bodyData)
         )
+    }
+
+    /// Claims the right to register this plugin's tables when its evaluation returns.
+    /// Any later `beginLoad` or `unloadPlugin` for the same id takes that right away.
+    private func beginLoad(of id: String) -> Int {
+        lastLoadToken += 1
+        loadTokens[id] = lastLoadToken
+        return lastLoadToken
+    }
+
+    private func invalidateInFlightLoad(of id: String) {
+        lastLoadToken += 1
+        loadTokens[id] = lastLoadToken
+    }
+
+    /// Evaluates a plugin's own source on its serial queue and extracts its hooks,
+    /// failing with `runawayScript` if the top-level code does not finish within
+    /// `timeout`. On that path the queue and context are left behind unregistered: the
+    /// evaluation still holds the queue and JavaScriptCore cannot interrupt it, so the
+    /// only safe thing is never to hand either out again.
+    private func evaluateSource(
+        _ source: String,
+        in context: JSContext,
+        on queue: DispatchQueue,
+        pluginID: String,
+        lock: OSAllocatedUnfairLock<String?>
+    )
+        async throws -> ScriptLoadProducts
+    {
+        let products = ScriptLoadProducts()
+        let gate = ScriptResumeGate()
+        #if DEBUG
+        let evaluationHook = sourceEvaluationHook
+        #endif
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let workItem = DispatchWorkItem {
+                #if DEBUG
+                evaluationHook?()
+                #endif
+                // CommonJS compatibility: prime `module` and `exports` as globals BEFORE
+                // evaluating user source so scripts that use `module.exports = { ... }`
+                // pick them up. Evaluating the user source at the top level (not inside an
+                // IIFE) preserves direct-global declarations like `function onRequest()`,
+                // so both patterns continue to work.
+                context.evaluateScript("var module = { exports: {} }; var exports = module.exports;")
+                context.evaluateScript(source)
+                let failure = Self.consumeException(from: context, lock: lock)
+                if failure == nil {
+                    let moduleExports = context.objectForKeyedSubscript("module")?
+                        .objectForKeyedSubscript("exports")
+                    products.onRequest = Self.hookFunction(
+                        named: "onRequest", in: context, exports: moduleExports
+                    )
+                    products.onResponse = Self.hookFunction(
+                        named: "onResponse", in: context, exports: moduleExports
+                    )
+                }
+                guard gate.claimResume() else {
+                    return
+                }
+                if let failure {
+                    continuation.resume(throwing: ScriptRuntimeError.jsException(failure))
+                } else {
+                    continuation.resume(returning: products)
+                }
+            }
+
+            let watchdog = DispatchWorkItem {
+                guard gate.claimResume() else {
+                    return
+                }
+                // `cancel()` is a documented no-op for work already executing, so the
+                // evaluation keeps spinning on its own queue. Nothing is registered for
+                // this plugin, so later calls fail fast with `pluginNotLoaded` rather
+                // than queueing behind a loop that will never end.
+                workItem.cancel()
+                Self.logger.error(
+                    "Script plugin source did not finish evaluating: \(pluginID, privacy: .public)"
+                )
+                continuation.resume(throwing: ScriptRuntimeError.runawayScript(pluginID))
+            }
+            gate.arm(watchdog, timeout: Self.timeout)
+            queue.async(execute: workItem)
+        }
+    }
+
+    /// Retires a plugin whose script never returned. Drops exactly what
+    /// `unloadPlugin(id:)` drops, because the queue and context are unusable: the
+    /// runaway script still holds the queue and no public JavaScriptCore API can
+    /// interrupt a running evaluation. The abandoned thread keeps the queue object
+    /// alive through its own retain; the point is only that nothing is handed it again.
+    private func markPluginWedged(_ id: String, generation: Int) {
+        // A reload during the timeout window replaces the context, and retiring that
+        // fresh load would disable a plugin the user has just fixed.
+        guard loadGenerations[id] == generation else {
+            return
+        }
+        wedgedPlugins.insert(id)
+        loadGenerations.removeValue(forKey: id)
+        contexts.removeValue(forKey: id)
+        queues.removeValue(forKey: id)
+        exceptionLocks.removeValue(forKey: id)
+        onRequestHandlers.removeValue(forKey: id)
+        onResponseHandlers.removeValue(forKey: id)
+        onRequestArity.removeValue(forKey: id)
+        onResponseArity.removeValue(forKey: id)
+        flowStateStores.removeValue(forKey: id)
+        Self.logger.error("Retired script plugin whose script did not terminate: \(id, privacy: .public)")
     }
 }

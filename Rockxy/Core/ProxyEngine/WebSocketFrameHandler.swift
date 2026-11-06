@@ -2,6 +2,7 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOSSL
 import NIOWebSocket
 import os
 
@@ -83,6 +84,25 @@ final class WebSocketLifecycle: @unchecked Sendable {
         onTransactionComplete(transaction)
     }
 
+    /// Records that a relay failed so the eventual completion is reported honestly as failed
+    /// rather than as a clean close. Has no effect once the lifecycle reached its terminal state.
+    func recordFailure() {
+        lock.lock()
+        // After a close frame, a dropped TCP or TLS connection is the normal end of the
+        // conversation, not a failure.
+        if !isComplete, !sawCloseFrame {
+            didFail = true
+        }
+        lock.unlock()
+    }
+
+    /// Notes that either side sent a close frame, so later transport errors are not failures.
+    func recordCloseFrame() {
+        lock.lock()
+        sawCloseFrame = true
+        lock.unlock()
+    }
+
     func complete(_ transaction: HTTPTransaction) {
         // Claim and read the open flag in one critical section: `open(_:)` checks `isComplete`
         // under the same lock, so it either delivered before this point or never will.
@@ -90,6 +110,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
         let claimed = !isComplete
         isComplete = true
         let wasOpened = isOpened
+        let failed = didFail
         lock.unlock()
         guard claimed else {
             return
@@ -103,7 +124,7 @@ final class WebSocketLifecycle: @unchecked Sendable {
             if !wasOpened {
                 transaction.deliversLiveRow = false
             }
-            transaction.state = .completed
+            transaction.state = failed ? .failed : .completed
             transaction.measuredDuration = closedAt.timeIntervalSince(transaction.timestamp)
             transaction.webSocketFrameVersion += 1
             onTransactionComplete(transaction)
@@ -125,6 +146,8 @@ final class WebSocketLifecycle: @unchecked Sendable {
     private let onChannelClosed: @Sendable () -> Void
     private var isOpened = false
     private var isComplete = false
+    private var didFail = false
+    private var sawCloseFrame = false
 
     private func claimTerminalState() -> Bool {
         lock.lock()
@@ -151,13 +174,45 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         webSocketConnection: WebSocketConnection,
         parentTransaction: HTTPTransaction,
         onTransactionComplete: @escaping @Sendable (HTTPTransaction) -> Void,
-        lifecycle: WebSocketLifecycle? = nil
+        lifecycle: WebSocketLifecycle? = nil,
+        frameRefreshCoalescer: WebSocketFrameRefreshCoalescer? = nil,
+        frameRefreshScheduler: @escaping WebSocketFrameRefreshCoalescer.Scheduler = { publication in
+            WebSocketFrameRefreshCoalescer.scheduleOnMainQueue(publication)
+        }
     ) {
         self.direction = direction
         self.peerChannel = peerChannel
         self.webSocketConnection = webSocketConnection
         self.parentTransaction = parentTransaction
+        // One coalescer per connection, shared by both directions, the same way the two
+        // handlers already share one `WebSocketLifecycle`. A coalescer per handler meant each
+        // socket scheduled two independent 100 ms main-queue blocks that bumped the same
+        // observable frame version, so a few hundred open sockets woke the main queue hundreds
+        // of times per interval for one redraw each.
+        self.frameRefreshCoalescer = frameRefreshCoalescer ?? WebSocketFrameRefreshCoalescer(
+            publish: { [weak parentTransaction] in
+                parentTransaction?.webSocketFrameVersion += 1
+            },
+            scheduler: frameRefreshScheduler
+        )
         self.lifecycle = lifecycle ?? WebSocketLifecycle(onTransactionComplete: onTransactionComplete)
+    }
+
+    /// Builds the per-connection coalescer both direction handlers share.
+    nonisolated static func makeFrameRefreshCoalescer(
+        for transaction: HTTPTransaction,
+        scheduler: @escaping WebSocketFrameRefreshCoalescer.Scheduler = { publication in
+            WebSocketFrameRefreshCoalescer.scheduleOnMainQueue(publication)
+        }
+    )
+        -> WebSocketFrameRefreshCoalescer
+    {
+        WebSocketFrameRefreshCoalescer(
+            publish: { [weak transaction] in
+                transaction?.webSocketFrameVersion += 1
+            },
+            scheduler: scheduler
+        )
     }
 
     // MARK: Internal
@@ -167,12 +222,27 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
 
     nonisolated func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let frame = unwrapInboundIn(data)
+        if frame.opcode == .connectionClose {
+            lifecycle.recordCloseFrame()
+        }
         captureFrame(frame)
         forwardFrame(frame, context: context)
     }
 
     nonisolated func errorCaught(context: ChannelHandlerContext, error: Error) {
         wsLogger.error("WebSocket error (\(self.direction.rawValue)): \(error.localizedDescription)")
+        // A TLS peer that closes without close_notify is treated as a clean end everywhere else.
+        let isUncleanTLSShutdown = (error as? NIOSSLError).map {
+            if case .uncleanShutdown = $0 {
+                true
+            } else {
+                false
+            }
+        }
+            ?? false
+        if !isUncleanTLSShutdown {
+            lifecycle.recordFailure()
+        }
         peerChannel?.close(promise: nil)
         context.close(promise: nil)
     }
@@ -189,6 +259,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     private let webSocketConnection: WebSocketConnection
     private let lifecycle: WebSocketLifecycle
     private let parentTransaction: HTTPTransaction
+    private let frameRefreshCoalescer: WebSocketFrameRefreshCoalescer
 
     /// Unmasks the frame payload (WebSocket client frames are always masked per RFC 6455)
     /// and records it in the shared connection model before forwarding.
@@ -196,12 +267,8 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         guard !webSocketConnection.isCaptureLimitReached else {
             return
         }
-        let opcode = mapOpcode(frame.opcode)
-        var dataBuffer = frame.unmaskedData
-        let payloadBytes = dataBuffer.readBytes(length: dataBuffer.readableBytes) ?? []
-        let payload = Data(payloadBytes)
-
-        guard payload.count <= ProxyLimits.maxWebSocketFrameSize else {
+        // Reject oversized capture before unmasking or allocating a body snapshot.
+        guard frame.data.readableBytes <= ProxyLimits.maxWebSocketFrameSize else {
             webSocketConnection.stopCaptureAtLimit()
             notifyTransactionUpdate()
             wsLogger.warning(
@@ -209,6 +276,8 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
             )
             return
         }
+        let opcode = mapOpcode(frame.opcode)
+        let payload = ProxyHandlerShared.capturedBodyData(frame.unmaskedData) ?? Data()
         let frameData = WebSocketFrameData(
             direction: direction,
             opcode: opcode,
@@ -232,10 +301,7 @@ final class WebSocketFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     nonisolated private func notifyTransactionUpdate() {
-        let transaction = parentTransaction
-        Task { @MainActor in
-            transaction.webSocketFrameVersion += 1
-        }
+        frameRefreshCoalescer.requestRefresh()
     }
 
     nonisolated private func forwardFrame(
@@ -303,6 +369,7 @@ nonisolated enum WebSocketPipelineConfigurator {
         transaction.sourcePort = handshake?.sourcePort
         transaction.clientApp = UpstreamResponseHandler.extractAppFromUserAgent(requestData.headers)
         let lifecycle = lifecycle ?? WebSocketLifecycle(onTransactionComplete: onTransactionComplete)
+        let frameRefreshCoalescer = WebSocketFrameHandler.makeFrameRefreshCoalescer(for: transaction)
 
         let clientHandler = WebSocketFrameHandler(
             direction: .sent,
@@ -310,7 +377,8 @@ nonisolated enum WebSocketPipelineConfigurator {
             webSocketConnection: wsConnection,
             parentTransaction: transaction,
             onTransactionComplete: onTransactionComplete,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            frameRefreshCoalescer: frameRefreshCoalescer
         )
         let serverHandler = WebSocketFrameHandler(
             direction: .received,
@@ -318,7 +386,8 @@ nonisolated enum WebSocketPipelineConfigurator {
             webSocketConnection: wsConnection,
             parentTransaction: transaction,
             onTransactionComplete: onTransactionComplete,
-            lifecycle: lifecycle
+            lifecycle: lifecycle,
+            frameRefreshCoalescer: frameRefreshCoalescer
         )
 
         let clientFuture = ProxyPipeline.configureClientWebSocketPipeline(

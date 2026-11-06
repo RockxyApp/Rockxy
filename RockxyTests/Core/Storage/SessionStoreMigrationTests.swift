@@ -32,7 +32,7 @@ struct SessionStoreMigrationTests {
         let store = try SessionStore(directory: dir)
         let version = try await store.schemaVersion()
 
-        #expect(version >= 3)
+        #expect(version >= 6)
     }
 
     @Test("Second initialization skips migration")
@@ -156,6 +156,72 @@ struct SessionStoreMigrationTests {
         #expect(loaded.webSocketConnection != nil)
         #expect(loaded.webSocketConnection?.frames.isEmpty == true)
         #expect(!MainContentCoordinator.canReplay(loaded))
+    }
+
+    @Test("Save and load preserves WebSocket close metadata")
+    func saveLoadPreservesWebSocketCloseMetadata() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try SessionStore(directory: dir)
+        let request = TestFixtures.makeRequest(url: "wss://ws.example.com/close")
+        let frame = WebSocketFrameData(
+            direction: .received,
+            opcode: .connectionClose,
+            payload: Data([0x03, 0xE9]) + Data("going away".utf8),
+            closeCode: 1_001,
+            closeReason: "going away",
+            closeOrigin: "remote",
+            isAbnormalTermination: true
+        )
+        let transaction = HTTPTransaction(
+            request: request,
+            state: .completed,
+            webSocketConnection: WebSocketConnection(upgradeRequest: request, frames: [frame])
+        )
+
+        try await store.saveTransaction(transaction)
+        let reloadedStore = try SessionStore(directory: dir)
+        let loaded = try #require(try await reloadedStore.loadTransaction(byID: transaction.id))
+        let loadedFrame = try #require(loaded.webSocketConnection?.frames.first)
+
+        #expect(loadedFrame.closeCode == 1_001)
+        #expect(loadedFrame.closeReason == "going away")
+        #expect(loadedFrame.closeOrigin == "remote")
+        #expect(loadedFrame.isAbnormalTermination)
+        #expect(try await reloadedStore.schemaVersion() >= 6)
+    }
+
+    @Test("Version 5 database migrates existing WebSocket frames to close metadata columns")
+    func versionFiveDatabaseMigratesExistingWebSocketFrames() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try SessionStore(directory: dir)
+        let request = TestFixtures.makeRequest(url: "wss://ws.example.com/legacy-close")
+        let frame = WebSocketFrameData(
+            direction: .sent,
+            opcode: .text,
+            payload: Data("legacy frame".utf8)
+        )
+        let transaction = HTTPTransaction(
+            request: request,
+            state: .completed,
+            webSocketConnection: WebSocketConnection(upgradeRequest: request, frames: [frame])
+        )
+        try await store.saveTransaction(transaction)
+        try rewindWebSocketCloseMetadataMigration(at: dir)
+
+        let migratedStore = try SessionStore(directory: dir)
+        let loaded = try #require(try await migratedStore.loadTransaction(byID: transaction.id))
+        let loadedFrame = try #require(loaded.webSocketConnection?.frames.first)
+
+        #expect(try await migratedStore.schemaVersion() >= 6)
+        #expect(loadedFrame.payload == Data("legacy frame".utf8))
+        #expect(loadedFrame.closeCode == nil)
+        #expect(loadedFrame.closeReason == nil)
+        #expect(loadedFrame.closeOrigin == nil)
+        #expect(!loadedFrame.isAbnormalTermination)
     }
 
     @Test("Legacy zero-frame WebSocket handshake regains its identity after the v3 migration")
@@ -402,6 +468,28 @@ struct SessionStoreMigrationTests {
         let message = errorMessage.map { String(cString: $0) } ?? ""
         sqlite3_free(errorMessage)
         try #require(status == SQLITE_OK, "setting v3 schema failed: \(message)")
+    }
+
+    /// Simulates a v5 database written before close metadata existed on WebSocket frames.
+    private func rewindWebSocketCloseMetadataMigration(at dir: URL) throws {
+        var handle: OpaquePointer?
+        let dbPath = dir.appendingPathComponent("rockxy.sqlite3").path
+        try #require(sqlite3_open(dbPath, &handle) == SQLITE_OK)
+        defer { sqlite3_close(handle) }
+
+        for sql in [
+            "ALTER TABLE websocket_frames DROP COLUMN close_code",
+            "ALTER TABLE websocket_frames DROP COLUMN close_reason",
+            "ALTER TABLE websocket_frames DROP COLUMN close_origin",
+            "ALTER TABLE websocket_frames DROP COLUMN is_abnormal",
+            "PRAGMA user_version = 5",
+        ] {
+            var errorMessage: UnsafeMutablePointer<CChar>?
+            let status = sqlite3_exec(handle, sql, nil, nil, &errorMessage)
+            let message = errorMessage.map { String(cString: $0) } ?? ""
+            sqlite3_free(errorMessage)
+            try #require(status == SQLITE_OK, "\(sql) failed: \(message)")
+        }
     }
 
     private func makeTempDir() throws -> URL {

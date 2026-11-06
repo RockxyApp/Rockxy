@@ -52,6 +52,11 @@ struct ContextDetailsView: View {
         let duration: TimeInterval
     }
 
+    /// How many same-host neighbours count as "nearby" for the baseline and the repeated
+    /// error insight. Both read the rows themselves, so the bound is also what keeps this
+    /// pane's observation footprint off the rest of the capture.
+    private static let relatedNeighbourhoodLimit = 20
+
     @Environment(\.openWindow) private var openWindow
     @Environment(\.appUIDisplayMetrics) private var metrics
     @State private var isTimingExpanded = false
@@ -59,44 +64,6 @@ struct ContextDetailsView: View {
 
     private var selectedTransactions: [HTTPTransaction] {
         coordinator.resolveSelectedTransactions()
-    }
-
-    private var selectedErrorCount: Int {
-        selectedTransactions.count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
-    }
-
-    private var selectedTransferredText: String {
-        let bytes = selectedTransactions.reduce(Int64(0)) { partial, transaction in
-            partial + Int64(transaction.request.body?.count ?? 0)
-                + Int64(transaction.response?.body?.count ?? 0)
-        }
-        return SizeFormatter.format(bytes: bytes)
-    }
-
-    private var multiSelectionFields: [ContextTableField] {
-        [
-            ContextTableField(
-                label: String(localized: "Requests", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedTransactions.count)
-            ),
-            ContextTableField(
-                label: String(localized: "Hosts", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(Set(selectedTransactions.map(\.request.host)).count)
-            ),
-            ContextTableField(
-                label: String(localized: "Errors", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedErrorCount),
-                color: selectedErrorCount > 0 ? .red : .primary
-            ),
-            ContextTableField(
-                label: String(localized: "Rules Hit", bundle: RockxyLocalization.bundle),
-                value: CountFormatter.format(selectedTransactions.count { $0.matchedRuleID != nil })
-            ),
-            ContextTableField(
-                label: String(localized: "Transferred", bundle: RockxyLocalization.bundle),
-                value: selectedTransferredText
-            ),
-        ]
     }
 
     private var emptyStateCopy: ContextDockEmptyStateCopy {
@@ -110,7 +77,10 @@ struct ContextDetailsView: View {
     }
 
     @ViewBuilder private var contextContent: some View {
-        if selectedTransactions.count > 1 {
+        // The plurality test reads the ids, not the rows. Resolving the selection here
+        // walked the whole capture before this view had decided which branch to render,
+        // and the multi-selection branch then resolved it again for every field it shows.
+        if coordinator.selectedTransactionIDs.count > 1 {
             multiSelectionContent
         } else if let transaction = coordinator.selectedTransaction {
             singleSelectionContent(transaction)
@@ -144,12 +114,13 @@ struct ContextDetailsView: View {
     }
 
     private var multiSelectionContent: some View {
-        VStack(spacing: 0) {
+        let selected = selectedTransactions
+        return VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ContextInspectorFieldTable(
                         title: String(localized: "Selection", bundle: RockxyLocalization.bundle),
-                        fields: multiSelectionFields
+                        fields: multiSelectionFields(selected)
                     )
 
                     Text(String(
@@ -167,18 +138,17 @@ struct ContextDetailsView: View {
             WorkspaceFooterBar(horizontalPadding: 10) {
                 HStack(spacing: 8) {
                     Button {
-                        let transactions = selectedTransactions
-                        guard transactions.count == 2 else {
+                        guard selected.count == 2 else {
                             return
                         }
-                        coordinator.compareTransactions(transactions[0], transactions[1])
+                        coordinator.compareTransactions(selected[0], selected[1])
                     } label: {
                         Label(
                             String(localized: "Compare", bundle: RockxyLocalization.bundle),
                             systemImage: "arrow.left.arrow.right"
                         )
                     }
-                    .disabled(selectedTransactions.count != 2)
+                    .disabled(selected.count != 2)
                     Spacer()
                     Button {
                         coordinator.presentSelectedExport(format: .har)
@@ -188,7 +158,7 @@ struct ContextDetailsView: View {
                             systemImage: "square.and.arrow.up"
                         )
                     }
-                    .disabled(selectedTransactions.isEmpty)
+                    .disabled(selected.isEmpty)
                 }
                 .controlSize(.small)
             }
@@ -204,6 +174,10 @@ struct ContextDetailsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     ruleImpactSection(transaction)
                     overviewSection(transaction)
+                    babylonCaptureSection(transaction)
+                    if let correlation = transaction.babylonCorrelation {
+                        runtimeTraceSection(correlation)
+                    }
                     payloadSection(transaction)
                     insightSection(transaction)
                     timingSection(transaction)
@@ -262,6 +236,16 @@ struct ContextDetailsView: View {
             ContextInspectorFieldTable(
                 title: String(localized: "Details", bundle: RockxyLocalization.bundle),
                 fields: overviewFields(transaction, now: context.date)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func babylonCaptureSection(_ transaction: HTTPTransaction) -> some View {
+        if let metadata = transaction.babylonCaptureMetadata {
+            ContextInspectorFieldTable(
+                title: String(localized: "Babylon Capture", bundle: RockxyLocalization.bundle),
+                fields: babylonCaptureFields(metadata)
             )
         }
     }
@@ -338,25 +322,62 @@ struct ContextDetailsView: View {
                 label: String(localized: "Response Headers", bundle: RockxyLocalization.bundle),
                 value: CountFormatter.format(transaction.response?.headers.count ?? 0)
             ))
-            if transaction.response?.bodyTruncated == true {
+            if transaction.request.isBodyIncomplete {
                 Divider()
-                ContextInspectorFullRow {
-                    Label(
-                        String(
-                            localized: "Response body was truncated during capture",
-                            bundle: RockxyLocalization.bundle
-                        ),
-                        systemImage: "scissors"
+                bodyOmissionNotice(
+                    completeness: BodyCompleteness(transaction.request),
+                    isRequest: true,
+                    metadata: transaction.request.bodyOmission
+                )
+            }
+            if transaction.response?.isBodyIncomplete == true {
+                Divider()
+                bodyOmissionNotice(
+                    completeness: transaction.response.map { BodyCompleteness($0) } ?? .complete,
+                    isRequest: false,
+                    metadata: transaction.response?.bodyOmission
+                )
+            }
+        }
+    }
+
+    private func bodyOmissionNotice(
+        completeness: BodyCompleteness,
+        isRequest: Bool,
+        metadata: BodyOmissionMetadata?
+    )
+        -> some View
+    {
+        ContextInspectorFullRow {
+            VStack(alignment: .leading, spacing: 4) {
+                Label(
+                    BodyCompleteness.detailsTitle(forRequest: isRequest, completeness: completeness),
+                    systemImage: completeness.isUnknown ? "questionmark.circle" : "scissors"
+                )
+                .font(.system(size: metrics.metadataFontSize))
+                .foregroundStyle(completeness.isUnknown ? Color.secondary : Color.orange)
+                if let metadata {
+                    LabeledContent(
+                        String(localized: "Body omission reason", bundle: RockxyLocalization.bundle),
+                        value: BodyCompleteness.reasonDescription(metadata.reason)
                     )
-                    .font(.system(size: metrics.metadataFontSize))
-                    .foregroundStyle(.orange)
+                    LabeledContent(
+                        String(localized: "Observed bytes", bundle: RockxyLocalization.bundle),
+                        value: SizeFormatter.format(bytes: metadata.observedBytes)
+                    )
+                    if let originalBytes = metadata.originalBytes {
+                        LabeledContent(
+                            String(localized: "Original bytes", bundle: RockxyLocalization.bundle),
+                            value: SizeFormatter.format(bytes: originalBytes)
+                        )
+                    }
                 }
             }
         }
     }
 
     private func relatedSection(_ transaction: HTTPTransaction) -> some View {
-        let related = Array(relatedTransactions(to: transaction).prefix(6))
+        let related = coordinator.nearestTransactions(toSameHostAs: transaction, limit: 6)
         return ContextInspectorDisclosureTable(
             title: String(localized: "Related Requests", bundle: RockxyLocalization.bundle),
             isExpanded: $isRelatedExpanded,
@@ -562,6 +583,223 @@ struct ContextDetailsView: View {
         DurationFormatter.format(seconds: duration)
     }
 
+    private static func transferredText(of selected: [HTTPTransaction]) -> String {
+        let bytes = selected.reduce(Int64(0)) { partial, transaction in
+            partial + Int64(transaction.request.body?.count ?? 0)
+                + Int64(transaction.response?.body?.count ?? 0)
+        }
+        return SizeFormatter.format(bytes: bytes)
+    }
+
+    /// Takes the resolved selection rather than reading it, because every field used to
+    /// read a computed property that re-resolved the whole selection: six resolutions for
+    /// five fields, on top of the one the plurality test already cost.
+    private func multiSelectionFields(_ selected: [HTTPTransaction]) -> [ContextTableField] {
+        let errorCount = selected.count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
+        return [
+            ContextTableField(
+                label: String(localized: "Requests", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(selected.count)
+            ),
+            ContextTableField(
+                label: String(localized: "Hosts", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(Set(selected.map(\.request.host)).count)
+            ),
+            ContextTableField(
+                label: String(localized: "Errors", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(errorCount),
+                color: errorCount > 0 ? .red : .primary
+            ),
+            ContextTableField(
+                label: String(localized: "Rules Hit", bundle: RockxyLocalization.bundle),
+                value: CountFormatter.format(selected.count { $0.matchedRuleID != nil })
+            ),
+            ContextTableField(
+                label: String(localized: "Transferred", bundle: RockxyLocalization.bundle),
+                value: Self.transferredText(of: selected)
+            ),
+        ]
+    }
+
+    private func babylonCaptureFields(_ metadata: BabylonCaptureMetadata) -> [ContextTableField] {
+        var fields = [
+            ContextTableField(
+                label: String(localized: "Package", bundle: RockxyLocalization.bundle),
+                value: metadata.packageName,
+                monospaced: false
+            ),
+            ContextTableField(
+                label: String(localized: "Client ID", bundle: RockxyLocalization.bundle),
+                value: metadata.clientID
+            ),
+            ContextTableField(
+                label: String(localized: "Transport Session", bundle: RockxyLocalization.bundle),
+                value: metadata.transportSessionID
+            ),
+        ]
+        if !metadata.bundleIdentifier.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Bundle ID", bundle: RockxyLocalization.bundle),
+                value: metadata.bundleIdentifier
+            ))
+        }
+        let deviceDescription = [metadata.deviceName, metadata.deviceModel]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        if !deviceDescription.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Device", bundle: RockxyLocalization.bundle),
+                value: deviceDescription,
+                monospaced: false
+            ))
+        }
+        if let sdkVersion = metadata.sdkVersion {
+            fields.append(ContextTableField(
+                label: String(localized: "Babylon SDK", bundle: RockxyLocalization.bundle),
+                value: sdkVersion
+            ))
+        }
+        if let platform = metadata.platform {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Platform", bundle: RockxyLocalization.bundle),
+                value: platform
+            ))
+        }
+        if let runtimeSessionID = metadata.runtimeSessionID {
+            fields.append(ContextTableField(
+                label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                value: runtimeSessionID
+            ))
+        }
+        if let traceID = metadata.traceID {
+            fields.append(ContextTableField(
+                label: String(localized: "Trace ID", bundle: RockxyLocalization.bundle),
+                value: traceID
+            ))
+        }
+        if let stepID = metadata.stepID {
+            fields.append(ContextTableField(
+                label: String(localized: "Step ID", bundle: RockxyLocalization.bundle),
+                value: stepID
+            ))
+        }
+        if !metadata.payloadSchemaVersions.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Payload Schemas", bundle: RockxyLocalization.bundle),
+                value: metadata.payloadSchemaVersions.sorted(by: { $0.key < $1.key })
+                    .map { "\($0.key) v\($0.value)" }.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        let capabilities = metadata.supportedTrafficTypes + metadata.supportedMessageTypes
+        if !capabilities.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Capabilities", bundle: RockxyLocalization.bundle),
+                value: capabilities.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        let producerLimits = [
+            metadata.maximumBodyBytes
+                .map { "Body \(SizeFormatter.format(bytes: Int64($0)))" },
+            metadata.maximumWebSocketFrameBytes.map {
+                "WebSocket \(SizeFormatter.format(bytes: Int64($0)))"
+            },
+            metadata.maximumCaptureMemoryBytes.map {
+                "Memory \(SizeFormatter.format(bytes: Int64($0)))"
+            },
+        ].compactMap { $0 }
+        if !producerLimits.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Producer Limits", bundle: RockxyLocalization.bundle),
+                value: producerLimits.joined(separator: ", "),
+                monospaced: false
+            ))
+        }
+        if let timing = metadata.urlSessionTiming {
+            appendURLSessionTiming(timing, to: &fields)
+        }
+        if let error = BabylonCaptureErrorPresentation.field(from: metadata) {
+            fields.append(error)
+        }
+        if !metadata.compatibilityDiagnostics.isEmpty {
+            fields.append(ContextTableField(
+                label: String(localized: "Compatibility", bundle: RockxyLocalization.bundle),
+                value: metadata.compatibilityDiagnostics.joined(separator: "\n"),
+                monospaced: false,
+                color: .orange
+            ))
+        }
+        return fields
+    }
+
+    private func appendURLSessionTiming(
+        _ timing: BabylonURLSessionTimingMetadata,
+        to fields: inout [ContextTableField]
+    ) {
+        fields.append(ContextTableField(
+            label: String(localized: "URLSession Metrics", bundle: RockxyLocalization.bundle),
+            value: "Schema v\(timing.schemaVersion)",
+            monospaced: false
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Redirect Count", bundle: RockxyLocalization.bundle),
+            value: CountFormatter.format(timing.redirectCount)
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Reported Transactions", bundle: RockxyLocalization.bundle),
+            value: CountFormatter.format(timing.reportedTransactionCount)
+        ))
+        fields.append(ContextTableField(
+            label: String(localized: "Omitted Transactions", bundle: RockxyLocalization.bundle),
+            value: CountFormatter.format(timing.omittedTransactionCount)
+        ))
+        if let taskDuration = timing.taskDuration {
+            fields.append(ContextTableField(
+                label: String(localized: "Task Duration", bundle: RockxyLocalization.bundle),
+                value: formatDuration(taskDuration)
+            ))
+        }
+        for metric in timing.transactions {
+            let details = [
+                metric.networkProtocolName,
+                metric.resourceFetchType,
+                metric.reusedConnection
+                    ? String(localized: "Reused Connection", bundle: RockxyLocalization.bundle)
+                    : nil,
+                metric.proxyConnection
+                    ? String(localized: "Proxy Connection", bundle: RockxyLocalization.bundle)
+                    : nil,
+            ].compactMap { $0 }
+            let phases: [(String, TimeInterval?)] = [
+                (String(localized: "Fetch Duration", bundle: RockxyLocalization.bundle), metric.fetchDuration),
+                (String(localized: "DNS Duration", bundle: RockxyLocalization.bundle), metric.dnsDuration),
+                (String(localized: "Connect Duration", bundle: RockxyLocalization.bundle), metric.connectDuration),
+                (
+                    String(localized: "Secure Connect Duration", bundle: RockxyLocalization.bundle),
+                    metric.secureConnectDuration
+                ),
+                (String(localized: "Request Duration", bundle: RockxyLocalization.bundle), metric.requestDuration),
+                (
+                    String(localized: "Server Wait Duration", bundle: RockxyLocalization.bundle),
+                    metric.serverWaitDuration
+                ),
+                (
+                    String(localized: "Response Transfer Duration", bundle: RockxyLocalization.bundle),
+                    metric.responseTransferDuration
+                ),
+            ]
+            let phaseDetails = phases.compactMap { label, duration in
+                duration.map { "\(label): \(formatDuration($0))" }
+            }
+            fields.append(ContextTableField(
+                label: String(localized: "Transaction \(metric.index + 1)", bundle: RockxyLocalization.bundle),
+                value: (details + phaseDetails).joined(separator: " · "),
+                monospaced: false
+            ))
+        }
+    }
+
     private func overviewFields(_ transaction: HTTPTransaction, now: Date) -> [ContextTableField] {
         var fields: [ContextTableField] = [
             ContextTableField(
@@ -757,21 +995,36 @@ struct ContextDetailsView: View {
     }
 
     private func appendCaptureInsights(for transaction: HTTPTransaction, to values: inout [ContextInsight]) {
-        if transaction.response?.bodyTruncated == true {
+        if transaction.request.isBodyIncomplete {
             values.append(ContextInsight(
-                id: "truncated",
-                title: String(localized: "Response body is incomplete", bundle: RockxyLocalization.bundle),
+                id: "request-truncated",
+                title: String(localized: "Request body is incomplete", bundle: RockxyLocalization.bundle),
                 detail: String(
-                    localized: "The captured response exceeded the configured buffer limit.",
+                    localized: "The captured body was omitted or truncated.",
                     bundle: RockxyLocalization.bundle
                 ),
                 systemImage: "scissors",
                 color: .orange
             ))
         }
-        let relatedErrors = relatedTransactions(to: transaction).count {
-            ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed
+        if transaction.response?.isBodyIncomplete == true {
+            values.append(ContextInsight(
+                id: "truncated",
+                title: String(localized: "Response body is incomplete", bundle: RockxyLocalization.bundle),
+                detail: String(
+                    localized: "The captured body was omitted or truncated.",
+                    bundle: RockxyLocalization.bundle
+                ),
+                systemImage: "scissors",
+                color: .orange
+            ))
         }
+        // Bounded to the same neighbourhood the insight's own copy describes: counting
+        // every same-host row meant reading the response and state of each one from this
+        // `body`, which is how the pane came to re-render on every arriving response.
+        let relatedErrors = coordinator
+            .nearestTransactions(toSameHostAs: transaction, limit: Self.relatedNeighbourhoodLimit)
+            .count { ($0.response?.statusCode ?? 0) >= 400 || $0.state == .failed }
         if relatedErrors >= 2 {
             values.append(ContextInsight(
                 id: "repeated-errors",
@@ -786,18 +1039,9 @@ struct ContextDetailsView: View {
         }
     }
 
-    private func relatedTransactions(to transaction: HTTPTransaction) -> [HTTPTransaction] {
-        coordinator.transactions
-            .filter { $0.id != transaction.id && $0.request.host == transaction.request.host }
-            .sorted {
-                abs($0.timestamp.timeIntervalSince(transaction.timestamp))
-                    < abs($1.timestamp.timeIntervalSince(transaction.timestamp))
-            }
-    }
-
     private func hostDurationBaseline(for transaction: HTTPTransaction) -> TimeInterval? {
-        let values = relatedTransactions(to: transaction)
-            .prefix(20)
+        let values = coordinator
+            .nearestTransactions(toSameHostAs: transaction, limit: Self.relatedNeighbourhoodLimit)
             .compactMap { $0.timingInfo?.totalDuration ?? $0.measuredDuration }
             .sorted()
         guard !values.isEmpty else {
@@ -995,5 +1239,62 @@ private struct ContextNotesEditor: View {
     private func saveNote() {
         coordinator.setNote(noteText, for: transaction)
         lastExplicitlySavedNote = MainContentCoordinator.normalizedNote(noteText)
+    }
+}
+
+extension ContextDetailsView {
+    // MARK: Babylon runtime correlation
+
+    /// The Babylon runtime trace and step the app made this request in, with a way back to the
+    /// step in Runtime Events and over to the trace's other requests.
+    private func runtimeTraceSection(_ correlation: BabylonCorrelation) -> some View {
+        ContextInspectorTable(title: String(localized: "Babylon Runtime", bundle: RockxyLocalization.bundle)) {
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Source Client", bundle: RockxyLocalization.bundle),
+                value: correlation.sourceClientID ?? "—",
+                monospaced: correlation.sourceClientID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Trace", bundle: RockxyLocalization.bundle),
+                value: correlation.traceID
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Step", bundle: RockxyLocalization.bundle),
+                value: correlation.stepID
+                    ?? String(localized: "Outside any step", bundle: RockxyLocalization.bundle),
+                monospaced: correlation.stepID != nil
+            ))
+            Divider()
+            ContextInspectorFieldRow(field: ContextTableField(
+                label: String(localized: "Runtime Session", bundle: RockxyLocalization.bundle),
+                value: correlation.sessionID
+            ))
+            Divider()
+            ContextInspectorFullRow {
+                HStack(spacing: 8) {
+                    Button(String(localized: "Show in Runtime Events", bundle: RockxyLocalization.bundle)) {
+                        BabylonRuntimeNavigation.shared.focus(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID,
+                            stepID: correlation.stepID
+                        )
+                        openWindow(id: "babylonRuntime")
+                    }
+                    .accessibilityIdentifier("contextDetails.showInRuntimeEvents")
+                    Button(String(localized: "Show Trace Requests", bundle: RockxyLocalization.bundle)) {
+                        coordinator.showBabylonTraceRequests(
+                            sourceClientID: correlation.sourceClientID,
+                            sessionID: correlation.sessionID,
+                            traceID: correlation.traceID
+                        )
+                    }
+                    .accessibilityIdentifier("contextDetails.showTraceRequests")
+                }
+                .controlSize(.small)
+            }
+        }
     }
 }

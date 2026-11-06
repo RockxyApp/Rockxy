@@ -86,6 +86,64 @@ struct RootCADownloadServerAddressTests {
     }
 }
 
+// MARK: - RootCADownloadServerPreferredInterfaceTests
+
+struct RootCADownloadServerPreferredInterfaceTests {
+    // MARK: Internal
+
+    @Test("With no choice, devices get the best-ranked address")
+    func defaultsToBestRanked() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: nil)
+        #expect(chosen?.address == "192.168.1.20")
+    }
+
+    @Test("A chosen interface wins while it is still connected")
+    func honorsChosenInterface() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: "en7")
+        #expect(chosen?.address == "10.0.0.5")
+    }
+
+    @Test("Two addresses on one interface stay separately selectable")
+    func aliasAddressesAreDistinct() {
+        let aliased = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+            (interfaceName: "en0", address: "192.168.1.20"),
+            (interfaceName: "en0", address: "192.168.50.2"),
+        ])
+        #expect(Set(aliased.map(\.id)).count == 2)
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0|192.168.50.2")
+        #expect(chosen?.address == "192.168.50.2")
+        // A bare interface name saved by an earlier build still resolves to that interface.
+        #expect(RootCADownloadServer.preferredLANCandidate(from: aliased, preferredInterface: "en0")?
+            .interfaceName == "en0")
+    }
+
+    @Test("A chosen interface that disconnected falls back instead of pointing at a dead address")
+    func fallsBackWhenChoiceDisappears() {
+        let chosen = RootCADownloadServer.preferredLANCandidate(from: candidates, preferredInterface: "en9")
+        #expect(chosen?.address == "192.168.1.20")
+        #expect(RootCADownloadServer.preferredLANCandidate(from: [], preferredInterface: "en0") == nil)
+    }
+
+    @Test("The preferred address reads the remembered interface from defaults")
+    func readsRememberedInterface() throws {
+        let suite = IsolatedDefaultsSuite.uniqueName(prefix: "RootCAPreferredInterface-")
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("no-such-interface", forKey: RootCADownloadServer.preferredInterfaceDefaultsKey)
+        // Unknown interfaces fall back to the live best-ranked address, whatever this Mac has.
+        #expect(RootCADownloadServer.preferredLANAddress(defaults: defaults)
+            == RootCADownloadServer.rankedLANIPv4AddressCandidates().first?.address)
+    }
+
+    // MARK: Private
+
+    private let candidates = RootCADownloadServer.rankedLANIPv4AddressCandidates(from: [
+        (interfaceName: "en0", address: "192.168.1.20"),
+        (interfaceName: "en7", address: "10.0.0.5"),
+        (interfaceName: "utun3", address: "100.64.0.2"),
+    ])
+}
+
 // MARK: - RootCADownloadServerLifecycleTests
 
 struct RootCADownloadServerLifecycleTests {
@@ -99,7 +157,20 @@ struct RootCADownloadServerLifecycleTests {
         let firstStart = Task {
             try await server.start(certificatePEM: "first")
         }
-        await Task.yield()
+        // A single `Task.yield()` used to stand in for ordering here, and it is not one:
+        // both starts have to reach the actor, so the second task's body can arrive first,
+        // claim the newer generation, and leave the FIRST start as the winner -- at which
+        // point `secondStart` throws `CancellationError` and the test fails on a product
+        // that behaved correctly. This was seen on 2026-11-02 under machine load.
+        // Waiting for the first start to claim its generation removes the coin flip.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await server.lifecycleGeneration == 0, ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        try #require(
+            await server.lifecycleGeneration == 1,
+            "the first start never claimed a generation, so the second cannot supersede it"
+        )
         let secondStart = Task {
             try await server.start(certificatePEM: "second")
         }
@@ -143,6 +214,8 @@ struct RootCADownloadServerLifecycleTests {
 // MARK: - RootCADownloadResponderTests
 
 struct RootCADownloadResponderTests {
+    // MARK: Internal
+
     @Test("valid token returns public PEM with download headers")
     func validTokenReturnsPublicPEM() throws {
         let now = Date()
@@ -230,6 +303,8 @@ struct RootCADownloadResponderTests {
         #expect(String(bytes: postResponse.body, encoding: .utf8)?.contains("BEGIN CERTIFICATE") == false)
         #expect(String(bytes: pathResponse.body, encoding: .utf8)?.contains("BEGIN CERTIFICATE") == false)
     }
+
+    // MARK: Private
 
     private func header(_ name: String, in response: RootCADownloadResponse) -> String? {
         response.headers.first { $0.0.caseInsensitiveCompare(name) == .orderedSame }?.1

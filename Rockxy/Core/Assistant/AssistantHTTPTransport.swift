@@ -230,6 +230,10 @@ enum AssistantHTTPErrorMapper {
             return .server(statusCode: 404, message: detail)
         case 429:
             return .rateLimited(retryAfterSeconds: retryAfterSeconds(response))
+        case 529:
+            return .overloaded(retryAfterSeconds: retryAfterSeconds(response))
+        case 503 where errorType(from: body) == "overloaded_error" || detail.localizedCaseInsensitiveContains("overloaded"):
+            return .overloaded(retryAfterSeconds: retryAfterSeconds(response))
         case 500 ... 599:
             return .server(statusCode: response.statusCode, message: detail)
         default:
@@ -297,6 +301,15 @@ enum AssistantHTTPErrorMapper {
             return nil
         }
         return error["code"] as? String
+    }
+
+    private static func errorType(from data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = object["error"] as? [String: Any] else
+        {
+            return nil
+        }
+        return error["type"] as? String
     }
 
     private static func retryAfterSeconds(_ response: HTTPURLResponse) -> Int? {

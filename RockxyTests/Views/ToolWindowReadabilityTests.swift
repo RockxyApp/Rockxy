@@ -389,7 +389,7 @@ struct ToolWindowReadabilityTests {
         #expect(!controlsSource.contains("Text(target.rawValue)"))
         #expect(!controlsSource.contains("Text(mode.rawValue)"))
 
-        #expect(contextSource.contains("coordinator.compareTransactions(transactions[0], transactions[1])"))
+        #expect(contextSource.contains("coordinator.compareTransactions(selected[0], selected[1])"))
         #expect(!contextSource.contains("NotificationCenter.default.post(name: .openDiffWindow"))
     }
 
@@ -1298,7 +1298,7 @@ struct ToolWindowReadabilityTests {
 
         // List-to-editor handoff is preserved on create / edit / double-click.
         #expect(source.contains(#"openWindow(id: "scriptEditor")"#))
-        #expect(source.contains("viewModel.createNewScript()"))
+        #expect(source.contains("viewModel.createNewScript(from: template)"))
         #expect(source.contains("viewModel.openEditorForSelection()"))
         #expect(source.contains("viewModel.openEditor(for: id)"))
 

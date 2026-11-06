@@ -507,4 +507,25 @@ struct RequestListRowTests {
         )
         return RequestListRow(from: transaction)
     }
+
+    @Test("x402 payment flows get their own badge")
+    func x402Badge() {
+        let transaction = TestFixtures.makeTransaction(url: "https://paid.example.com/report", statusCode: 402)
+        transaction.x402Info = X402Info(
+            stage: .paymentRequired,
+            isX402Like: true,
+            version: "1",
+            paymentRequired: true,
+            hasPaymentProof: false,
+            hasChallenge: true,
+            hasPaymentMetadata: false,
+            providerErrorPresent: false,
+            parseState: .parsed,
+            redactionFields: [],
+            requestPayloadSize: nil,
+            responsePayloadSize: nil
+        )
+        let row = RequestListRow(from: transaction)
+        #expect(row.smartBadgeText == "x402")
+    }
 }

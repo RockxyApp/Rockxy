@@ -9,14 +9,19 @@ struct Web3RPCInspectorView: View {
     let transaction: HTTPTransaction
 
     var body: some View {
-        if let info = transaction.web3RPCInfo {
+        if transaction.web3RPCInfo != nil || transaction.x402Info != nil {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    callSummary(info)
-                    debugIntentCard(info)
-                    metadataGrid(info)
-                    batchSummary(info.batch)
-                    errorStrip(info.error)
+                    if let info = transaction.web3RPCInfo {
+                        callSummary(info)
+                        debugIntentCard(info)
+                        metadataGrid(info)
+                        batchSummary(info.batch)
+                        errorStrip(info.error)
+                    }
+                    if let payment = transaction.x402Info {
+                        paymentSection(payment)
+                    }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -140,6 +145,57 @@ struct Web3RPCInspectorView: View {
                 payload
             }
         }
+    }
+
+    /// x402 payment lifecycle hints. Only field names are listed for sensitive values; the
+    /// payment proof, challenge, and receipt themselves are never shown here.
+    private func paymentSection(_ payment: X402Info) -> some View {
+        section(
+            String(localized: "Payment (x402)", bundle: RockxyLocalization.bundle),
+            badgeText: payment.isX402Like ? payment.version.map { "v\($0)" } : nil
+        ) {
+            VStack(spacing: 0) {
+                metadataRow(
+                    String(localized: "Stage", bundle: RockxyLocalization.bundle),
+                    value: payment.stage.displayName,
+                    color: payment.stage.color
+                )
+                Divider()
+                metadataRow(
+                    String(localized: "Proof Sent", bundle: RockxyLocalization.bundle),
+                    value: payment.hasPaymentProof
+                        ? String(localized: "Yes", bundle: RockxyLocalization.bundle)
+                        : String(localized: "No", bundle: RockxyLocalization.bundle)
+                )
+                Divider()
+                metadataRow(
+                    String(localized: "Requirements", bundle: RockxyLocalization.bundle),
+                    value: payment.hasChallenge
+                        ? String(localized: "Included", bundle: RockxyLocalization.bundle)
+                        : String(localized: "Not seen", bundle: RockxyLocalization.bundle)
+                )
+                if payment.parseState == .malformed {
+                    Divider()
+                    metadataRow(
+                        String(localized: "Body", bundle: RockxyLocalization.bundle),
+                        value: String(
+                            localized: "Not valid JSON; hints come from text",
+                            bundle: RockxyLocalization.bundle
+                        ),
+                        color: .orange
+                    )
+                }
+                if !payment.redactionFields.isEmpty {
+                    Divider()
+                    metadataRow(
+                        String(localized: "Sensitive", bundle: RockxyLocalization.bundle),
+                        value: payment.redactionFields.joined(separator: ", "),
+                        color: .orange
+                    )
+                }
+            }
+        }
+        .accessibilityIdentifier("web3.x402Payment")
     }
 
     private func metadataGrid(_ info: Web3RPCInfo) -> some View {
@@ -675,6 +731,39 @@ private extension Web3RPCFamily {
             "EVM RPC"
         case .solana:
             "Solana RPC"
+        }
+    }
+}
+
+// MARK: - X402Stage + Display
+
+extension X402Stage {
+    var displayName: String {
+        switch self {
+        case .ordinaryPaymentRequired:
+            String(localized: "HTTP 402 without x402 details", bundle: RockxyLocalization.bundle)
+        case .paymentRequired:
+            String(localized: "Payment required", bundle: RockxyLocalization.bundle)
+        case .paymentProofSubmitted:
+            String(localized: "Payment sent, awaiting result", bundle: RockxyLocalization.bundle)
+        case .paymentAccepted:
+            String(localized: "Payment accepted", bundle: RockxyLocalization.bundle)
+        case .providerError:
+            String(localized: "Payment rejected", bundle: RockxyLocalization.bundle)
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .ordinaryPaymentRequired,
+             .paymentRequired:
+            .orange
+        case .paymentProofSubmitted:
+            .blue
+        case .paymentAccepted:
+            .green
+        case .providerError:
+            .red
         }
     }
 }

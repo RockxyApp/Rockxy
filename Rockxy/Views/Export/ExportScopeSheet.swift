@@ -207,11 +207,20 @@ struct ExportScopeSheet: View {
     }
 
     private var privacyNote: some View {
-        Text(context.format.privacyNote)
-            .font(toolMetrics.secondaryFont())
-            .foregroundStyle(Color(nsColor: .secondaryLabelColor))
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityIdentifier("exportScope.privacy")
+        VStack(alignment: .leading, spacing: 4) {
+            if let limitation = context.format.limitationNote {
+                Text(limitation)
+                    .font(toolMetrics.secondaryFont())
+                    .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("exportScope.limitation")
+            }
+            Text(context.format.privacyNote)
+                .font(toolMetrics.secondaryFont())
+                .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("exportScope.privacy")
+        }
     }
 
     private var redactionToggle: some View {

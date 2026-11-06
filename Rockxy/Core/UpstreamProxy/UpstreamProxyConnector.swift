@@ -180,6 +180,13 @@ nonisolated enum UpstreamProxyConnector {
             return ClientBootstrap(group: eventLoop)
                 .connectTimeout(timeout)
                 .connect(host: proxyHost, port: proxyPort)
+                .flatMapErrorThrowing { error in
+                    throw UpstreamProxyError.proxyUnreachable(
+                        host: proxyHost,
+                        port: proxyPort,
+                        reason: UpstreamProxyError.unreachableReason(error)
+                    )
+                }
                 .flatMap { channel in
                     probe.install(on: channel, route: route, connectedAt: .now())
                     let transport: EventLoopFuture<Void> = proxyType == .https
@@ -208,6 +215,13 @@ nonisolated enum UpstreamProxyConnector {
         return ClientBootstrap(group: eventLoop)
             .connectTimeout(timeout)
             .connect(host: proxyHost, port: proxyPort)
+            .flatMapErrorThrowing { error in
+                throw UpstreamProxyError.proxyUnreachable(
+                    host: proxyHost,
+                    port: proxyPort,
+                    reason: UpstreamProxyError.unreachableReason(error)
+                )
+            }
             .flatMap { channel in
                 probe.install(on: channel, route: route, connectedAt: .now())
                 let handshake = installHandshake(

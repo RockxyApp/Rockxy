@@ -14,10 +14,15 @@ import Foundation
 enum EmulatorHostAlias {
     static let aliases: Set<String> = ["10.0.2.2", "10.0.3.2"]
 
+    /// `localAddresses` is an autoclosure because resolving it costs a `getifaddrs` and a
+    /// locale-aware sort, and the guard below rejects all but emulator loopback traffic. A
+    /// plain default argument is evaluated at the CALL SITE, so the guard could never
+    /// prevent that work -- and `UpstreamConnectHost.resolve` reaches here once per request,
+    /// per CONNECT and per intercepted connection, on a NIO event loop.
     static func connectHost(
         for host: String,
         clientHost: String?,
-        localAddresses: [String] = RootCADownloadServer.lanIPv4Addresses()
+        localAddresses: @autoclosure () -> [String] = RootCADownloadServer.lanIPv4Addresses()
     )
         -> String
     {
@@ -28,7 +33,7 @@ enum EmulatorHostAlias {
             return host
         }
         let subnet = host.split(separator: ".").prefix(3).joined(separator: ".") + "."
-        guard !localAddresses.contains(where: { $0.hasPrefix(subnet) }) else {
+        guard !localAddresses().contains(where: { $0.hasPrefix(subnet) }) else {
             return host
         }
         return "127.0.0.1"

@@ -477,6 +477,9 @@ struct SetupSnapshot: Equatable {
     var activePort: Int
     var effectiveListenAddress: String
     var reachableLANAddress: String?
+    /// Every LAN address devices could use, best first. More than one means the person should
+    /// choose which network the device is on.
+    var lanCandidates: [LANIPv4AddressCandidate] = []
     var certificateGenerated: Bool
     var certificateTrusted: Bool
     var certificateExportable: Bool

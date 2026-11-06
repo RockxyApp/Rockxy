@@ -26,9 +26,26 @@ enum Web3RPCDetector {
 
         let responses = parseResponses(from: response?.decodedBody(limit: maxPayloadBytes))
         let primaryResponse = responseEntry(matching: primary.id, in: responses) ?? responses.first
-        let batch = makeBatchSummary(requestRoot: requestRoot, requests: requests, web3Requests: web3Requests, responses: responses)
+        let batch = makeBatchSummary(
+            requestRoot: requestRoot,
+            requests: requests,
+            web3Requests: web3Requests,
+            responses: responses
+        )
         let error = primaryResponse?.error ?? responses.compactMap(\.error).first
         let family = family(for: primary.method)
+
+        // In a batch, responses may arrive in any order; pair each call with the response that
+        // carries its id so a chain or transaction hint is never read from another call's result.
+        let pairs = web3Requests.map { request in
+            (request, batch == nil ? primaryResponse : responseEntry(matching: request.id, in: responses))
+        }
+        let resolvedChainHint = pairs.lazy
+            .compactMap { Self.chainHint(method: $0.0.method, response: $0.1) }
+            .first
+        let resolvedTransactionHash = pairs.lazy
+            .compactMap { Self.transactionHash(method: $0.0.method, request: $0.0, response: $0.1) }
+            .first
 
         return Web3RPCInfo(
             family: family,
@@ -37,8 +54,8 @@ enum Web3RPCDetector {
             requestID: batch == nil ? primary.id : nil,
             batch: batch,
             error: error,
-            chainHint: chainHint(method: primary.method, response: primaryResponse),
-            transactionHash: transactionHash(method: primary.method, request: primary, response: primaryResponse),
+            chainHint: resolvedChainHint,
+            transactionHash: resolvedTransactionHash,
             blockIdentifier: blockIdentifier(method: primary.method, request: primary, response: primaryResponse),
             requestPayloadSize: request.body?.count,
             responsePayloadSize: response?.body?.count
@@ -284,35 +301,35 @@ enum Web3RPCDetector {
     private static func rpcIDDescription(_ value: Any?) -> String? {
         switch value {
         case let string as String:
-            return string
+            string
         case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-            return number.stringValue
+            number.stringValue
         default:
-            return nil
+            nil
         }
     }
 
     private static func stringValue(_ value: Any?) -> String? {
         switch value {
         case let string as String:
-            return string
+            string
         case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-            return number.stringValue
+            number.stringValue
         default:
-            return nil
+            nil
         }
     }
 
     private static func intValue(_ value: Any?) -> Int? {
         switch value {
         case let int as Int:
-            return int
+            int
         case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
-            return number.intValue
+            number.intValue
         case let string as String:
-            return Int(string)
+            Int(string)
         default:
-            return nil
+            nil
         }
     }
 

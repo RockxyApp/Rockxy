@@ -144,6 +144,17 @@ final class WorkspaceState: Identifiable {
     /// ahead of the append and the displayed prefix no longer matches the model.
     var appendChainOriginToken: Int?
 
+    /// Provenance for the in-place rewrite fast-path, the counterpart of `appendChainOriginToken`
+    /// for mutations that replace existing rows without adding, removing, or moving any.
+    /// Client-app enrichment and live-stream refreshes are such mutations, and they land on
+    /// every delivery batch for as long as capture runs. `origin` is the `refreshToken` of the
+    /// base state the unbroken run of rewrites builds on, `tail` the token the last rewrite
+    /// produced, and `indexes` every row index rewritten since `origin`.
+    ///
+    /// The chain is only trusted while `tail == refreshToken`. Every other row mutation bumps
+    /// the token without touching these fields, so it retires the chain by itself and a new
+    /// mutation path cannot forget to clear it.
+    @ObservationIgnored private(set) var rewriteChainOriginToken: Int?
     /// Sort state (user preference, persists across session clears)
     var activeSortDescriptors: [NSSortDescriptor] = []
 
@@ -152,12 +163,49 @@ final class WorkspaceState: Identifiable {
     var totalDomainCount = 0
     var domainIndexMap: [String: Int] = [:]
     var domainGroupingIndex = DomainGroupingIndex()
+
+    /// The `rootOrderRevision` `domainIndexMap` was last built for. Maintenance state, so
+    /// `@ObservationIgnored`: nothing reads it but `refreshDomainTree`, which uses it to
+    /// skip rebuilding the map on the batches that only changed counts. The root list is
+    /// the one sidebar collection sized by the whole session rather than by the history
+    /// cap, so rebuilding its map ten times a second was a cost that rose with capture
+    /// length.
+    @ObservationIgnored var domainIndexRevision: UInt?
+    @ObservationIgnored var sidebarIndexSignature: [String?]?
+    @ObservationIgnored var sidebarTransactionRevisions: [ObjectIdentifier: UInt64] = [:]
+    @ObservationIgnored var rowProjectionLocale: String?
     var appNodes: [AppInfo] = []
     var appNodeIndexMap: [String: Int] = [:]
     var appGroupingIndex = AppGroupingIndex()
 
+    /// The unbroken in-place rewrite run ending at the current `refreshToken`, if any.
+    var activeRewriteChain: (originToken: Int, rowIndexes: IndexSet)? {
+        guard let origin = rewriteChainOriginToken,
+              rewriteChainTailToken == refreshToken else
+        {
+            return nil
+        }
+        return (origin, rewrittenRowIndexSet)
+    }
+
     var activeFocusSet: FocusSet? {
         focusSets.first { $0.id == activeFocusSetID }
+    }
+
+    /// Publishes a rewrite of the rows at `indexes`: same count, same order, same identities.
+    /// Replaces the append provenance (an append after this must not be inserted against a
+    /// prefix that was just mutated) and extends or starts the rewrite chain.
+    func recordInPlaceRowRewrite(at indexes: IndexSet) {
+        lastDeriveWasAppendOnly = false
+        appendChainOriginToken = nil
+        if rewriteChainTailToken == refreshToken, rewriteChainOriginToken != nil {
+            rewrittenRowIndexSet.formUnion(indexes)
+        } else {
+            rewriteChainOriginToken = refreshToken
+            rewrittenRowIndexSet = indexes
+        }
+        refreshToken += 1
+        rewriteChainTailToken = refreshToken
     }
 
     /// Publishes a fresh reveal request for `transactionID`, advancing the monotonic generation so
@@ -209,13 +257,20 @@ final class WorkspaceState: Identifiable {
         domainTree.removeAll()
         totalDomainCount = 0
         domainIndexMap.removeAll()
+        domainIndexRevision = nil
         domainGroupingIndex.removeAll()
+        sidebarIndexSignature = nil
+        sidebarTransactionRevisions.removeAll()
+        rowProjectionLocale = nil
         appNodes.removeAll()
         appNodeIndexMap.removeAll()
         appGroupingIndex.removeAll()
     }
 
     // MARK: Private
+
+    @ObservationIgnored private var rewriteChainTailToken: Int?
+    @ObservationIgnored private var rewrittenRowIndexSet = IndexSet()
 
     /// Monotonic backing counter for `trafficRevealRequest`. Deliberately never reset so reveal
     /// generations stay strictly increasing across the workspace's lifetime.

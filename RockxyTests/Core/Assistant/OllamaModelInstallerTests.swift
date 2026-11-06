@@ -154,6 +154,30 @@ struct OllamaModelInstallerTests {
         }
     }
 
+    @Test("A malformed Ollama pull line is reported instead of being skipped")
+    func malformedPullLine() async throws {
+        let installer = OllamaModelInstaller(transport: OllamaPullFixtureTransport(lines: [
+            #"{"status":"pulling manifest"}"#,
+            "not json",
+            #"{"status":"success"}"#,
+        ]))
+
+        do {
+            for try await _ in try installer.install(
+                modelID: "fixture",
+                baseURL: #require(URL(string: "http://127.0.0.1:11434"))
+            ) {}
+            Issue.record("Expected malformed response error")
+        } catch let error as AssistantProviderError {
+            guard case .malformedResponse = error else {
+                Issue.record("Unexpected provider error: \(error)")
+                return
+            }
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test("Ollama pull provider errors remain visible")
     func providerError() async throws {
         let installer = OllamaModelInstaller(transport: OllamaPullFixtureTransport(lines: [

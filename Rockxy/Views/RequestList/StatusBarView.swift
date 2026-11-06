@@ -860,7 +860,7 @@ struct StatusBarView: View {
                 CountFormatter.format(indicators.reduce(0) { $0 + $1.count }),
                 systemImage: "bolt.horizontal.circle"
             )
-                .font(.system(size: metrics.badgeFontSize, weight: .semibold))
+            .font(.system(size: metrics.badgeFontSize, weight: .semibold))
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)

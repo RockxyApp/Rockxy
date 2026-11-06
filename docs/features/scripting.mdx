@@ -214,10 +214,11 @@ Rockxy surfaces script errors inline:
 - **Timeout** — scripts that exceed the 5-second limit are terminated with a timeout error.
 - **JavaScript exceptions** — runtime errors show the exception message in the per-plugin OSLog category.
 - **Load failures** — scripts that fail during initial load show the error in **Settings > Plugins** for that plugin.
+- **Last run** — while the Script Editor is open, its status line shows when the script last ran on live traffic and whether that run succeeded. A failed run stays visible in red until a later run succeeds; hover it to read the error.
 
 ## Templates
 
-Rockxy ships a small set of templates to help you get started:
+Rockxy ships six starter templates. Pick one from the empty Scripting window, or choose **New Script from Template** in the footer's more menu:
 
 - **Modify Headers** — add a header to every request.
 - **Log Requests** — `console.log` the request URL.

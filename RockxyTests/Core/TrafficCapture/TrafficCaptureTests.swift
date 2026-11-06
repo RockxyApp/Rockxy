@@ -173,9 +173,10 @@ struct TrafficSessionManagerTests {
         #expect(updates.value == [[transaction.id]])
 
         // A re-delivery after the update path has retired the connection appends nothing new
-        // and updates again, so a duplicate close can never create a second row.
+        // so a duplicate close can never create a second row or another refresh.
         await manager.addTransaction(transaction)
-        #expect(await manager.flushPendingUpdates().map(\.id) == [transaction.id])
+        #expect(await manager.flushPendingUpdates().isEmpty)
+        #expect(updates.value == [[transaction.id]])
     }
 
     @Test("Clear Session drops the close delivery of a WebSocket it already dismissed")
@@ -270,7 +271,9 @@ struct TrafficSessionManagerTests {
         await manager.addTransaction(stream)
 
         #expect(await manager.flushPendingUpdates().map(\.id) == [stream.id])
-        #expect(updates.value == [[stream.id]])
+        // The first accepted delivery already contained the final state; the late open
+        // needs neither a second row nor a redundant completion refresh.
+        #expect(updates.value.isEmpty)
     }
 
     @Test("Paused recording still finishes a live row but adds no new rows")
@@ -295,11 +298,100 @@ struct TrafficSessionManagerTests {
         // Recording is paused while the socket is open, then it closes.
         await MainActor.run { socket.state = .completed }
         await manager.addTransaction(socket, acceptsNewRows: false)
+        #expect(await manager.flushPendingUpdates().isEmpty)
         #expect(updates.value == [[socket.id]])
 
         // New traffic during the pause is still dropped.
         await manager.addTransaction(TestFixtures.makeTransaction(), acceptsNewRows: false)
         #expect(await manager.flushPendingUpdates().isEmpty)
+    }
+
+    @Test("A stop burst coalesces live completions without losing paused rows")
+    func liveCompletionBurstIsBatched() async {
+        let manager = TrafficSessionManager()
+        let updates = UpdateRecorder()
+        await manager.setOnLiveTransactionUpdated { updates.record($0.map(\.id)) }
+        let rows = (0 ..< 1_003).map { _ in TestFixtures.makeTransaction(state: .active) }
+        for row in rows {
+            await manager.addTransaction(row)
+        }
+        _ = await manager.flushPendingUpdates()
+        await MainActor.run { rows.forEach { $0.state = .completed } }
+        for row in rows {
+            await manager.addTransaction(row, acceptsNewRows: false)
+        }
+        #expect(await manager.flushPendingUpdates().isEmpty)
+        let batches = updates.value
+        #expect(batches.count <= 21)
+        #expect(batches.allSatisfy { $0.count <= 50 })
+        #expect(batches.flatMap { $0 } == rows.map(\.id))
+    }
+
+    @Test("Session rollover discards queued completion refreshes", arguments: [false, true])
+    func rolloverDiscardsQueuedCompletions(useRollover: Bool) async {
+        let manager = TrafficSessionManager()
+        let updates = UpdateRecorder()
+        await manager.setOnLiveTransactionUpdated { updates.record($0.map(\.id)) }
+        let row = TestFixtures.makeTransaction(state: .active)
+        await manager.addTransaction(row)
+        _ = await manager.flushPendingUpdates()
+        await manager.addTransaction(row, acceptsNewRows: false)
+        #expect(updates.value.isEmpty)
+        if useRollover {
+            _ = await manager.beginNewSessionPreservingPending()
+        } else {
+            await manager.resetBufferState()
+        }
+        #expect(await manager.flushPendingUpdates().isEmpty)
+        #expect(updates.value.isEmpty)
+    }
+
+    @Test("A short stream publishes its opening batch before its completion refresh")
+    func opensBeforeCompletionRefresh() async {
+        let manager = TrafficSessionManager()
+        let deliveries = UpdateRecorder()
+        await manager.setOnBatchReady { batch, _ in deliveries.record(batch.map(\.id)) }
+        await manager.setOnLiveTransactionUpdated { deliveries.record($0.map(\.id)) }
+        let row = TestFixtures.makeTransaction(state: .active)
+        await manager.addTransaction(row)
+        await manager.addTransaction(row, acceptsNewRows: false)
+        for _ in 0 ..< 49 {
+            await manager.addTransaction(TestFixtures.makeTransaction())
+        }
+        #expect(deliveries.value.count == 2)
+        #expect(deliveries.value.first?.count == 50)
+        #expect(deliveries.value.first?.first == row.id)
+        #expect(deliveries.value.last == [row.id])
+    }
+
+    @Test("The timer delivers a completion tail even without any new requests")
+    func timerDeliversCompletionTail() async {
+        let manager = TrafficSessionManager()
+        let row = TestFixtures.makeTransaction(state: .active)
+        await manager.addTransaction(row)
+        _ = await manager.flushPendingUpdates()
+        let gate = ContinuationGate()
+        let delivered = await withCheckedContinuation { continuation in
+            Task {
+                await manager.setOnLiveTransactionUpdated { batch in
+                    guard batch.map(\.id) == [row.id], gate.tryOpen() else {
+                        return
+                    }
+                    continuation.resume(returning: true)
+                }
+                await manager.startBatchTimer()
+                await manager.addTransaction(row, acceptsNewRows: false)
+            }
+            Task {
+                try? await Task.sleep(for: .seconds(5))
+                guard gate.tryOpen() else {
+                    return
+                }
+                continuation.resume(returning: false)
+            }
+        }
+        await manager.stopBatchTimer()
+        #expect(delivered)
     }
 
     @Test("Only event streams and NDJSON get a live row")

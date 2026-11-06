@@ -16,8 +16,19 @@ Rockxy runs a SwiftNIO-based proxy server that accepts HTTP and HTTPS CONNECT re
 The proxy intercepts each request, records the full request and response (headers, body, timing), and forwards traffic to the destination server. For HTTPS, Rockxy performs a man-in-the-middle interception using a locally generated root CA — see [HTTPS Interception](/features/https-interception) for details.
 
 <Note>
-Rockxy automatically sets and restores the macOS system HTTP/HTTPS proxy when you start and stop capture. Your original proxy settings are preserved and restored on exit, even if Rockxy crashes.
+Rockxy automatically sets and restores the macOS system HTTP/HTTPS proxy when you start and stop capture. Your original proxy settings, including another proxy app's local endpoint, are preserved and restored on exit, even if Rockxy crashes.
 </Note>
+
+### When another app changes the proxy during capture
+
+Rockxy never writes over proxy settings that something else changed while it was capturing — another proxy app turning its system proxy off or on, a VPN client, or a change you made in System Settings. If that happens, stopping capture or quitting Rockxy shows **Restore your previous proxy settings?** with the settings you had before capture:
+
+| Choice | Result |
+|--------|--------|
+| **Restore Previous Settings** | Writes your pre-capture proxy settings and bypass list back to the listed network services. A service whose settings change again while the dialog is open is left alone. |
+| **Keep Current Settings** | Leaves the current settings as they are. |
+
+If the previous proxy is a local endpoint (for example `127.0.0.1:7890`) and no app is listening on it, the dialog says so and **Keep Current Settings** becomes the default, because restoring a proxy that nothing serves blocks network access. Rockxy does not ask when macOS quits it for a logout, restart, or shutdown.
 
 ## Starting and Stopping
 

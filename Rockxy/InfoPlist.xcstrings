@@ -67,6 +67,38 @@
           }
         }
       }
+    },
+    "HTTP Archive": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "HTTP Archive"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 归档"
+          }
+        }
+      }
+    },
+    "Rockxy Session": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Rockxy Session"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rockxy 会话"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

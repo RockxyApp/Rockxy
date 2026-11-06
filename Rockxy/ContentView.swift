@@ -194,6 +194,9 @@ struct ContentView: View {
             nearbyTransferReceiver.start(coordinator: coordinator)
         }
         .modifier(ConditionalScriptingWindowOpeners(isEnabled: managesLifecycle, openWindow: openWindow))
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            coordinator.refreshProxyOverrideStatusOnActivation()
+        }
         .alert(
             String(localized: "Proxy Error", bundle: RockxyLocalization.bundle),
             isPresented: Binding(
@@ -363,6 +366,8 @@ struct ContentView: View {
             coordinator.stopProxy()
         case .retryDisableSystemRouting:
             coordinator.switchOffSystemProxyOverride()
+        case .restoreProxySettings:
+            coordinator.restoreProxySettingsAfterUnverifiedRecord()
         case .restoreSystemRouting:
             coordinator.retrySystemProxy()
         case .retryCaptureCheck:

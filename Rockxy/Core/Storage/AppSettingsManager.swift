@@ -67,6 +67,11 @@ final class AppSettingsManager {
         save()
     }
 
+    func updateAutomaticSystemProxyRouting(_ enabled: Bool) {
+        settings.automaticallySetSystemProxy = enabled
+        save()
+    }
+
     func updateRecordOnLaunch(_ recordOnLaunch: Bool) {
         settings.recordOnLaunch = recordOnLaunch
         save()

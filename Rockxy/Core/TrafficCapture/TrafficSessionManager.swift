@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+// MARK: - TrafficSessionManager
+
 /// Batches incoming HTTP transactions from the proxy engine before delivering them to the UI layer.
 /// Transactions are flushed either when the batch reaches 50 items or every 100ms, whichever comes
 /// first. This prevents per-request UI updates that would bottleneck SwiftUI at high traffic volumes.
@@ -9,6 +11,17 @@ import os
 actor TrafficSessionManager {
     // MARK: Internal
 
+    /// Who still needs the batch flush loop. Both producers deliver through this actor and
+    /// have independent lifetimes: the proxy stops and starts with Start/Stop, while
+    /// Babylon SDK ingest is bound to the receiver the person turns on, not to the proxy.
+    enum BatchProducer: Hashable, Sendable {
+        case proxy
+        case babylon
+    }
+
+    /// How many times a batch callback has been installed. Delivery wiring belongs to start-up,
+    /// so this stays flat while batches flow; a rise during capture means it moved onto a hot path.
+    private(set) var batchCallbackInstallCount = 0
     var onBatchReady: (@Sendable ([HTTPTransaction], _ generation: UInt) -> Void)?
     var onClientAppEnriched: (@Sendable ([HTTPTransaction]) -> Void)?
     var onLiveTransactionUpdated: (@Sendable ([HTTPTransaction]) -> Void)?
@@ -18,9 +31,19 @@ actor TrafficSessionManager {
         generation
     }
 
+    // MARK: - Batch Timer
+
+    /// Whether the flush loop is running. Readers are tests: nothing in the app decides
+    /// anything from it, and the whole point of the ownership below is that no caller has
+    /// to know.
+    var isBatchTimerRunning: Bool {
+        batchTimerTask != nil
+    }
+
     // MARK: - Configuration
 
     func setOnBatchReady(_ callback: @escaping @Sendable ([HTTPTransaction], _ generation: UInt) -> Void) {
+        batchCallbackInstallCount += 1
         onBatchReady = callback
     }
 
@@ -39,7 +62,9 @@ actor TrafficSessionManager {
     }
 
     func setMaxBufferSize(_ size: Int) {
-        maxBufferSize = size
+        maxBufferSize = max(1, size)
+        completedLiveTransactionIDs.setCapacity(maxBufferSize)
+        dismissedLiveTransactionIDs.setCapacity(maxBufferSize)
     }
 
     func setProxyPort(_ port: Int) {
@@ -59,18 +84,41 @@ actor TrafficSessionManager {
         // order. Whichever delivery comes first adds the row; the other one is an in-place
         // update. A delivery for a row dismissed by Clear Session is dropped so the finished
         // connection cannot resurface as a new row.
-        if !dismissedLiveTransactionIDs.isEmpty, dismissedLiveTransactionIDs.remove(transaction.id) != nil {
+        if dismissedLiveTransactionIDs.contains(transaction.id)
+            || completedLiveTransactionIDs.contains(transaction.id)
+        {
             return
         }
-        if liveTransactionIDs.remove(transaction.id) != nil {
-            onLiveTransactionUpdated?([transaction])
+        startBatchTimerTaskIfIdle()
+        if liveTransactionIDs.contains(transaction.id) {
+            if transaction.state != .active, transaction.state != .pending {
+                liveTransactionIDs.remove(transaction.id)
+                liveCaptureContexts.removeValue(forKey: transaction.id)
+                completedLiveTransactionIDs.insert(transaction.id)
+            }
+            if let index = pendingLiveUpdateIndices[transaction.id] {
+                pendingLiveUpdates[index] = transaction
+            } else {
+                pendingLiveUpdateIndices[transaction.id] = pendingLiveUpdates.count
+                pendingLiveUpdates.append(transaction)
+            }
+            if pendingLiveUpdates.count >= batchSize {
+                flushAndDeliver()
+            }
             return
         }
         guard acceptsNewRows else {
             return
         }
         if transaction.deliversLiveRow {
-            liveTransactionIDs.insert(transaction.id)
+            if transaction.state == .active || transaction.state == .pending {
+                liveTransactionIDs.insert(transaction.id)
+                liveCaptureContexts[transaction.id] = transaction.captureContext
+            } else {
+                // The close can overtake the open, or be the only accepted delivery
+                // after Pause. Publish its final row once without retaining an open ID.
+                completedLiveTransactionIDs.insert(transaction.id)
+            }
         }
         pendingUpdates.append(transaction)
 
@@ -80,29 +128,52 @@ actor TrafficSessionManager {
     }
 
     func flushPendingUpdates() -> [HTTPTransaction] {
+        defer { flushLiveUpdates() }
         let updates = pendingUpdates
         pendingUpdates.removeAll()
         return updates
     }
 
-    // MARK: - Batch Timer
-
-    func startBatchTimer() {
-        batchTimerTask?.cancel()
-
-        let interval = batchInterval
-        batchTimerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(Int(interval * 1_000)))
-                guard !Task.isCancelled else {
-                    break
-                }
-                await self?.flushAndDeliver()
-            }
-        }
+    /// Registers `producer` as a continuous source that needs the flush loop running even
+    /// while nothing is buffered, and starts the loop if it is idle.
+    ///
+    /// The loop's lifetime follows whether anything still needs it, not whether the proxy
+    /// specifically is running: Babylon SDK ingest accepts connections independently of
+    /// the proxy, so ending the loop on proxy stop would stall its delivery entirely.
+    ///
+    /// A live handle is never replaced. One loop serves every producer, so replacing it
+    /// would at best reset the interval. The handle is non-nil only while its task is
+    /// running -- it is nil'd by the only two things that end the task -- so this gives the
+    /// same "never two timers" guarantee the previous unconditional cancel did.
+    func startBatchTimer(for producer: BatchProducer = .proxy) {
+        activeProducers.insert(producer)
+        startBatchTimerTaskIfIdle()
     }
 
+    /// Unregisters `producer`; the loop ends only once the last producer has gone.
+    ///
+    /// Nothing called this before, so after the first Start the 100 ms loop ran for the
+    /// rest of the process, hopping onto the actor ten times a second to hit two empty
+    /// guards -- for as long as the app stayed open after the user pressed Stop.
+    func stopBatchTimer(for producer: BatchProducer) {
+        guard activeProducers.remove(producer) != nil, activeProducers.isEmpty else {
+            return
+        }
+        // What the interval had not reached yet is delivered rather than dropped, or a row
+        // captured inside the last 100 ms before Stop would never reach the list. The flush
+        // also drains the live-row updates, so a stream that finished during teardown still
+        // refreshes. This method is actor-isolated and does not suspend, so no delivery can
+        // be accepted between the flush and the cancellation.
+        flushAndDeliver()
+        stopBatchTimer()
+    }
+
+    /// Ends the loop whatever is registered, and forgets the producers. Buffered work is
+    /// not flushed, which is why the production stop path is the one above; this is the
+    /// blunt stop for session teardown and for tests that must know no flush can land
+    /// in the middle of an assertion.
     func stopBatchTimer() {
+        activeProducers.removeAll()
         batchTimerTask?.cancel()
         batchTimerTask = nil
     }
@@ -112,6 +183,8 @@ actor TrafficSessionManager {
     /// local state cleared (e.g. tests) and does not rely on the rollover callback.
     func resetBufferState() {
         pendingUpdates.removeAll()
+        pendingLiveUpdates.removeAll()
+        pendingLiveUpdateIndices.removeAll()
         dismissLiveTransactions()
         totalBuffered = 0
         generation &+= 1
@@ -131,9 +204,23 @@ actor TrafficSessionManager {
     /// this to retain only explicitly routed transactions owned by other Projects;
     /// unowned and active-Project pending work is still discarded.
     func beginNewSessionPreservingPending() async -> (generation: UInt, pending: [HTTPTransaction]) {
+        await beginNewSessionPreservingPending(clearingProjectInto: nil)
+    }
+
+    /// Retains streams belonging to other Projects and requests already stamped with the
+    /// target Project's new context while its clear crosses the actor boundary.
+    func beginNewSessionPreservingPending(
+        clearingProjectInto nextContext: TrafficCaptureContext?
+    )
+        async -> (generation: UInt, pending: [HTTPTransaction])
+    {
         let pending = pendingUpdates
         pendingUpdates.removeAll()
-        dismissLiveTransactions()
+        pendingLiveUpdates.removeAll { !Self.survivesClear($0.captureContext, into: nextContext) }
+        pendingLiveUpdateIndices = Dictionary(uniqueKeysWithValues: pendingLiveUpdates.enumerated().map {
+            ($0.element.id, $0.offset)
+        })
+        dismissLiveTransactions(clearingProjectInto: nextContext)
         totalBuffered = 0
         generation &+= 1
         if let onBeginNewSession {
@@ -160,10 +247,18 @@ actor TrafficSessionManager {
     )
 
     private var pendingUpdates: [HTTPTransaction] = []
+    /// Closing many streams during Stop must not enqueue one full-history UI refresh per row.
+    /// Bound completion delivery by the same batch size and timer as new rows.
+    private var pendingLiveUpdates: [HTTPTransaction] = []
+    private var pendingLiveUpdateIndices: [UUID: Int] = [:]
     /// Live (still open) connections already delivered as rows, keyed for update routing.
     private var liveTransactionIDs: Set<UUID> = []
+    private var liveCaptureContexts: [UUID: TrafficCaptureContext] = [:]
     /// Live connections whose rows were cleared; their close delivery must not resurface them.
-    private var dismissedLiveTransactionIDs: Set<UUID> = []
+    private var dismissedLiveTransactionIDs = RecentLiveTransactionIDs(capacity: 50_000)
+    /// Remember finalized live identities so duplicate terminal deliveries stay idempotent.
+    /// This is bounded by the configured history cap, rather than growing across a long session.
+    private var completedLiveTransactionIDs = RecentLiveTransactionIDs(capacity: 50_000)
     private let batchSize = 50
     private let batchInterval: TimeInterval = 0.1
     private var maxBufferSize: Int = 50_000
@@ -171,10 +266,75 @@ actor TrafficSessionManager {
     private var generation: UInt = 0
     private var proxyPort: Int = 9_090
     private var batchTimerTask: Task<Void, Never>?
+    private var activeProducers: Set<BatchProducer> = []
+
+    private static func survivesClear(
+        _ context: TrafficCaptureContext?,
+        into nextContext: TrafficCaptureContext?
+    )
+        -> Bool
+    {
+        guard let nextContext, let context else {
+            return false
+        }
+        return context.projectID != nextContext.projectID || context == nextContext
+    }
+
+    /// Warms the list signal for every settled transaction in the batch. The batch can hold a
+    /// live row's opening delivery, so the filter is `isSettledForOffMainRead`, the one predicate
+    /// that also guards the claim; a row that fails it is left for the main actor to evaluate.
+    private static func prewarmListSignals(for batch: [HTTPTransaction]) {
+        for transaction in batch where transaction.isSettledForOffMainRead {
+            transaction.claimForOffMainRead()
+            AITrafficDetector.prewarmSignal(for: transaction)
+        }
+    }
 
     // MARK: - Flush and Deliver
 
+    /// Arms the flush loop for buffered work from a source that declares no lifetime.
+    ///
+    /// Repeat, Compose/Edit and Repeat, and Babylon ingest all deliver through
+    /// `addTransaction(_:acceptsNewRows:)` without registering as producers, and all three
+    /// can deliver while the proxy is stopped. Making the loop's lifetime purely a
+    /// producer refcount would have left their rows in the buffer until 50 of them piled
+    /// up. The loop retires itself again once no producer is registered and nothing is
+    /// left buffered, so this re-arms rather than pins it.
+    private func startBatchTimerTaskIfIdle() {
+        guard batchTimerTask == nil else {
+            return
+        }
+        let interval = batchInterval
+        batchTimerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(Int(interval * 1_000)))
+                guard !Task.isCancelled else {
+                    break
+                }
+                guard await self?.flushAndReportWhetherStillNeeded() == true else {
+                    break
+                }
+            }
+        }
+    }
+
+    /// Flushes, then reports whether the loop still has a reason to run.
+    ///
+    /// Clearing the handle here, rather than cancelling, is what lets the next delivery
+    /// arm a fresh loop: the task this runs inside returns immediately afterwards, so a
+    /// loop armed in the meantime is still the only one.
+    private func flushAndReportWhetherStillNeeded() -> Bool {
+        flushAndDeliver()
+        guard activeProducers.isEmpty, pendingUpdates.isEmpty, pendingLiveUpdates.isEmpty else {
+            return true
+        }
+        batchTimerTask = nil
+        return false
+    }
+
     private func flushAndDeliver() {
+        // Publish new rows first when a short stream opens and closes inside one interval.
+        defer { flushLiveUpdates() }
         guard !pendingUpdates.isEmpty else {
             return
         }
@@ -183,6 +343,12 @@ actor TrafficSessionManager {
         let batchGeneration = generation
         pendingUpdates.removeAll()
 
+        // The main actor builds one list row per delivered transaction, and the row reads the
+        // AI traffic signal, whose first evaluation decodes the response body and scans both
+        // bodies. That ran on the main thread for every request. It is a pure function of
+        // evidence that is already final here, so evaluate it on this actor and let the row
+        // find it cached.
+        Self.prewarmListSignals(for: batch)
         onBatchReady?(batch, batchGeneration)
 
         let port = proxyPort
@@ -198,24 +364,39 @@ actor TrafficSessionManager {
                 proxyPort: port,
                 requiring: unresolvedSourcePorts
             )
-            var enrichedTransactions: [HTTPTransaction] = []
-            for transaction in batch where transaction.clientApp == nil {
-                if let srcPort = transaction.sourcePort, let app = portMap[srcPort] {
-                    transaction.clientApp = app
-                    enrichedTransactions.append(transaction)
+            await MainActor.run {
+                var enrichedTransactions: [HTTPTransaction] = []
+                for transaction in batch where transaction.clientApp == nil {
+                    if let srcPort = transaction.sourcePort, let app = portMap[srcPort] {
+                        transaction.clientApp = app
+                        enrichedTransactions.append(transaction)
+                    }
                 }
-            }
-            if !enrichedTransactions.isEmpty {
-                enrichCallback?(enrichedTransactions)
+                if !enrichedTransactions.isEmpty {
+                    enrichCallback?(enrichedTransactions)
+                }
             }
         }
     }
 
-    private func dismissLiveTransactions() {
-        dismissedLiveTransactionIDs.formUnion(liveTransactionIDs)
-        liveTransactionIDs.removeAll()
-        if dismissedLiveTransactionIDs.count > 4_096 {
-            dismissedLiveTransactionIDs.removeAll()
+    private func flushLiveUpdates() {
+        guard !pendingLiveUpdates.isEmpty else {
+            return
+        }
+        let updates = pendingLiveUpdates
+        pendingLiveUpdates.removeAll(keepingCapacity: true)
+        pendingLiveUpdateIndices.removeAll(keepingCapacity: true)
+        onLiveTransactionUpdated?(updates)
+    }
+
+    private func dismissLiveTransactions(clearingProjectInto nextContext: TrafficCaptureContext? = nil) {
+        let dismissed = liveTransactionIDs.filter {
+            !Self.survivesClear(liveCaptureContexts[$0], into: nextContext)
+        }
+        for id in dismissed {
+            dismissedLiveTransactionIDs.insert(id)
+            liveTransactionIDs.remove(id)
+            liveCaptureContexts.removeValue(forKey: id)
         }
     }
 
@@ -239,5 +420,59 @@ actor TrafficSessionManager {
         }
 
         totalBuffered = maxBufferSize
+    }
+}
+
+// MARK: - RecentLiveTransactionIDs
+
+/// A bounded identity window with amortized constant-time insertion and retirement.
+/// Keep tombstones across Clear so repeated old completions cannot resurrect discarded rows.
+struct RecentLiveTransactionIDs {
+    // MARK: Lifecycle
+
+    init(capacity: Int) {
+        self.capacity = max(1, capacity)
+    }
+
+    // MARK: Internal
+
+    var count: Int {
+        identities.count
+    }
+
+    func contains(_ id: UUID) -> Bool {
+        identities.contains(id)
+    }
+
+    mutating func insert(_ id: UUID) {
+        guard identities.insert(id).inserted else {
+            return
+        }
+        order.append(id)
+        trim()
+    }
+
+    mutating func setCapacity(_ capacity: Int) {
+        self.capacity = max(1, capacity)
+        trim()
+    }
+
+    // MARK: Private
+
+    private var capacity: Int
+    private var identities: Set<UUID> = []
+    private var order: [UUID] = []
+    private var head = 0
+
+    private mutating func trim() {
+        while identities.count > capacity {
+            identities.remove(order[head])
+            head += 1
+        }
+        // Compact in chunks so a full window never shifts an array for each completion.
+        if head >= max(1_024, order.count / 2) {
+            order.removeFirst(head)
+            head = 0
+        }
     }
 }

@@ -99,29 +99,32 @@ struct CustomCertificateImportIdentity: Equatable {
     }
 
     private static func fromSecurityPKCS12(data: Data, displayName: String, passphrase: String) throws -> Self {
-        let identity = try secItemImportIdentity(data: data, passphrase: passphrase)
-        // Report a short RSA key plainly; the X509 parser below would reject it with a
-        // low-level size error.
-        if let key = SecCertificateCopyKey(identity.certificate),
-           let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
-           (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String),
-           let bits = attributes[kSecAttrKeySizeInBits] as? Int, bits < 2_048
-        {
-            throw CustomCertificateError.rootWeakKey(bits: bits)
-        }
-        let certificate = try certificate(from: identity.certificate)
-        let privateKey: Certificate.PrivateKey
-        do {
-            privateKey = try Certificate.PrivateKey(identity.privateKey)
-        } catch {
-            throw CustomCertificateImportError.invalidPrivateKey
-        }
+        // Everything that needs the Security.framework key runs inside the closure: the identity
+        // is only valid until the import scope ends (a temporary keychain is destroyed there).
+        try withSecurityIdentity(data: data, passphrase: passphrase) { secCertificate, secKey in
+            // Report a short RSA key plainly; the X509 parser below would reject it with a
+            // low-level size error.
+            if let key = SecCertificateCopyKey(secCertificate),
+               let attributes = SecKeyCopyAttributes(key) as? [CFString: Any],
+               (attributes[kSecAttrKeyType] as? String) == (kSecAttrKeyTypeRSA as String),
+               let bits = attributes[kSecAttrKeySizeInBits] as? Int, bits < 2_048
+            {
+                throw CustomCertificateError.rootWeakKey(bits: bits)
+            }
+            let certificate = try certificate(from: secCertificate)
+            let privateKey: Certificate.PrivateKey
+            do {
+                privateKey = try Certificate.PrivateKey(secKey)
+            } catch {
+                throw CustomCertificateImportError.invalidPrivateKey
+            }
 
-        return try Self(
-            displayName: displayName,
-            certificatePEM: pem(certificate),
-            privateKeyPEM: privateKey.serializeAsPEM().pemString
-        )
+            return try Self(
+                displayName: displayName,
+                certificatePEM: pem(certificate),
+                privateKeyPEM: privateKey.serializeAsPEM().pemString
+            )
+        }
     }
 
     private static func pkcs12Bundle(data: Data, passphrase: String) throws -> NIOSSLPKCS12Bundle {
@@ -136,11 +139,85 @@ struct CustomCertificateImportIdentity: Equatable {
         return try NIOSSLPKCS12Bundle(buffer: bytes, passphrase: Array(passphrase.utf8))
     }
 
-    private static func secItemImportIdentity(
+    /// Unwraps a PKCS#12 identity for `body` without leaving anything behind in the user's keychains.
+    ///
+    /// `SecPKCS12Import` with no destination writes the unwrapped identity into the DEFAULT
+    /// keychain (measured: two items in `login.keychain-db` per import), a copy the user never
+    /// asked for and Rockxy's own delete path would never remove. Rockxy stores the key itself, so
+    /// the Security import must stay private to this call.
+    /// - macOS 15 and later: `kSecImportToMemoryOnly`, no keychain involved at all. Measured to
+    ///   yield an exportable key for both legacy (3DES/RC2) and AES-encrypted files.
+    /// - macOS 14: an owned temporary keychain, deleted unconditionally when `body` returns or
+    ///   throws. `SecItemImport` is tried first because it marks the key extractable; a plain
+    ///   `SecPKCS12Import` into a keychain yields a key that cannot be exported (measured), so
+    ///   files only that path can read fail as `invalidPrivateKey` on macOS 14 instead of leaking.
+    ///   Not measured on macOS 14 itself.
+    private static func withSecurityIdentity<T>(
         data: Data,
-        passphrase: String
+        passphrase: String,
+        _ body: (SecCertificate, SecKey) throws -> T
     )
-        throws -> (certificate: SecCertificate, privateKey: SecKey)
+        throws -> T
+    {
+        if #available(macOS 15.0, *) {
+            let identity = try pkcs12Identity(
+                data: data,
+                passphrase: passphrase,
+                options: [kSecImportToMemoryOnly as String: true]
+            )
+            return try body(identity.certificate, identity.privateKey)
+        }
+        return try withTemporaryKeychain { keychain in
+            if let identity = try itemImportIdentity(data: data, passphrase: passphrase, keychain: keychain) {
+                return try body(identity.certificate, identity.privateKey)
+            }
+            let identity = try pkcs12Identity(
+                data: data,
+                passphrase: passphrase,
+                options: [kSecImportExportKeychain as String: keychain]
+            )
+            return try body(identity.certificate, identity.privateKey)
+        }
+    }
+
+    /// Creates a private keychain, runs `body`, and always deletes the keychain and its folder.
+    private static func withTemporaryKeychain<T>(_ body: (SecKeychain) throws -> T) throws -> T {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RockxyP12Import-\(UUID().uuidString)", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var password = [UInt8](repeating: 0, count: 32)
+        guard SecRandomCopyBytes(kSecRandomDefault, password.count, &password) == errSecSuccess else {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        var created: SecKeychain?
+        let path = directory.appendingPathComponent("import.keychain").path
+        guard SecKeychainCreate(path, UInt32(password.count), password, false, nil, &created) == errSecSuccess,
+              let keychain = created else
+        {
+            throw CustomCertificateImportError.keychainUnavailable
+        }
+        defer { SecKeychainDelete(keychain) }
+        return try body(keychain)
+    }
+
+    /// `SecItemImport` into `keychain`, or `nil` when it could not produce an identity (it fails
+    /// outright for some encryptions, which `SecPKCS12Import` can read).
+    private static func itemImportIdentity(
+        data: Data,
+        passphrase: String,
+        keychain: SecKeychain
+    )
+        throws -> (certificate: SecCertificate, privateKey: SecKey)?
     {
         var format = SecExternalFormat.formatPKCS12
         var itemType = SecExternalItemType.itemTypeAggregate
@@ -158,30 +235,52 @@ struct CustomCertificateImportIdentity: Equatable {
             &itemType,
             SecItemImportExportFlags(),
             &keyParams,
-            nil,
+            keychain,
             &importedItems
         )
         guard status == errSecSuccess, let importedItems else {
-            return try secPKCS12Identity(data: data, passphrase: passphrase)
+            return nil
         }
-        return try identity(from: importedItems)
+        do {
+            return try identity(from: importedItems)
+        } catch CustomCertificateImportError.invalidPKCS12, CustomCertificateImportError.missingCertificate {
+            return nil
+        }
     }
 
-    private static func secPKCS12Identity(
+    private static func pkcs12Identity(
         data: Data,
-        passphrase: String
+        passphrase: String,
+        options extraOptions: [String: Any]
     )
         throws -> (certificate: SecCertificate, privateKey: SecKey)
     {
         var importedItems: CFArray?
-        let options = [kSecImportExportPassphrase as String: passphrase] as CFDictionary
-        let status = SecPKCS12Import(data as CFData, options, &importedItems)
+        var options = extraOptions
+        options[kSecImportExportPassphrase as String] = passphrase
+        let status = SecPKCS12Import(data as CFData, options as CFDictionary, &importedItems)
         guard status == errSecSuccess, let importedItems else {
-            throw status == errSecAuthFailed
-                ? CustomCertificateImportError.incorrectPassword
-                : CustomCertificateImportError.invalidPKCS12
+            throw importError(forSecurityStatus: status)
         }
         return try identity(from: importedItems)
+    }
+
+    /// Measured on macOS: a wrong password and a tampered file give the same statuses
+    /// (`errSecAuthFailed` from `SecPKCS12Import`, `errSecPkcs12VerifyFailure` from `SecItemImport`),
+    /// so they cannot be told apart and `incorrectPassword` words both. A
+    /// truncated or non-PKCS#12 file is `errSecDecode` / `errSecUnknownFormat`.
+    private static func importError(forSecurityStatus status: OSStatus) -> CustomCertificateImportError {
+        switch status {
+        case errSecAuthFailed,
+             errSecPkcs12VerifyFailure:
+            .incorrectPassword
+        case errSecInteractionNotAllowed,
+             errSecDuplicateItem,
+             errSecNoDefaultKeychain:
+            .keychainUnavailable
+        default:
+            .invalidPKCS12
+        }
     }
 
     private static func identity(from importedItems: CFArray) throws
@@ -412,19 +511,55 @@ final class CustomCertificateManager: @unchecked Sendable {
     {
         try transactionLock.withLock {
             guard let entry = metadata(kind: .root).last else {
+                lock.withLock { cachedRootIssuer = nil }
                 return nil
             }
+
+            // `CertificateManager.certificateForHost` asks for this on every intercepted
+            // connection, including the ones it then answers from its own host-certificate
+            // cache. Resolving it costs a Keychain read plus a certificate and a private-key
+            // PEM parse, which is why the result is kept. Every mutation of `entries` bumps
+            // `entriesGeneration` and drops the cache, so a replaced or deleted root can never
+            // be served from here -- the generation is also compared, not just the entry id,
+            // because a re-import reuses neither but a restored backup could reuse the id.
+            var generation: UInt64 = 0
+            var memoized: (certificate: Certificate, privateKey: Certificate.PrivateKey, fingerprint: String)?
+            lock.withLock {
+                generation = entriesGeneration
+                guard let cached = cachedRootIssuer,
+                      cached.generation == generation,
+                      cached.entryID == entry.id else
+                {
+                    return
+                }
+                memoized = (cached.certificate, cached.privateKey, cached.fingerprintSHA256)
+            }
+            if let memoized {
+                return (
+                    certificate: memoized.certificate,
+                    privateKey: memoized.privateKey,
+                    fingerprintSHA256: memoized.fingerprint
+                )
+            }
+
             guard let keyData = try secureStore.load(account: entry.keychainAccount),
                   let privateKeyPEM = String(data: keyData, encoding: .utf8) else
             {
                 throw CustomCertificateError.missingPrivateKey
             }
             let certificate = try Certificate(pemEncoded: entry.certificatePEM)
-            return try (
-                certificate: certificate,
-                privateKey: Certificate.PrivateKey(pemEncoded: privateKeyPEM),
-                fingerprintSHA256: entry.fingerprintSHA256 ?? Self.fingerprint(certificate) ?? "custom"
-            )
+            let privateKey = try Certificate.PrivateKey(pemEncoded: privateKeyPEM)
+            let fingerprint = entry.fingerprintSHA256 ?? Self.fingerprint(certificate) ?? "custom"
+            lock.withLock {
+                cachedRootIssuer = CachedRootIssuer(
+                    generation: generation,
+                    entryID: entry.id,
+                    certificate: certificate,
+                    privateKey: privateKey,
+                    fingerprintSHA256: fingerprint
+                )
+            }
+            return (certificate: certificate, privateKey: privateKey, fingerprintSHA256: fingerprint)
         }
     }
 
@@ -469,6 +604,36 @@ final class CustomCertificateManager: @unchecked Sendable {
 
     // MARK: Private
 
+    /// The parsed active root, memoized for `activeRootIssuerSnapshot`. Keyed by the generation of
+    /// the entry list it was derived from so it cannot outlive the root it came from.
+    ///
+    /// Invalidation tracks this store, not the Keychain: an import, a delete, or a reload drops
+    /// it, but a private key rewritten under the same account by something other than Rockxy is
+    /// not noticed until one of those happens. Only this type writes those accounts, and an
+    /// import always allocates a fresh one, so the window is a user editing Keychain Access by
+    /// hand -- where keeping the key Rockxy already loaded is the better of the two outcomes.
+    private struct CachedRootIssuer {
+        let generation: UInt64
+        let entryID: UUID
+        let certificate: Certificate
+        let privateKey: Certificate.PrivateKey
+        let fingerprintSHA256: String
+    }
+
+    /// Private key PEMs loaded for `identity(for:kind:)`, keyed by Keychain account and tagged
+    /// with the generation of the entry list they belong to.
+    ///
+    /// Same residual as `cachedRootIssuer`, and it is worth restating: invalidation tracks this
+    /// store, not the Keychain. An import, a delete, or a reload drops this, but a key rewritten
+    /// under the same account by something other than Rockxy is not noticed until one of those
+    /// happens. Only this type writes those accounts and an import always allocates a fresh one,
+    /// so the window is a user editing Keychain Access by hand. Clearing this also drops the
+    /// loaded keys from memory as soon as the entries they belong to stop being current.
+    private struct CachedIdentityKeys {
+        let generation: UInt64
+        var privateKeyPEMByAccount: [String: String]
+    }
+
     private let storageURL: URL
     private let secureStore: any SecureDataStore
     private let metadataWriter: any CustomCertificateMetadataWriter
@@ -476,6 +641,11 @@ final class CustomCertificateManager: @unchecked Sendable {
     private let transactionLock = NSRecursiveLock()
     private let lock = NSLock()
     private var entries: [CustomCertificateMetadata] = []
+    /// Bumped by every assignment to `entries`, so a cached derivation of them can tell that the
+    /// store has moved on without comparing the entries themselves.
+    private var entriesGeneration: UInt64 = 0
+    private var cachedRootIssuer: CachedRootIssuer?
+    private var cachedIdentityKeys: CachedIdentityKeys?
 
     /// A custom root signs a certificate for every host, so it must be a CA that is valid now.
     private static func validateRootAuthority(_ certificate: Certificate) throws {
@@ -605,16 +775,28 @@ final class CustomCertificateManager: @unchecked Sendable {
 
             lock.withLock {
                 entries = proposedEntries
+                invalidateDerivedStateLocked()
             }
             return entry
         }
     }
 
+    /// Resolves the custom identity Rockxy should present for `host`, if the user configured one.
+    ///
+    /// Called from the TLS interception path for every intercepted connection, so the two costs
+    /// here are both per-connection. The Keychain read is memoized the same way
+    /// `activeRootIssuerSnapshot` memoizes the active root -- same `entriesGeneration`, dropped by
+    /// the same critical section that replaces `entries` -- and the host is only normalized once
+    /// there is something to match it against, so a user with no custom certificates at all pays
+    /// nothing beyond one `isEmpty` check.
     private func identity(for host: String, kind: CustomCertificateKind) -> CustomTLSIdentity? {
-        let normalizedHost = host.lowercased()
-        return transactionLock.withLock {
-            let match = lock.withLock {
-                entries.last { entry in
+        transactionLock.withLock {
+            let match = lock.withLock { () -> CustomCertificateMetadata? in
+                guard !entries.isEmpty else {
+                    return nil
+                }
+                let normalizedHost = host.lowercased()
+                return entries.last { entry in
                     guard entry.kind == kind, let pattern = entry.hostPattern else {
                         return false
                     }
@@ -622,13 +804,47 @@ final class CustomCertificateManager: @unchecked Sendable {
                 }
             }
 
-            guard let match,
-                  let keyData = try? secureStore.load(account: match.keychainAccount),
-                  let privateKeyPEM = String(data: keyData, encoding: .utf8) else
-            {
+            guard let match else {
                 return nil
             }
+
+            if let memoized = memoizedPrivateKeyPEM(account: match.keychainAccount) {
+                return CustomTLSIdentity(certificateChainPEM: [match.certificatePEM], privateKeyPEM: memoized)
+            }
+
+            guard let keyData = try? secureStore.load(account: match.keychainAccount),
+                  let privateKeyPEM = String(data: keyData, encoding: .utf8) else
+            {
+                // Deliberately not memoized. An unreadable or undecodable key is the state a user
+                // goes and fixes, and remembering it would keep answering with the failure until
+                // the next store mutation -- long after the key worked again.
+                return nil
+            }
+            memoizePrivateKeyPEM(privateKeyPEM, account: match.keychainAccount)
             return CustomTLSIdentity(certificateChainPEM: [match.certificatePEM], privateKeyPEM: privateKeyPEM)
+        }
+    }
+
+    /// The memoized key for `account`, or `nil` when nothing was loaded for the current generation
+    /// of `entries`.
+    private func memoizedPrivateKeyPEM(account: String) -> String? {
+        lock.withLock {
+            guard let cached = cachedIdentityKeys, cached.generation == entriesGeneration else {
+                return nil
+            }
+            return cached.privateKeyPEMByAccount[account]
+        }
+    }
+
+    private func memoizePrivateKeyPEM(_ privateKeyPEM: String, account: String) {
+        lock.withLock {
+            // Keyed by account rather than by host: hosts arrive from the network and would grow
+            // this without bound over a long capture, while the accounts are exactly the ones the
+            // user imported.
+            if cachedIdentityKeys?.generation != entriesGeneration {
+                cachedIdentityKeys = CachedIdentityKeys(generation: entriesGeneration, privateKeyPEMByAccount: [:])
+            }
+            cachedIdentityKeys?.privateKeyPEMByAccount[account] = privateKeyPEM
         }
     }
 
@@ -641,6 +857,16 @@ final class CustomCertificateManager: @unchecked Sendable {
         ))
     }
 
+    /// Marks everything derived from `entries` stale. Call with `lock` held, from the same
+    /// critical section that replaces `entries`, so no reader can observe new entries beside a
+    /// snapshot of the old ones. Clearing the issuer also drops the parsed private key from
+    /// memory as soon as its root stops being the active one.
+    private func invalidateDerivedStateLocked() {
+        entriesGeneration &+= 1
+        cachedRootIssuer = nil
+        cachedIdentityKeys = nil
+    }
+
     private func loadFromDisk() {
         guard let data = try? Data(contentsOf: storageURL),
               let decoded = try? JSONDecoder().decode([CustomCertificateMetadata].self, from: data) else
@@ -649,6 +875,7 @@ final class CustomCertificateManager: @unchecked Sendable {
         }
         lock.withLock {
             entries = decoded
+            invalidateDerivedStateLocked()
         }
     }
 
@@ -679,6 +906,7 @@ final class CustomCertificateManager: @unchecked Sendable {
 
         lock.withLock {
             entries = proposedEntries
+            invalidateDerivedStateLocked()
         }
     }
 
@@ -825,6 +1053,7 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
     case invalidPKCS12
     case incorrectPassword
     case missingCertificate
+    case keychainUnavailable
 
     // MARK: Internal
 
@@ -832,7 +1061,12 @@ enum CustomCertificateImportError: LocalizedError, Equatable {
         switch self {
         case .incorrectPassword:
             String(
-                localized: "The password for this P12 file is incorrect.",
+                localized: "The P12 file could not be opened. The password may be incorrect, or the file may be damaged.",
+                bundle: RockxyLocalization.bundle
+            )
+        case .keychainUnavailable:
+            String(
+                localized: "macOS could not use the keychain to read this P12 file. Unlock the keychain and try again.",
                 bundle: RockxyLocalization.bundle
             )
         case .invalidCertificate:

@@ -682,6 +682,10 @@ extension MainContentCoordinator {
             String(localized: "Which captured difference should I verify first?", bundle: RockxyLocalization.bundle)
         case .checkAuthentication:
             String(localized: "What authentication evidence should I verify next?", bundle: RockxyLocalization.bundle)
+        case .whyIsThisSlow:
+            String(localized: "How can I confirm where the time goes?", bundle: RockxyLocalization.bundle)
+        case .findRelatedRequests:
+            String(localized: "Which related request should I compare first?", bundle: RockxyLocalization.bundle)
         case .prepareBugReport:
             String(localized: "What should I add before sharing this bug report?", bundle: RockxyLocalization.bundle)
         case nil:
@@ -1239,7 +1243,9 @@ extension MainContentCoordinator {
             return
         }
         for transaction in appended where debugAssistantIndexedTransactionIDs.insert(transaction.id).inserted {
-            debugAssistantTransactionsByHost[transaction.request.host, default: []].append(transaction)
+            let host = transaction.request.host
+            debugAssistantTransactionsByHost[host, default: []].append(transaction)
+            debugAssistantIndexedHostByID[transaction.id] = host
         }
         debugAssistantIndexedLiveCount = transactions.count
         debugAssistantIndexedFavoriteCount = persistedFavorites.count
@@ -1256,13 +1262,17 @@ extension MainContentCoordinator {
         rebuildDebugAssistantTrafficIndex()
     }
 
-    private func rebuildDebugAssistantTrafficIndex() {
+    func rebuildDebugAssistantTrafficIndex() {
         var valuesByHost: [String: [HTTPTransaction]] = [:]
+        var hostByID: [UUID: String] = [:]
         var seen: Set<UUID> = []
         for transaction in transactions + persistedFavorites where seen.insert(transaction.id).inserted {
-            valuesByHost[transaction.request.host, default: []].append(transaction)
+            let host = transaction.request.host
+            valuesByHost[host, default: []].append(transaction)
+            hostByID[transaction.id] = host
         }
         debugAssistantTransactionsByHost = valuesByHost
+        debugAssistantIndexedHostByID = hostByID
         debugAssistantIndexedTransactionIDs = seen
         debugAssistantIndexedLiveCount = transactions.count
         debugAssistantIndexedFavoriteCount = persistedFavorites.count

@@ -237,7 +237,9 @@ struct SigningDiagnosticsLiveTests {
 
     @Test("LiveEnvironment can extract app certificate chain from test host")
     func liveAppCertificateChainExtractable() {
-        guard !TestIdentity.isRunningUnderRawXCTestTool else {
+        // An ad-hoc host validates but embeds no certificates, so the assertion below
+        // has no precondition there.
+        guard !TestIdentity.isRunningUnderRawXCTestTool, !TestIdentity.isAdHocSigned else {
             return
         }
         let env = SigningDiagnostics.LiveEnvironment()

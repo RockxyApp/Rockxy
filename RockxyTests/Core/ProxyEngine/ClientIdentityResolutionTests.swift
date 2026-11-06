@@ -501,6 +501,87 @@ struct ClientIdentityResolutionTests {
         #expect(handle.currentIdentity == Self.sampleIdentity)
     }
 
+    @Test("a bounded wait returns when the lookup wins instead of running out its deadline")
+    func boundedWaitStopsTheLosingDeadline() async {
+        let resolver = makeResolver(records: [Self.matchingRecord])
+        let descriptor = makeDescriptor(clientHost: "127.0.0.1", clientPort: 54_321, proxyPort: 9_090)
+        // A deadline far longer than the lookup. The race is structured, so the wait cannot
+        // return until *both* of its sides have stopped — returning this quickly is therefore
+        // proof that the losing deadline was cancelled rather than left to expire.
+        let handle = ClientIdentityHandle(
+            descriptor: descriptor,
+            resolver: resolver,
+            decisionDeadline: .seconds(30)
+        )
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        let identity = await handle.awaitIdentity()
+        let elapsed = clock.now - started
+
+        #expect(identity == Self.sampleIdentity)
+        #expect(elapsed < .seconds(2))
+    }
+
+    @Test("cancelling the handle releases a wait parked behind a slow lookup")
+    func cancelReleasesParkedWait() async {
+        let resolver = ClientIdentityResolver(
+            connectionTableProvider: { _, _ in
+                Thread.sleep(forTimeInterval: 1.0)
+                return [Self.matchingRecord]
+            },
+            identityProvider: { _, _ in Self.sampleIdentity },
+            excludePID: 999
+        )
+        let handle = ClientIdentityHandle(
+            descriptor: makeDescriptor(clientHost: "127.0.0.1", clientPort: 54_321, proxyPort: 9_090),
+            resolver: resolver,
+            decisionDeadline: .seconds(30)
+        )
+        handle.startResolution()
+
+        let clock = ContinuousClock()
+        let started = clock.now
+        async let waited = handle.awaitIdentity()
+        // Let the wait park before the connection goes away, as a client disconnect would.
+        try? await Task.sleep(for: .milliseconds(50))
+        handle.cancel()
+        let identity = await waited
+        let elapsed = clock.now - started
+
+        #expect(identity == nil)
+        #expect(elapsed < .seconds(1))
+    }
+
+    @Test("an identity resolved after the deadline still reaches the rows it belongs to")
+    func lateIdentityStampsTheRow() async throws {
+        let resolver = ClientIdentityResolver(
+            connectionTableProvider: { _, _ in
+                Thread.sleep(forTimeInterval: 0.3)
+                return [Self.matchingRecord]
+            },
+            identityProvider: { _, _ in Self.sampleIdentity },
+            excludePID: 999
+        )
+        let handle = ClientIdentityHandle(
+            descriptor: makeDescriptor(clientHost: "127.0.0.1", clientPort: 54_321, proxyPort: 9_090),
+            resolver: resolver,
+            decisionDeadline: .milliseconds(50)
+        )
+
+        // The decision fails closed first; the lookup it deliberately leaves running is what
+        // attributes the connection's transactions afterwards.
+        #expect(await handle.awaitIdentity() == nil)
+        for _ in 0 ..< 200 where handle.currentIdentity != Self.sampleIdentity {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        let transaction = makeTransaction()
+        ProxyServer.makeIdentityStampingCallback(handle: handle, downstream: { _ in })(transaction)
+
+        #expect(transaction.clientApplicationIdentity == Self.sampleIdentity)
+    }
+
     @Test("remote descriptor short-circuits without collecting the table")
     func remoteShortCircuits() async {
         let collections = IntBox()

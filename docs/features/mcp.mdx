@@ -39,7 +39,7 @@ Make sure all of these are true:
 1. Rockxy is installed and launched.
 2. In Rockxy, open **Settings → MCP**.
 3. Turn on **Enable MCP Server**.
-4. Optionally keep **Redact Sensitive Data Before Sending to AI** enabled.
+4. Optionally keep **Redact Sensitive Data Before Sending to MCP Clients** enabled.
 5. Copy the generated MCP config snippet from Rockxy, or use **Copy Command** to copy a
    one-line terminal command for clients that register servers from their CLI
    (for example `claude mcp add rockxy -- '<path>/rockxy-mcp'`).
@@ -50,7 +50,7 @@ If you move `Rockxy.app` to a different folder later, open **Settings → MCP** 
 
 ## Available tools
 
-Rockxy currently exposes these MCP tools:
+Rockxy currently exposes these read-only MCP tools:
 
 - `get_version`
 - `get_proxy_status`
@@ -230,7 +230,7 @@ The bundled `rockxy-mcp` process only works when Rockxy is running with MCP enab
 
 ### I want privacy defaults
 
-Leave **Redact Sensitive Data Before Sending to AI** enabled unless you have a specific reason not to. Rockxy already treats the MCP path as a separate boundary from the local inspector UI.
+Leave **Redact Sensitive Data Before Sending to MCP Clients** enabled unless you have a specific reason not to. Rockxy already treats the MCP path as a separate boundary from the local inspector UI.
 
 ## Related pages
 
