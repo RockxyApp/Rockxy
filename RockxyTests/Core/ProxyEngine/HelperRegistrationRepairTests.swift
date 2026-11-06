@@ -243,12 +243,23 @@ struct HelperRegistrationRepairTests {
         #expect(HelperRegistrationRepairStore.load(defaults: defaults) == withoutUUID)
     }
 
-    @Test("the remedy copy is password-free and never suggests restarting")
+    @Test("the remedy copy is password-free, never suggests restarting, and names a real control")
     func remedyCopy() {
         let message = HelperManager.registrationRecordUnresolvableMessage
         #expect(message != HelperManager.registrationBrokenMessage)
         #expect(!message.lowercased().contains("restart"))
         #expect(!message.lowercased().contains("force reset"))
+
+        // Two earlier versions of this copy named actions that do not exist for this state.
+        // It must not send the user to Login Items & Extensions: an SMAppService background item
+        // shows there as a switch with no remove button, and that switch maps to the aggregate
+        // "background tasks" record, which is already enabled in this state. The records that are
+        // disabled are the per-bundle "app" records, which that pane does not list at all.
+        #expect(!message.lowercased().contains("remove"))
+        #expect(!message.lowercased().contains("delete"))
+        #expect(!message.contains("Login Items"))
+        #expect(!message.lowercased().contains("background"))
+        #expect(message.lowercased().contains("applications folder"))
     }
 
     // MARK: - Rate limit and record

@@ -18630,12 +18630,12 @@
         }
       }
     },
-    "macOS cannot locate the app that registered Rockxy's helper tool. In System Settings > Login Items & Extensions, remove Rockxy's item, then reopen Rockxy.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "macOS 无法找到注册 Rockxy 辅助工具的应用。请在“系统设置 > 登录项与扩展”中移除 Rockxy 的项目，然后重新打开 Rockxy。"
+    "macOS has Rockxy's helper tool registered but will not start it, so it keeps retrying. Open Rockxy from your Applications folder so the registration points at that copy. If more than one copy of Rockxy is installed, keep only that one." : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS 已注册 Rockxy 的辅助工具，但无法启动它，因此会不断重试。请从应用程序文件夹打开 Rockxy，让注册指向该副本。如果安装了多个 Rockxy 副本，请只保留该副本。"
           }
         }
       }

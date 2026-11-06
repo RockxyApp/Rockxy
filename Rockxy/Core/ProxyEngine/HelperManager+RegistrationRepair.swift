@@ -406,11 +406,33 @@ extension HelperManager {
         )
     }
 
+    /// The remedy for a registration launchd keeps scheduling and cannot start.
+    ///
+    /// This is the `wantsToStartAndHasNot` shape: the job is loaded, `state = spawn scheduled`,
+    /// `active count = 0`. Measured on one machine with `launchctl print system/<label>`:
+    /// `runs = 7093`, `last exit code = 78: EX_CONFIG`, `parent bundle version = 28`. Three
+    /// bundles carried that identifier at that version -- the installed app was a different
+    /// version -- and every BTM `app` record for them read `disabled`, while the daemon record
+    /// and the aggregate `background tasks` record were both `enabled`.
+    ///
+    /// Two earlier versions of this copy named actions that do not exist for this state, so be
+    /// careful changing it:
+    /// - "remove Rockxy's item" in Login Items & Extensions. A background item registered through
+    ///   `SMAppService` appears there as a switch with no remove button; only "Open at Login"
+    ///   entries can be removed.
+    /// - "turn Rockxy on under Allow in the Background". That switch maps to the aggregate
+    ///   `background tasks` record, which is already enabled in this state. The records that are
+    ///   disabled are the per-bundle `app` records, which that pane does not list, so the user
+    ///   cannot reach them.
+    ///
+    /// What is left is to make the registration point at the copy of Rockxy that is actually
+    /// installed, which re-registering from that copy does.
     nonisolated static var registrationRecordUnresolvableMessage: String {
         String(
             localized: """
-            macOS cannot locate the app that registered Rockxy's helper tool. \
-            In System Settings > Login Items & Extensions, remove Rockxy's item, then reopen Rockxy.
+            macOS has Rockxy's helper tool registered but will not start it, so it keeps retrying. \
+            Open Rockxy from your Applications folder so the registration points at that copy. \
+            If more than one copy of Rockxy is installed, keep only that one.
             """, bundle: RockxyLocalization.bundle
         )
     }
