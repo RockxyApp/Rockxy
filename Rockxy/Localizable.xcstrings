@@ -43349,6 +43349,26 @@
         }
       }
     },
+    "Restore not verified": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法验证还原记录"
+          }
+        }
+      }
+    },
+    "Restore Proxy Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复代理设置"
+          }
+        }
+      }
+    },
     "Rockxy could not verify its local capture path. The listener is running, but capture is not confirmed.": {
       "localizations": {
         "zh-Hans": {
@@ -43365,6 +43385,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rockxy 无法恢复之前的系统代理设置。捕获将继续运行，以保持网络流量可达。"
+          }
+        }
+      }
+    },
+    "Your Mac's proxy settings still point at Rockxy, and Rockxy could not verify the saved copy it would restore them from. If Rockxy quits unexpectedly, your network may stay behind a proxy that is no longer running. You can put the settings back now.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 代理设置仍指向 Rockxy，但 Rockxy 无法验证用于还原这些设置的已保存备份。如果 Rockxy 意外退出，你的网络可能会停留在已不再运行的代理之后。你现在可以将这些设置还原。"
           }
         }
       }

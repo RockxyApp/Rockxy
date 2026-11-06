@@ -351,6 +351,15 @@ final class MainContentCoordinator {
     @ObservationIgnored var trafficSamples: [(timestamp: Date, upload: Int64, download: Int64)] = []
     var bandwidthTimer: Timer?
     var isProxyOverridden = false
+    /// Mirrors `SystemProxyManager.directWatchdogRefusedItsRecord`, which is lock-guarded and not
+    /// observable. Refreshed through `syncDirectWatchdogRefusal()` wherever the manager can change
+    /// the answer: ownership reconciliation, enabling, and every restore.
+    var isDirectProxyRecordUnverified = false
+    /// Reads the manager's refusal flag. Injectable so state-level tests never touch live proxy state.
+    @ObservationIgnored var directWatchdogRefusalProbe: () -> Bool = {
+        SystemProxyManager.shared.directWatchdogRefusedItsRecord
+    }
+
     nonisolated(unsafe) var evictionObserver: NSObjectProtocol?
     nonisolated(unsafe) var memoryPressureSource: DispatchSourceMemoryPressure?
     /// Throttles pressure-driven eviction; see `evictForMemoryPressure(isCritical:now:)`.
@@ -515,6 +524,18 @@ final class MainContentCoordinator {
     }
 
     var systemProxyWarning: SystemProxyWarning? {
+        // A restore that already failed carries its own retry; otherwise an unverifiable backup
+        // record outranks every other warning because nothing else will put the settings back.
+        let restoreAlreadyFailed = readiness.activeWarning?.action == .retryStop
+            || readiness.activeWarning?.action == .retryDisableSystemRouting
+        if isDirectProxyRecordUnverified, !restoreAlreadyFailed {
+            return SystemProxyWarning(
+                message: SystemProxyWarning.directRecordUnverifiedMessage,
+                action: .restoreProxySettings,
+                isDismissible: false,
+                isActionInProgress: false
+            )
+        }
         guard let warning = readiness.activeWarning else {
             return nil
         }
@@ -915,6 +936,7 @@ struct SystemProxyWarning {
         case retry
         case retryStop
         case retryDisableSystemRouting
+        case restoreProxySettings
         case restoreSystemRouting
         case retryCaptureCheck
         case openHTTPSDecryption
@@ -933,6 +955,8 @@ struct SystemProxyWarning {
                 String(localized: "Stop Capture", bundle: RockxyLocalization.bundle)
             case .retryDisableSystemRouting:
                 String(localized: "Switch Off", bundle: RockxyLocalization.bundle)
+            case .restoreProxySettings:
+                String(localized: "Restore Proxy Settings", bundle: RockxyLocalization.bundle)
             case .restoreSystemRouting:
                 String(localized: "Restore System Routing", bundle: RockxyLocalization.bundle)
             case .retryCaptureCheck:
@@ -949,6 +973,19 @@ struct SystemProxyWarning {
                 String(localized: "Install & Trust Certificate", bundle: RockxyLocalization.bundle)
             }
         }
+    }
+
+    /// Shown while the Mac's proxy settings still point at Rockxy but the saved copy Rockxy would
+    /// restore them from could not be verified, so nothing will put them back on its own.
+    static var directRecordUnverifiedMessage: String {
+        String(
+            localized: """
+            Your Mac's proxy settings still point at Rockxy, and Rockxy could not verify the saved copy it \
+            would restore them from. If Rockxy quits unexpectedly, your network may stay behind a proxy \
+            that is no longer running. You can put the settings back now.
+            """,
+            bundle: RockxyLocalization.bundle
+        )
     }
 
     let message: String

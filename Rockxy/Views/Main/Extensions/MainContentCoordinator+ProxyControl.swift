@@ -295,7 +295,7 @@ extension MainContentCoordinator {
                     let didEnable = try await AutomaticSystemProxyRouting.enableForCapture(
                         enabledAtStart: settings.automaticallySetSystemProxy
                     ) {
-                        try await SystemProxyManager.shared.enableSystemProxy(port: resolvedPort)
+                        try await enableSystemProxySyncingRefusal(port: resolvedPort)
                     }
                     if didEnable {
                         isSystemProxyConfigured = true
@@ -491,7 +491,7 @@ extension MainContentCoordinator {
             let restoreStartedAt = ContinuousClock.now
             let restoreReport: SystemProxyRestoreReport
             do {
-                restoreReport = try await SystemProxyManager.shared.disableSystemProxy()
+                restoreReport = try await disableSystemProxySyncingRefusal()
                 readiness.clearProxyRestoreFailure()
                 Self.logger.info("System proxy disabled")
             } catch {
@@ -697,7 +697,7 @@ extension MainContentCoordinator {
 
         Task {
             do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
+                try await enableSystemProxySyncingRefusal(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
                 isProxyOverridden = true
                 readiness.setSystemRoutingReady(true)
@@ -739,7 +739,7 @@ extension MainContentCoordinator {
 
     @discardableResult
     func reconcileProxyOverrideStatus() async -> Bool {
-        let owner = await SystemProxyManager.shared.effectiveOverrideOwner()
+        let owner = await effectiveOverrideOwnerSyncingRefusal()
         let reconciliation = Self.reconcileProxyOverride(
             overridePort: Self.proxyOverridePort(for: owner),
             activeProxyPort: activeProxyPort
@@ -785,7 +785,7 @@ extension MainContentCoordinator {
     func switchOffSystemProxyOverride() -> Task<Void, Never> {
         Task { @MainActor in
             do {
-                let report = try await SystemProxyManager.shared.disableSystemProxy()
+                let report = try await disableSystemProxySyncingRefusal()
                 isSystemProxyConfigured = false
                 isProxyOverridden = false
                 readiness.setSystemRoutingExpected(false)
@@ -811,7 +811,7 @@ extension MainContentCoordinator {
 
         return Task { @MainActor in
             do {
-                try await SystemProxyManager.shared.enableSystemProxy(port: self.activeProxyPort)
+                try await enableSystemProxySyncingRefusal(port: self.activeProxyPort)
                 isSystemProxyConfigured = true
                 isProxyOverridden = true
                 readiness.setSystemRoutingReady(true)
