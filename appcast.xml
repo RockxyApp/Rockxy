@@ -6,44 +6,43 @@
     <description>Rockxy release channel</description>
     <language>en</language>
     <item>
-      <title>Version 0.41.0 (build 62)</title>
-      <pubDate>Thu, 08 Oct 2026 00:00:00 +0000</pubDate>
-      <rockxy:releaseDate>2026-10-08T00:00:00Z</rockxy:releaseDate>
+      <title>Version 0.42.0 (build 63)</title>
+      <pubDate>Mon, 09 Nov 2026 00:00:00 +0000</pubDate>
+      <rockxy:releaseDate>2026-11-09T00:00:00Z</rockxy:releaseDate>
       <enclosure
-        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.41.0/Rockxy-0.41.0-62.dmg"
-        sparkle:version="62"
-        sparkle:shortVersionString="0.41.0"
-        sparkle:edSignature="Edr6UU6vikHQwP3sheJgXCv+YcXGui42oANCUmY4yZGhwGtA/F5GkHlz/Au/27BJBojEj6LDY19+ub4hj8SeAQ=="
-        length="43672137"
+        url="https://github.com/RockxyApp/Rockxy/releases/download/v0.42.0/Rockxy-0.42.0-63.dmg"
+        sparkle:version="63"
+        sparkle:shortVersionString="0.42.0"
+        sparkle:edSignature="2982h+e+orBXSAKniAWsT7FjFfKLZqsMsHCnEbk9muAJYlvYFIfpXWRH2SCc3lqusexh1e7BtWwyMFrZZo+KBg=="
+        length="45344849"
         type="application/octet-stream" />
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.41.0</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>https://github.com/RockxyApp/Rockxy/releases/tag/v0.42.0</sparkle:releaseNotesLink>
       <description><![CDATA[
 <h3>Added</h3>
 <ul>
-  <li>Explore the active traffic tab with Traffic Insights: spot slow requests and failures, compare traffic over time, find top apps and hosts, and export a Markdown report.</li>
-  <li>Keep investigations organized in local Projects with saved traffic history, tab layouts, and filters. Project configuration can be imported and exported without moving captured traffic.</li>
-  <li>Redact credentials and other sensitive values when exporting Rockxy sessions, HAR, CSV, or Postman files, while keeping the original captured session intact.</li>
-  <li>Inspect recognized model API and Web3 RPC traffic with dedicated details, and find model API, Web3, gRPC, GraphQL, WebSocket, and HTTP exchanges through protocol labels and filters.</li>
-  <li>Review nearby iPhone transfers in their own workspace while keeping the Mac&#x27;s current traffic available.</li>
-  <li>Apply HTTPS decryption and tunnel rules to specific apps, route traffic through an upstream proxy, import cURL into Compose, and copy requests as Swift, Python, JavaScript, or Go snippets.</li>
+  <li>Choose when Rockxy changes this Mac’s system proxy: automatically when capture starts, only when you use the proxy control, or never. Apps and devices configured to connect directly to Rockxy can still be captured.</li>
+  <li>Follow Babylon requests by runtime session, trace, and step. The Runtime Events view and traffic search make it easier to move between an event and its network requests.</li>
+  <li>Inspect gRPC-Web status and metadata, GraphQL response errors, model API stream timing, and x402 payment-flow details alongside the captured request and response.</li>
+  <li>Start scripts from six templates, and see when a script last ran and whether it succeeded.</li>
+  <li>Use two new Assistant investigations to examine slow requests and find related traffic from captured evidence.</li>
+  <li>Choose a local network address in Developer Setup when this Mac has multiple active networks, and check certificate trust for booted simulators.</li>
 </ul>
 <h3>Fixed</h3>
 <ul>
-  <li>Imports keep every request instead of trimming to the live history limit. HAR exports preserve content types, timestamps, readable streamed bodies, and measured durations more reliably.</li>
-  <li>Repeat, Edit and Repeat, and Compose results appear as inspectable traffic rows; replay also handles plain HTTP and edited destinations correctly.</li>
-  <li>WebSocket upgrades, plain HTTP inside CONNECT tunnels, upstream proxy routing, and TLS failure reporting are more reliable and easier to diagnose.</li>
-  <li>Header rules work alongside Map Local, Block, and other rules; invalid headers no longer break a response, and No Caching prevents clients from reusing stale responses.</li>
-  <li>Redacted shares, MCP exports, and inspections of compressed responses better protect credentials while keeping useful debugging details visible.</li>
-  <li>Developer Setup no longer hits the reported window layout crash, and proxy stop/recovery handles delayed helper responses without requiring a second click.</li>
-  <li>Perpetual license access remains available after its included update period instead of falling back to Community.</li>
+  <li>Stop and Restart handle slow connections, paused breakpoints, and proxy restoration more reliably, while preserving recovery information if macOS proxy settings cannot be verified or restored immediately.</li>
+  <li>Long-running scripts no longer retain completed hook resources indefinitely; script failures and timeouts are easier to see.</li>
+  <li>WebSocket and streaming requests stay in one row and keep their captured state when a connection closes, capture pauses, or a Project is cleared.</li>
+  <li>Saved and imported requests retain more of their original timing, protocol, body omission, and error details.</li>
+  <li>Compressed responses are decoded with bounded memory and checksum validation; incomplete or invalid streams keep the captured bytes.</li>
+  <li>Custom certificate import handles older PKCS#12 encryption and rejects weak root certificates with a clear reason.</li>
 </ul>
 <h3>Changed</h3>
 <ul>
-  <li>Developer Setup is now a compact, target-aware workflow with clearer manual and automatic paths, certificate trust status, and more useful readiness and launch results.</li>
-  <li>Server-Sent Events, NDJSON, and WebSocket exchanges appear while they are active, with stream and frame details updated as traffic arrives.</li>
-  <li>Counts, sizes, durations, dates, and translated interface text follow the app language and the Mac&#x27;s region more consistently.</li>
-  <li>Large captures remain more responsive through reduced per-row analysis and paced Traffic Insights updates.</li>
+  <li>Captured requests, app attribution, sidebar counts, filters, and live stream updates now refresh with less work during long or busy captures.</li>
+  <li>Babylon capture stays off until you enable it; the choice is remembered. Turning it off disconnects paired clients.</li>
+  <li>Exported Rockxy Session, HAR, CSV, and Postman files can redact credentials and other sensitive values without changing the captured session.</li>
+  <li>Developer Setup has a clearer, target-aware guide with more specific validation and launch results.</li>
 </ul>
       ]]></description>
     </item>
