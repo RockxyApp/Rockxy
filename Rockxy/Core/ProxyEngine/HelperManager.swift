@@ -113,11 +113,18 @@ final class HelperManager {
         case invalidBundledLaunchdPlist(HelperPlistValidationError)
         case invalidBundledHelperMetadata(HelperMetadataValidationError)
         case invalidBundledHelperSignature
+        /// The package is complete; the place it is running from cannot anchor a registration.
+        case unanchorableBundleLocation(HelperBundleAnchor)
 
         // MARK: Internal
 
         var errorDescription: String? {
-            HelperManager.helperPackageIncompleteMessage
+            switch self {
+            case let .unanchorableBundleLocation(anchor):
+                anchor.refusalMessage
+            default:
+                HelperManager.helperPackageIncompleteMessage
+            }
         }
     }
 
@@ -309,6 +316,13 @@ final class HelperManager {
     )
         throws
     {
+        // Checked before the package itself: a complete package registered from a location that
+        // disappears leaves a record nothing in Rockxy can clear afterwards, so this is the one
+        // preflight failure that must stop the install even though the bundle is intact.
+        let anchor = HelperBundleAnchor.anchor(forBundlePath: bundle.bundlePath)
+        guard anchor.canAnchorRegistration else {
+            throw HelperInstallPreflightError.unanchorableBundleLocation(anchor)
+        }
         let identity = RockxyIdentity(bundle: bundle)
         let appBundleURL = bundle.bundleURL
         let helperBinaryURL = appBundleURL.appendingPathComponent(bundledHelperBinaryRelativePath)
@@ -773,7 +787,11 @@ final class HelperManager {
             status = .notInstalled
             installedInfo = nil
             isReachable = false
-            registrationStatus = "Package Incomplete"
+            registrationStatus = if case .unanchorableBundleLocation = error {
+                "Wrong Location"
+            } else {
+                "Package Incomplete"
+            }
             lastErrorMessage = error.localizedDescription
             throw error
         }
@@ -1289,6 +1307,8 @@ final class HelperManager {
 extension HelperManager {
     nonisolated private static func helperPreflightFailureReason(_ error: HelperInstallPreflightError) -> String {
         switch error {
+        case let .unanchorableBundleLocation(anchor):
+            "Refused to register from a location that cannot anchor the record: \(anchor)"
         case let .missingBundledHelperBinary(path):
             "Missing helper binary at \(path)"
         case let .missingBundledLaunchdPlist(path):

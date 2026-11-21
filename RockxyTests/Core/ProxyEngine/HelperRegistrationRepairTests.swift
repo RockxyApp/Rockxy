@@ -243,23 +243,50 @@ struct HelperRegistrationRepairTests {
         #expect(HelperRegistrationRepairStore.load(defaults: defaults) == withoutUUID)
     }
 
-    @Test("the remedy copy is password-free, never suggests restarting, and names a real control")
+    @Test("the remedy copy names the only thing that clears the record and admits what does not")
     func remedyCopy() {
         let message = HelperManager.registrationRecordUnresolvableMessage
         #expect(message != HelperManager.registrationBrokenMessage)
-        #expect(!message.lowercased().contains("restart"))
+
+        // Three earlier versions of this copy named actions that do not resolve this state.
+        // It must still not send the user to Login Items & Extensions: an SMAppService background
+        // item shows there as a switch with no remove button, and that switch maps to the
+        // aggregate "background tasks" record, which is already enabled in this state. The
+        // records that are disabled are the per-bundle "app" records, which that pane does not
+        // list at all.
+        #expect(!message.lowercased().contains("remove"))
+        #expect(!message.contains("Login Items"))
+        #expect(!message.lowercased().contains("allow in the background"))
         #expect(!message.lowercased().contains("force reset"))
 
-        // Two earlier versions of this copy named actions that do not exist for this state.
-        // It must not send the user to Login Items & Extensions: an SMAppService background item
-        // shows there as a switch with no remove button, and that switch maps to the aggregate
-        // "background tasks" record, which is already enabled in this state. The records that are
-        // disabled are the per-bundle "app" records, which that pane does not list at all.
-        #expect(!message.lowercased().contains("remove"))
-        #expect(!message.lowercased().contains("delete"))
-        #expect(!message.contains("Login Items"))
-        #expect(!message.lowercased().contains("background"))
-        #expect(message.lowercased().contains("applications folder"))
+        // The third version said "open Rockxy from your Applications folder so the registration
+        // points at that copy". Measured on 2026-11-21 against a record in exactly this shape:
+        // the only installed copy was in /Applications and running from there, and the helper
+        // stayed dead through re-registering (same BTM uuid before and after), Force Reset, the
+        // Login Items switch, and relaunching. So that is not the remedy either, and promising
+        // it sends the user in a circle.
+        #expect(!message.lowercased().contains("applications folder"))
+
+        // What is left needs a password and a restart. Saying so is worse copy than a one-click
+        // fix would be, and it is the only honest copy: there is no in-app escape from a record
+        // anchored to a bundle that no longer exists.
+        #expect(message.lowercased().contains("restart"))
+        #expect(HelperManager.registrationRecordResetCommand.hasPrefix("sudo "))
+
+        // The user's own first instinct is to delete the app and install it again. macOS keeps
+        // the record apart from the app, so the copy has to say so before they spend the time.
+        #expect(message.lowercased().contains("installing rockxy again"))
+
+        // Steps, not just a command: the helper is Rockxy's only privileged channel and it is
+        // the thing that is broken, so the user runs this by hand or not at all.
+        let steps = HelperManager.registrationRecordResetSteps
+        #expect(steps.count == 3)
+        #expect(steps.contains { $0.contains("Terminal") })
+        #expect(steps.contains { $0.lowercased().contains("password") })
+        #expect(steps.contains { $0.lowercased().contains("restart") })
+
+        // The cost of the reset is not visible in the command itself.
+        #expect(HelperManager.registrationRecordResetCaveat.lowercased().contains("every app"))
     }
 
     // MARK: - Rate limit and record

@@ -51500,12 +51500,42 @@
         }
       }
     },
+    "macOS is holding a helper tool registration that points at a copy of Rockxy which no longer exists, so the helper can never start. macOS keeps this registration apart from the app, so installing Rockxy again does not replace it. Clearing it takes one command and a restart.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 保留着一条指向已不存在的 Rockxy 副本的辅助工具注册记录，因此辅助工具永远无法启动。macOS 将这条注册记录与应用分开保存，所以重新安装 Rockxy 并不会替换它。清除它需要执行一条命令并重启。"
+          }
+        }
+      }
+    },
+    "Open Terminal, in Applications › Utilities.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开“终端”，位于“应用程序”›“实用工具”。"
+          }
+        }
+      }
+    },
     "Optional Ark endpoint ID": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "可选的 Ark 接入点 ID"
+          }
+        }
+      }
+    },
+    "Paste the command below and press Return, then type your login password.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴下面的命令并按回车键，然后输入你的登录密码。"
           }
         }
       }
@@ -51536,6 +51566,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "响应正文可能不完整"
+          }
+        }
+      }
+    },
+    "Restart your Mac, then open Rockxy and install the helper again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重启 Mac，然后打开 Rockxy 并重新安装辅助工具。"
+          }
+        }
+      }
+    },
+    "Rockxy cannot install its helper tool while macOS is running it from a temporary copy. That happens when Rockxy is opened from Downloads. Move Rockxy to your Applications folder, open it from there, and install the helper again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 macOS 从临时副本运行 Rockxy 时，无法安装辅助工具。从“下载”文件夹打开 Rockxy 时会出现这种情况。请将 Rockxy 移到“应用程序”文件夹，从那里打开，然后重新安装辅助工具。"
+          }
+        }
+      }
+    },
+    "Rockxy cannot install its helper tool while it is running from a disk image or an external disk, because ejecting that disk would leave the helper permanently unusable. Drag Rockxy to your Applications folder, open it from there, and install the helper again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当 Rockxy 从磁盘映像或外置磁盘运行时，无法安装辅助工具，因为推出该磁盘会使辅助工具永久无法使用。请将 Rockxy 拖到“应用程序”文件夹，从那里打开，然后重新安装辅助工具。"
           }
         }
       }
@@ -51576,6 +51636,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到配置的 Ark 端点或部署 ‘%@’。"
+          }
+        }
+      }
+    },
+    "This resets background items for every app, not just Rockxy. After restarting, other apps may ask to run in the background again.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会重置所有应用的后台项目，而不只是 Rockxy。重启后，其他应用可能会再次请求在后台运行。"
           }
         }
       }

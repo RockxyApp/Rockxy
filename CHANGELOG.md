@@ -79,6 +79,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Installing the helper tool from a disk image, an external disk, or a copy macOS is running from a temporary location is now refused with an explanation, instead of succeeding and leaving the helper permanently unusable once that copy goes away. Drag Rockxy to Applications and open it from there first.
+- When macOS is holding a helper registration that points at a copy of Rockxy which no longer exists, Rockxy now says so and gives the command that clears it, instead of suggesting steps that cannot fix that state. Reinstalling Rockxy does not clear such a registration — it outlives the app.
+
 - A URL rule no longer matches on another rule's pattern. Patterns were cached by rule ID alone, so older saved rules sharing an ID used whichever pattern was compiled last; duplicate IDs are also rejected when rules are added or imported.
 - Anthropic responses that end without a final usage event no longer lose their token counts.
 - An upstream TLS handshake failure is reported as the trust or certificate error it was, instead of as the connection close that followed it.
