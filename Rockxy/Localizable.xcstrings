@@ -51500,6 +51500,7 @@
         }
       }
     },
+    "macOS has a helper tool registration for Rockxy that points at a copy of Rockxy which no longer exists, so it can never start. Rockxy cannot clear that registration, and reinstalling Rockxy does not clear it either — it outlives the app. Resetting macOS's background items and restarting your Mac does clear it.": {},
     "Optional Ark endpoint ID": {
       "localizations": {
         "zh-Hans": {
@@ -51540,6 +51541,8 @@
         }
       }
     },
+    "Rockxy cannot install its helper tool while macOS is running it from a temporary copy. That happens when Rockxy is opened from Downloads. Move Rockxy to your Applications folder, open it from there, and install the helper again.": {},
+    "Rockxy cannot install its helper tool while it is running from a disk image or an external disk, because ejecting that disk would leave the helper permanently unusable. Drag Rockxy to your Applications folder, open it from there, and install the helper again.": {},
     "The selected request failed during captured %@ connection setup.": {
       "localizations": {
         "zh-Hans": {
@@ -51580,6 +51583,7 @@
         }
       }
     },
+    "This resets background items for every app, not just Rockxy. After restarting, other apps may ask to run in the background again.": {},
     "When off, Rockxy sends store=false with every supported Responses API request.": {
       "localizations": {
         "zh-Hans": {

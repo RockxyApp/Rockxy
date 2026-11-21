@@ -86,6 +86,35 @@ struct AdvancedSettingsTab: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
 
+                        // The one helper state no button in this window can fix: the registration
+                        // record names a bundle that is gone. Offer the manual reset rather than
+                        // leaving the buttons above as the only thing to try.
+                        if helperManager.registrationRecordIsUnresolvable {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(HelperManager.registrationRecordResetCommand)
+                                    .font(settingsMetrics.metadataFont(monospaced: true))
+                                    .textSelection(.enabled)
+                                    .padding(6)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(Color.secondary.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                HStack(spacing: 8) {
+                                    Button(String(localized: "Copy Command", bundle: RockxyLocalization.bundle)) {
+                                        NSPasteboard.general.clearContents()
+                                        NSPasteboard.general.setString(
+                                            HelperManager.registrationRecordResetCommand,
+                                            forType: .string
+                                        )
+                                    }
+                                    Text(HelperManager.registrationRecordResetCaveat)
+                                        .font(settingsMetrics.metadataFont())
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         // Zone C: Actions
                         HStack(spacing: 8) {
                             if helperManager.isBusy {

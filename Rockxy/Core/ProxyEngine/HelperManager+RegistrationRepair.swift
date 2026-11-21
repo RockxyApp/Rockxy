@@ -22,6 +22,8 @@ enum LaunchdJobPresence: Equatable, Sendable {
 
 /// What one `launchctl print system/<name>` told us about the helper's job.
 struct LaunchdJobSnapshot: Equatable, Sendable {
+    // MARK: Internal
+
     static let undetermined = LaunchdJobSnapshot(presence: .undetermined)
 
     var presence: LaunchdJobPresence
@@ -33,12 +35,42 @@ struct LaunchdJobSnapshot: Equatable, Sendable {
     /// for. Not guaranteed on every macOS release; nil means "could not read", never "none".
     var btmUUID: String?
 
+    /// The `last exit code = …` line's numeric part, or nil when the job has never exited.
+    var lastExitCode: Int?
+    /// The `runs = …` line: how many times launchd has started, or tried to start, the job.
+    var runs: Int?
+
     /// launchd wants to start the job and has not managed to: the shape of a record whose parent
     /// bundle cannot be resolved. An on-demand job that simply has not been called is
     /// "not running", so this is not what a healthy idle helper looks like.
     var isSpawnScheduledAndIdle: Bool {
         presence == .loaded && state == "spawn scheduled" && activeCount == 0
     }
+
+    /// The same failure caught between retries rather than during the pause before one.
+    ///
+    /// `EX_CONFIG` (78) is what launchd returns when it cannot resolve the program a record
+    /// names — for a bundle-relative program, when the bundle itself cannot be found:
+    /// `copy_bundle_path(<uuid>) error 0x6f — Invalid or missing Program/ProgramArguments`.
+    /// A healthy helper never reaches it, and a job that has run at least once and is not
+    /// running now has genuinely been tried, so this does not fire on a fresh registration.
+    var isSpawnFailingOnConfiguration: Bool {
+        presence == .loaded
+            && lastExitCode == Self.configurationExitCode
+            && (runs ?? 0) > 0
+            && activeCount == 0
+    }
+
+    /// `state = spawn scheduled` is only true during the throttle pause between attempts, so a
+    /// reading taken while launchd was mid-retry used to miss the very state it looks for.
+    var cannotStart: Bool {
+        isSpawnScheduledAndIdle || isSpawnFailingOnConfiguration
+    }
+
+    // MARK: Private
+
+    /// `EX_CONFIG` from `sysexits.h`.
+    private static let configurationExitCode = 78
 }
 
 // MARK: - BTMRecordIdentity
@@ -137,6 +169,11 @@ enum HelperLaunchdProbe {
                 snapshot.activeCount = Int(value)
             } else if snapshot.btmUUID == nil, let value = value(of: "BTM uuid", in: line) {
                 snapshot.btmUUID = value
+            } else if snapshot.runs == nil, let value = value(of: "runs", in: line) {
+                snapshot.runs = Int(value)
+            } else if snapshot.lastExitCode == nil, let value = value(of: "last exit code", in: line) {
+                // "78: EX_CONFIG", or "(never exited)" for a job that has not run yet.
+                snapshot.lastExitCode = Int(value.prefix { $0.isNumber })
             }
         }
         return snapshot
@@ -362,7 +399,7 @@ extension HelperManager {
     /// attempt, because launchd had no job to print; `.unknown` therefore does not block the
     /// finding, but a uuid that demonstrably changed does, since a new record should resolve.
     nonisolated static func isUnresolvableRecord(job: LaunchdJobSnapshot, beforeBTMUUID: String?) -> Bool {
-        job.isSpawnScheduledAndIdle
+        job.cannotStart
             && BTMRecordIdentity.compare(before: beforeBTMUUID, after: job.btmUUID) != .different
     }
 
@@ -425,14 +462,45 @@ extension HelperManager {
     ///   disabled are the per-bundle `app` records, which that pane does not list, so the user
     ///   cannot reach them.
     ///
-    /// What is left is to make the registration point at the copy of Rockxy that is actually
-    /// installed, which re-registering from that copy does.
+    /// A third version named one more action that does not resolve this state: "open Rockxy from
+    /// your Applications folder so the registration points at that copy". Measured on
+    /// 2026-11-21 against a record in exactly this shape, with the only installed copy in
+    /// `/Applications` and running from there: re-registering reused the same record
+    /// (`BTM uuid` identical before and after), and Force Reset, the Login Items switch, and
+    /// relaunching the app all left `last exit code = 78` climbing.
+    ///
+    /// The record is anchored to a bundle that no longer exists, and it outlives the app, so
+    /// deleting and reinstalling Rockxy does not clear it either. Nothing Rockxy can do from
+    /// inside reaches it; what is left is the macOS-level reset, which the user runs themselves.
+    /// `HelperBundleAnchor` exists so a registration cannot be anchored this way again.
     nonisolated static var registrationRecordUnresolvableMessage: String {
         String(
             localized: """
-            macOS has Rockxy's helper tool registered but will not start it, so it keeps retrying. \
-            Open Rockxy from your Applications folder so the registration points at that copy. \
-            If more than one copy of Rockxy is installed, keep only that one.
+            macOS has a helper tool registration for Rockxy that points at a copy of Rockxy which \
+            no longer exists, so it can never start. Rockxy cannot clear that registration, and \
+            reinstalling Rockxy does not clear it either — it outlives the app. Resetting macOS's \
+            background items and restarting your Mac does clear it.
+            """, bundle: RockxyLocalization.bundle
+        )
+    }
+
+    /// Whether the last repair found a record macOS keeps but cannot resolve. The one state
+    /// where no in-app action helps, so it is the only one that offers the manual reset.
+    var registrationRecordIsUnresolvable: Bool {
+        registrationRepairRecord?.outcome == .recordUnresolvable && !isReachable
+    }
+
+    /// The command that clears the record, kept next to the message that names it so the two
+    /// cannot drift. Rockxy never runs this: it needs administrator rights, and it resets
+    /// background items for every app, which is the user's decision to make, not Rockxy's.
+    nonisolated static let registrationRecordResetCommand = "sudo sfltool resetbtm"
+
+    /// Said next to the command, because the cost is not obvious from reading it.
+    nonisolated static var registrationRecordResetCaveat: String {
+        String(
+            localized: """
+            This resets background items for every app, not just Rockxy. After restarting, other \
+            apps may ask to run in the background again.
             """, bundle: RockxyLocalization.bundle
         )
     }
