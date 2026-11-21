@@ -44,7 +44,7 @@ actor RuleEngine {
             guard case .breakpoint = rule.action else {
                 continue
             }
-            let compiled = compiledPatterns[rule.id]
+            let compiled = compiledPattern(for: rule)
             if rule.matchCondition.matches(
                 method: method,
                 url: url,
@@ -168,17 +168,22 @@ actor RuleEngine {
     }
 
     func addRule(_ rule: ProxyRule) {
+        // Import and sync callers may retry the same rule. Keep IDs unique so
+        // reorder and lookup paths can safely treat them as dictionary keys.
+        guard !rules.contains(where: { $0.id == rule.id }) else {
+            return
+        }
         rules.append(rule)
         if let pattern = rule.matchCondition.runtimeURLPattern {
             if case let .success(regex) = RegexValidator.compile(pattern) {
-                compiledPatterns[rule.id] = regex
+                compiledPatterns[CompiledPatternKey(ruleID: rule.id, pattern: pattern)] = regex
             }
         }
     }
 
     func removeRule(id: UUID) {
         rules.removeAll { $0.id == id }
-        compiledPatterns.removeValue(forKey: id)
+        compiledPatterns = compiledPatterns.filter { $0.key.ruleID != id }
     }
 
     /// Removes only the rules whose IDs are in `ids`, against current engine state.
@@ -189,9 +194,7 @@ actor RuleEngine {
             return
         }
         rules.removeAll { ids.contains($0.id) }
-        for id in ids {
-            compiledPatterns.removeValue(forKey: id)
-        }
+        compiledPatterns = compiledPatterns.filter { !ids.contains($0.key.ruleID) }
     }
 
     func toggleRule(id: UUID) {
@@ -204,12 +207,7 @@ actor RuleEngine {
     func updateRule(_ rule: ProxyRule) {
         if let index = rules.firstIndex(where: { $0.id == rule.id }) {
             rules[index] = rule
-            compiledPatterns.removeValue(forKey: rule.id)
-            if let pattern = rule.matchCondition.runtimeURLPattern,
-               case let .success(regex) = RegexValidator.compile(pattern)
-            {
-                compiledPatterns[rule.id] = regex
-            }
+            compilePatterns(forRuleID: rule.id)
         }
     }
 
@@ -257,6 +255,9 @@ actor RuleEngine {
             }
             return false
         }
+        guard Set(headerRules.map(\.id)).count == headerRules.count else {
+            return
+        }
         let byID = Dictionary(uniqueKeysWithValues: headerRules.map { ($0.id, $0) })
         let orderedIDSet = Set(orderedIDs)
         let reordered = orderedIDs.compactMap { byID[$0] }
@@ -283,6 +284,9 @@ actor RuleEngine {
                 return true
             }
             return false
+        }
+        guard Set(mapLocalRules.map(\.id)).count == mapLocalRules.count else {
+            return
         }
         let byID = Dictionary(uniqueKeysWithValues: mapLocalRules.map { ($0.id, $0) })
         let orderedIDSet = Set(orderedIDs)
@@ -341,6 +345,9 @@ actor RuleEngine {
             }(),
             "addNetworkConditionExclusive requires a .networkCondition rule"
         )
+        guard !rules.contains(where: { $0.id == rule.id }) else {
+            return
+        }
         for i in rules.indices {
             if case .networkCondition = rules[i].action {
                 rules[i].isEnabled = false
@@ -386,6 +393,10 @@ actor RuleEngine {
     // MARK: - Atomic Quota-Checked Operations
 
     func addRuleIfAllowed(_ rule: ProxyRule, maxPerCategory: Int) -> Bool {
+        // Treat a retry of an existing ID as a successful idempotent no-op.
+        guard !rules.contains(where: { $0.id == rule.id }) else {
+            return true
+        }
         guard rule.isEnabled else {
             addRule(rule)
             return true
@@ -498,7 +509,7 @@ actor RuleEngine {
             method: method,
             url: url,
             headers: headers,
-            compiledPattern: compiledPatterns[rule.id],
+            compiledPattern: compiledPattern(for: rule),
             graphQLOperationName: graphQLOperationName,
             clientApplication: clientApplication
         )
@@ -522,6 +533,11 @@ actor RuleEngine {
 
     private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
 
+    private struct CompiledPatternKey: Hashable {
+        let ruleID: UUID
+        let pattern: String
+    }
+
     private var rules: [ProxyRule] = []
     private var blockListToolEnabled: Bool = true
     private var breakpointToolEnabled: Bool = true
@@ -529,7 +545,14 @@ actor RuleEngine {
     private var mapRemoteToolEnabled: Bool = true
     private var networkConditionsToolEnabled: Bool = true
     private var modifyHeaderToolEnabled: Bool = true
-    private var compiledPatterns: [UUID: NSRegularExpression] = [:]
+    private var compiledPatterns: [CompiledPatternKey: NSRegularExpression] = [:]
+
+    private func compiledPattern(for rule: ProxyRule) -> NSRegularExpression? {
+        guard let pattern = rule.matchCondition.runtimeURLPattern else {
+            return nil
+        }
+        return compiledPatterns[CompiledPatternKey(ruleID: rule.id, pattern: pattern)]
+    }
 
     private func compilePatterns() {
         compiledPatterns.removeAll()
@@ -539,12 +562,32 @@ actor RuleEngine {
             }
             switch RegexValidator.compile(pattern) {
             case let .success(regex):
-                compiledPatterns[rules[i].id] = regex
+                compiledPatterns[CompiledPatternKey(ruleID: rules[i].id, pattern: pattern)] = regex
             case let .failure(error):
                 let ruleName = rules[i].name
                 Self.logger
                     .warning("SECURITY: Disabling rule '\(ruleName)' — invalid regex: \(error.localizedDescription)")
                 rules[i].isEnabled = false
+            }
+        }
+    }
+
+    /// Rebuilds every cached pattern for an ID because legacy persisted data can
+    /// contain multiple rules sharing that ID with different runtime patterns.
+    private func compilePatterns(forRuleID id: UUID) {
+        compiledPatterns = compiledPatterns.filter { $0.key.ruleID != id }
+        for index in rules.indices where rules[index].id == id {
+            guard let pattern = rules[index].matchCondition.runtimeURLPattern else {
+                continue
+            }
+            switch RegexValidator.compile(pattern) {
+            case let .success(regex):
+                compiledPatterns[CompiledPatternKey(ruleID: id, pattern: pattern)] = regex
+            case let .failure(error):
+                let ruleName = rules[index].name
+                Self.logger
+                    .warning("SECURITY: Disabling rule '\(ruleName)' — invalid regex: \(error.localizedDescription)")
+                rules[index].isEnabled = false
             }
         }
     }

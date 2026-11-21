@@ -554,6 +554,65 @@ struct RuleEngineTests {
         #expect(reordered.map(\.id) == [block.id, mapC.id, throttle.id, mapA.id, mapB.id])
     }
 
+    @Test("Duplicate rule IDs are idempotent and cannot crash reordering")
+    func duplicateRuleIDsAreIdempotentAndSafeToReorder() async {
+        let engine = RuleEngine()
+        let header = Self.modifyHeaderRule(named: "Header")
+        var duplicateHeader = header
+        duplicateHeader.name = "Duplicate Header"
+        let mapLocal = Self.mapLocalRule(named: "Map")
+        var duplicateMapLocal = mapLocal
+        duplicateMapLocal.name = "Duplicate Map"
+
+        await engine.addRule(header)
+        #expect(await engine.addRuleIfAllowed(duplicateHeader, maxPerCategory: 10))
+        await engine.addRule(duplicateHeader)
+        #expect(await engine.allRules.map(\.name) == ["Header"])
+
+        // replaceAll can load legacy persisted data that already contains
+        // duplicate IDs. Reordering must leave that state untouched, not trap.
+        await engine.replaceAll([header, duplicateHeader, mapLocal, duplicateMapLocal])
+        await engine.reorderModifyHeaderRules(orderedIDs: [header.id])
+        await engine.reorderMapLocalRules(orderedIDs: [mapLocal.id])
+        #expect(await engine.allRules.map(\.name) == ["Header", "Duplicate Header", "Map", "Duplicate Map"])
+    }
+
+    @Test("Legacy duplicate rule IDs keep distinct compiled URL patterns")
+    func duplicateRuleIDsKeepDistinctCompiledPatterns() async throws {
+        let id = UUID()
+        let first = ProxyRule(
+            id: id,
+            name: "First legacy duplicate",
+            matchCondition: RuleMatchCondition(urlPattern: "^https://first\\.example\\.com/"),
+            action: .block(statusCode: 403)
+        )
+        let second = ProxyRule(
+            id: id,
+            name: "Second legacy duplicate",
+            matchCondition: RuleMatchCondition(urlPattern: "^https://second\\.example\\.com/"),
+            action: .throttle(delayMs: 250)
+        )
+        let engine = RuleEngine()
+        await engine.replaceAll([first, second])
+
+        let firstURL = try #require(URL(string: "https://first.example.com/resource"))
+        let secondURL = try #require(URL(string: "https://second.example.com/resource"))
+
+        let firstResult = await engine.evaluate(method: "GET", url: firstURL, headers: [])
+        guard case let .block(statusCode) = firstResult else {
+            Issue.record("The first legacy rule should retain its own URL pattern")
+            return
+        }
+        #expect(statusCode == 403)
+
+        let secondResult = await engine.evaluate(method: "GET", url: secondURL, headers: [])
+        guard case let .throttle(delayMs) = secondResult else {
+            Issue.record("The second legacy rule should retain its own URL pattern")
+            return
+        }
+        #expect(delayMs == 250)
+    }
+
     @Test("First enabled Map Local rule wins on overlapping matches")
     func mapLocalFirstMatchWins() async throws {
         let engine = RuleEngine()
