@@ -24,6 +24,16 @@
         }
       }
     },
+    "%@ connection attempts were captured": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已捕获 %@ 次连接尝试"
+          }
+        }
+      }
+    },
     "%@ of binary data. Save the part to inspect it in another app.": {
       "localizations": {
         "zh-Hans": {
@@ -315,6 +325,7 @@
       }
     },
     "Babylon advertises a body limit larger than Rockxy's safe capture limit. Rockxy will keep its own limit and may omit larger bodies.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -325,6 +336,7 @@
       }
     },
     "Babylon advertises an incompatible schema version. Update Rockxy or the Babylon SDK before relying on that capture data.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -335,6 +347,7 @@
       }
     },
     "Babylon advertises an optional schema that this Rockxy version does not consume. Update Rockxy or disable that producer capability.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -345,6 +358,7 @@
       }
     },
     "Babylon advertises an unsupported traffic type. Update Rockxy or disable that producer capability.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -355,6 +369,7 @@
       }
     },
     "Babylon Capture": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -365,6 +380,7 @@
       }
     },
     "Babylon SDK": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -434,7 +450,18 @@
         }
       }
     },
+    "Captured %@ connection failure": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "捕获到 %@ 连接失败"
+          }
+        }
+      }
+    },
     "Captured Error": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -475,6 +502,7 @@
       }
     },
     "Client ID": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -495,6 +523,7 @@
       }
     },
     "Compatibility": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -1571,6 +1600,7 @@
       }
     },
     "Package": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -1621,6 +1651,7 @@
       }
     },
     "Payload Schemas": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -1731,6 +1762,7 @@
       }
     },
     "Producer Capabilities": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -1741,6 +1773,7 @@
       }
     },
     "Producer Platform": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -2337,6 +2370,7 @@
       }
     },
     "Search and run any command": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -2517,6 +2551,7 @@
       }
     },
     "Step ID": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -2726,6 +2761,26 @@
         }
       }
     },
+    "The selected request failed during captured %@ connection setup.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选请求在捕获到 %@ 连接设置过程中失败。"
+          }
+        }
+      }
+    },
+    "The selected request failed during the captured %@ stage.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选请求在捕获到的 %@ 阶段失败。"
+          }
+        }
+      }
+    },
     "the server": {
       "localizations": {
         "zh-Hans": {
@@ -2897,6 +2952,7 @@
       }
     },
     "Trace ID": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -2917,6 +2973,7 @@
       }
     },
     "Transport Session": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -3625,6 +3682,7 @@
       }
     },
     "The application rewrote its temporary proxy settings into an unreadable form. Rockxy restored the original settings and preserved the unreadable copy at %@. Review it, then try again.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -4167,6 +4225,7 @@
       }
     },
     "decrypt": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -4405,6 +4464,7 @@
       }
     },
     "tunnel": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -4443,9 +4503,6 @@
           }
         }
       }
-    },
-    "-%lld": {
-      "shouldTranslate": false
     },
     "Unknown compression flag %lld": {
       "localizations": {
@@ -6022,9 +6079,6 @@
         }
       }
     },
-    "%u": {
-      "shouldTranslate": false
-    },
     "•": {
       "shouldTranslate": false
     },
@@ -6152,9 +6206,6 @@
       "shouldTranslate": false
     },
     "↓ %@": {
-      "shouldTranslate": false
-    },
-    "+%lld": {
       "shouldTranslate": false
     },
     "<Missing URL>": {
@@ -6693,6 +6744,7 @@
       }
     },
     "About Rockxy": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -6903,6 +6955,7 @@
       }
     },
     "Add a host pattern or observed domains to decrypt their HTTPS.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -7123,6 +7176,7 @@
       }
     },
     "Add Observed Domains…": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -7472,6 +7526,7 @@
       }
     },
     "All captured HTTP/HTTPS requests, responses, headers, and bodies are stored in an unencrypted SQLite database on your Mac.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -8834,6 +8889,7 @@
       }
     },
     "Balanced local model for debugging and tool-oriented prompts": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -9719,16 +9775,6 @@
         }
       }
     },
-    "Capture another request with the same method and path, or select exactly two requests.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再捕获一个方法和路径相同的请求，或恰好选择两个请求。"
-          }
-        }
-      }
-    },
     "Capture check": {
       "localizations": {
         "zh-Hans": {
@@ -9760,6 +9806,7 @@
       }
     },
     "Capture Running": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -11196,6 +11243,7 @@
       }
     },
     "Click + or press ⌘N to create a script.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -11959,6 +12007,7 @@
       }
     },
     "Compact multilingual reasoning model from Microsoft": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -12221,6 +12270,7 @@
       }
     },
     "completed": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -13615,9 +13665,6 @@
         }
       }
     },
-    "Cursor": {
-      "shouldTranslate": false
-    },
     "Custom & Local": {
       "localizations": {
         "zh-Hans": {
@@ -14539,6 +14586,7 @@
       }
     },
     "Devices outside this Mac cannot reach localhost-only mode. Turn off Only Listen on localhost, then restart the proxy.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -14702,6 +14750,7 @@
       }
     },
     "Disable SSL Proxying": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -14742,6 +14791,7 @@
       }
     },
     "Disabled SSL Proxying for domains from %@. Requests from it will stay tunneled.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -15759,6 +15809,7 @@
       }
     },
     "Enable SSL Proxying": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -15819,6 +15870,7 @@
       }
     },
     "Enabled SSL Proxying for domains from %@. Make the request again to inspect them.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -18761,6 +18813,7 @@
       }
     },
     "Helper is responding and matches the bundled version.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -19332,6 +19385,7 @@
       }
     },
     "HTTPS interception is ready.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -21390,6 +21444,7 @@
       }
     },
     "Larger general-purpose model for Macs with more unified memory": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -22745,6 +22800,7 @@
       "shouldTranslate": false
     },
     "MCP (Model Context Protocol) allows compatible tools to interact with Rockxy. The AI can read captured HTTP traffic, inspect request and response details, export requests as cURL, and view proxy rules and status.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -23254,6 +23310,7 @@
       }
     },
     "Multiple HTTPS hosts rejected the proxy certificate. Check that the Rockxy Root CA is trusted in Keychain Access, then restart your browser.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -23264,6 +23321,7 @@
       }
     },
     "Multiple HTTPS hosts rejected the proxy certificate. Restart your browser to pick up the new Rockxy Root CA trust settings.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -25551,6 +25609,7 @@
       }
     },
     "No tool-call payloads were visible in the captured traffic.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -26307,6 +26366,7 @@
       }
     },
     "Open Connections": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -26317,6 +26377,7 @@
       }
     },
     "Open connections may still be authenticating.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -27550,6 +27611,7 @@
       }
     },
     "Physical devices cannot reach Rockxy while the proxy only listens on localhost. Turn off Only Listen on localhost, restart the proxy, and use the Device Proxy host plus active port.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -28871,6 +28933,7 @@
       }
     },
     "Published %lld request%@ to Gist": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -29536,6 +29599,7 @@
       }
     },
     "Redact Sensitive Data Before Sending to AI": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -31243,6 +31307,7 @@
       }
     },
     "Responses larger than 1 MB are saved as separate files.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -31899,6 +31964,7 @@
       }
     },
     "Rockxy could not identify every rejecting client. ": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -33517,6 +33583,7 @@
       }
     },
     "Rules decide which HTTPS hosts Rockxy decrypts. Other hosts still pass through Rockxy as opaque TLS tunnels.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -36460,6 +36527,7 @@
       }
     },
     "Small reasoning model for lower-memory Macs": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -36613,6 +36681,7 @@
       }
     },
     "SOCKS5 proxy selected unsupported authentication method %u.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -36843,6 +36912,7 @@
       }
     },
     "SSE cadence is shown from captured events. Token boundaries stay unavailable unless the provider exposes them.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -36876,6 +36946,7 @@
       }
     },
     "SSL Proxying": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -38010,9 +38081,6 @@
           }
         }
       }
-    },
-    "TextEdit": {
-      "shouldTranslate": false
     },
     "That captured request is no longer available.": {
       "localizations": {
@@ -39775,6 +39843,7 @@
       }
     },
     "This host has both behaviors. Tunnel Without Decryption takes priority.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -40983,6 +41052,7 @@
       }
     },
     "Try a different host pattern or behavior.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -41376,6 +41446,7 @@
       }
     },
     "Unknown compression flag %u": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -43220,9 +43291,6 @@
         }
       }
     },
-    "Xcode": {
-      "shouldTranslate": false
-    },
     "XML": {
       "shouldTranslate": false
     },
@@ -44336,6 +44404,7 @@
       }
     },
     "Copy Report": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -44906,6 +44975,7 @@
       }
     },
     "over %@": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -45736,6 +45806,7 @@
       }
     },
     "Lets MCP clients create Breakpoint, Map Local, Map Remote, and Block rules, turn rules on or off, enable HTTPS decryption for a domain, switch No Caching, pause recording, and clear the session. Rules they create appear in the matching tool windows and count toward the same active-rule limits.": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -46537,6 +46608,7 @@
       }
     },
     "Turn No Caching on or off": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -49921,6 +49993,7 @@
       }
     },
     "No Delay": {
+      "extractionState": "stale",
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
@@ -50389,7 +50462,343 @@
           }
         }
       }
+    },
+    "%@ %@\n%@": {
+      "comment": "A tooltip that shows the HTTP method and URL of the transaction, and a hint to reveal the transaction in the main window. The argument is the string “Click to select this request”.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ %2$@\n%3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@\n%3$@"
+          }
+        }
+      }
+    },
+    "%@ %@ · %@": {
+      "comment": "A tooltip that shows the offset, title, and size of the event.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ %2$@ · %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ · %3$@"
+          }
+        }
+      }
+    },
+    "%@ / %@": {
+      "comment": "A tooltip that displays the session ID and trace ID of the trace.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@ / %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "%@, %@, %@": {
+      "comment": "A11y label that combines the title and value of the tile.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@, %2$@, %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@、%2$@、%3$@"
+          }
+        }
+      }
+    },
+    "%@: %@. %@": {
+      "comment": "A row in the Traffic Insights findings list. The first argument is the string “Info”, the string “Notice” or the string “Warning”. The second argument is the finding's title. The third argument is the finding's detail.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@: %2$@. %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@。%3$@"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "comment": "The error rate as a percentage.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "+%@": {
+      "comment": "A label that shows the number of added lines and a plus sign. The argument is the number of added lines.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+%@"
+          }
+        }
+      }
+    },
+    "-%@": {
+      "comment": "A label that shows the number of lines that have been removed in a diff. The argument is the number of removed lines.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "-%@"
+          }
+        }
+      }
+    },
+    "Capture one unambiguous successful request with the same method and path, or select exactly two requests.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再捕获一个方法和路径相同且明确无歧义的成功请求，或恰好选择两个请求。"
+          }
+        }
+      }
+    },
+    "Direction": {
+      "comment": "The \"received\" series is used to distinguish between incoming and outgoing data in the traffic insights chart.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方向"
+          }
+        }
+      }
+    },
+    "End": {
+      "comment": "Label for the end of a time bin.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束"
+          }
+        }
+      }
+    },
+    "From": {
+      "comment": "Label for the y-axis in the latency chart.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起始"
+          }
+        }
+      }
+    },
+    "Investigate": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "调查"
+          }
+        }
+      }
+    },
+    "Series": {
+      "comment": "Tail of a latency plot.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系列"
+          }
+        }
+      }
+    },
+    "Share": {
+      "comment": "Label for the accessibility element representing the share of a protocol.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "占比"
+          }
+        }
+      }
+    },
+    "The Ark account or endpoint usage quota was reached.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ark 账户或接入点的使用额度已达到上限。"
+          }
+        }
+      }
+    },
+    "The configured Ark endpoint or deployment ‘%@’ was not found.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到配置的 Ark 端点或部署 ‘%@’。"
+          }
+        }
+      }
+    },
+    "To": {
+      "comment": "Y-axis value label for the upper bound of a value.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "至"
+          }
+        }
+      }
+    },
+    "When off, Rockxy sends store=false with every supported Responses API request.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，Rockxy 会在每个受支持的 Responses API 请求中发送 store=false。"
+          }
+        }
+      }
+    },
+    "p95": {
+      "comment": "The 95th percentile latency.",
+      "isCommentAutoGenerated": true,
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p95"
+          }
+        }
+      }
+    },
+    "Endpoint / Deployment ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接入点 / 部署 ID"
+          }
+        }
+      }
+    },
+    "Optional Ark endpoint ID": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可选的 Ark 接入点 ID"
+          }
+        }
+      }
+    },
+    "When set, Ark sends this deployment ID in its model field. Model identity remains separate.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置后，Ark 会在 model 字段中发送此部署 ID。模型标识保持独立。"
+          }
+        }
+      }
+    },
+    "Enter a nonempty ID no longer than 256 bytes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入非空 ID，长度不得超过 256 字节。"
+          }
+        }
+      }
+    },
+    "Ark API Model Field": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ark API model 字段"
+          }
+        }
+      }
+    },
+    "Enter an Ark endpoint or deployment ID no longer than 256 bytes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入长度不超过 256 字节的 Ark 接入点或部署 ID。"
+          }
+        }
+      }
+    },
+    "Baseline response headers absent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "基准响应中存在但所选请求中缺失的响应标头"
+          }
+        }
+      }
     }
   },
-  "version": "1.0"
+  "version": "1.1"
 }

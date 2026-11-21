@@ -26,7 +26,7 @@ struct AssistantPromptBuilder {
                 )
             ),
             input: pack.preview,
-            model: configuration.model,
+            model: configuration.apiModelIdentifier,
             maxOutputTokens: contextPlan.maxOutputTokens,
             storeResponse: configuration.storeResponses,
             contextWindowTokens: contextPlan.contextWindowTokens

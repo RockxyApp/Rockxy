@@ -39,6 +39,80 @@ struct AssistantProviderErrorClassTests {
         ) == .server(statusCode: 503, message: "maintenance"))
     }
 
+    @Test("Ark 404 distinguishes a deployment endpoint from a model catalog entry")
+    func arkDeploymentNotFound() throws {
+        let response = try #require(HTTPURLResponse(
+            url: #require(URL(string: "https://ark.cn-beijing.volces.com/api/v3/responses")),
+            statusCode: 404,
+            httpVersion: "HTTP/2",
+            headerFields: nil
+        ))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: response,
+            body: Data(#"{"error":{"code":"NotFound","message":"deployment not found"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .deploymentNotFound("ep-fixture"))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: response,
+            body: Data(#"{"error":{"code":"model_not_found","message":"missing"}}"#.utf8),
+            model: "openai-fixture"
+        ) == .modelNotFound("openai-fixture"))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: response,
+            body: Data(#"{"error":{"code":"PathNotFound","message":"API path not found"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .server(statusCode: 404, message: "API path not found"))
+    }
+
+    @Test("Ark usage quota errors are distinct from account rate limits")
+    func arkQuotaAndRateLimits() throws {
+        let url = try #require(URL(string: "https://ark.cn-beijing.volces.com/api/v3/responses"))
+        let quota = try #require(HTTPURLResponse(
+            url: url,
+            statusCode: 429,
+            httpVersion: "HTTP/2",
+            headerFields: nil
+        ))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"QuotaExceeded","message":"quota"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .quotaExceeded)
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"SetLimitExceeded","message":"limit"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .quotaExceeded)
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"ServerOverloaded","message":"busy"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .overloaded(retryAfterSeconds: nil))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"RequestBurstTooFast","message":"burst"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .overloaded(retryAfterSeconds: nil))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"AccountRateLimitExceeded","message":"rate"}}"#.utf8),
+            model: "ep-fixture",
+            provider: .doubao
+        ) == .rateLimited(retryAfterSeconds: nil))
+        #expect(AssistantHTTPErrorMapper.error(
+            response: quota,
+            body: Data(#"{"error":{"code":"QuotaExceeded","message":"quota"}}"#.utf8),
+            model: "fixture",
+            provider: .openAI
+        ) == .rateLimited(retryAfterSeconds: nil))
+    }
+
     @Test("An Anthropic overloaded_error stream event is overloaded, not a validation error")
     func anthropicOverloadedEvent() {
         var decoder = AnthropicStreamDecoder()

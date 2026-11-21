@@ -33,6 +33,19 @@ struct SettingsWindowReadabilityTests {
         }
     }
 
+    @Test("Assistant storage consent follows provider capability")
+    func assistantStorageConsentUsesProviderCapability() throws {
+        let source = try readProjectFile("Rockxy/Views/Settings/AssistantSettingsTab.swift")
+
+        #expect(source.contains("kind.descriptor.capabilities.responseStorageControl"))
+        #expect(source.contains("every supported Responses API request"))
+        #expect(source.contains("Endpoint / Deployment ID"))
+        #expect(source.contains("configuration.arkDeploymentID"))
+        let reviewSource = try readProjectFile("Rockxy/Views/Inspector/DebugAssistantReviewDataSheet.swift")
+        #expect(reviewSource.contains("configuration.apiModelIdentifier"))
+        #expect(reviewSource.contains("Ark API Model Field"))
+    }
+
     @Test("Invalid persisted selection resolves to general")
     func invalidPersistedSelectionResolvesToGeneral() {
         #expect(RockxySettingsTab.resolve("not-a-tab") == .general)

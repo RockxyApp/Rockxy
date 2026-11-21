@@ -1,11 +1,17 @@
 import Foundation
 
+// MARK: - GeminiAssistantProvider
+
 struct GeminiAssistantProvider: AssistantModelProvider {
+    // MARK: Lifecycle
+
     init(baseURL: URL, apiKey: String, transport: any AssistantHTTPTransport) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.transport = transport
     }
+
+    // MARK: Internal
 
     let kind = AssistantProviderKind.gemini
     let capabilities = AssistantProviderCapabilities.gemini
@@ -66,7 +72,7 @@ struct GeminiAssistantProvider: AssistantModelProvider {
                     guard !model.isEmpty, !model.contains("/") else {
                         throw AssistantProviderError.modelNotFound(request.model)
                     }
-                    var urlRequest = URLRequest(url: try streamEndpoint(model: model))
+                    var urlRequest = try URLRequest(url: streamEndpoint(model: model))
                     urlRequest.httpMethod = "POST"
                     urlRequest.timeoutInterval = Self.requestTimeout
                     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -115,6 +121,8 @@ struct GeminiAssistantProvider: AssistantModelProvider {
         }
     }
 
+    // MARK: Private
+
     private static let connectionTimeout: TimeInterval = 15
     private static let requestTimeout: TimeInterval = 90
 
@@ -150,16 +158,18 @@ struct GeminiAssistantProvider: AssistantModelProvider {
     }
 }
 
-enum GeminiStreamDecoder {
-    /// Finish reasons that mean Gemini refused or cut off the answer, not that it finished.
-    static let blockedFinishReasons: Set<String> = [
-        "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY",
-    ]
+// MARK: - GeminiStreamDecoder
 
+enum GeminiStreamDecoder {
     struct Result {
         let events: [AssistantStreamEvent]
         let finished: Bool
     }
+
+    /// Finish reasons that mean Gemini refused or cut off the answer, not that it finished.
+    static let blockedFinishReasons: Set<String> = [
+        "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "RECITATION", "IMAGE_SAFETY",
+    ]
 
     static func decode(line: String) throws -> Result {
         guard line.utf8.count <= AssistantExecutionLimits.maxStreamEventBytes else {
@@ -198,6 +208,11 @@ enum GeminiStreamDecoder {
             let content = candidate["content"] as? [String: Any]
             let parts = content?["parts"] as? [[String: Any]] ?? []
             for part in parts {
+                if part["functionCall"] != nil || part["thoughtSignature"] is String {
+                    throw AssistantProviderError.capabilityMismatch(
+                        "Gemini function calls and thought signatures require signature-preserving tool support"
+                    )
+                }
                 if let text = part["text"] as? String, !text.isEmpty {
                     events.append(.textDelta(text))
                 }

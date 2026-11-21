@@ -145,6 +145,30 @@ struct AssistantLocalRuntimePresetTests {
         #expect(decoded.baseURL == "http://127.0.0.1:9090/v1")
     }
 
+    @Test("Ark model and deployment identities persist independently")
+    func arkDeploymentIdentityRoundTrips() throws {
+        let configuration = AssistantProviderConfiguration(
+            kind: .doubao,
+            model: "doubao-seed-2-1-pro-260915",
+            arkDeploymentID: "ep-example"
+        )
+        let encoded = try JSONEncoder().encode(configuration)
+        let decoded = try JSONDecoder().decode(AssistantProviderConfiguration.self, from: encoded)
+
+        #expect(decoded.model == "doubao-seed-2-1-pro-260915")
+        #expect(decoded.arkDeploymentID == "ep-example")
+        #expect(decoded.apiModelIdentifier == "ep-example")
+
+        var legacy = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        legacy.removeValue(forKey: "arkDeploymentID")
+        let legacyDecoded = try JSONDecoder().decode(
+            AssistantProviderConfiguration.self,
+            from: JSONSerialization.data(withJSONObject: legacy)
+        )
+        #expect(legacyDecoded.arkDeploymentID == nil)
+        #expect(legacyDecoded.apiModelIdentifier == legacyDecoded.model)
+    }
+
     @Test("Model picker presentation distinguishes local and remote destinations")
     func modelSelectionPresentation() {
         var local = AssistantLocalRuntimePreset.preset(id: .llamaCppServer).makeConfiguration()

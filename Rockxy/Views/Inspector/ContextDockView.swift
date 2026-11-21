@@ -21,7 +21,7 @@ struct ContextDockView: View {
                     ),
                     WorkspaceModeSegment(
                         value: ContextDockTab.aiAssistant,
-                        title: String(localized: "AI Assistant", bundle: RockxyLocalization.bundle),
+                        title: String(localized: "Investigate", bundle: RockxyLocalization.bundle),
                         systemImage: "sparkles"
                     ),
                 ],

@@ -517,13 +517,13 @@ struct ContextDockInvestigationReportTests {
         #expect(DebugAssistantRecipe.allCases.last == .prepareBugReport)
     }
 
-    @Test("Mode switcher exposes Details and AI Assistant as native icon segments")
+    @Test("Mode switcher exposes Details and Investigate as native icon segments")
     func modeSwitcherUsesNativeIconSegments() throws {
         let dock = try readProjectFile("Rockxy/Views/Inspector/ContextDockView.swift")
         let dockHeader = try #require(dock.components(separatedBy: "Divider()").first)
         #expect(dock.contains("title: String(localized: \"Details\", bundle: RockxyLocalization.bundle)"))
         #expect(dock.contains("systemImage: \"doc.text.magnifyingglass\""))
-        #expect(dock.contains("title: String(localized: \"AI Assistant\", bundle: RockxyLocalization.bundle)"))
+        #expect(dock.contains("title: String(localized: \"Investigate\", bundle: RockxyLocalization.bundle)"))
         #expect(dock.contains("systemImage: \"sparkles\""))
         #expect(dock.components(separatedBy: "WorkspaceModeSegment(").count == 3)
         #expect(dock.contains("WorkspaceModeSegmentedControl("))

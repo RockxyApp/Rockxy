@@ -470,6 +470,13 @@ struct InvestigationTransactionSnapshot {
         timestamp = transaction.timestamp
         request = transaction.request
         response = transaction.response
+        connectionFailure = transaction.connectionLog?.failure.map { failure in
+            ConnectionFailureSnapshot(
+                stage: failure.stage,
+                message: Self.redacted(failure.message, characters: 240),
+                attempts: failure.attempts.prefix(2).map { Self.redacted($0, characters: 160) }
+            )
+        }
         isFailed = transaction.state == .failed
         duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration
         timing = transaction.timingInfo
@@ -484,6 +491,8 @@ struct InvestigationTransactionSnapshot {
     let timestamp: Date
     let request: HTTPRequestData
     let response: HTTPResponseData?
+    /// Bounded transport failure facts; raw connection logs may include machine-specific addresses.
+    let connectionFailure: ConnectionFailureSnapshot?
     let isFailed: Bool
     let duration: TimeInterval?
     /// Captured phase breakdown, when the proxy measured one.
@@ -510,4 +519,19 @@ struct InvestigationTransactionSnapshot {
     func responseHeader(named name: String) -> HTTPHeader? {
         response?.headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
+
+    // MARK: Private
+
+    private static func redacted(_ value: String, characters: Int) -> String {
+        let boundedValue = value.count > characters ? String(value.prefix(characters)) + "…" : value
+        return SensitiveDataRedactor().redactBodyText(boundedValue, contentType: nil)
+    }
+}
+
+// MARK: - ConnectionFailureSnapshot
+
+struct ConnectionFailureSnapshot: Sendable, Equatable {
+    let stage: ConnectionLog.FailureStage
+    let message: String
+    let attempts: [String]
 }

@@ -99,9 +99,9 @@ struct AssistantProductHelpTests {
     @Test("The product-help request carries the question and grounding but no traffic")
     func promptBuilderExcludesTraffic() {
         let configuration = AssistantProviderConfiguration(
-            kind: .openAICompatible,
-            baseURL: "http://127.0.0.1:1234/v1",
-            model: "fixture-model"
+            kind: .doubao,
+            model: "doubao-seed-2-1-pro-260915",
+            arkDeploymentID: "ep-product-help"
         )
         let conversation: [DebugAssistantMessage] = [
             .user("How do I decrypt HTTPS?"),
@@ -112,7 +112,7 @@ struct AssistantProductHelpTests {
             configuration: configuration
         )
         #expect(request.input == "How do I decrypt HTTPS?")
-        #expect(request.model == "fixture-model")
+        #expect(request.model == "ep-product-help")
         #expect(request.instructions.contains("No captured network traffic"))
         #expect(request.instructions.contains("<rockxy_capabilities>"))
         #expect(!request.reviewedContentPreview.contains("Retry-After"))

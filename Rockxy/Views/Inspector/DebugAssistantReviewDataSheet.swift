@@ -513,16 +513,34 @@ struct DebugAssistantReviewDataSheet: View {
                 value: SizeFormatter.format(bytes: request?.reviewedContentBytes ?? pack.manifest.outboundBytes)
             ),
         ]
+        if configuration?.kind == .doubao, let configuration {
+            details.append(ReviewDetail(
+                title: String(localized: "Ark API Model Field", bundle: RockxyLocalization.bundle),
+                value: configuration.apiModelIdentifier
+            ))
+            if let deploymentID = configuration.arkDeploymentID, !deploymentID.isEmpty {
+                details.append(ReviewDetail(
+                    title: String(localized: "Endpoint / Deployment ID", bundle: RockxyLocalization.bundle),
+                    value: deploymentID.trimmingCharacters(in: .whitespacesAndNewlines)
+                ))
+            }
+        }
         if let contextWindow = contextPlan?.contextWindowTokens {
             details.append(ReviewDetail(
                 title: String(localized: "Context Window", bundle: RockxyLocalization.bundle),
-                value: String(localized: "\(CountFormatter.format(contextWindow)) tokens", bundle: RockxyLocalization.bundle)
+                value: String(
+                    localized: "\(CountFormatter.format(contextWindow)) tokens",
+                    bundle: RockxyLocalization.bundle
+                )
             ))
         }
         if let outputLimit = contextPlan?.maxOutputTokens {
             details.append(ReviewDetail(
                 title: String(localized: "Output Limit", bundle: RockxyLocalization.bundle),
-                value: String(localized: "\(CountFormatter.format(outputLimit)) tokens", bundle: RockxyLocalization.bundle)
+                value: String(
+                    localized: "\(CountFormatter.format(outputLimit)) tokens",
+                    bundle: RockxyLocalization.bundle
+                )
             ))
         }
         if !isLocalExecution {
