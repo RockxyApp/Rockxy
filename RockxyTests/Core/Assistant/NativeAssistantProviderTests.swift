@@ -91,6 +91,72 @@ struct NativeAssistantProviderTests {
         #expect(body["max_tokens"] as? Int == 321)
     }
 
+    @Test("Anthropic correlates interleaved tool inputs and rejects malformed JSON")
+    func anthropicToolInputValidation() async throws {
+        let provider = try AnthropicAssistantProvider(
+            baseURL: #require(URL(string: "https://api.anthropic.com/v1")),
+            apiKey: "fixture-secret",
+            transport: NativeProviderFixtureTransport(
+                data: Data(),
+                lines: [
+                    #"data: {"type":"message_start","message":{"id":"msg_tools","usage":{"input_tokens":2}}}"#,
+                    #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_alpha","name":"lookup_alpha","input":{}}}"#,
+                    #"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"tool_beta","name":"lookup_beta","input":{}}}"#,
+                    #"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"beta\":"}}"#,
+                    #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"alpha\":"}}"#,
+                    #"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"2}"}}"#,
+                    #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"1}"}}"#,
+                    #"data: {"type":"content_block_stop","index":1}"#,
+                    #"data: {"type":"content_block_stop","index":0}"#,
+                    #"data: {"type":"message_stop"}"#,
+                ]
+            )
+        )
+
+        let events = try await collect(provider.stream(fixtureRequest(model: "claude-fixture")))
+        #expect(events.contains(.toolCallCompleted(AssistantToolCall(
+            id: "tool_beta",
+            name: "lookup_beta",
+            arguments: #"{"beta":2}"#
+        ))))
+        #expect(events.contains(.toolCallCompleted(AssistantToolCall(
+            id: "tool_alpha",
+            name: "lookup_alpha",
+            arguments: #"{"alpha":1}"#
+        ))))
+        #expect(events.contains(.usage(AssistantUsage(inputTokens: 2, outputTokens: 0, cachedInputTokens: 0))))
+
+        var emptyInputDecoder = AnthropicStreamDecoder()
+        _ = try emptyInputDecoder.decode(
+            line: #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_empty","name":"empty_lookup","input":{}}}"#
+        )
+        let emptyInputEvents = try emptyInputDecoder.decode(
+            line: #"data: {"type":"content_block_stop","index":0}"#
+        )
+        #expect(emptyInputEvents.contains(.toolCallCompleted(AssistantToolCall(
+            id: "tool_empty",
+            name: "empty_lookup",
+            arguments: "{}"
+        ))))
+
+        let malformedProvider = try AnthropicAssistantProvider(
+            baseURL: #require(URL(string: "https://api.anthropic.com/v1")),
+            apiKey: "fixture-secret",
+            transport: NativeProviderFixtureTransport(
+                data: Data(),
+                lines: [
+                    #"data: {"type":"message_start","message":{"id":"msg_bad_tools"}}"#,
+                    #"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_bad","name":"lookup","input":{}}}"#,
+                    #"data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{invalid"}}"#,
+                    #"data: {"type":"content_block_stop","index":0}"#,
+                ]
+            )
+        )
+        await expectStreamFailure(malformedProvider.stream(fixtureRequest(model: "claude-fixture"))) { error in
+            #expect(error == .malformedResponse("Anthropic tool input must be a valid JSON object"))
+        }
+    }
+
     @Test("Gemini filters generative models and streams usage")
     func geminiFixture() async throws {
         let models = #"{"models":[{"name":"models/gemini-fixture","displayName":"Gemini Fixture","#
@@ -131,6 +197,22 @@ struct NativeAssistantProviderTests {
         let body = try jsonBody(streamRequest)
         let generation = try #require(body["generationConfig"] as? [String: Any])
         #expect(generation["maxOutputTokens"] as? Int == 321)
+    }
+
+    @Test("Gemini does not silently discard function calls or thought signatures")
+    func geminiRejectsUnpreservedToolState() throws {
+        let unsupportedEvents = [
+            #"data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"id":"EV-1"}},"thoughtSignature":"fixture-signature"}]},"finishReason":"STOP"}]}"#,
+            #"data: {"candidates":[{"content":{"parts":[{"thoughtSignature":"fixture-signature"}]},"finishReason":"STOP"}]}"#,
+        ]
+
+        for line in unsupportedEvents {
+            #expect(throws: AssistantProviderError.capabilityMismatch(
+                "Gemini function calls and thought signatures require signature-preserving tool support"
+            )) {
+                _ = try GeminiStreamDecoder.decode(line: line)
+            }
+        }
     }
 
     @Test("Runtime blocks captured data from remote cleartext endpoints")
@@ -194,6 +276,113 @@ struct NativeAssistantProviderTests {
         let request = try #require(await transport.requests().first)
         #expect(request.url?.absoluteString == "https://api.deepseek.com/v1/models")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-secret")
+    }
+
+    @Test("Ark validates a separate deployment ID before network access")
+    func arkDeploymentIdentityValidation() async throws {
+        let transport = NativeProviderFixtureTransport(data: Data(), lines: [])
+        let runtime = AssistantProviderRuntime(
+            transport: transport,
+            credentialStorage: EmptyAssistantCredentialStorage()
+        )
+        let configuration = AssistantProviderConfiguration(
+            kind: .doubao,
+            model: "doubao-seed-2-1-pro-260915",
+            arkDeploymentID: "   "
+        )
+
+        #expect(configuration.model == "doubao-seed-2-1-pro-260915")
+        #expect(configuration.apiModelIdentifier.isEmpty)
+        #expect(!configuration.isComplete)
+        do {
+            _ = try await runtime.discoverModels(configuration: configuration)
+            Issue.record("Expected the invalid deployment ID to fail before networking")
+        } catch let error as AssistantProviderError {
+            #expect(error == .invalidDeploymentID)
+        }
+        #expect(await transport.requests().isEmpty)
+
+        var oversized = configuration
+        oversized.arkDeploymentID = String(
+            repeating: "a",
+            count: AssistantProviderConfiguration.maxArkDeploymentIDBytes + 1
+        )
+        #expect(!oversized.hasValidArkDeploymentID)
+        #expect(!oversized.isComplete)
+    }
+
+    @Test("Qwen regional profiles keep their endpoint and credential paired")
+    func qwenRegionalProfilesStayPaired() async throws {
+        let beijing = AssistantProviderConfiguration(
+            kind: .qwen,
+            baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            model: "qwen-fixture-cn",
+            region: "cn-beijing"
+        )
+        let singapore = AssistantProviderConfiguration(
+            kind: .qwen,
+            baseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            model: "qwen-fixture-sg",
+            region: "ap-southeast-1"
+        )
+        let transport = NativeProviderFixtureTransport(
+            data: Data(#"{"data":[{"id":"qwen-fixture"}]}"#.utf8),
+            lines: []
+        )
+        let runtime = AssistantProviderRuntime(
+            transport: transport,
+            credentialStorage: ProfileAssistantCredentialStorage(values: [
+                beijing.id: "beijing-fixture-key",
+                singapore.id: "singapore-fixture-key",
+            ])
+        )
+
+        _ = try await runtime.discoverModels(configuration: beijing)
+        _ = try await runtime.discoverModels(configuration: singapore)
+
+        let requests = await transport.requests()
+        #expect(requests.count == 2)
+        #expect(requests[0].url?.host == "dashscope.aliyuncs.com")
+        #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer beijing-fixture-key")
+        #expect(requests[1].url?.host == "dashscope-intl.aliyuncs.com")
+        #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer singapore-fixture-key")
+    }
+
+    @Test("Kimi China and global profiles keep their endpoint and credential paired")
+    func kimiPlatformProfilesStayPaired() async throws {
+        let global = AssistantProviderConfiguration(
+            kind: .kimi,
+            baseURL: "https://api.moonshot.ai/v1",
+            model: "kimi-global-fixture",
+            region: "global"
+        )
+        let china = AssistantProviderConfiguration(
+            kind: .kimi,
+            baseURL: "https://api.moonshot.cn/v1",
+            model: "kimi-cn-fixture",
+            region: "china"
+        )
+        let transport = NativeProviderFixtureTransport(
+            data: Data(#"{"data":[{"id":"kimi-fixture"}]}"#.utf8),
+            lines: []
+        )
+        let runtime = AssistantProviderRuntime(
+            transport: transport,
+            credentialStorage: ProfileAssistantCredentialStorage(values: [
+                global.id: "global-fixture-key",
+                china.id: "china-fixture-key",
+            ])
+        )
+
+        _ = try await runtime.discoverModels(configuration: global)
+        _ = try await runtime.discoverModels(configuration: china)
+
+        let requests = await transport.requests()
+        #expect(requests.count == 2)
+        #expect(requests[0].url?.host == "api.moonshot.ai")
+        #expect(requests[0].value(forHTTPHeaderField: "Authorization") == "Bearer global-fixture-key")
+        #expect(requests[1].url?.host == "api.moonshot.cn")
+        #expect(requests[1].value(forHTTPHeaderField: "Authorization") == "Bearer china-fixture-key")
     }
 
     @MainActor
@@ -450,6 +639,20 @@ private actor NativeProviderFixtureTransport: AssistantHTTPTransport {
             headerFields: nil
         ))
     }
+}
+
+// MARK: - ProfileAssistantCredentialStorage
+
+struct ProfileAssistantCredentialStorage: AssistantCredentialStorage {
+    let values: [UUID: String]
+
+    func save(_: String, providerID _: UUID) throws {}
+
+    func load(providerID: UUID) throws -> String? {
+        values[providerID]
+    }
+
+    func delete(providerID _: UUID) throws {}
 }
 
 // MARK: - EmptyAssistantCredentialStorage

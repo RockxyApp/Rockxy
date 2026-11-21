@@ -1,20 +1,85 @@
 import Foundation
 
+// MARK: - ArkResponsesAssistantProvider
+
+struct ArkResponsesAssistantProvider: AssistantModelProvider {
+    // MARK: Lifecycle
+
+    init(baseURL: URL, apiKey: String, transport: any AssistantHTTPTransport) {
+        provider = OpenAIResponsesProvider(
+            baseURL: baseURL,
+            apiKey: apiKey,
+            transport: transport,
+            kind: .doubao,
+            capabilities: .ark
+        )
+    }
+
+    // MARK: Internal
+
+    let kind = AssistantProviderKind.doubao
+    let capabilities = AssistantProviderCapabilities.ark
+
+    func discoverModels() async throws -> [AssistantModel] {
+        [] // Ark deployment IDs are entered manually; no model catalog is assumed.
+    }
+
+    func testConnection(model: String) async throws -> Int {
+        let request = AssistantCompletionRequest(
+            instructions: "Reply with the single word OK.",
+            input: "Connection check.",
+            model: model,
+            maxOutputTokens: 8,
+            storeResponse: false
+        )
+        var receivedCompletion = false
+        for try await event in provider.stream(request) {
+            if case .completed = event {
+                receivedCompletion = true
+            }
+        }
+        guard receivedCompletion else {
+            throw AssistantProviderError.malformedResponse(
+                "Ark connection check returned no completion signal"
+            )
+        }
+        return 0
+    }
+
+    func stream(_ request: AssistantCompletionRequest)
+        -> AsyncThrowingStream<AssistantStreamEvent, Error>
+    {
+        provider.stream(request)
+    }
+
+    // MARK: Private
+
+    private let provider: OpenAIResponsesProvider
+}
+
 // MARK: - OpenAIResponsesProvider
 
 struct OpenAIResponsesProvider: AssistantModelProvider {
     // MARK: Lifecycle
 
-    init(baseURL: URL, apiKey: String, transport: any AssistantHTTPTransport) {
+    init(
+        baseURL: URL,
+        apiKey: String,
+        transport: any AssistantHTTPTransport,
+        kind: AssistantProviderKind = .openAI,
+        capabilities: AssistantProviderCapabilities = .openAI
+    ) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.transport = transport
+        self.kind = kind
+        self.capabilities = capabilities
     }
 
     // MARK: Internal
 
-    let kind = AssistantProviderKind.openAI
-    let capabilities = AssistantProviderCapabilities.openAI
+    let kind: AssistantProviderKind
+    let capabilities: AssistantProviderCapabilities
 
     func discoverModels() async throws -> [AssistantModel] {
         var request = URLRequest(url: endpoint("models"))
@@ -24,7 +89,12 @@ struct OpenAIResponsesProvider: AssistantModelProvider {
         do {
             let (data, response) = try await transport.data(for: request)
             guard (200 ... 299).contains(response.statusCode) else {
-                throw AssistantHTTPErrorMapper.error(response: response, body: data, model: "")
+                throw AssistantHTTPErrorMapper.error(
+                    response: response,
+                    body: data,
+                    model: "",
+                    provider: kind == .doubao ? .doubao : nil
+                )
             }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let values = object["data"] as? [[String: Any]] else
@@ -79,7 +149,8 @@ struct OpenAIResponsesProvider: AssistantModelProvider {
                         throw AssistantHTTPErrorMapper.error(
                             response: stream.response,
                             body: body,
-                            model: request.model
+                            model: request.model,
+                            provider: kind == .doubao ? .doubao : nil
                         )
                     }
 

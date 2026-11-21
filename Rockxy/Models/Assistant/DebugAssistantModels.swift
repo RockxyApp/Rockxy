@@ -470,6 +470,13 @@ struct InvestigationTransactionSnapshot {
         timestamp = transaction.timestamp
         request = transaction.request
         response = transaction.response
+        connectionFailure = transaction.connectionLog?.failure.map { failure in
+            ConnectionFailureSnapshot(
+                stage: failure.stage,
+                message: Self.redacted(failure.message, characters: 240),
+                attempts: failure.attempts.prefix(2).map { Self.redacted($0, characters: 160) }
+            )
+        }
         isFailed = transaction.state == .failed
         duration = transaction.timingInfo?.totalDuration ?? transaction.measuredDuration
         timing = transaction.timingInfo
@@ -484,6 +491,10 @@ struct InvestigationTransactionSnapshot {
     let timestamp: Date
     let request: HTTPRequestData
     let response: HTTPResponseData?
+    /// Bounded transport failure facts, with credentials redacted. Resolved upstream addresses
+    /// are NOT removed — the redactor does not handle them — so these strings stay in local
+    /// evidence and must not be added to an outbound context pack.
+    let connectionFailure: ConnectionFailureSnapshot?
     let isFailed: Bool
     let duration: TimeInterval?
     /// Captured phase breakdown, when the proxy measured one.
@@ -492,8 +503,13 @@ struct InvestigationTransactionSnapshot {
     let matchedRuleName: String?
     let matchedRuleActionSummary: String?
 
+    /// A captured status of zero is Rockxy's placeholder for a connection that never
+    /// produced a response, so it must not read as an HTTP status an investigation can explain.
     var statusCode: Int? {
-        response?.statusCode
+        guard let statusCode = response?.statusCode, statusCode > 0 else {
+            return nil
+        }
+        return statusCode
     }
 
     var isSuccessful: Bool {
@@ -510,4 +526,24 @@ struct InvestigationTransactionSnapshot {
     func responseHeader(named name: String) -> HTTPHeader? {
         response?.headers.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }
     }
+
+    // MARK: Private
+
+    /// Redact first, then bound. Truncating first can cut inside a value and defeat a
+    /// pattern that needs its closing delimiter, leaving the fragment in cleartext.
+    private static func redacted(_ value: String, characters: Int) -> String {
+        let redactedValue = SensitiveDataRedactor().redactBodyText(value, contentType: nil)
+        guard redactedValue.count > characters else {
+            return redactedValue
+        }
+        return String(redactedValue.prefix(characters)) + "…"
+    }
+}
+
+// MARK: - ConnectionFailureSnapshot
+
+struct ConnectionFailureSnapshot: Sendable, Equatable {
+    let stage: ConnectionLog.FailureStage
+    let message: String
+    let attempts: [String]
 }

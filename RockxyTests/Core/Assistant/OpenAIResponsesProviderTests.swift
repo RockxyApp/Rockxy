@@ -7,6 +7,123 @@ import Testing
 struct OpenAIResponsesProviderTests {
     // MARK: Internal
 
+    @Test("Ark uses the fixed regional Responses endpoint and honors storage preference")
+    func arkRuntimeRequestContract() async throws {
+        for storeResponses in [false, true] {
+            let transport = FixtureAssistantTransport(streamLines: [
+                #"data: {"type":"response.output_text.delta","delta":"OK"}"#,
+                #"data: {"type":"response.completed","response":{"id":"resp_ark","usage":{"input_tokens":4,"output_tokens":1}}}"#,
+            ])
+            let id = UUID()
+            let runtime = AssistantProviderRuntime(
+                transport: transport,
+                credentialStorage: ProfileAssistantCredentialStorage(values: [id: "fixture-ark-key"])
+            )
+            let configuration = AssistantProviderConfiguration(
+                id: id,
+                kind: .doubao,
+                model: "doubao-seed-2-1-pro-260915",
+                arkDeploymentID: "ep-20261024-example",
+                storeResponses: storeResponses
+            )
+            let request = AssistantCompletionRequest(
+                instructions: "Reviewed synthetic context only.",
+                input: "Synthetic request.",
+                model: configuration.apiModelIdentifier,
+                maxOutputTokens: 16,
+                storeResponse: configuration.storeResponses
+            )
+
+            let stream = try await runtime.stream(request: request, configuration: configuration)
+            for try await _ in stream {}
+
+            let outbound = try #require(await transport.lastRequest())
+            #expect(outbound.url?.absoluteString == "https://ark.cn-beijing.volces.com/api/v3/responses")
+            #expect(outbound.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-ark-key")
+            let body = try #require(outbound.httpBody)
+            let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(object["model"] as? String == configuration.arkDeploymentID)
+            #expect(configuration.model == "doubao-seed-2-1-pro-260915")
+            #expect(object["store"] as? Bool == storeResponses)
+            #expect(object["stream"] as? Bool == true)
+        }
+    }
+
+    @Test("Ark connection check sends the endpoint ID as the API model target")
+    func arkConnectionCheckUsesDeploymentID() async throws {
+        let transport = FixtureAssistantTransport(streamLines: [
+            #"data: {"type":"response.completed","response":{"id":"resp_connection"}}"#,
+        ])
+        let id = UUID()
+        let runtime = AssistantProviderRuntime(
+            transport: transport,
+            credentialStorage: ProfileAssistantCredentialStorage(values: [id: "fixture-ark-key"])
+        )
+        let configuration = AssistantProviderConfiguration(
+            id: id,
+            kind: .doubao,
+            model: "doubao-seed-2-1-pro-260915",
+            arkDeploymentID: "ep-connection-fixture"
+        )
+
+        let result = try await runtime.testConnection(configuration: configuration)
+
+        #expect(result.model == "ep-connection-fixture")
+        let request = try #require(await transport.lastRequest())
+        let body = try #require(request.httpBody)
+        let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(object["model"] as? String == "ep-connection-fixture")
+        #expect(object["store"] as? Bool == false)
+    }
+
+    @Test("Ark rejects an unverified region before issuing a request")
+    func arkRejectsUnsupportedRegion() async throws {
+        let transport = FixtureAssistantTransport(streamLines: [])
+        let runtime = AssistantProviderRuntime(
+            transport: transport,
+            credentialStorage: EmptyAssistantCredentialStorage()
+        )
+        let configuration = AssistantProviderConfiguration(kind: .doubao, model: "ep-fixture", region: "cn-shanghai")
+        do {
+            _ = try await runtime.discoverModels(configuration: configuration)
+            Issue.record("Expected unsupported Ark region to fail before transport")
+        } catch let error as AssistantProviderError {
+            #expect(error == .capabilityMismatch(
+                "Volcengine Ark currently supports the configured cn-beijing data endpoint only."
+            ))
+        }
+        #expect(await transport.lastRequest() == nil)
+    }
+
+    @Test("Ark streaming HTTP 404 is classified as a missing deployment")
+    func arkStreamClassifiesMissingDeployment() async throws {
+        let transport = FixtureAssistantTransport(
+            streamStatus: 404,
+            streamLines: [#"{"error":{"code":"NotFound","message":"deployment not found"}}"#]
+        )
+        let provider = try OpenAIResponsesProvider(
+            baseURL: #require(URL(string: "https://ark.cn-beijing.volces.com/api/v3")),
+            apiKey: "fixture-ark-key",
+            transport: transport,
+            kind: .doubao,
+            capabilities: .ark
+        )
+        let request = AssistantCompletionRequest(
+            instructions: "fixture",
+            input: "fixture",
+            model: "ep-fixture",
+            maxOutputTokens: 8,
+            storeResponse: false
+        )
+
+        do {
+            for try await _ in provider.stream(request) {}
+            Issue.record("Expected the Ark deployment error")
+        } catch let error as AssistantProviderError {
+            #expect(error == .deploymentNotFound("ep-fixture"))
+        }
+    }
+
     @Test("Responses adapter emits fixture text, tool call, usage, and exact request options")
     func fixtureStreamingFlow() async throws {
         let lines = [
@@ -138,6 +255,22 @@ struct OpenAIResponsesProviderTests {
         let outbound = try #require(await transport.lastRequest())
         #expect(outbound.url?.absoluteString == "http://127.0.0.1:1234/v1/chat/completions")
         #expect(outbound.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
+    @Test("Compatible adapter fails closed on tool calls without profile support")
+    func compatibleToolCallRejected() async throws {
+        let provider = try OpenAICompatibleAssistantProvider(
+            baseURL: #require(URL(string: "https://api.deepseek.com/v1")),
+            apiKey: "fixture-secret",
+            transport: FixtureAssistantTransport(streamLines: [
+                #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_fixture","function":{"name":"lookup","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}"#,
+                "data: [DONE]",
+            ])
+        )
+
+        await expectStreamFailure(provider.stream(fixtureRequest(model: "deepseek-fixture"))) { error in
+            #expect(error == .capabilityMismatch("Tool calls are not enabled for this assistant provider profile"))
+        }
     }
 
     @Test("Ollama adapter streams native NDJSON fixtures")

@@ -123,7 +123,9 @@ final class URLSessionAssistantHTTPTransport: AssistantHTTPTransport, @unchecked
     private static func yield(
         _ line: String,
         to continuation: AsyncThrowingStream<String, Error>.Continuation
-    ) throws {
+    )
+        throws
+    {
         switch continuation.yield(line) {
         case .enqueued:
             break
@@ -205,7 +207,8 @@ enum AssistantHTTPErrorMapper {
     static func error(
         response: HTTPURLResponse,
         body: Data,
-        model: String
+        model: String,
+        provider: AssistantProviderKind? = nil
     )
         -> AssistantProviderError
     {
@@ -224,15 +227,32 @@ enum AssistantHTTPErrorMapper {
         case 403:
             return .permission
         case 404:
+            if provider == .doubao {
+                if code == "ModelNotFound" || detail.localizedCaseInsensitiveContains("model") {
+                    return .modelNotFound(model)
+                }
+                if ["EndpointNotFound", "DeploymentNotFound"].contains(code)
+                    || detail.localizedCaseInsensitiveContains("endpoint")
+                    || detail.localizedCaseInsensitiveContains("deployment")
+                {
+                    return .deploymentNotFound(model)
+                }
+            }
             if code == "model_not_found" || detail.localizedCaseInsensitiveContains("model") {
                 return .modelNotFound(model)
             }
             return .server(statusCode: 404, message: detail)
+        case 429 where provider == .doubao && (code == "QuotaExceeded" || code == "SetLimitExceeded"):
+            return .quotaExceeded
+        case 429 where provider == .doubao
+            && (code == "ServerOverloaded" || code == "RequestBurstTooFast" || code == "InflightBatchsizeExceeded"):
+            return .overloaded(retryAfterSeconds: retryAfterSeconds(response))
         case 429:
             return .rateLimited(retryAfterSeconds: retryAfterSeconds(response))
         case 529:
             return .overloaded(retryAfterSeconds: retryAfterSeconds(response))
-        case 503 where errorType(from: body) == "overloaded_error" || detail.localizedCaseInsensitiveContains("overloaded"):
+        case 503
+            where errorType(from: body) == "overloaded_error" || detail.localizedCaseInsensitiveContains("overloaded"):
             return .overloaded(retryAfterSeconds: retryAfterSeconds(response))
         case 500 ... 599:
             return .server(statusCode: response.statusCode, message: detail)

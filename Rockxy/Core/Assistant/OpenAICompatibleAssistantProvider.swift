@@ -188,11 +188,16 @@ struct OpenAICompatibleAssistantProvider: AssistantModelProvider {
             )))
         }
         if let choices = object["choices"] as? [[String: Any]],
-           let delta = choices.first?["delta"] as? [String: Any],
-           let content = delta["content"] as? String,
-           !content.isEmpty
+           let delta = choices.first?["delta"] as? [String: Any]
         {
-            events.append(.textDelta(content))
+            if delta["tool_calls"] != nil {
+                throw AssistantProviderError.capabilityMismatch(
+                    "Tool calls are not enabled for this assistant provider profile"
+                )
+            }
+            if let content = delta["content"] as? String, !content.isEmpty {
+                events.append(.textDelta(content))
+            }
         }
         return events
     }

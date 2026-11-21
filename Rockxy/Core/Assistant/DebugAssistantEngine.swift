@@ -57,11 +57,11 @@ struct DebugAssistantEngine {
             sourceTransactionID: primary.id
         )]
 
-        if let response = primary.response {
+        if let statusCode = primary.statusCode, let response = primary.response {
             evidence.append(InvestigationEvidence(
                 id: "flow:\(primary.id):response.status",
                 kind: .observed,
-                title: "HTTP \(response.statusCode) \(response.statusMessage)",
+                title: "HTTP \(statusCode) \(bounded(response.statusMessage, characters: 160))",
                 detail: String(localized: "Captured response status.", bundle: RockxyLocalization.bundle),
                 sourceTransactionID: primary.id
             ))
@@ -77,6 +77,8 @@ struct DebugAssistantEngine {
                 sourceTransactionID: primary.id
             ))
         }
+
+        evidence.append(contentsOf: connectionFailureEvidence(for: primary))
 
         if primary.request.method.caseInsensitiveCompare("CONNECT") == .orderedSame {
             evidence.append(InvestigationEvidence(
@@ -177,11 +179,11 @@ struct DebugAssistantEngine {
         }
         var evidence: [InvestigationEvidence] = []
 
-        if let response = primary.response {
+        if let statusCode = primary.statusCode, let response = primary.response {
             evidence.append(.init(
                 id: "flow:\(primary.id):response.status",
                 kind: .observed,
-                title: "HTTP \(response.statusCode)",
+                title: "HTTP \(statusCode)",
                 detail: String(
                     localized: "Captured response status \(response.statusMessage).",
                     bundle: RockxyLocalization.bundle
@@ -200,6 +202,8 @@ struct DebugAssistantEngine {
                 sourceTransactionID: primary.id
             ))
         }
+
+        evidence.append(contentsOf: connectionFailureEvidence(for: primary))
 
         if let retryAfter = primary.responseHeader(named: "Retry-After")?.value {
             evidence.append(.init(
@@ -298,12 +302,31 @@ struct DebugAssistantEngine {
         -> InvestigationResult
     {
         let explicitComparison = selected.dropFirst().first
-        let nearbySuccess = nearbyTransactions(to: primary, in: session).first {
+        let nearbySuccessCandidates = nearbyTransactions(to: primary, in: session).filter {
             $0.isSuccessful
                 && $0.request.method == primary.request.method
                 && $0.request.path == primary.request.path
         }
-        guard let comparison = explicitComparison ?? nearbySuccess else {
+        let closestCandidates = nearbySuccessCandidates.sorted {
+            abs($0.timestamp.timeIntervalSince(primary.timestamp))
+                < abs($1.timestamp.timeIntervalSince(primary.timestamp))
+        }
+        let closestSuccess = closestCandidates.first
+        let isAmbiguousBaseline: Bool = if let closestSuccess,
+                                           let secondClosest = closestCandidates.dropFirst().first
+        {
+            abs(closestSuccess.timestamp.timeIntervalSince(primary.timestamp))
+                == abs(secondClosest.timestamp.timeIntervalSince(primary.timestamp))
+        } else {
+            false
+        }
+        let nearbySuccess = isAmbiguousBaseline ? nil : closestSuccess
+        let comparison = if let explicitComparison {
+            explicitComparison.isSuccessful ? explicitComparison : nil
+        } else {
+            nearbySuccess
+        }
+        guard let comparison else {
             return InvestigationResult(
                 recipe: .compareWithSuccess,
                 selectedTransactionID: primary.id,
@@ -318,7 +341,7 @@ struct DebugAssistantEngine {
                     kind: .unknown,
                     title: String(localized: "Successful baseline unavailable", bundle: RockxyLocalization.bundle),
                     detail: String(
-                        localized: "Capture another request with the same method and path, or select exactly two requests.",
+                        localized: "Capture one unambiguous successful request with the same method and path, or select exactly two requests.",
                         bundle: RockxyLocalization.bundle
                     ),
                     sourceTransactionID: primary.id
@@ -388,6 +411,19 @@ struct DebugAssistantEngine {
                     locale: RockxyLocalization.locale
                 ).characters),
                 detail: missing.prefix(4).joined(separator: ", "),
+                sourceTransactionID: primary.id
+            ))
+        }
+
+        let selectedResponseHeaderNames = Set((primary.response?.headers ?? []).map { $0.name.lowercased() })
+        let comparisonResponseHeaderNames = Set((comparison.response?.headers ?? []).map { $0.name.lowercased() })
+        let missingResponse = comparisonResponseHeaderNames.subtracting(selectedResponseHeaderNames).sorted()
+        if !missingResponse.isEmpty {
+            evidence.append(.init(
+                id: "scope:comparison.response-headers",
+                kind: .derived,
+                title: String(localized: "Baseline response headers absent", bundle: RockxyLocalization.bundle),
+                detail: missingResponse.prefix(4).map { bounded($0, characters: 128) }.joined(separator: ", "),
                 sourceTransactionID: primary.id
             ))
         }
@@ -480,8 +516,16 @@ struct DebugAssistantEngine {
             // Fixed keys keep evidence ids stable whatever the UI language.
             let phases: [(key: String, name: String, seconds: TimeInterval)] = [
                 ("connection", String(localized: "Connection setup", bundle: RockxyLocalization.bundle), connection),
-                ("server-wait", String(localized: "Server wait", bundle: RockxyLocalization.bundle), timing.timeToFirstByte),
-                ("transfer", String(localized: "Response transfer", bundle: RockxyLocalization.bundle), timing.contentTransfer),
+                (
+                    "server-wait",
+                    String(localized: "Server wait", bundle: RockxyLocalization.bundle),
+                    timing.timeToFirstByte
+                ),
+                (
+                    "transfer",
+                    String(localized: "Response transfer", bundle: RockxyLocalization.bundle),
+                    timing.contentTransfer
+                ),
             ]
             if let top = phases.max(by: { $0.seconds < $1.seconds }) {
                 dominant = (top.key, top.name, top.seconds)
@@ -547,7 +591,7 @@ struct DebugAssistantEngine {
             )
         }
         let summary = [leading, comparison].compactMap(\.self).joined(separator: " ")
-        let nextStep: String = switch dominant?.key {
+        let nextStep = switch dominant?.key {
         case "server-wait":
             String(
                 localized: "The server took the time before answering. Check server-side logs or query cost for this endpoint.",
@@ -597,7 +641,8 @@ struct DebugAssistantEngine {
         let sameEndpointIDs = Set(sameEndpoint.map(\.id))
         let sameHost = nearbyTransactions(to: primary, in: session).filter { !sameEndpointIDs.contains($0.id) }
         let related = sameEndpoint.sorted {
-            abs($0.timestamp.timeIntervalSince(primary.timestamp)) < abs($1.timestamp.timeIntervalSince(primary.timestamp))
+            abs($0.timestamp.timeIntervalSince(primary.timestamp)) <
+                abs($1.timestamp.timeIntervalSince(primary.timestamp))
         } + sameHost
         let scope = boundedScope(primary: primary, selected: selected, related: related)
         var evidence: [InvestigationEvidence] = []
@@ -621,7 +666,7 @@ struct DebugAssistantEngine {
         }
 
         let failingPeers = sameEndpoint.filter { !$0.isSuccessful }.count
-        let summary: String = if related.isEmpty {
+        let summary = if related.isEmpty {
             String(
                 localized: "No other captured request went to \(primary.request.host).",
                 bundle: RockxyLocalization.bundle
@@ -885,6 +930,12 @@ struct DebugAssistantEngine {
                 localized: "Server returned HTTP \(status) for the selected request.",
                 bundle: RockxyLocalization.bundle
             )
+        case nil where primary.connectionFailure != nil:
+            let stage = primary.connectionFailure?.stage.rawValue.uppercased() ?? ""
+            return String(
+                localized: "The selected request failed during the captured \(stage) stage.",
+                bundle: RockxyLocalization.bundle
+            )
         case nil where primary.isFailed:
             return String(
                 localized: "The selected request failed before a completed response was captured.",
@@ -1000,6 +1051,43 @@ struct DebugAssistantEngine {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         DurationFormatter.format(seconds: duration)
+    }
+
+    /// Transport-level failure facts, shared by every recipe that explains why a request
+    /// produced no usable response. The snapshot has redacted credentials and capped these,
+    /// but they can still carry a resolved upstream address, so they go to `detail` — which
+    /// stays local — and never to `title`, which the prompt builder sends to the model.
+    private func connectionFailureEvidence(
+        for primary: InvestigationTransactionSnapshot
+    )
+        -> [InvestigationEvidence]
+    {
+        guard let failure = primary.connectionFailure else {
+            return []
+        }
+        var evidence: [InvestigationEvidence] = [.init(
+            id: "flow:\(primary.id):connection.failure",
+            kind: .observed,
+            title: String(
+                localized: "Captured \(failure.stage.rawValue.uppercased()) connection failure",
+                bundle: RockxyLocalization.bundle
+            ),
+            detail: bounded(failure.message, characters: 240),
+            sourceTransactionID: primary.id
+        )]
+        if !failure.attempts.isEmpty {
+            evidence.append(.init(
+                id: "flow:\(primary.id):connection.attempts",
+                kind: .observed,
+                title: String(
+                    localized: "\(failure.attempts.count) connection attempts were captured",
+                    bundle: RockxyLocalization.bundle
+                ),
+                detail: failure.attempts.map { bounded($0, characters: 160) }.joined(separator: "\n"),
+                sourceTransactionID: primary.id
+            ))
+        }
+        return evidence
     }
 
     private func bounded(_ value: String, characters: Int) -> String {

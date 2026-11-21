@@ -50,11 +50,11 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
         async throws -> AssistantConnectionTestResult
     {
         let provider = try provider(for: configuration, requiresModel: true)
-        let count = try await provider.testConnection(model: configuration.model)
+        let count = try await provider.testConnection(model: configuration.apiModelIdentifier)
         return AssistantConnectionTestResult(
             provider: configuration.kind.title,
             endpointHost: configuration.endpointHost,
-            model: configuration.model,
+            model: configuration.apiModelIdentifier,
             discoveredModelCount: count
         )
     }
@@ -88,6 +88,16 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
                 "\(configuration.kind.title) has a separate provider adapter that is not installed."
             )
         }
+        if configuration.kind == .doubao, !configuration.hasValidArkDeploymentID {
+            throw AssistantProviderError.invalidDeploymentID
+        }
+        if configuration.kind == .doubao,
+           configuration.region?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "cn-beijing"
+        {
+            throw AssistantProviderError.capabilityMismatch(
+                "Volcengine Ark currently supports the configured cn-beijing data endpoint only."
+            )
+        }
         guard let endpoint = configuration.endpointURL else {
             throw AssistantProviderError.notConfigured
         }
@@ -108,6 +118,12 @@ actor AssistantProviderRuntime: AssistantProviderRuntimeProtocol {
         switch descriptor.apiDialect {
         case .openAIResponses:
             return OpenAIResponsesProvider(
+                baseURL: endpoint,
+                apiKey: credential,
+                transport: transport
+            )
+        case .arkResponses:
+            return ArkResponsesAssistantProvider(
                 baseURL: endpoint,
                 apiKey: credential,
                 transport: transport

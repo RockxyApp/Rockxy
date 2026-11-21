@@ -58,6 +58,7 @@ enum AssistantExecutionLocationPolicy: Equatable, Sendable {
 /// The wire protocol used by an inference endpoint. Multiple vendors can share one dialect.
 enum AssistantAPIDialect: String, Equatable, Sendable {
     case openAIResponses
+    case arkResponses
     case openAIChatCompletions
     case anthropicMessages
     case geminiGenerateContent
@@ -301,11 +302,24 @@ enum AssistantProviderKind: String, CaseIterable, Codable, Identifiable {
                 )
             )
         case .doubao:
-            compatibleCloudDescriptor(
+            AssistantProviderDescriptor(
+                group: .china,
+                executionLocationPolicy: .fixed(.cloudService),
+                apiDialect: .arkResponses,
+                credentialMode: .bearerToken,
+                endpointPolicy: .fixedHTTPS(
+                    host: "ark.cn-beijing.volces.com",
+                    path: "api/v3"
+                ),
+                modelCatalogStrategy: .manualEntry,
+                costModel: .providerBilled,
                 defaultBaseURL: "https://ark.cn-beijing.volces.com/api/v3",
-                documentationURL: "https://www.volcengine.com/docs/82379/1298454",
-                catalogStrategy: .manualEntry,
-                endpointPolicy: .trustedHTTPS(hosts: [], hostSuffixes: ["volces.com"])
+                apiSurface: "Volcengine Ark Responses API",
+                capabilities: .ark,
+                documentationURL: URL(
+                    string: "https://docs.volcengine.com/docs/ark/responses-api-text-generation?lang=en"
+                ),
+                isImplemented: true
             )
         case .glm:
             compatibleCloudDescriptor(
@@ -388,6 +402,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         baseURL: String? = nil,
         localRuntimePresetID: AssistantLocalRuntimePreset.ID? = nil,
         model: String? = nil,
+        arkDeploymentID: String? = nil,
         region: String? = nil,
         contextWindowTokens: Int? = nil,
         maxOutputTokens: Int = Self.defaultMaxOutputTokens,
@@ -399,7 +414,8 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
         self.baseURL = baseURL ?? kind.defaultBaseURL
         self.localRuntimePresetID = localRuntimePresetID
         self.model = model ?? kind.defaultModel
-        self.region = region
+        self.arkDeploymentID = arkDeploymentID
+        self.region = region ?? (kind == .doubao ? "cn-beijing" : nil)
         self.contextWindowTokens = Self.normalizedContextWindowTokens(
             contextWindowTokens,
             for: kind
@@ -421,7 +437,9 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
             forKey: .localRuntimePresetID
         )
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? kind.defaultModel
+        arkDeploymentID = try container.decodeIfPresent(String.self, forKey: .arkDeploymentID)
         region = try container.decodeIfPresent(String.self, forKey: .region)
+            ?? (kind == .doubao ? "cn-beijing" : nil)
         contextWindowTokens = try Self.normalizedContextWindowTokens(
             container.decodeIfPresent(Int.self, forKey: .contextWindowTokens),
             for: kind
@@ -441,6 +459,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
     static let maxLocalContextWindowTokens = 32_768
     static let minContextWindowTokens = 1_024
     static let maxContextWindowTokens = 1_048_576
+    static let maxArkDeploymentIDBytes = 256
 
     var id: UUID
     var kind: AssistantProviderKind
@@ -448,11 +467,27 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
     /// Provider-neutral identity for a named local-runtime preset. The endpoint remains editable.
     var localRuntimePresetID: AssistantLocalRuntimePreset.ID?
     var model: String
+    var arkDeploymentID: String?
     var region: String?
     var contextWindowTokens: Int?
     var maxOutputTokens: Int
     var storeResponses: Bool
     var redactSensitiveData: Bool
+
+    var apiModelIdentifier: String {
+        guard kind == .doubao, let arkDeploymentID else {
+            return model
+        }
+        return arkDeploymentID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var hasValidArkDeploymentID: Bool {
+        guard kind == .doubao, let arkDeploymentID else {
+            return true
+        }
+        let value = arkDeploymentID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !value.isEmpty && value.utf8.count <= Self.maxArkDeploymentIDBytes
+    }
 
     var endpointURL: URL? {
         guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -494,6 +529,7 @@ struct AssistantProviderConfiguration: Codable, Equatable, Identifiable {
             && endpointURL?.host != nil
             && endpointSecurity.permitsCapturedData
             && !model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && hasValidArkDeploymentID
     }
 
     var effectiveContextWindowTokens: Int? {
@@ -574,6 +610,14 @@ struct AssistantProviderCapabilities: Equatable {
     static let openAI = AssistantProviderCapabilities(
         streaming: true,
         modelDiscovery: true,
+        toolCalling: false,
+        usageReporting: true,
+        responseStorageControl: true
+    )
+
+    static let ark = AssistantProviderCapabilities(
+        streaming: true,
+        modelDiscovery: false,
         toolCalling: false,
         usageReporting: true,
         responseStorageControl: true

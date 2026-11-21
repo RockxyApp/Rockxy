@@ -50,8 +50,8 @@ struct HTTPSInterceptionLoopbackTests {
             #expect(response.status == 200)
 
             try await Task.sleep(for: .milliseconds(300))
-            let row = await harness.capturedTransactions().first { $0.request.url.path == "/secure/log" }
-            let log = try #require(row?.connectionLog)
+            let row = try #require(await harness.capturedTransactions().first { $0.request.url.path == "/secure/log" })
+            let log = try #require(row.connectionLog)
             #expect(["127.0.0.1", "::1"].contains(log.remoteAddress ?? ""))
             #expect(log.failure == nil)
             let tls = try #require(log.tls)
@@ -62,10 +62,10 @@ struct HTTPSInterceptionLoopbackTests {
             #expect(tls.certificate?.alternativeNames.contains("localhost") == true)
             #expect(tls.certificate?.notValidAfter != nil)
             // The handshake is measured, not estimated from the connect time.
-            #expect((row?.timingInfo?.tlsHandshake ?? 0) > 0)
+            #expect((row.timingInfo?.tlsHandshake ?? 0) > 0)
 
             let text = await MainActor.run {
-                ConnectionLogFormatter.plainText(for: ConnectionLogFormatter.Input(transaction: row!))
+                ConnectionLogFormatter.plainText(for: ConnectionLogFormatter.Input(transaction: row))
             }
             #expect(text.contains("* SSL connection using TLSv1."))
             #expect(text.contains("> GET /secure/log HTTP/1.1"))
@@ -75,6 +75,9 @@ struct HTTPSInterceptionLoopbackTests {
 
     @Test("The TLS key log records secrets for both legs of a decrypted connection")
     func tlsKeyLogRecordsBothLegs() async throws {
+        HTTP2ProxyOptions.setOverride(false)
+        defer { HTTP2ProxyOptions.setOverride(nil) }
+
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("rockxy-keylog-\(UUID().uuidString).log")
         defer { try? FileManager.default.removeItem(at: url) }

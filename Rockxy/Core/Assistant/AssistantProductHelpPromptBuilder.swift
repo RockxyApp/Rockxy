@@ -34,7 +34,7 @@ struct AssistantProductHelpPromptBuilder {
             input: normalizedQuestion.isEmpty
                 ? String(localized: "The user asked a Rockxy product question.", bundle: RockxyLocalization.bundle)
                 : normalizedQuestion,
-            model: configuration.model,
+            model: configuration.apiModelIdentifier,
             maxOutputTokens: plan.maxOutputTokens,
             storeResponse: configuration.storeResponses,
             contextWindowTokens: plan.contextWindowTokens

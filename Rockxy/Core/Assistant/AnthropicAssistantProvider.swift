@@ -1,11 +1,17 @@
 import Foundation
 
+// MARK: - AnthropicAssistantProvider
+
 struct AnthropicAssistantProvider: AssistantModelProvider {
+    // MARK: Lifecycle
+
     init(baseURL: URL, apiKey: String, transport: any AssistantHTTPTransport) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.transport = transport
     }
+
+    // MARK: Internal
 
     let kind = AssistantProviderKind.anthropic
     let capabilities = AssistantProviderCapabilities.anthropic
@@ -102,6 +108,8 @@ struct AnthropicAssistantProvider: AssistantModelProvider {
         }
     }
 
+    // MARK: Private
+
     private static let connectionTimeout: TimeInterval = 15
     private static let requestTimeout: TimeInterval = 90
     private static let apiVersion = "2023-06-01"
@@ -120,7 +128,11 @@ struct AnthropicAssistantProvider: AssistantModelProvider {
     }
 }
 
+// MARK: - AnthropicStreamDecoder
+
 struct AnthropicStreamDecoder {
+    // MARK: Internal
+
     mutating func decode(line: String) throws -> [AssistantStreamEvent] {
         guard line.utf8.count <= AssistantExecutionLimits.maxStreamEventBytes else {
             throw AssistantProviderError.malformedResponse("An Anthropic streaming event exceeded Rockxy's size limit")
@@ -150,13 +162,16 @@ struct AnthropicStreamDecoder {
         case "content_block_delta":
             return try contentDelta(object)
         case "content_block_stop":
-            return stopContentBlock(object)
+            return try stopContentBlock(object)
         case "message_delta":
             let usage = object["usage"] as? [String: Any]
             outputTokens = usage?["output_tokens"] as? Int ?? outputTokens
             return [.usage(currentUsage)]
         case "message_stop":
-            return [.completed(responseID: responseID)]
+            // A stream can stop without a message_delta — for a tool-only turn, or when the
+            // model is cut short. Report what message_start already established rather than
+            // discarding the input and cache counts the caller is billed for.
+            return [.usage(currentUsage), .completed(responseID: responseID)]
         case "error":
             let error = object["error"] as? [String: Any]
             if error?["type"] as? String == "overloaded_error" {
@@ -171,6 +186,8 @@ struct AnthropicStreamDecoder {
             return [.unknown(type: type)]
         }
     }
+
+    // MARK: Private
 
     private struct ToolBuffer {
         let id: String
@@ -239,14 +256,20 @@ struct AnthropicStreamDecoder {
         return [.toolCallDelta(id: tool.id, name: nil, argumentsDelta: partial)]
     }
 
-    private mutating func stopContentBlock(_ object: [String: Any]) -> [AssistantStreamEvent] {
+    private mutating func stopContentBlock(_ object: [String: Any]) throws -> [AssistantStreamEvent] {
         guard let index = object["index"] as? Int, let tool = tools.removeValue(forKey: index) else {
             return []
+        }
+        let arguments = tool.arguments.isEmpty ? "{}" : tool.arguments
+        guard let data = arguments.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else
+        {
+            throw AssistantProviderError.malformedResponse("Anthropic tool input must be a valid JSON object")
         }
         return [.toolCallCompleted(AssistantToolCall(
             id: tool.id,
             name: tool.name,
-            arguments: tool.arguments
+            arguments: arguments
         ))]
     }
 

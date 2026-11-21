@@ -5,11 +5,14 @@ enum AssistantProviderError: LocalizedError, Equatable {
     case notConfigured
     case credentialMissing
     case invalidEndpoint
+    case invalidDeploymentID
     case insecureEndpoint
     case authentication
     case permission
     case rateLimited(retryAfterSeconds: Int?)
+    case quotaExceeded
     case modelNotFound(String)
+    case deploymentNotFound(String)
     case validation(String)
     case capabilityMismatch(String)
     case network(String)
@@ -39,6 +42,11 @@ enum AssistantProviderError: LocalizedError, Equatable {
             )
         case .invalidEndpoint:
             String(localized: "The configured provider endpoint is invalid.", bundle: RockxyLocalization.bundle)
+        case .invalidDeploymentID:
+            String(
+                localized: "Enter an Ark endpoint or deployment ID no longer than 256 bytes.",
+                bundle: RockxyLocalization.bundle
+            )
         case .insecureEndpoint:
             String(
                 localized: "Remote model endpoints must use HTTPS. Plain HTTP is allowed only on this Mac.",
@@ -51,6 +59,8 @@ enum AssistantProviderError: LocalizedError, Equatable {
                 localized: "The provider credential cannot access this model or endpoint.",
                 bundle: RockxyLocalization.bundle
             )
+        case .quotaExceeded:
+            String(localized: "The Ark account or endpoint usage quota was reached.", bundle: RockxyLocalization.bundle)
         case let .rateLimited(retryAfterSeconds):
             if let retryAfterSeconds {
                 String(AttributedString(
@@ -66,6 +76,11 @@ enum AssistantProviderError: LocalizedError, Equatable {
             }
         case let .modelNotFound(model):
             String(localized: "The configured model ‘\(model)’ was not found.", bundle: RockxyLocalization.bundle)
+        case let .deploymentNotFound(deployment):
+            String(
+                localized: "The configured Ark endpoint or deployment ‘\(deployment)’ was not found.",
+                bundle: RockxyLocalization.bundle
+            )
         case let .validation(message):
             String(localized: "The provider rejected the request: \(message)", bundle: RockxyLocalization.bundle)
         case let .capabilityMismatch(message):

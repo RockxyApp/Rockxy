@@ -534,6 +534,40 @@ struct AssistantSettingsTab: View {
             }
         }
 
+        if viewModel.configuration.kind == .doubao {
+            SettingsFieldRow(String(localized: "Endpoint / Deployment ID", bundle: RockxyLocalization.bundle)) {
+                VStack(alignment: .leading, spacing: 5) {
+                    TextField(
+                        String(localized: "Optional Ark endpoint ID", bundle: RockxyLocalization.bundle),
+                        text: Binding(
+                            get: { viewModel.configuration.arkDeploymentID ?? "" },
+                            set: { viewModel.configuration.arkDeploymentID = $0.isEmpty ? nil : $0 }
+                        )
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: settingsMetrics.fieldWidth(420))
+                    Text(String(
+                        localized: "When set, Ark sends this deployment ID in its model field. Model identity remains separate.",
+                        bundle: RockxyLocalization.bundle
+                    ))
+                    .font(settingsMetrics.metadataFont())
+                    .foregroundStyle(.secondary)
+                    if !viewModel.configuration.hasValidArkDeploymentID {
+                        Label(
+                            String(
+                                localized: "Enter a nonempty ID no longer than 256 bytes.",
+                                bundle: RockxyLocalization.bundle
+                            ),
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(settingsMetrics.metadataFont())
+                        .foregroundStyle(.orange)
+                    }
+                }
+                .frame(minHeight: settingsMetrics.controlHeight)
+            }
+        }
+
         if viewModel.configuration.kind == .ollama {
             AssistantContextWindowSettingsField(configuration: $viewModel.configuration)
         }
@@ -721,7 +755,7 @@ struct AssistantSettingsTab: View {
             .foregroundStyle(.green)
             .fixedSize(horizontal: false, vertical: true)
         }
-        if viewModel.configuration.kind == .openAI {
+        if viewModel.configuration.kind.descriptor.capabilities.responseStorageControl {
             SettingsIndentedContent {
                 VStack(alignment: .leading, spacing: 5) {
                     Toggle(
@@ -730,7 +764,7 @@ struct AssistantSettingsTab: View {
                     )
                     .toggleStyle(.checkbox)
                     Text(String(
-                        localized: "When off, Rockxy sends store=false with every Responses API request.",
+                        localized: "When off, Rockxy sends store=false with every supported Responses API request.",
                         bundle: RockxyLocalization.bundle
                     ))
                     .font(settingsMetrics.secondaryFont())
@@ -1007,10 +1041,16 @@ struct AssistantSettingsTab: View {
     private func modelPickerTitle(_ model: AssistantModel) -> String {
         var details: [String] = []
         if let limit = model.inputTokenLimit {
-            details.append(String(localized: "\(CountFormatter.format(limit)) input", bundle: RockxyLocalization.bundle))
+            details.append(String(
+                localized: "\(CountFormatter.format(limit)) input",
+                bundle: RockxyLocalization.bundle
+            ))
         }
         if let limit = model.outputTokenLimit {
-            details.append(String(localized: "\(CountFormatter.format(limit)) output", bundle: RockxyLocalization.bundle))
+            details.append(String(
+                localized: "\(CountFormatter.format(limit)) output",
+                bundle: RockxyLocalization.bundle
+            ))
         }
         return details.isEmpty ? model.displayName : "\(model.displayName) · \(details.joined(separator: " / "))"
     }
