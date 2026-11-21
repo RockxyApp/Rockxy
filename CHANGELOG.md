@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Two new AI Assistant investigations: **Why Is This Slow?** breaks the captured time into connection setup, server wait, and transfer and compares it with other requests to the same endpoint; **Find Related Requests** lists requests to the same endpoint and host, nearest first, and flags the ones that failed. Both work from captured evidence before any model is involved.
 - Debug Assistant request comparison reports missing baseline response-header names, including redirect/cookie header differences, without copying their values into findings.
 - Compare with Success now abstains when an explicitly selected baseline also failed, instead of labeling it successful or widening the selected scope.
+- The AI Assistant supports Ark (Volcengine) endpoints. An endpoint or deployment ID is configured separately from the model identity, so a missing deployment is reported as such rather than as an unknown model, and a usage quota is distinguished from an account rate limit.
+- Why Did This Fail? explains requests that never reached a response: it names the captured connection stage that failed and lists the connection attempts, with messages redacted and capped.
 - Developer Setup lets you choose the network devices use when this Mac has more than one LAN address (Wi-Fi, Ethernet, VPN). The choice is remembered and shared by the device endpoint, the toolbar proxy status, and certificate sharing links.
 - The AI tab shows stream timing measured live for Server-Sent Events responses: time to the first event, the longest gap between events, how many events arrived, and whether the stream completed (`[DONE]`, Anthropic `message_stop`, or OpenAI `response.completed`), ended without a final event, or was interrupted. Timing is saved with Rockxy sessions; imported and compressed streams say that no live timing was recorded.
 - New search tokens: `has:tool_call`, `streaming:true|false`, `chain:` (name, decimal, or hex), `has:tx_hash`, and `is:x402`. AI facts used by search are cached per request, so `model:` no longer re-parses request bodies on every filter pass.
@@ -76,6 +78,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Added **Copy as** code snippets for Swift (URLSession), Python (requests), JavaScript (fetch), and Go (net/http) to the request context menu.
 
 ### Fixed
+
+- A URL rule no longer matches on another rule's pattern. Patterns were cached by rule ID alone, so older saved rules sharing an ID used whichever pattern was compiled last; duplicate IDs are also rejected when rules are added or imported.
+- Anthropic responses that end without a final usage event no longer lose their token counts.
+- An upstream TLS handshake failure is reported as the trust or certificate error it was, instead of as the connection close that followed it.
 
 - Importing a PKCS#12 certificate no longer leaves a copy of its private key in your login keychain. A P12 using the older encryption that macOS ships by default was also rejected outright and now imports, and a damaged file is no longer reported as a wrong password.
 - Rockxy no longer fails to open when its database claims a schema it does not have. The columns it needs are checked against the database itself and added when missing, so a saved or pinned request can no longer stop the app from launching.
