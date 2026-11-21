@@ -260,10 +260,10 @@ struct InvestigationContextBuilderTests {
         let decoded = try JSONDecoder().decode(AssistantContextBudgetEvaluationReport.self, from: serialized)
         #expect(decoded == report)
         #expect(report.cases.count == 3)
-        #expect(report.cases.allSatisfy(\.exactPreview))
-        #expect(report.cases.allSatisfy(\.outputBounded))
-        #expect(report.cases.allSatisfy(\.secretAbsent))
-        #expect(report.cases.allSatisfy(\.injectionPresentAsReviewedData))
+        #expect(report.cases.allSatisfy { $0.exactPreview })
+        #expect(report.cases.allSatisfy { $0.outputBounded })
+        #expect(report.cases.allSatisfy { $0.secretAbsent })
+        #expect(report.cases.allSatisfy { $0.injectionPresentAsReviewedData })
     }
 
     @Test("An outbound ceiling smaller than one safe envelope fails closed")

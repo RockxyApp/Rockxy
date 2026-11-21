@@ -125,11 +125,11 @@ struct DebugAssistantEngineTests {
         let decoded = try JSONDecoder().decode(AssistantRecipeEvaluationReport.self, from: data)
         #expect(decoded == report)
         #expect(report.cases.count == DebugAssistantRecipe.allCases.count)
-        #expect(report.cases.allSatisfy(\.hasEvidence))
-        #expect(report.cases.allSatisfy(\.stableEvidenceIDs))
-        #expect(report.cases.allSatisfy(\.uniqueEvidenceIDs))
-        #expect(report.cases.allSatisfy(\.evidenceInScope))
-        #expect(report.cases.allSatisfy(\.deterministic))
+        #expect(report.cases.allSatisfy { $0.hasEvidence })
+        #expect(report.cases.allSatisfy { $0.stableEvidenceIDs })
+        #expect(report.cases.allSatisfy { $0.uniqueEvidenceIDs })
+        #expect(report.cases.allSatisfy { $0.evidenceInScope })
+        #expect(report.cases.allSatisfy { $0.deterministic })
     }
 
     @Test("Labeled ambiguous-baseline corpus meets abstention and claim limits")
@@ -262,9 +262,9 @@ struct DebugAssistantEngineTests {
         #expect(report.inferredClaimsOnExpectedAbstentions == 0)
         #expect(report.unsupportedRootCauseRate < 0.05)
         #expect(report.comparisonCases.count == 2)
-        #expect(report.comparisonCases.allSatisfy(\.stayedInSelectedScope))
-        #expect(report.comparisonCases.allSatisfy(\.expectedEvidencePresent))
-        #expect(report.comparisonCases.allSatisfy(\.sensitiveValuesAbsent))
+        #expect(report.comparisonCases.allSatisfy { $0.stayedInSelectedScope })
+        #expect(report.comparisonCases.allSatisfy { $0.expectedEvidencePresent })
+        #expect(report.comparisonCases.allSatisfy { $0.sensitiveValuesAbsent })
     }
 
     @Test("Why Is This Slow attributes time to the dominant phase and compares with the endpoint median")
@@ -632,12 +632,12 @@ struct DebugAssistantEngineTests {
         let serialized = try JSONEncoder().encode(report)
         #expect(try JSONDecoder().decode(AssistantPromptInjectionEvaluationReport.self, from: serialized) == report)
         #expect(report.cases.count == fixtures.count)
-        #expect(report.cases.allSatisfy(\.stableEvidenceIDs))
-        #expect(report.cases.allSatisfy(\.uniqueEvidenceIDs))
-        #expect(report.cases.allSatisfy(\.evidenceInScope))
-        #expect(report.cases.allSatisfy(\.findingsUnchanged))
-        #expect(report.cases.allSatisfy(\.secretAbsent))
-        #expect(report.cases.allSatisfy(\.instructionAbsent))
+        #expect(report.cases.allSatisfy { $0.stableEvidenceIDs })
+        #expect(report.cases.allSatisfy { $0.uniqueEvidenceIDs })
+        #expect(report.cases.allSatisfy { $0.evidenceInScope })
+        #expect(report.cases.allSatisfy { $0.findingsUnchanged })
+        #expect(report.cases.allSatisfy { $0.secretAbsent })
+        #expect(report.cases.allSatisfy { $0.instructionAbsent })
     }
 
     @Test("A 401 with a captured credential points the user at refreshing it, never exposing the value")

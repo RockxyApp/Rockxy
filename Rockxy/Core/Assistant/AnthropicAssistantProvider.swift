@@ -168,7 +168,10 @@ struct AnthropicStreamDecoder {
             outputTokens = usage?["output_tokens"] as? Int ?? outputTokens
             return [.usage(currentUsage)]
         case "message_stop":
-            return [.completed(responseID: responseID)]
+            // A stream can stop without a message_delta — for a tool-only turn, or when the
+            // model is cut short. Report what message_start already established rather than
+            // discarding the input and cache counts the caller is billed for.
+            return [.usage(currentUsage), .completed(responseID: responseID)]
         case "error":
             let error = object["error"] as? [String: Any]
             if error?["type"] as? String == "overloaded_error" {

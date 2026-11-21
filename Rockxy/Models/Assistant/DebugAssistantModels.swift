@@ -501,8 +501,13 @@ struct InvestigationTransactionSnapshot {
     let matchedRuleName: String?
     let matchedRuleActionSummary: String?
 
+    /// A captured status of zero is Rockxy's placeholder for a connection that never
+    /// produced a response, so it must not read as an HTTP status an investigation can explain.
     var statusCode: Int? {
-        response?.statusCode
+        guard let statusCode = response?.statusCode, statusCode > 0 else {
+            return nil
+        }
+        return statusCode
     }
 
     var isSuccessful: Bool {

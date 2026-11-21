@@ -57,11 +57,11 @@ struct DebugAssistantEngine {
             sourceTransactionID: primary.id
         )]
 
-        if let response = primary.response {
+        if let statusCode = primary.statusCode, let response = primary.response {
             evidence.append(InvestigationEvidence(
                 id: "flow:\(primary.id):response.status",
                 kind: .observed,
-                title: "HTTP \(response.statusCode) \(response.statusMessage)",
+                title: "HTTP \(statusCode) \(response.statusMessage)",
                 detail: String(localized: "Captured response status.", bundle: RockxyLocalization.bundle),
                 sourceTransactionID: primary.id
             ))
@@ -78,30 +78,7 @@ struct DebugAssistantEngine {
             ))
         }
 
-        if let failure = primary.connectionFailure {
-            evidence.append(.init(
-                id: "flow:\(primary.id):connection.failure",
-                kind: .observed,
-                title: String(
-                    localized: "Captured \(failure.stage.rawValue.uppercased()) connection failure",
-                    bundle: RockxyLocalization.bundle
-                ),
-                detail: bounded(failure.message, characters: 240),
-                sourceTransactionID: primary.id
-            ))
-            if !failure.attempts.isEmpty {
-                evidence.append(.init(
-                    id: "flow:\(primary.id):connection.attempts",
-                    kind: .observed,
-                    title: String(
-                        localized: "\(failure.attempts.count) connection attempts were captured",
-                        bundle: RockxyLocalization.bundle
-                    ),
-                    detail: failure.attempts.map { bounded($0, characters: 160) }.joined(separator: "\n"),
-                    sourceTransactionID: primary.id
-                ))
-            }
-        }
+        evidence.append(contentsOf: connectionFailureEvidence(for: primary))
 
         if primary.request.method.caseInsensitiveCompare("CONNECT") == .orderedSame {
             evidence.append(InvestigationEvidence(
@@ -202,11 +179,11 @@ struct DebugAssistantEngine {
         }
         var evidence: [InvestigationEvidence] = []
 
-        if let response = primary.response {
+        if let statusCode = primary.statusCode, let response = primary.response {
             evidence.append(.init(
                 id: "flow:\(primary.id):response.status",
                 kind: .observed,
-                title: "HTTP \(response.statusCode)",
+                title: "HTTP \(statusCode)",
                 detail: String(
                     localized: "Captured response status \(response.statusMessage).",
                     bundle: RockxyLocalization.bundle
@@ -225,6 +202,8 @@ struct DebugAssistantEngine {
                 sourceTransactionID: primary.id
             ))
         }
+
+        evidence.append(contentsOf: connectionFailureEvidence(for: primary))
 
         if let retryAfter = primary.responseHeader(named: "Retry-After")?.value {
             evidence.append(.init(
@@ -1072,6 +1051,41 @@ struct DebugAssistantEngine {
 
     private func formatDuration(_ duration: TimeInterval) -> String {
         DurationFormatter.format(seconds: duration)
+    }
+
+    /// Transport-level failure facts, shared by every recipe that explains why a request
+    /// produced no usable response. The snapshot has already redacted and capped these.
+    private func connectionFailureEvidence(
+        for primary: InvestigationTransactionSnapshot
+    )
+        -> [InvestigationEvidence]
+    {
+        guard let failure = primary.connectionFailure else {
+            return []
+        }
+        var evidence: [InvestigationEvidence] = [.init(
+            id: "flow:\(primary.id):connection.failure",
+            kind: .observed,
+            title: String(
+                localized: "Captured \(failure.stage.rawValue.uppercased()) connection failure",
+                bundle: RockxyLocalization.bundle
+            ),
+            detail: bounded(failure.message, characters: 240),
+            sourceTransactionID: primary.id
+        )]
+        if !failure.attempts.isEmpty {
+            evidence.append(.init(
+                id: "flow:\(primary.id):connection.attempts",
+                kind: .observed,
+                title: String(
+                    localized: "\(failure.attempts.count) connection attempts were captured",
+                    bundle: RockxyLocalization.bundle
+                ),
+                detail: failure.attempts.map { bounded($0, characters: 160) }.joined(separator: "\n"),
+                sourceTransactionID: primary.id
+            ))
+        }
+        return evidence
     }
 
     private func bounded(_ value: String, characters: Int) -> String {

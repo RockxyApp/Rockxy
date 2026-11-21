@@ -643,7 +643,7 @@ private actor NativeProviderFixtureTransport: AssistantHTTPTransport {
 
 // MARK: - ProfileAssistantCredentialStorage
 
-private struct ProfileAssistantCredentialStorage: AssistantCredentialStorage {
+struct ProfileAssistantCredentialStorage: AssistantCredentialStorage {
     let values: [UUID: String]
 
     func save(_: String, providerID _: UUID) throws {}

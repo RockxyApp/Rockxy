@@ -41,8 +41,9 @@ struct AssistantProviderErrorClassTests {
 
     @Test("Ark 404 distinguishes a deployment endpoint from a model catalog entry")
     func arkDeploymentNotFound() throws {
+        let url = try #require(URL(string: "https://ark.cn-beijing.volces.com/api/v3/responses"))
         let response = try #require(HTTPURLResponse(
-            url: #require(URL(string: "https://ark.cn-beijing.volces.com/api/v3/responses")),
+            url: url,
             statusCode: 404,
             httpVersion: "HTTP/2",
             headerFields: nil
