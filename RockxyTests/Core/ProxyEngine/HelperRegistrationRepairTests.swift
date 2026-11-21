@@ -270,12 +270,20 @@ struct HelperRegistrationRepairTests {
         // What is left needs a password and a restart. Saying so is worse copy than a one-click
         // fix would be, and it is the only honest copy: there is no in-app escape from a record
         // anchored to a bundle that no longer exists.
-        #expect(message.lowercased().contains("restarting"))
+        #expect(message.lowercased().contains("restart"))
         #expect(HelperManager.registrationRecordResetCommand.hasPrefix("sudo "))
 
-        // The user's own first instinct is to delete the app and install it again. The record
-        // outlives the app, so the copy has to say that before they spend the time.
-        #expect(message.lowercased().contains("reinstalling"))
+        // The user's own first instinct is to delete the app and install it again. macOS keeps
+        // the record apart from the app, so the copy has to say so before they spend the time.
+        #expect(message.lowercased().contains("installing rockxy again"))
+
+        // Steps, not just a command: the helper is Rockxy's only privileged channel and it is
+        // the thing that is broken, so the user runs this by hand or not at all.
+        let steps = HelperManager.registrationRecordResetSteps
+        #expect(steps.count == 3)
+        #expect(steps.contains { $0.contains("Terminal") })
+        #expect(steps.contains { $0.lowercased().contains("password") })
+        #expect(steps.contains { $0.lowercased().contains("restart") })
 
         // The cost of the reset is not visible in the command itself.
         #expect(HelperManager.registrationRecordResetCaveat.lowercased().contains("every app"))

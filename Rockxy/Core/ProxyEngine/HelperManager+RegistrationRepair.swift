@@ -476,10 +476,10 @@ extension HelperManager {
     nonisolated static var registrationRecordUnresolvableMessage: String {
         String(
             localized: """
-            macOS has a helper tool registration for Rockxy that points at a copy of Rockxy which \
-            no longer exists, so it can never start. Rockxy cannot clear that registration, and \
-            reinstalling Rockxy does not clear it either — it outlives the app. Resetting macOS's \
-            background items and restarting your Mac does clear it.
+            macOS is holding a helper tool registration that points at a copy of Rockxy which no \
+            longer exists, so the helper can never start. macOS keeps this registration apart \
+            from the app, so installing Rockxy again does not replace it. Clearing it takes one \
+            command and a restart.
             """, bundle: RockxyLocalization.bundle
         )
     }
@@ -494,6 +494,23 @@ extension HelperManager {
     /// cannot drift. Rockxy never runs this: it needs administrator rights, and it resets
     /// background items for every app, which is the user's decision to make, not Rockxy's.
     nonisolated static let registrationRecordResetCommand = "sudo sfltool resetbtm"
+
+    /// The steps, not just the command. Rockxy has no privileged channel left to run this
+    /// itself — the helper is the only one, and it is the thing that is broken — so what the
+    /// user is handed has to be followable by someone who has never opened Terminal.
+    nonisolated static var registrationRecordResetSteps: [String] {
+        [
+            String(localized: "Open Terminal, in Applications › Utilities.", bundle: RockxyLocalization.bundle),
+            String(
+                localized: "Paste the command below and press Return, then type your login password.",
+                bundle: RockxyLocalization.bundle
+            ),
+            String(
+                localized: "Restart your Mac, then open Rockxy and install the helper again.",
+                bundle: RockxyLocalization.bundle
+            ),
+        ]
+    }
 
     /// Said next to the command, because the cost is not obvious from reading it.
     nonisolated static var registrationRecordResetCaveat: String {

@@ -125,9 +125,10 @@ struct HelperOrphanedRecordTests {
     @Test("The remedy names the reset and admits what does not work")
     func remedyIsHonestAboutReinstalling() {
         let message = HelperManager.registrationRecordUnresolvableMessage
-        // The user's own first instinct is to delete and reinstall the app. That does not clear
-        // the record, so the message has to say so or it sends them down a dead end.
-        #expect(message.lowercased().contains("reinstalling"))
+        // The user's own first instinct is to delete and reinstall the app. macOS keeps the
+        // record apart from the app bundle, so the message has to say so or it sends them down
+        // a dead end they pay for in time.
+        #expect(message.lowercased().contains("installing rockxy again"))
         #expect(HelperManager.registrationRecordResetCommand == "sudo sfltool resetbtm")
         // The cost is not visible in the command, so it is stated next to it.
         #expect(HelperManager.registrationRecordResetCaveat.contains("every app"))
