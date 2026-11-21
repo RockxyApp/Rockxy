@@ -491,7 +491,9 @@ struct InvestigationTransactionSnapshot {
     let timestamp: Date
     let request: HTTPRequestData
     let response: HTTPResponseData?
-    /// Bounded transport failure facts; raw connection logs may include machine-specific addresses.
+    /// Bounded transport failure facts, with credentials redacted. Resolved upstream addresses
+    /// are NOT removed — the redactor does not handle them — so these strings stay in local
+    /// evidence and must not be added to an outbound context pack.
     let connectionFailure: ConnectionFailureSnapshot?
     let isFailed: Bool
     let duration: TimeInterval?
@@ -527,9 +529,14 @@ struct InvestigationTransactionSnapshot {
 
     // MARK: Private
 
+    /// Redact first, then bound. Truncating first can cut inside a value and defeat a
+    /// pattern that needs its closing delimiter, leaving the fragment in cleartext.
     private static func redacted(_ value: String, characters: Int) -> String {
-        let boundedValue = value.count > characters ? String(value.prefix(characters)) + "…" : value
-        return SensitiveDataRedactor().redactBodyText(boundedValue, contentType: nil)
+        let redactedValue = SensitiveDataRedactor().redactBodyText(value, contentType: nil)
+        guard redactedValue.count > characters else {
+            return redactedValue
+        }
+        return String(redactedValue.prefix(characters)) + "…"
     }
 }
 

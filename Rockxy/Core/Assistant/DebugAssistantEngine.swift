@@ -61,7 +61,7 @@ struct DebugAssistantEngine {
             evidence.append(InvestigationEvidence(
                 id: "flow:\(primary.id):response.status",
                 kind: .observed,
-                title: "HTTP \(statusCode) \(response.statusMessage)",
+                title: "HTTP \(statusCode) \(bounded(response.statusMessage, characters: 160))",
                 detail: String(localized: "Captured response status.", bundle: RockxyLocalization.bundle),
                 sourceTransactionID: primary.id
             ))
@@ -423,7 +423,7 @@ struct DebugAssistantEngine {
                 id: "scope:comparison.response-headers",
                 kind: .derived,
                 title: String(localized: "Baseline response headers absent", bundle: RockxyLocalization.bundle),
-                detail: missingResponse.prefix(4).joined(separator: ", "),
+                detail: missingResponse.prefix(4).map { bounded($0, characters: 128) }.joined(separator: ", "),
                 sourceTransactionID: primary.id
             ))
         }
@@ -1054,7 +1054,9 @@ struct DebugAssistantEngine {
     }
 
     /// Transport-level failure facts, shared by every recipe that explains why a request
-    /// produced no usable response. The snapshot has already redacted and capped these.
+    /// produced no usable response. The snapshot has redacted credentials and capped these,
+    /// but they can still carry a resolved upstream address, so they go to `detail` — which
+    /// stays local — and never to `title`, which the prompt builder sends to the model.
     private func connectionFailureEvidence(
         for primary: InvestigationTransactionSnapshot
     )

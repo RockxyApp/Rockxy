@@ -180,9 +180,14 @@ struct AssistantPromptBuilder {
         return lines.joined(separator: "\n")
     }
 
+    /// Captured traffic reaches the instruction block through this helper, and a server
+    /// controls its own reason phrases and header names. Neutralize the angle brackets so
+    /// captured text cannot close `<local_analysis>` and pose as instructions.
     private func normalized(_ value: String) -> String {
         value
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }

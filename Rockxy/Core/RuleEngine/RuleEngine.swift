@@ -1,6 +1,8 @@
 import Foundation
 import os
 
+// MARK: - RuleEngine
+
 /// Evaluates an ordered list of proxy rules against incoming HTTP requests.
 /// The first matching enabled rule wins — rules are evaluated sequentially,
 /// so ordering determines priority when multiple rules could match.
@@ -11,6 +13,19 @@ actor RuleEngine {
 
     var allRules: [ProxyRule] {
         rules
+    }
+
+    /// Whether any enabled rule is scoped to a client application, so the proxy must resolve
+    /// which process made a connection before it can evaluate rules.
+    var hasApplicationScopedRules: Bool {
+        rules.contains { $0.isEnabled && $0.matchCondition.requiredClientApplication != nil }
+    }
+
+    /// Number of rules whose URL pattern is compiled. Exposed so a test can prove every
+    /// mutation path leaves a compiled pattern behind instead of falling back to
+    /// re-interpreting the pattern per request.
+    var compiledPatternCount: Int {
+        compiledPatterns.count
     }
 
     func loadRules(from store: RuleStore) throws {
@@ -159,19 +174,6 @@ actor RuleEngine {
                 clientApplication: clientApplication
             )
         }
-    }
-
-    /// Whether any enabled rule is scoped to a client application, so the proxy must resolve
-    /// which process made a connection before it can evaluate rules.
-    var hasApplicationScopedRules: Bool {
-        rules.contains { $0.isEnabled && $0.matchCondition.requiredClientApplication != nil }
-    }
-
-    /// Number of rules whose URL pattern is compiled. Exposed so a test can prove every
-    /// mutation path leaves a compiled pattern behind instead of falling back to
-    /// re-interpreting the pattern per request.
-    var compiledPatternCount: Int {
-        compiledPatterns.count
     }
 
     func addRule(_ rule: ProxyRule) {
@@ -500,6 +502,22 @@ actor RuleEngine {
 
     // MARK: Private
 
+    private struct CompiledPatternKey: Hashable {
+        let ruleID: UUID
+        let pattern: String
+    }
+
+    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
+
+    private var rules: [ProxyRule] = []
+    private var blockListToolEnabled: Bool = true
+    private var breakpointToolEnabled: Bool = true
+    private var mapLocalToolEnabled: Bool = true
+    private var mapRemoteToolEnabled: Bool = true
+    private var networkConditionsToolEnabled: Bool = true
+    private var modifyHeaderToolEnabled: Bool = true
+    private var compiledPatterns: [CompiledPatternKey: NSRegularExpression] = [:]
+
     private func ruleApplies(
         _ rule: ProxyRule,
         method: String,
@@ -539,22 +557,6 @@ actor RuleEngine {
         }
     }
 
-    private static let logger = Logger(subsystem: RockxyIdentity.current.logSubsystem, category: "RuleEngine")
-
-    private struct CompiledPatternKey: Hashable {
-        let ruleID: UUID
-        let pattern: String
-    }
-
-    private var rules: [ProxyRule] = []
-    private var blockListToolEnabled: Bool = true
-    private var breakpointToolEnabled: Bool = true
-    private var mapLocalToolEnabled: Bool = true
-    private var mapRemoteToolEnabled: Bool = true
-    private var networkConditionsToolEnabled: Bool = true
-    private var modifyHeaderToolEnabled: Bool = true
-    private var compiledPatterns: [CompiledPatternKey: NSRegularExpression] = [:]
-
     private func compiledPattern(for rule: ProxyRule) -> NSRegularExpression? {
         guard let pattern = rule.matchCondition.runtimeURLPattern else {
             return nil
@@ -589,21 +591,19 @@ actor RuleEngine {
 
     /// Rebuilds every cached pattern for an ID because legacy persisted data can
     /// contain multiple rules sharing that ID with different runtime patterns.
+    /// Compiles what compiles and leaves `isEnabled` alone. Only the full load-time rebuild
+    /// disables a rule it cannot compile: a pattern that is not a valid regex is matched by
+    /// `RuleMatchCondition` through its own literal path, so an add or update must not turn
+    /// one off as a side effect of caching.
     private func compilePatterns(forRuleID id: UUID) {
         compiledPatterns = compiledPatterns.filter { $0.key.ruleID != id }
         for index in rules.indices where rules[index].id == id {
-            guard let pattern = rules[index].matchCondition.runtimeURLPattern else {
+            guard let pattern = rules[index].matchCondition.runtimeURLPattern,
+                  case let .success(regex) = RegexValidator.compile(pattern) else
+            {
                 continue
             }
-            switch RegexValidator.compile(pattern) {
-            case let .success(regex):
-                compiledPatterns[CompiledPatternKey(ruleID: id, pattern: pattern)] = regex
-            case let .failure(error):
-                let ruleName = rules[index].name
-                Self.logger
-                    .warning("SECURITY: Disabling rule '\(ruleName)' — invalid regex: \(error.localizedDescription)")
-                rules[index].isEnabled = false
-            }
+            compiledPatterns[CompiledPatternKey(ruleID: id, pattern: pattern)] = regex
         }
     }
 }

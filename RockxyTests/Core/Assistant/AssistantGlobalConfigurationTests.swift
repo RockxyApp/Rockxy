@@ -84,10 +84,16 @@ struct AssistantGlobalConfigurationTests {
             #expect(provider.isImplemented)
             #expect(provider.requiresCredential)
             #expect(provider.group == .china)
-            #expect(provider.descriptor.apiDialect == .openAIChatCompletions)
             #expect(provider.descriptor.costModel == .providerBilled)
             #expect(provider.defaultModel.isEmpty)
         }
+
+        // Ark is the one China provider Rockxy does not reach through the OpenAI-compatible
+        // dialect: it speaks the Responses API and addresses a deployment, not a model name.
+        for provider in providers where provider != .doubao {
+            #expect(provider.descriptor.apiDialect == .openAIChatCompletions)
+        }
+        #expect(AssistantProviderKind.doubao.descriptor.apiDialect == .arkResponses)
 
         #expect(AssistantProviderKind.qwen.descriptor.modelCatalogStrategy == .manualEntry)
         #expect(AssistantProviderKind.qwen.capabilities?.modelDiscovery == false)
